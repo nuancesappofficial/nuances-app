@@ -28,12 +28,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "create-on-first-build"
-      }
-    },
     "owner": "jeffenglishlearning"
   }
 }
-
