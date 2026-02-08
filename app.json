@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jeffenglishlearning.nuances"
+      "bundleIdentifier": "com.jeffenglishlearning.nuances",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,6 +31,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "owner": "jeffenglishlearning"
+    "owner": "jeffenglishlearning",
+    "extra": {
+      "eas": {
+        "projectId": "37bc7f3a-2135-4cb3-8e4d-4410603eb64a"
+      }
+    }
   }
 }
