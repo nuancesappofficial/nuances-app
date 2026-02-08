@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "nuances-app",
+    "name": "Nuances",
     "slug": "nuances-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jeffenglishlearning.nuances"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +22,18 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.jeffenglishlearning.nuances"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "create-on-first-build"
+      }
+    },
+    "owner": "jeffenglishlearning"
   }
 }
+
