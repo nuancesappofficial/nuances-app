@@ -1,0 +1,120 @@
+# Nuances App - Cursor AI 開發規則
+
+## WatermelonDB Schema 管理（關鍵！）
+⚠️ **黃旗警告**：這是最容易出錯的地方
+
+### 規則 1: Schema 版本控制
+- 每次修改 WatermelonDB models 時，**必須**增加 `src/database/schema.js` 的版本號
+- 版本號遞增規則：`version: X` → `version: X + 1`
+- 即使只是添加一個欄位，也必須更新版本
+
+### 規則 2: Model 與 Schema 同步
+- `schema.js` 中的 `columns` 定義必須與 Model 類別中的 `@field`、`@text`、`@date` 等裝飾器**完全匹配**
+- 欄位名稱、類型、nullable 狀態必須一致
+- 添加新欄位的順序：
+  1. 先更新 `schema.js`（添加欄位 + 增加版本號）
+  2. 再更新 Model 類別（添加裝飾器和屬性）
+  3. 如果需要遷移，創建 migration 文件
+
+### 規則 3: Migration 管理
+- 添加新表或欄位時，創建對應的 migration
+- Migration 文件命名：`migrations/vX_to_vY.js`（X 為舊版本，Y 為新版本）
+- Migration 必須包含 `addColumns` 或 `createTable` 邏輯
+
+## Share Extension 配置
+⚠️ **不要讓 AI 猜測配置**
+
+### 規則 4: Config Plugin 設置
+- 使用 `expo-share-intent` 或其他驗證過的庫
+- 嚴格遵循庫的 README 文件中的 `app.config.ts` 設置
+- 不要自行修改 native code，除非有明確文檔支持
+- 修改 `app.config.ts` 後，必須重新運行 `eas build`
+
+## Supabase 同步邏輯
+
+### 規則 5: 本地優先原則
+- 所有寫入操作先寫入 WatermelonDB（本地）
+- 同步到 Supabase 在後台異步進行
+- UI 永遠讀取本地資料，不等待雲端響應
+
+### 規則 6: 衝突解決策略
+- 使用 "last write wins" 策略，基於 `updated_at` 時間戳
+- 每個 Model 必須包含 `created_at` 和 `updated_at` 欄位
+- 軟刪除使用 `deleted_at` 欄位，而非硬刪除
+
+## TypeScript 規範
+
+### 規則 7: 類型安全
+- 所有 API 響應必須有對應的 TypeScript interface
+- 避免使用 `any`，改用 `unknown` 並進行類型守衛
+- Supabase 類型使用 `supabase gen types` 自動生成
+
+### 規則 8: 組件 Props
+- 所有 React 組件必須明確定義 Props 類型
+- 使用 `type` 而非 `interface` 定義 Props（一致性）
+
+## 文件組織
+
+### 規則 9: 目錄結構
+```
+src/
+├── components/          # 可重用 UI 組件
+├── screens/            # 畫面/頁面
+├── database/           # WatermelonDB models 和 schema
+│   ├── models/
+│   ├── schema.js       # ⚠️ 版本控制關鍵文件
+│   └── migrations/
+├── services/           # API 和業務邏輯
+│   ├── supabase/
+│   ├── azure/
+│   └── sync/
+├── hooks/              # 自定義 React hooks
+├── types/              # TypeScript 類型定義
+└── utils/              # 工具函數
+```
+
+### 規則 10: 命名規範
+- 組件文件：PascalCase（`CacheList.tsx`）
+- 工具函數：camelCase（`syncDatabase.ts`）
+- 常量：UPPER_SNAKE_CASE（`API_TIMEOUT`）
+- Model 類別：PascalCase（`CachedItem.ts`）
+
+## 測試與除錯
+
+### 規則 11: 開發優先順序
+- 先確保本地（WatermelonDB）功能正常運作
+- 再添加雲端同步（Supabase）
+- 最後優化性能
+
+### 規則 12: 錯誤處理
+- 所有網絡請求必須包含 try-catch
+- 使用 Toast 或 Alert 顯示用戶友好的錯誤訊息
+- 記錄詳細錯誤到控制台（開發模式）或 Sentry（生產模式）
+
+## AI 開發注意事項
+
+### 規則 13: 驗證庫版本
+- 安裝新依賴前，檢查與 Expo SDK 54 的兼容性
+- 優先使用 Expo 生態系統內的庫（`expo-*`）
+- 如果使用 native modules，確認支持 Development Builds
+
+### 規則 14: 增量開發
+- 每次只實現一個小功能
+- 立即測試，不要累積未測試的代碼
+- 遇到錯誤立即修復，不要繼續添加新功能
+
+## 性能優化
+
+### 規則 15: WatermelonDB 查詢
+- 使用 `.observe()` 而非 `.fetch()` 讓 UI 自動響應數據變化
+- 避免在渲染中進行複雜查詢
+- 使用 `Q.where()` 進行高效過濾
+
+### 規則 16: 圖片處理
+- 上傳前壓縮圖片（使用 `expo-image-manipulator`）
+- 使用 `expo-image` 組件進行懶加載
+- 音頻文件上傳前檢查大小限制
+
+---
+
+**最後提醒**：遵循這些規則可以避免 90% 的常見錯誤。遇到不確定的配置時，先查閱官方文檔，不要猜測。
