@@ -9,7 +9,9 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 
@@ -25,7 +27,51 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
   const [contentText, setContentText] = React.useState('');
   const [contentUrl, setContentUrl] = React.useState('');
   const [keywords, setKeywords] = React.useState('');
+  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+
+  const pickImage = async () => {
+    // Request permissions
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('權限需求', '需要相簿權限才能選擇圖片');
+      return;
+    }
+
+    // Launch image picker
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setSelectedImage(result.assets[0].uri);
+      setContentUrl(result.assets[0].uri);
+    }
+  };
+
+  const takePhoto = async () => {
+    // Request permissions
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('權限需求', '需要相機權限才能拍照');
+      return;
+    }
+
+    // Launch camera
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setSelectedImage(result.assets[0].uri);
+      setContentUrl(result.assets[0].uri);
+    }
+  };
 
   const handleSave = async () => {
     if (!contentText && !contentUrl) {
@@ -148,7 +194,44 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
 
         {(contentType === 'image' || contentType === 'video') && (
           <>
-            <Text style={styles.label}>URL or Path *</Text>
+            <Text style={styles.label}>選擇圖片</Text>
+            
+            <View style={styles.imageButtonRow}>
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={pickImage}
+              >
+                <Text style={styles.imageButtonText}>📷 從相簿選擇</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={takePhoto}
+              >
+                <Text style={styles.imageButtonText}>📸 拍照</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedImage && (
+              <View style={styles.imagePreview}>
+                <Image
+                  source={{ uri: selectedImage }}
+                  style={styles.previewImage}
+                  resizeMode="cover"
+                />
+                <TouchableOpacity
+                  style={styles.removeImageButton}
+                  onPress={() => {
+                    setSelectedImage(null);
+                    setContentUrl('');
+                  }}
+                >
+                  <Text style={styles.removeImageText}>✕ 移除</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <Text style={styles.label}>或輸入 URL</Text>
             <TextInput
               style={styles.input}
               placeholder="輸入圖片/影片 URL..."
@@ -157,9 +240,6 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
               keyboardType="url"
               autoCapitalize="none"
             />
-            <Text style={styles.hint}>
-              提示：實際應用中會使用圖片選擇器
-            </Text>
           </>
         )}
 
@@ -277,5 +357,49 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  imageButtonRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  imageButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    borderRadius: 8,
+    backgroundColor: '#E8F5E9',
+  },
+  imageButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  imagePreview: {
+    marginBottom: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f0f0f0',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+  },
+  removeImageText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
