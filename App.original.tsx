@@ -1,13 +1,15 @@
-// App.tsx - Expo Go Compatible Version
-// This version works in Expo Go by using mock data instead of WatermelonDB
-
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  ActivityIndicator,
+  Alert,
+  Text,
+} from 'react-native';
 import { useEffect, useState } from 'react';
+import { database } from './src/database';
+import { supabase } from './src/services/supabase/client';
 import RootNavigator from './src/navigation/RootNavigator';
-
-// Check if we're running in Expo Go
-const isExpoGo = !global.HermesInternal;
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
@@ -18,19 +20,29 @@ export default function App() {
 
   const initializeApp = async () => {
     try {
-      if (isExpoGo) {
-        // In Expo Go, skip database initialization
-        console.log('✅ Running in Expo Go mode (UI preview only)');
-      } else {
-        // In Development Build, initialize database
-        const { database } = await import('./src/database');
-        const profiles = await database.get('profiles').query().fetch();
-        console.log(`✅ WatermelonDB initialized (${profiles.length} profiles)`);
+      // Test WatermelonDB
+      const profiles = await database.get('profiles').query().fetch();
+      console.log(`✅ WatermelonDB initialized (${profiles.length} profiles)`);
+
+      // Test Supabase connection (optional for MVP)
+      try {
+        const { error } = await supabase.from('profiles').select('count');
+        if (error) {
+          console.warn('Supabase connection warning:', error.message);
+        } else {
+          console.log('✅ Supabase connected');
+        }
+      } catch (err) {
+        console.warn('Supabase not configured yet, continuing with local DB');
       }
 
       setIsReady(true);
     } catch (error) {
       console.error('Initialization error:', error);
+      Alert.alert(
+        'Initialization Error',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       setIsReady(true); // Continue anyway
     }
   };
@@ -40,12 +52,6 @@ export default function App() {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4CAF50" />
         <Text style={styles.loadingText}>Loading Nuances...</Text>
-        {isExpoGo && (
-          <Text style={styles.previewText}>
-            📱 Expo Go Preview Mode{'\n'}
-            (UI only - database disabled)
-          </Text>
-        )}
         <StatusBar style="auto" />
       </View>
     );
@@ -53,7 +59,7 @@ export default function App() {
 
   return (
     <>
-      <RootNavigator isExpoGo={isExpoGo} />
+      <RootNavigator />
       <StatusBar style="auto" />
     </>
   );
@@ -71,10 +77,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  previewText: {
-    marginTop: 16,
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-  },
 });
+
