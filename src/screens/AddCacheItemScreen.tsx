@@ -11,11 +11,17 @@ import {
   Platform,
   Modal,
   Image as RNImage,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
-import ImageAnnotation, { type BoundingBox } from '../components/ImageAnnotation';
+import ImageOCRViewer from '../components/ImageOCRViewer';
+import { 
+  type OCRBlock, 
+  buildContextPayload, 
+  analyzeTextWithAI 
+} from '../services/ocr/ocrService';
 
 type Props = {
   navigation: any;
@@ -29,26 +35,51 @@ export default function AddCacheItemScreen({ navigation }: Props) {
   const [contentUrl, setContentUrl] = React.useState('');
   const [keywords, setKeywords] = React.useState('');
   const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
-  const [imageAnnotations, setImageAnnotations] = React.useState<BoundingBox[]>([]);
-  const [showAnnotationTool, setShowAnnotationTool] = React.useState(false);
+  
+  // Tech Stack v1.5.0: 儲存 OCR blocks 而非手動標註
+  const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
+  const [selectedBlockIndex, setSelectedBlockIndex] = React.useState<number | null>(null);
+  
+  const [showOCRViewer, setShowOCRViewer] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
-  const [ocrPreviewText, setOCRPreviewText] = React.useState(''); // OCR 預覽文字
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
 
-  // 使用 useCallback 避免每次渲染都創建新函數
-  const handleAnnotationsChange = React.useCallback((annotations: BoundingBox[]) => {
-    console.log('[AddCache] Annotations updated:', annotations.length);
-    setImageAnnotations(annotations);
-  }, []);
-
-  // OCR 預覽回調
-  const handleOCRPreview = React.useCallback((text: string) => {
-    console.log('[AddCache] OCR preview:', text);
-    setOCRPreviewText(text);
-    // 自動填入到 keywords 欄位
-    if (text && !keywords) {
-      setKeywords(text.substring(0, 100)); // 限制長度
+  /**
+   * 處理用戶點擊 OCR 文字塊（Tech Stack v1.5.0 第 146-150 行）
+   */
+  const handleTextBlockSelect = React.useCallback(async (block: OCRBlock, index: number) => {
+    console.log('[AddCache] User selected text block:', block.text);
+    setSelectedBlockIndex(index);
+    
+    // 自動填入關鍵字
+    setKeywords(block.text);
+    
+    // 如果有足夠的上下文，立即進行 AI 分析
+    if (ocrBlocks.length > 0) {
+      setAnalyzing(true);
+      try {
+        const payload = buildContextPayload(ocrBlocks, index);
+        console.log('[AddCache] Analyzing with context:', payload);
+        
+        const result = await analyzeTextWithAI(payload);
+        setAIAnalysisResult(result);
+        
+        // 自動填入 AI 分析結果
+        setKeywords(result.keyword);
+        
+        Alert.alert(
+          '✅ AI 分析完成',
+          `關鍵字: ${result.keyword}\n定義: ${result.definition.substring(0, 50)}...`,
+          [{ text: '確定' }]
+        );
+      } catch (error) {
+        console.error('[AddCache] AI analysis failed:', error);
+      } finally {
+        setAnalyzing(false);
+      }
     }
-  }, [keywords]);
+  }, [ocrBlocks]);
 
   const pickImage = async () => {
     // Request permissions
@@ -62,7 +93,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
     // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: false, // 不預裁剪，讓用戶標註
+      allowsEditing: false,
       quality: 1, // 高品質以利 OCR
     });
 
@@ -71,9 +102,9 @@ export default function AddCacheItemScreen({ navigation }: Props) {
       setContentUrl(result.assets[0].uri);
       setContentType('image');
       
-      // 自動開啟標註工具
+      // 自動開啟 OCR Viewer（Tech Stack v1.5.0）
       setTimeout(() => {
-        setShowAnnotationTool(true);
+        setShowOCRViewer(true);
       }, 300);
     }
   };
@@ -105,13 +136,13 @@ export default function AddCacheItemScreen({ navigation }: Props) {
       return;
     }
 
-    // 圖片類型且有標註時，提示用戶
-    if (contentType === 'image' && selectedImage && imageAnnotations.length === 0) {
+    // 圖片類型且未選擇文字時，提示用戶
+    if (contentType === 'image' && selectedImage && selectedBlockIndex === null) {
       Alert.alert(
         '提示',
-        '您還沒有標註圖片上的關鍵區域。要繼續嗎？',
+        '您還沒有選擇要學習的文字。要繼續嗎？',
         [
-          { text: '標註', style: 'cancel' },
+          { text: '選擇文字', style: 'cancel' },
           { 
             text: '直接保存', 
             onPress: () => performSave() 
@@ -138,12 +169,21 @@ export default function AddCacheItemScreen({ navigation }: Props) {
           item.contentUrl = contentUrl || undefined;
           item.userKeywords = keywords || undefined;
           item.sourceApp = 'Manual Entry';
-          item.aiAnalysisCompleted = false;
           item.convertedToCard = false;
           
-          // 儲存圖片標註
-          if (imageAnnotations.length > 0) {
-            item.imageAnnotations = JSON.stringify(imageAnnotations);
+          // Tech Stack v1.5.0: 儲存 OCR blocks（@json 裝飾器會自動序列化）
+          if (ocrBlocks.length > 0) {
+            item.imageAnnotations = ocrBlocks as any; // 使用相同欄位以保持數據庫兼容
+          }
+          
+          // 儲存用戶選擇的文字塊索引
+          if (selectedBlockIndex !== null) {
+            item.userKeywords = `${keywords} [block:${selectedBlockIndex}]`;
+          }
+          
+          // 如果有 AI 分析結果，標記為已完成
+          if (aiAnalysisResult) {
+            item.aiAnalysisCompleted = true;
           }
           
           // 儲存圖片路徑
@@ -269,18 +309,18 @@ export default function AddCacheItemScreen({ navigation }: Props) {
 
             {selectedImage && (
               <View style={styles.imagePreview}>
-              <RNImage
-                source={{ uri: selectedImage }}
-                style={styles.previewImage}
-                resizeMode="cover"
-              />
+                <RNImage
+                  source={{ uri: selectedImage }}
+                  style={styles.previewImage}
+                  resizeMode="cover"
+                />
                 <View style={styles.imageActions}>
                   <TouchableOpacity
                     style={styles.annotateButton}
-                    onPress={() => setShowAnnotationTool(true)}
+                    onPress={() => setShowOCRViewer(true)}
                   >
                     <Text style={styles.annotateButtonText}>
-                      ✏️ 標註關鍵區域 {imageAnnotations.length > 0 && `(${imageAnnotations.length})`}
+                      🔍 識別文字 {ocrBlocks.length > 0 && `(${ocrBlocks.length} 個區域)`}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -288,7 +328,9 @@ export default function AddCacheItemScreen({ navigation }: Props) {
                     onPress={() => {
                       setSelectedImage(null);
                       setContentUrl('');
-                      setImageAnnotations([]);
+                      setOCRBlocks([]);
+                      setSelectedBlockIndex(null);
+                      setAIAnalysisResult(null);
                     }}
                   >
                     <Text style={styles.removeImageText}>✕ 移除</Text>
@@ -319,45 +361,58 @@ export default function AddCacheItemScreen({ navigation }: Props) {
           onChangeText={setKeywords}
           autoCapitalize="none"
         />
-        {ocrPreviewText && (
+        {selectedBlockIndex !== null && ocrBlocks[selectedBlockIndex] && (
           <Text style={styles.ocrHint}>
-            💡 圖片識別：{ocrPreviewText.substring(0, 50)}{ocrPreviewText.length > 50 ? '...' : ''}
+            ✨ 已選擇：{ocrBlocks[selectedBlockIndex].text}
           </Text>
+        )}
+        {analyzing && (
+          <View style={styles.analyzingContainer}>
+            <ActivityIndicator size="small" color="#4CAF50" />
+            <Text style={styles.analyzingText}>AI 正在分析...</Text>
+          </View>
+        )}
+        {aiAnalysisResult && (
+          <View style={styles.aiResultContainer}>
+            <Text style={styles.aiResultTitle}>📖 AI 分析結果：</Text>
+            <Text style={styles.aiResultText}>定義：{aiAnalysisResult.definition}</Text>
+          </View>
         )}
         <Text style={styles.hint}>
           添加關鍵字來指導 AI 分析這段內容
         </Text>
       </ScrollView>
 
-      {/* 圖片標註工具 Modal */}
-      {showAnnotationTool && (
+      {/* OCR Viewer Modal（Tech Stack v1.5.0）*/}
+      {showOCRViewer && (
         <Modal
-          visible={showAnnotationTool}
+          visible={showOCRViewer}
           animationType="slide"
-          onRequestClose={() => setShowAnnotationTool(false)}
+          onRequestClose={() => setShowOCRViewer(false)}
           presentationStyle="fullScreen"
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <TouchableOpacity
                 onPress={() => {
-                  console.log('[AddCache] Closing annotation tool, annotations:', imageAnnotations.length);
-                  setShowAnnotationTool(false);
+                  console.log('[AddCache] Closing OCR viewer, blocks:', ocrBlocks.length);
+                  setShowOCRViewer(false);
                 }}
                 style={styles.modalCloseButton}
               >
                 <Text style={styles.modalCloseText}>✓ 完成</Text>
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>標註圖片</Text>
-              <Text style={styles.modalCloseText}>{imageAnnotations.length} 個</Text>
+              <Text style={styles.modalTitle}>選擇要學習的文字</Text>
+              <Text style={styles.modalCloseText}>
+                {selectedBlockIndex !== null ? `已選擇` : `${ocrBlocks.length} 個`}
+              </Text>
             </View>
 
             {selectedImage ? (
-              <ImageAnnotation
+              <ImageOCRViewer
                 imageUri={selectedImage}
-                onAnnotationsChange={handleAnnotationsChange}
-                onOCRPreview={handleOCRPreview}
-                initialAnnotations={imageAnnotations}
+                onTextBlockSelect={handleTextBlockSelect}
+                initialSelectedIndex={selectedBlockIndex ?? undefined}
               />
             ) : (
               <View style={styles.errorContainer}>
@@ -506,6 +561,40 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  analyzingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  analyzingText: {
+    marginLeft: 8,
+    fontSize: 13,
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
+  aiResultContainer: {
+    backgroundColor: '#f1f8e9',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  aiResultTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#33691e',
+    marginBottom: 4,
+  },
+  aiResultText: {
+    fontSize: 12,
+    color: '#558b2f',
+    lineHeight: 18,
   },
   imageActions: {
     position: 'absolute',
