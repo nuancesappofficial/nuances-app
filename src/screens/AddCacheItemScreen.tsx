@@ -9,26 +9,46 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Image,
+  Modal,
+  Image as RNImage,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
+import ImageAnnotation, { type BoundingBox } from '../components/ImageAnnotation';
 
 type Props = {
-  onClose: () => void;
-  onSaved: () => void;
+  navigation: any;
 };
 
-export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
+export default function AddCacheItemScreen({ navigation }: Props) {
   const [contentType, setContentType] = React.useState<
-    'text' | 'url' | 'image' | 'video'
+    'text' | 'url' | 'image'
   >('text');
   const [contentText, setContentText] = React.useState('');
   const [contentUrl, setContentUrl] = React.useState('');
   const [keywords, setKeywords] = React.useState('');
   const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+  const [imageAnnotations, setImageAnnotations] = React.useState<BoundingBox[]>([]);
+  const [showAnnotationTool, setShowAnnotationTool] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [ocrPreviewText, setOCRPreviewText] = React.useState(''); // OCR 預覽文字
+
+  // 使用 useCallback 避免每次渲染都創建新函數
+  const handleAnnotationsChange = React.useCallback((annotations: BoundingBox[]) => {
+    console.log('[AddCache] Annotations updated:', annotations.length);
+    setImageAnnotations(annotations);
+  }, []);
+
+  // OCR 預覽回調
+  const handleOCRPreview = React.useCallback((text: string) => {
+    console.log('[AddCache] OCR preview:', text);
+    setOCRPreviewText(text);
+    // 自動填入到 keywords 欄位
+    if (text && !keywords) {
+      setKeywords(text.substring(0, 100)); // 限制長度
+    }
+  }, [keywords]);
 
   const pickImage = async () => {
     // Request permissions
@@ -42,13 +62,19 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
     // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.8,
+      allowsEditing: false, // 不預裁剪，讓用戶標註
+      quality: 1, // 高品質以利 OCR
     });
 
     if (!result.canceled && result.assets[0]) {
       setSelectedImage(result.assets[0].uri);
       setContentUrl(result.assets[0].uri);
+      setContentType('image');
+      
+      // 自動開啟標註工具
+      setTimeout(() => {
+        setShowAnnotationTool(true);
+      }, 300);
     }
   };
 
@@ -79,6 +105,26 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
       return;
     }
 
+    // 圖片類型且有標註時，提示用戶
+    if (contentType === 'image' && selectedImage && imageAnnotations.length === 0) {
+      Alert.alert(
+        '提示',
+        '您還沒有標註圖片上的關鍵區域。要繼續嗎？',
+        [
+          { text: '標註', style: 'cancel' },
+          { 
+            text: '直接保存', 
+            onPress: () => performSave() 
+          },
+        ]
+      );
+      return;
+    }
+
+    await performSave();
+  };
+
+  const performSave = async () => {
     setSaving(true);
 
     try {
@@ -95,6 +141,16 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
           item.aiAnalysisCompleted = false;
           item.convertedToCard = false;
           
+          // 儲存圖片標註
+          if (imageAnnotations.length > 0) {
+            item.imageAnnotations = JSON.stringify(imageAnnotations);
+          }
+          
+          // 儲存圖片路徑
+          if (selectedImage) {
+            item.imageStoragePath = selectedImage;
+          }
+          
           // Set expiration for free tier (24 hours)
           const expiresAt = new Date();
           expiresAt.setHours(expiresAt.getHours() + 24);
@@ -106,8 +162,7 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
         {
           text: '確定',
           onPress: () => {
-            onSaved();
-            onClose();
+            navigation.goBack();
           },
         },
       ]);
@@ -124,7 +179,7 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.header}>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
           <Text style={styles.closeButtonText}>✕</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Add to Cache</Text>
@@ -142,7 +197,7 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
       <ScrollView style={styles.content}>
         <Text style={styles.label}>Content Type</Text>
         <View style={styles.typeSelector}>
-          {(['text', 'url', 'image', 'video'] as const).map((type) => (
+          {(['text', 'url', 'image'] as const).map((type) => (
             <TouchableOpacity
               key={type}
               style={[
@@ -192,7 +247,7 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
           </>
         )}
 
-        {(contentType === 'image' || contentType === 'video') && (
+        {contentType === 'image' && (
           <>
             <Text style={styles.label}>選擇圖片</Text>
             
@@ -214,27 +269,38 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
 
             {selectedImage && (
               <View style={styles.imagePreview}>
-                <Image
-                  source={{ uri: selectedImage }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-                <TouchableOpacity
-                  style={styles.removeImageButton}
-                  onPress={() => {
-                    setSelectedImage(null);
-                    setContentUrl('');
-                  }}
-                >
-                  <Text style={styles.removeImageText}>✕ 移除</Text>
-                </TouchableOpacity>
+              <RNImage
+                source={{ uri: selectedImage }}
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+                <View style={styles.imageActions}>
+                  <TouchableOpacity
+                    style={styles.annotateButton}
+                    onPress={() => setShowAnnotationTool(true)}
+                  >
+                    <Text style={styles.annotateButtonText}>
+                      ✏️ 標註關鍵區域 {imageAnnotations.length > 0 && `(${imageAnnotations.length})`}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.removeImageButton}
+                    onPress={() => {
+                      setSelectedImage(null);
+                      setContentUrl('');
+                      setImageAnnotations([]);
+                    }}
+                  >
+                    <Text style={styles.removeImageText}>✕ 移除</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
-            <Text style={styles.label}>或輸入 URL</Text>
+            <Text style={styles.label}>或輸入圖片 URL</Text>
             <TextInput
               style={styles.input}
-              placeholder="輸入圖片/影片 URL..."
+              placeholder="輸入圖片 URL..."
               value={contentUrl}
               onChangeText={setContentUrl}
               keyboardType="url"
@@ -253,10 +319,54 @@ export default function AddCacheItemScreen({ onClose, onSaved }: Props) {
           onChangeText={setKeywords}
           autoCapitalize="none"
         />
+        {ocrPreviewText && (
+          <Text style={styles.ocrHint}>
+            💡 圖片識別：{ocrPreviewText.substring(0, 50)}{ocrPreviewText.length > 50 ? '...' : ''}
+          </Text>
+        )}
         <Text style={styles.hint}>
           添加關鍵字來指導 AI 分析這段內容
         </Text>
       </ScrollView>
+
+      {/* 圖片標註工具 Modal */}
+      {showAnnotationTool && (
+        <Modal
+          visible={showAnnotationTool}
+          animationType="slide"
+          onRequestClose={() => setShowAnnotationTool(false)}
+          presentationStyle="fullScreen"
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('[AddCache] Closing annotation tool, annotations:', imageAnnotations.length);
+                  setShowAnnotationTool(false);
+                }}
+                style={styles.modalCloseButton}
+              >
+                <Text style={styles.modalCloseText}>✓ 完成</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>標註圖片</Text>
+              <Text style={styles.modalCloseText}>{imageAnnotations.length} 個</Text>
+            </View>
+
+            {selectedImage ? (
+              <ImageAnnotation
+                imageUri={selectedImage}
+                onAnnotationsChange={handleAnnotationsChange}
+                onOCRPreview={handleOCRPreview}
+                initialAnnotations={imageAnnotations}
+              />
+            ) : (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>⚠️ 圖片載入失敗</Text>
+              </View>
+            )}
+          </View>
+        </Modal>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -388,11 +498,35 @@ const styles = StyleSheet.create({
     height: 200,
     backgroundColor: '#f0f0f0',
   },
-  removeImageButton: {
+  ocrHint: {
+    fontSize: 12,
+    color: '#2196F3',
+    backgroundColor: '#E3F2FD',
+    padding: 8,
+    borderRadius: 4,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  imageActions: {
     position: 'absolute',
     top: 8,
     right: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  annotateButton: {
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  annotateButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  removeImageButton: {
+    backgroundColor: 'rgba(244, 67, 54, 0.9)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
@@ -401,5 +535,42 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 60,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  modalCloseButton: {
+    paddingVertical: 8,
+  },
+  modalCloseText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#F44336',
   },
 });

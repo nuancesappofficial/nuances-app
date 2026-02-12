@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,21 +6,53 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
+  Image,
 } from 'react-native';
 import { database } from '@database/index';
-import { useDatabase } from '@hooks/useDatabase';
 import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
 
-export default function CacheListScreen() {
+type Props = {
+  navigation: any;
+};
+
+export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
+  const [cachedItems, setCachedItems] = useState<CachedItem[]>([]);
 
-  // Query cached items (not deleted, ordered by creation date)
-  const cachedItemsQuery = database
-    .get<CachedItem>('cached_items')
-    .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+  // Query cached items (not deleted, not converted, ordered by creation date)
+  useEffect(() => {
+    const query = database
+      .get<CachedItem>('cached_items')
+      .query(
+        Q.where('deleted_at', null),
+        Q.where('converted_to_card', false), // 只顯示未轉換的項目
+        Q.sortBy('created_at', Q.desc)
+      );
 
-  const cachedItems = useDatabase(cachedItemsQuery);
+    // Initial fetch
+    const fetchInitial = async () => {
+      try {
+        const data = await query.fetch();
+        console.log('[CacheList] Fetched items (excluding converted):', data.length);
+        setCachedItems(data);
+      } catch (error) {
+        console.error('Error fetching cached items:', error);
+        setCachedItems([]);
+      }
+    };
+
+    fetchInitial();
+
+    // Subscribe to changes
+    const subscription = query.observe().subscribe((data) => {
+      console.log('[CacheList] Updated items:', data.length);
+      setCachedItems(data);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -28,17 +60,70 @@ export default function CacheListScreen() {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  // 刪除快取項目
+  const handleDelete = async (item: CachedItem) => {
+    Alert.alert(
+      '刪除快取',
+      '確定要刪除這個快取項目嗎？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '刪除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await database.write(async () => {
+                await item.update((record) => {
+                  record.deletedAt = new Date();
+                });
+              });
+              console.log('[CacheList] Item deleted:', item.id);
+            } catch (error) {
+              console.error('[CacheList] Error deleting item:', error);
+              Alert.alert('錯誤', '刪除失敗，請重試');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: CachedItem }) => (
-    <TouchableOpacity style={styles.itemContainer}>
+    <View style={styles.itemContainer}>
       <View style={styles.itemHeader}>
         <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
         {item.sourceApp && (
           <Text style={styles.sourceApp}>{item.sourceApp}</Text>
         )}
+        {/* 刪除按鈕 */}
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => handleDelete(item)}
+        >
+          <Text style={styles.deleteButtonText}>🗑️</Text>
+        </TouchableOpacity>
       </View>
 
+      {/* 圖片預覽 */}
+      {item.contentType === 'image' && item.imageStoragePath && (
+        <View style={styles.imagePreviewContainer}>
+          <Image
+            source={{ uri: item.imageStoragePath }}
+            style={styles.previewImage}
+            resizeMode="cover"
+          />
+          {item.imageAnnotations && JSON.parse(item.imageAnnotations).length > 0 && (
+            <View style={styles.annotationBadge}>
+              <Text style={styles.annotationBadgeText}>
+                ✏️ {JSON.parse(item.imageAnnotations).length} 個標註
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <Text style={styles.contentText} numberOfLines={3}>
-        {item.contentText || item.contentUrl || 'No content'}
+        {item.contentText || (item.contentType === 'image' ? '圖片內容' : item.contentUrl) || 'No content'}
       </Text>
 
       {item.userKeywords && (
@@ -46,17 +131,29 @@ export default function CacheListScreen() {
       )}
 
       <View style={styles.itemFooter}>
-        <Text style={styles.timestamp}>
-          {new Date(item.createdAt).toLocaleDateString()}
-        </Text>
-        {item.aiAnalysisCompleted && (
-          <Text style={styles.badge}>✓ AI Analyzed</Text>
-        )}
-        {item.convertedToCard && (
-          <Text style={styles.badge}>📇 Card Created</Text>
+        <View style={styles.itemFooterLeft}>
+          <Text style={styles.timestamp}>
+            {new Date(item.createdAt).toLocaleDateString()}
+          </Text>
+          {item.aiAnalysisCompleted && (
+            <Text style={styles.badge}>✓ AI Analyzed</Text>
+          )}
+          {item.convertedToCard && (
+            <Text style={styles.badge}>📇 Card Created</Text>
+          )}
+        </View>
+        
+        {/* 創建卡片按鈕 */}
+        {!item.convertedToCard && (
+          <TouchableOpacity
+            style={styles.createCardButton}
+            onPress={() => navigation.navigate('CreateCard', { cachedItem: item })}
+          >
+            <Text style={styles.createCardButtonText}>📇 創建卡片</Text>
+          </TouchableOpacity>
         )}
       </View>
-    </TouchableOpacity>
+    </View>
   );
 
   const renderEmpty = () => (
@@ -72,10 +169,18 @@ export default function CacheListScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📚 My Cache</Text>
-        <Text style={styles.headerSubtitle}>
-          {cachedItems?.length || 0} items
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>📚 My Cache</Text>
+          <Text style={styles.headerSubtitle}>
+            {cachedItems?.length || 0} items
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => navigation.navigate('AddCacheItem')}
+        >
+          <Text style={styles.addButtonText}>+</Text>
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -103,6 +208,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 28,
@@ -113,6 +221,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 4,
+  },
+  addButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#4CAF50',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  addButtonText: {
+    fontSize: 28,
+    color: '#fff',
+    fontWeight: '300',
   },
   listContent: {
     padding: 16,
@@ -146,6 +272,40 @@ const styles = StyleSheet.create({
   sourceApp: {
     fontSize: 12,
     color: '#999',
+    flex: 1,
+    marginLeft: 8,
+  },
+  deleteButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  deleteButtonText: {
+    fontSize: 18,
+  },
+  imagePreviewContainer: {
+    marginBottom: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f0f0f0',
+  },
+  annotationBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  annotationBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
   },
   contentText: {
     fontSize: 16,
@@ -168,6 +328,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
+  itemFooterLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    flexWrap: 'wrap',
+  },
   timestamp: {
     fontSize: 12,
     color: '#999',
@@ -180,6 +346,17 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     marginLeft: 4,
+  },
+  createCardButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  createCardButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
   },
   emptyContainer: {
     alignItems: 'center',

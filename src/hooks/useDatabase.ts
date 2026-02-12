@@ -5,6 +5,8 @@ import type { Model, Query } from '@nozbe/watermelondb';
 /**
  * Hook to observe a WatermelonDB query
  * Automatically updates when data changes
+ * 
+ * IMPORTANT: Pass a stable query object (created with useMemo) to avoid infinite loops
  */
 export function useDatabase<T extends Model>(
   query: Query<T>
@@ -12,12 +14,26 @@ export function useDatabase<T extends Model>(
   const [records, setRecords] = useState<T[] | undefined>(undefined);
 
   useEffect(() => {
+    // Initial fetch
+    const fetchInitial = async () => {
+      try {
+        const data = await query.fetch();
+        setRecords(data);
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+        setRecords([]);
+      }
+    };
+
+    fetchInitial();
+
+    // Subscribe to changes
     const subscription = query.observe().subscribe((data) => {
       setRecords(data);
     });
 
     return () => subscription.unsubscribe();
-  }, [query]);
+  }, []); // Empty dependency array to prevent infinite loops
 
   return records;
 }

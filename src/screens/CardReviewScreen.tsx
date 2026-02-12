@@ -7,17 +7,19 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
-} from 'react';
+  SafeAreaView,
+} from 'react-native';
 import type Card from '@database/models/Card';
 import { calculateNextReview, type ReviewRating } from '../services/srs/scheduler';
 import { database } from '@database/index';
 
 type Props = {
-  card: Card;
-  onReviewComplete: (rating: ReviewRating) => void;
+  navigation: any;
+  route: any;
 };
 
-export default function CardReviewScreen({ card, onReviewComplete }: Props) {
+export default function CardReviewScreen({ navigation, route }: Props) {
+  const { card } = route.params as { card: Card };
   const [isFlipped, setIsFlipped] = useState(false);
   const [flipAnimation] = useState(new Animated.Value(0));
 
@@ -39,8 +41,8 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
           easeFactor: card.easeFactor,
           intervalDays: card.intervalDays,
           repetitions: card.repetitions,
-          nextReviewAt: card.nextReviewAt,
-          lastReviewedAt: card.lastReviewedAt,
+          nextReviewAt: new Date(card.nextReviewAt),
+          lastReviewedAt: card.lastReviewedAt ? new Date(card.lastReviewedAt) : null,
         },
         rating
       );
@@ -51,7 +53,7 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
           c.intervalDays = newSRSData.intervalDays;
           c.repetitions = newSRSData.repetitions;
           c.nextReviewAt = newSRSData.nextReviewAt;
-          c.lastReviewedAt = newSRSData.lastReviewedAt;
+          c.lastReviewedAt = newSRSData.lastReviewedAt || new Date();
         });
       });
 
@@ -62,10 +64,12 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
           review.userId = card.userId;
           review.cardId = card.id;
           review.rating = rating;
+          review.reviewedAt = new Date();
         });
       });
 
-      onReviewComplete(rating);
+      // Navigate back after successful review
+      navigation.goBack();
     } catch (error) {
       console.error('Error updating card:', error);
     }
@@ -93,8 +97,20 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
     ],
   };
 
+  // Parse tags if they're stored as JSON string
+  const tags = card.tags ? (typeof card.tags === 'string' ? JSON.parse(card.tags) : card.tags) : [];
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      {/* Header with close button */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
+          <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>複習卡片</Text>
+        <View style={styles.closeButton} />
+      </View>
+
       <View style={styles.cardContainer}>
         {/* Front Side */}
         {!isFlipped && (
@@ -147,9 +163,9 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
                 </>
               )}
 
-              {card.tags && card.tags.length > 0 && (
+              {tags && tags.length > 0 && (
                 <View style={styles.tagsContainer}>
-                  {card.tags.map((tag, index) => (
+                  {tags.map((tag: string, index: number) => (
                     <View key={index} style={styles.tag}>
                       <Text style={styles.tagText}>{tag}</Text>
                     </View>
@@ -225,7 +241,7 @@ export default function CardReviewScreen({ card, onReviewComplete }: Props) {
           Ease: {card.easeFactor.toFixed(2)}
         </Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -235,11 +251,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 24,
+    color: '#666',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
   },
   cardContainer: {
     height: 400,
+    marginTop: 24,
+    marginHorizontal: 16,
     marginBottom: 24,
   },
   card: {
@@ -332,6 +373,7 @@ const styles = StyleSheet.create({
   },
   ratingContainer: {
     marginBottom: 16,
+    marginHorizontal: 16,
   },
   ratingLabel: {
     fontSize: 16,
@@ -378,6 +420,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: '#fff',
     borderRadius: 8,
+    marginHorizontal: 16,
+    marginBottom: 16,
   },
   progressText: {
     fontSize: 12,

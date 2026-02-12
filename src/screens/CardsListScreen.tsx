@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,79 +6,181 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
+  Image,
 } from 'react-native';
 import { database } from '@database/index';
-import { useDatabase } from '@hooks/useDatabase';
 import type Card from '@database/models/Card';
+import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
 
-export default function CardsListScreen() {
+type Props = {
+  navigation: any;
+};
+
+export default function CardsListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [filter, setFilter] = React.useState<'all' | 'due'>('all');
+  const [cards, setCards] = useState<Card[]>([]);
 
-  // Query cards
-  const allCardsQuery = database
-    .get<Card>('cards')
-    .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+  // Query cards based on filter
+  useEffect(() => {
+    let query;
+    
+    if (filter === 'all') {
+      query = database
+        .get<Card>('cards')
+        .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    } else {
+      query = database
+        .get<Card>('cards')
+        .query(
+          Q.where('deleted_at', null),
+          Q.where('next_review_at', Q.lte(Date.now())),
+          Q.sortBy('next_review_at', Q.asc)
+        );
+    }
 
-  const dueCardsQuery = database
-    .get<Card>('cards')
-    .query(
-      Q.where('deleted_at', null),
-      Q.where('next_review_at', Q.lte(Date.now())),
-      Q.sortBy('next_review_at', Q.asc)
-    );
+    // Initial fetch
+    const fetchInitial = async () => {
+      try {
+        const data = await query.fetch();
+        setCards(data);
+      } catch (error) {
+        console.error('Error fetching cards:', error);
+        setCards([]);
+      }
+    };
 
-  const cards = useDatabase(filter === 'all' ? allCardsQuery : dueCardsQuery);
+    fetchInitial();
+
+    // Subscribe to changes
+    const subscription = query.observe().subscribe((data) => {
+      setCards(data);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [filter]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  // 刪除卡片
+  const handleDelete = async (item: Card) => {
+    Alert.alert(
+      '刪除卡片',
+      '確定要刪除這張卡片嗎？這個操作無法復原。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '刪除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await database.write(async () => {
+                await item.update((record) => {
+                  record.deletedAt = new Date();
+                });
+              });
+              console.log('[CardsList] Card deleted:', item.id);
+            } catch (error) {
+              console.error('[CardsList] Error deleting card:', error);
+              Alert.alert('錯誤', '刪除失敗，請重試');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: Card }) => {
     const isDue = new Date(item.nextReviewAt) <= new Date();
+    const [cachedItem, setCachedItem] = useState<CachedItem | null>(null);
+
+    // 獲取關聯的 cachedItem（如果有）
+    useEffect(() => {
+      const fetchCachedItem = async () => {
+        if (item.cachedItemId) {
+          try {
+            const cached = await database
+              .get<CachedItem>('cached_items')
+              .find(item.cachedItemId);
+            setCachedItem(cached);
+          } catch (error) {
+            console.error('[CardsList] Error fetching cached item:', error);
+          }
+        }
+      };
+      fetchCachedItem();
+    }, [item.cachedItemId]);
 
     return (
-      <TouchableOpacity style={styles.cardContainer}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.targetWord}>{item.targetWord}</Text>
-          {isDue && <View style={styles.dueBadge}><Text style={styles.dueBadgeText}>待複習</Text></View>}
-        </View>
-
-        {item.targetPhrase && (
-          <Text style={styles.targetPhrase}>{item.targetPhrase}</Text>
-        )}
-
-        <Text style={styles.originalSentence} numberOfLines={2}>
-          {item.originalSentence}
-        </Text>
-
-        <Text style={styles.definition} numberOfLines={2}>
-          {item.definition}
-        </Text>
-
-        <View style={styles.cardFooter}>
-          <Text style={styles.srsInfo}>
-            複習次數: {item.repetitions} | 間隔: {item.intervalDays}天
-          </Text>
-          {item.lastReviewedAt && (
-            <Text style={styles.lastReview}>
-              上次: {new Date(item.lastReviewedAt).toLocaleDateString()}
-            </Text>
-          )}
-        </View>
-
-        {item.tags && item.tags.length > 0 && (
-          <View style={styles.tagsContainer}>
-            {item.tags.slice(0, 3).map((tag, index) => (
-              <View key={index} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
+      <View style={styles.cardContainer}>
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('CardReview', { card: item })}
+          style={styles.cardContent}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.targetWord}>{item.targetWord}</Text>
+            <View style={styles.cardHeaderRight}>
+              {isDue && <View style={styles.dueBadge}><Text style={styles.dueBadgeText}>待複習</Text></View>}
+              {/* 刪除按鈕 */}
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDelete(item)}
+              >
+                <Text style={styles.deleteButtonText}>🗑️</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
-      </TouchableOpacity>
+
+          {/* 圖片預覽 */}
+          {cachedItem?.contentType === 'image' && cachedItem.imageStoragePath && (
+            <View style={styles.imagePreviewContainer}>
+              <Image
+                source={{ uri: cachedItem.imageStoragePath }}
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+            </View>
+          )}
+
+          {item.targetPhrase && (
+            <Text style={styles.targetPhrase}>{item.targetPhrase}</Text>
+          )}
+
+          <Text style={styles.originalSentence} numberOfLines={2}>
+            {item.originalSentence}
+          </Text>
+
+          <Text style={styles.definition} numberOfLines={2}>
+            {item.definition}
+          </Text>
+
+          <View style={styles.cardFooter}>
+            <Text style={styles.srsInfo}>
+              複習次數: {item.repetitions} | 間隔: {item.intervalDays}天
+            </Text>
+            {item.lastReviewedAt && (
+              <Text style={styles.lastReview}>
+                上次: {new Date(item.lastReviewedAt).toLocaleDateString()}
+              </Text>
+            )}
+          </View>
+
+          {item.tags && item.tags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              {JSON.parse(item.tags).slice(0, 3).map((tag: string, index: number) => (
+                <View key={index} style={styles.tag}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -92,13 +194,39 @@ export default function CardsListScreen() {
     </View>
   );
 
+  const startReview = async () => {
+    // Get the first due card
+    const dueCards = await database
+      .get<Card>('cards')
+      .query(
+        Q.where('deleted_at', null),
+        Q.where('next_review_at', Q.lte(Date.now())),
+        Q.sortBy('next_review_at', Q.asc)
+      )
+      .fetch();
+
+    if (dueCards.length > 0) {
+      navigation.navigate('CardReview', { card: dueCards[0] });
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📇 My Cards</Text>
-        <Text style={styles.headerSubtitle}>
-          {cards?.length || 0} cards total
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>📇 My Cards</Text>
+          <Text style={styles.headerSubtitle}>
+            {cards?.length || 0} cards total
+          </Text>
+        </View>
+        {cards.filter(c => new Date(c.nextReviewAt) <= new Date()).length > 0 && (
+          <TouchableOpacity
+            style={styles.reviewButton}
+            onPress={startReview}
+          >
+            <Text style={styles.reviewButtonText}>開始複習</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Filter Tabs */}
@@ -146,6 +274,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 28,
@@ -156,6 +287,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 4,
+  },
+  reviewButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FF5722',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  reviewButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
   filterContainer: {
     flexDirection: 'row',
@@ -196,16 +343,41 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  cardContent: {
+    flex: 1,
+  },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   targetWord: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+    flex: 1,
+  },
+  deleteButton: {
+    padding: 4,
+  },
+  deleteButtonText: {
+    fontSize: 18,
+  },
+  imagePreviewContainer: {
+    marginBottom: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: 150,
+    backgroundColor: '#f0f0f0',
   },
   dueBadge: {
     backgroundColor: '#FF5722',

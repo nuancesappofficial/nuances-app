@@ -24,8 +24,12 @@ export default function App() {
       } else {
         // In Development Build, initialize database
         const { database } = await import('./src/database');
+        
         const profiles = await database.get('profiles').query().fetch();
         console.log(`✅ WatermelonDB initialized (${profiles.length} profiles)`);
+
+        // 測試數據已停用 - 使用真實用戶數據
+        // 如需測試數據，請手動調用 seedTestData()
       }
 
       setIsReady(true);
