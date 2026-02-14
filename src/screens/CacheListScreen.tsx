@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,29 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
 
+/** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
+function getAnnotationsArray(val: unknown): unknown[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 type Props = {
   navigation: any;
 };
 
 export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
-  const [cachedItems, setCachedItems] = useState<CachedItem[]>([]);
+  const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
 
   // Query cached items (not deleted, not converted, ordered by creation date)
-  useEffect(() => {
+  React.useEffect(() => {
     const query = database
       .get<CachedItem>('cached_items')
       .query(
@@ -112,10 +125,10 @@ export default function CacheListScreen({ navigation }: Props) {
             style={styles.previewImage}
             resizeMode="cover"
           />
-          {item.imageAnnotations && JSON.parse(item.imageAnnotations).length > 0 && (
+          {getAnnotationsArray(item.imageAnnotations).length > 0 && (
             <View style={styles.annotationBadge}>
               <Text style={styles.annotationBadgeText}>
-                ✏️ {JSON.parse(item.imageAnnotations).length} 個標註
+                ✏️ {getAnnotationsArray(item.imageAnnotations).length} 個單字
               </Text>
             </View>
           )}

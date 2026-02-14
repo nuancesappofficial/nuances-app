@@ -22,6 +22,7 @@ import {
   buildContextPayload, 
   analyzeTextWithAI 
 } from '../services/ocr/ocrService';
+import { analyzeText } from '../services/ai';
 
 type Props = {
   navigation: any;
@@ -44,6 +45,29 @@ export default function AddCacheItemScreen({ navigation }: Props) {
   const [saving, setSaving] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
+  const [recommendedWords, setRecommendedWords] = React.useState<string[]>([]);
+
+  /**
+   * OCR 完成後推薦詞彙
+   */
+  const handleOCRComplete = React.useCallback(async (blocks: OCRBlock[]) => {
+    setOCRBlocks(blocks);
+    
+    // AI 推薦詞彙（從整篇文章）
+    if (blocks.length > 0) {
+      setAnalyzing(true);
+      try {
+        const fullText = blocks.map(b => b.text).join(' ');
+        const analysis = await analyzeText(fullText, '', 'ielts');
+        setRecommendedWords(analysis.keywords);
+        console.log('[AddCache] AI recommended words:', analysis.keywords);
+      } catch (error) {
+        console.error('[AddCache] AI vocabulary recommendation failed:', error);
+      } finally {
+        setAnalyzing(false);
+      }
+    }
+  }, []);
 
   /**
    * 處理用戶點擊 OCR 文字塊（Tech Stack v1.5.0 第 146-150 行）
@@ -54,32 +78,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
     
     // 自動填入關鍵字
     setKeywords(block.text);
-    
-    // 如果有足夠的上下文，立即進行 AI 分析
-    if (ocrBlocks.length > 0) {
-      setAnalyzing(true);
-      try {
-        const payload = buildContextPayload(ocrBlocks, index);
-        console.log('[AddCache] Analyzing with context:', payload);
-        
-        const result = await analyzeTextWithAI(payload);
-        setAIAnalysisResult(result);
-        
-        // 自動填入 AI 分析結果
-        setKeywords(result.keyword);
-        
-        Alert.alert(
-          '✅ AI 分析完成',
-          `關鍵字: ${result.keyword}\n定義: ${result.definition.substring(0, 50)}...`,
-          [{ text: '確定' }]
-        );
-      } catch (error) {
-        console.error('[AddCache] AI analysis failed:', error);
-      } finally {
-        setAnalyzing(false);
-      }
-    }
-  }, [ocrBlocks]);
+  }, []);
 
   const pickImage = async () => {
     // Request permissions
@@ -369,13 +368,23 @@ export default function AddCacheItemScreen({ navigation }: Props) {
         {analyzing && (
           <View style={styles.analyzingContainer}>
             <ActivityIndicator size="small" color="#4CAF50" />
-            <Text style={styles.analyzingText}>AI 正在分析...</Text>
+            <Text style={styles.analyzingText}>AI 正在推薦詞彙...</Text>
           </View>
         )}
-        {aiAnalysisResult && (
-          <View style={styles.aiResultContainer}>
-            <Text style={styles.aiResultTitle}>📖 AI 分析結果：</Text>
-            <Text style={styles.aiResultText}>定義：{aiAnalysisResult.definition}</Text>
+        {recommendedWords.length > 0 && (
+          <View style={styles.recommendedWordsContainer}>
+            <Text style={styles.recommendedWordsTitle}>💡 AI 推薦詞彙：</Text>
+            <View style={styles.recommendedWordsList}>
+              {recommendedWords.map((word, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.recommendedWordChip}
+                  onPress={() => setKeywords(word)}
+                >
+                  <Text style={styles.recommendedWordText}>{word}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         )}
         <Text style={styles.hint}>
@@ -412,6 +421,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
               <ImageOCRViewer
                 imageUri={selectedImage}
                 onTextBlockSelect={handleTextBlockSelect}
+                onOCRComplete={handleOCRComplete}
                 initialSelectedIndex={selectedBlockIndex ?? undefined}
               />
             ) : (
@@ -661,5 +671,37 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#F44336',
+  },
+  recommendedWordsContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#f0f7ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  recommendedWordsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1976D2',
+    marginBottom: 8,
+  },
+  recommendedWordsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  recommendedWordChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  recommendedWordText: {
+    fontSize: 13,
+    color: '#1976D2',
+    fontWeight: '500',
   },
 });

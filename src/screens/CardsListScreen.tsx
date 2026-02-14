@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -18,13 +18,114 @@ type Props = {
   navigation: any;
 };
 
+// Separate component to handle individual card items with hooks
+function CardItem({ 
+  item, 
+  navigation, 
+  onDelete 
+}: { 
+  item: Card; 
+  navigation: any; 
+  onDelete: (item: Card) => void;
+}) {
+  const [cachedItem, setCachedItem] = React.useState<CachedItem | null>(null);
+  const isDue = new Date(item.nextReviewAt) <= new Date();
+
+  // Fetch associated cachedItem if exists
+  React.useEffect(() => {
+    const fetchCachedItem = async () => {
+      if (item.cachedItemId) {
+        try {
+          const cached = await database
+            .get<CachedItem>('cached_items')
+            .find(item.cachedItemId);
+          setCachedItem(cached);
+        } catch (error) {
+          console.error('[CardsList] Error fetching cached item:', error);
+        }
+      }
+    };
+    fetchCachedItem();
+  }, [item.cachedItemId]);
+
+  return (
+    <View style={styles.cardContainer}>
+      <TouchableOpacity 
+        onPress={() => navigation.navigate('CardReview', { card: item })}
+        style={styles.cardContent}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={styles.targetWord}>{item.targetWord}</Text>
+          <View style={styles.cardHeaderRight}>
+            {isDue && <View style={styles.dueBadge}><Text style={styles.dueBadgeText}>待複習</Text></View>}
+            {/* 刪除按鈕 */}
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => onDelete(item)}
+            >
+              <Text style={styles.deleteButtonText}>🗑️</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* 圖片預覽 */}
+        {cachedItem?.contentType === 'image' && cachedItem.imageStoragePath && (
+          <View style={styles.imagePreviewContainer}>
+            <Image
+              source={{ uri: cachedItem.imageStoragePath }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
+          </View>
+        )}
+
+        {item.targetPhrase && (
+          <Text style={styles.targetPhrase}>{item.targetPhrase}</Text>
+        )}
+
+        {/* 只顯示文字內容，過濾掉 file:// 路徑 */}
+        {item.originalSentence && !item.originalSentence.startsWith('file://') && (
+          <Text style={styles.originalSentence} numberOfLines={2}>
+            {item.originalSentence}
+          </Text>
+        )}
+
+        <Text style={styles.definition} numberOfLines={2}>
+          {item.definition}
+        </Text>
+
+        <View style={styles.cardFooter}>
+          <Text style={styles.srsInfo}>
+            複習次數: {item.repetitions} | 間隔: {item.intervalDays}天
+          </Text>
+          {item.lastReviewedAt && (
+            <Text style={styles.lastReview}>
+              上次: {new Date(item.lastReviewedAt).toLocaleDateString()}
+            </Text>
+          )}
+        </View>
+
+        {item.tags && item.tags.length > 0 && (
+          <View style={styles.tagsContainer}>
+            {JSON.parse(item.tags).slice(0, 3).map((tag: string, index: number) => (
+              <View key={index} style={styles.tag}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function CardsListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [filter, setFilter] = React.useState<'all' | 'due'>('all');
-  const [cards, setCards] = useState<Card[]>([]);
+  const [cards, setCards] = React.useState<Card[]>([]);
 
   // Query cards based on filter
-  useEffect(() => {
+  React.useEffect(() => {
     let query;
     
     if (filter === 'all') {
@@ -96,92 +197,7 @@ export default function CardsListScreen({ navigation }: Props) {
   };
 
   const renderItem = ({ item }: { item: Card }) => {
-    const isDue = new Date(item.nextReviewAt) <= new Date();
-    const [cachedItem, setCachedItem] = useState<CachedItem | null>(null);
-
-    // 獲取關聯的 cachedItem（如果有）
-    useEffect(() => {
-      const fetchCachedItem = async () => {
-        if (item.cachedItemId) {
-          try {
-            const cached = await database
-              .get<CachedItem>('cached_items')
-              .find(item.cachedItemId);
-            setCachedItem(cached);
-          } catch (error) {
-            console.error('[CardsList] Error fetching cached item:', error);
-          }
-        }
-      };
-      fetchCachedItem();
-    }, [item.cachedItemId]);
-
-    return (
-      <View style={styles.cardContainer}>
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('CardReview', { card: item })}
-          style={styles.cardContent}
-        >
-          <View style={styles.cardHeader}>
-            <Text style={styles.targetWord}>{item.targetWord}</Text>
-            <View style={styles.cardHeaderRight}>
-              {isDue && <View style={styles.dueBadge}><Text style={styles.dueBadgeText}>待複習</Text></View>}
-              {/* 刪除按鈕 */}
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDelete(item)}
-              >
-                <Text style={styles.deleteButtonText}>🗑️</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* 圖片預覽 */}
-          {cachedItem?.contentType === 'image' && cachedItem.imageStoragePath && (
-            <View style={styles.imagePreviewContainer}>
-              <Image
-                source={{ uri: cachedItem.imageStoragePath }}
-                style={styles.previewImage}
-                resizeMode="cover"
-              />
-            </View>
-          )}
-
-          {item.targetPhrase && (
-            <Text style={styles.targetPhrase}>{item.targetPhrase}</Text>
-          )}
-
-          <Text style={styles.originalSentence} numberOfLines={2}>
-            {item.originalSentence}
-          </Text>
-
-          <Text style={styles.definition} numberOfLines={2}>
-            {item.definition}
-          </Text>
-
-          <View style={styles.cardFooter}>
-            <Text style={styles.srsInfo}>
-              複習次數: {item.repetitions} | 間隔: {item.intervalDays}天
-            </Text>
-            {item.lastReviewedAt && (
-              <Text style={styles.lastReview}>
-                上次: {new Date(item.lastReviewedAt).toLocaleDateString()}
-              </Text>
-            )}
-          </View>
-
-          {item.tags && item.tags.length > 0 && (
-            <View style={styles.tagsContainer}>
-              {JSON.parse(item.tags).slice(0, 3).map((tag: string, index: number) => (
-                <View key={index} style={styles.tag}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-    );
+    return <CardItem item={item} navigation={navigation} onDelete={handleDelete} />;
   };
 
   const renderEmpty = () => (

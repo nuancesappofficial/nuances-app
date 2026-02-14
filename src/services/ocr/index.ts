@@ -4,6 +4,10 @@ export {
   extractTextFromRegion,
   extractTextFromAnnotations,
   isOCRAvailable,
+  buildContextPayload,
+  analyzeTextWithAI,
   type OCRResult,
-  type OCRRegion,
+  type OCRBlock,
+  type ContextPayload,
+  type AIAnalysisResult,
 } from './ocrService';

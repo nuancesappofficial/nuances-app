@@ -1,5 +1,5 @@
 // Card Review Screen with flip animation
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,11 @@ import {
   Animated,
   Dimensions,
   SafeAreaView,
+  ScrollView,
+  Image,
 } from 'react-native';
 import type Card from '@database/models/Card';
+import type CachedItem from '@database/models/CachedItem';
 import { calculateNextReview, type ReviewRating } from '../services/srs/scheduler';
 import { database } from '@database/index';
 
@@ -18,10 +21,28 @@ type Props = {
   route: any;
 };
 
+/** 判斷字串是否為檔案路徑而非實際文字內容 */
+function isFilePath(text: string | undefined | null): boolean {
+  if (!text) return true;
+  return text.startsWith('file://') || text.startsWith('/') || text.startsWith('http');
+}
+
 export default function CardReviewScreen({ navigation, route }: Props) {
   const { card } = route.params as { card: Card };
-  const [isFlipped, setIsFlipped] = useState(false);
-  const [flipAnimation] = useState(new Animated.Value(0));
+  const [isFlipped, setIsFlipped] = React.useState(false);
+  const [flipAnimation] = React.useState(new Animated.Value(0));
+  const [cachedItem, setCachedItem] = React.useState<CachedItem | null>(null);
+
+  // 取得關聯的 cachedItem（用於顯示原圖）
+  React.useEffect(() => {
+    if (card.cachedItemId) {
+      database
+        .get<CachedItem>('cached_items')
+        .find(card.cachedItemId)
+        .then(setCachedItem)
+        .catch(() => setCachedItem(null));
+    }
+  }, [card.cachedItemId]);
 
   const flipCard = () => {
     Animated.spring(flipAnimation, {
@@ -115,7 +136,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
         {/* Front Side */}
         {!isFlipped && (
           <Animated.View style={[styles.card, frontAnimatedStyle]}>
-            <View style={styles.cardContent}>
+            <ScrollView style={styles.cardContent} showsVerticalScrollIndicator={false} contentContainerStyle={styles.cardScrollContent}>
               <Text style={styles.label}>Word</Text>
               <Text style={styles.targetWord}>{card.targetWord}</Text>
 
@@ -126,10 +147,26 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                 </>
               )}
 
-              <Text style={styles.label}>Context</Text>
-              <Text style={styles.originalSentence}>
-                {card.originalSentence}
-              </Text>
+              {/* 原圖預覽 */}
+              {cachedItem?.contentType === 'image' && cachedItem.imageStoragePath && (
+                <View style={styles.contextImageContainer}>
+                  <Image
+                    source={{ uri: cachedItem.imageStoragePath }}
+                    style={styles.contextImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              )}
+
+              {/* Context：只顯示文字，不顯示路徑 */}
+              {!isFilePath(card.originalSentence) && (
+                <>
+                  <Text style={styles.label}>Context</Text>
+                  <Text style={styles.originalSentence}>
+                    {card.originalSentence}
+                  </Text>
+                </>
+              )}
 
               {card.phoneticTranscription && (
                 <>
@@ -139,7 +176,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                   </Text>
                 </>
               )}
-            </View>
+            </ScrollView>
 
             <TouchableOpacity style={styles.flipButton} onPress={flipCard}>
               <Text style={styles.flipButtonText}>🔄 Show Answer</Text>
@@ -150,7 +187,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
         {/* Back Side */}
         {isFlipped && (
           <Animated.View style={[styles.card, backAnimatedStyle]}>
-            <View style={styles.cardContent}>
+            <ScrollView style={styles.cardContent} showsVerticalScrollIndicator={false} contentContainerStyle={styles.cardScrollContent}>
               <Text style={styles.label}>Definition</Text>
               <Text style={styles.definition}>{card.definition}</Text>
 
@@ -159,6 +196,27 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                   <Text style={styles.label}>Explanation</Text>
                   <Text style={styles.explanation}>
                     {card.contextualExplanation}
+                  </Text>
+                </>
+              )}
+
+              {/* 原圖預覽（背面也顯示） */}
+              {cachedItem?.contentType === 'image' && cachedItem.imageStoragePath && (
+                <View style={styles.contextImageContainer}>
+                  <Image
+                    source={{ uri: cachedItem.imageStoragePath }}
+                    style={styles.contextImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              )}
+
+              {/* Context（背面也顯示短句，不顯示路徑） */}
+              {!isFilePath(card.originalSentence) && (
+                <>
+                  <Text style={styles.label}>Context</Text>
+                  <Text style={styles.originalSentence}>
+                    {card.originalSentence}
                   </Text>
                 </>
               )}
@@ -172,7 +230,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                   ))}
                 </View>
               )}
-            </View>
+            </ScrollView>
 
             <TouchableOpacity
               style={[styles.flipButton, styles.flipButtonSecondary]}
@@ -297,6 +355,19 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flex: 1,
+  },
+  cardScrollContent: {
+    paddingBottom: 8,
+  },
+  contextImageContainer: {
+    marginTop: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f0f0f0',
+  },
+  contextImage: {
+    width: '100%',
+    height: 160,
   },
   label: {
     fontSize: 12,

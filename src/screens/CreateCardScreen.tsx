@@ -1,5 +1,5 @@
 // Create Card from Cached Item
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,20 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { analyzeText, generateContentForWord, isUsingRealAPI } from '../services/ai';
-import { extractTextFromImage, extractTextFromAnnotations, isOCRAvailable } from '../services/ocr';
+import { extractTextFromImage, isOCRAvailable, buildContextPayload, analyzeTextWithAI } from '../services/ocr';
+
+/** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
+function getAnnotationsArray(val: unknown): { text?: string }[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 type Props = {
   navigation: any;
@@ -27,22 +40,25 @@ type Props = {
 export default function CreateCardScreen({ navigation, route }: Props) {
   const { cachedItem } = route.params as { cachedItem: CachedItem };
   
-  const [targetWord, setTargetWord] = useState('');
-  const [targetPhrase, setTargetPhrase] = useState('');
-  const [definition, setDefinition] = useState('');
-  const [contextualExplanation, setContextualExplanation] = useState('');
-  const [phoneticTranscription, setPhoneticTranscription] = useState('');
-  const [tags, setTags] = useState('');
-  const [suggestedWords, setSuggestedWords] = useState<string[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [usingRealAPI, setUsingRealAPI] = useState(false);
+  const [targetWord, setTargetWord] = React.useState('');
+  const [targetPhrase, setTargetPhrase] = React.useState('');
+  const [definition, setDefinition] = React.useState('');
+  const [contextualExplanation, setContextualExplanation] = React.useState('');
+  const [phoneticTranscription, setPhoneticTranscription] = React.useState('');
+  const [tags, setTags] = React.useState('');
+  const [suggestedWords, setSuggestedWords] = React.useState<string[]>([]);
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [usingRealAPI, setUsingRealAPI] = React.useState(false);
+  const [showAnalysisChoice, setShowAnalysisChoice] = React.useState(true);
 
-  useEffect(() => {
-    // AI 分析：提取可能的目標單字並生成內容
-    if (cachedItem.contentText || cachedItem.contentType === 'image') {
-      performAnalysis();
+  React.useEffect(() => {
+    // 預填關鍵字（從 userKeywords 提取，移除 [block:X] 標記）
+    if (cachedItem.userKeywords) {
+      const keywordOnly = cachedItem.userKeywords.replace(/\s*\[block:\d+\]/, '').trim();
+      setTargetWord(keywordOnly);
     }
+    // 不自動執行分析，等用戶選擇
   }, [cachedItem]);
 
   const performAnalysis = async () => {
@@ -65,31 +81,43 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           return;
         }
 
-        // 檢查是否有標註
-        const annotations = cachedItem.imageAnnotations 
-          ? JSON.parse(cachedItem.imageAnnotations)
-          : [];
+        // 安全取得 annotations（DB 讀出時可能已是陣列）
+        const annotations = getAnnotationsArray(cachedItem.imageAnnotations);
 
         if (annotations.length > 0) {
-          // 提取標註區域的文字
-          console.log(`[CreateCard] Extracting text from ${annotations.length} annotations`);
-          console.log('[CreateCard] Image path:', cachedItem.imageStoragePath);
-          console.log('[CreateCard] Annotations:', JSON.stringify(annotations, null, 2));
-          
-          const results = await extractTextFromAnnotations(
-            cachedItem.imageStoragePath,
-            annotations
-          );
-          
-          console.log('[CreateCard] OCR results:', JSON.stringify(results, null, 2));
-          
-          // 合併所有標註區域的文字
-          textToAnalyze = results
-            .map((r) => r.text)
-            .filter((t) => t.trim())
-            .join(' ');
-          
-          console.log('[CreateCard] Extracted text from annotations:', textToAnalyze);
+          // 解析 userKeywords 中的 block 索引（格式：關鍵字 [block:索引]）
+          let selectedBlockIndex: number | null = null;
+          if (cachedItem.userKeywords) {
+            const match = cachedItem.userKeywords.match(/\[block:(\d+)\]/);
+            if (match) {
+              selectedBlockIndex = parseInt(match[1], 10);
+            }
+          }
+
+          if (selectedBlockIndex !== null && selectedBlockIndex < annotations.length) {
+            // 使用上下文分析（Tech Stack v1.5.0）
+            console.log('[CreateCard] Using context-based analysis for block:', selectedBlockIndex);
+            const payload = buildContextPayload(annotations as any[], selectedBlockIndex);
+            const result = await analyzeTextWithAI(payload);
+            
+            // 直接設定分析結果，跳過舊的 analyzeText
+            setTargetWord(result.keyword);
+            setDefinition(result.definition);
+            setContextualExplanation(result.example);
+            setPhoneticTranscription(result.pronunciation || '');
+            setTags(result.tags.join(', '));
+            setSuggestedWords([result.keyword]);
+            
+            setAnalyzing(false);
+            return;
+          } else {
+            // 舊資料或無索引：拼成全文
+            textToAnalyze = annotations
+              .map((a) => a.text)
+              .filter(Boolean)
+              .join(' ');
+            console.log('[CreateCard] No block index, using full OCR text:', textToAnalyze);
+          }
         } else {
           // 提取整張圖片的文字
           console.log('[CreateCard] Extracting text from full image');
@@ -257,9 +285,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 style={styles.previewImage}
                 resizeMode="contain"
               />
-              {cachedItem.imageAnnotations && JSON.parse(cachedItem.imageAnnotations).length > 0 && (
+              {getAnnotationsArray(cachedItem.imageAnnotations).length > 0 && (
                 <Text style={styles.annotationHint}>
-                  ✏️ {JSON.parse(cachedItem.imageAnnotations).length} 個標註區域
+                  ✏️ {getAnnotationsArray(cachedItem.imageAnnotations).length} 個單字
                 </Text>
               )}
             </View>
@@ -278,6 +306,34 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             </Text>
           )}
         </View>
+
+        {/* AI 分析選擇對話框 */}
+        {showAnalysisChoice && (
+          <View style={styles.choiceContainer}>
+            <Text style={styles.choiceTitle}>建立卡片方式</Text>
+            <View style={styles.choiceButtons}>
+              <TouchableOpacity
+                style={[styles.choiceButton, styles.aiButton]}
+                onPress={() => {
+                  setShowAnalysisChoice(false);
+                  performAnalysis();
+                }}
+              >
+                <Text style={styles.choiceButtonText}>🤖 AI 分析</Text>
+                <Text style={styles.choiceButtonHint}>自動生成定義和例句</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.choiceButton, styles.manualButton]}
+                onPress={() => {
+                  setShowAnalysisChoice(false);
+                }}
+              >
+                <Text style={styles.choiceButtonText}>✏️ 手動輸入</Text>
+                <Text style={styles.choiceButtonHint}>自己填寫卡片內容</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Loading Indicator */}
         {analyzing && (
@@ -553,5 +609,49 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  choiceContainer: {
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+    borderRadius: 12,
+    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  choiceTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  choiceButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  choiceButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  aiButton: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196F3',
+  },
+  manualButton: {
+    backgroundColor: '#fff3e0',
+    borderColor: '#FF9800',
+  },
+  choiceButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  choiceButtonHint: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
 });

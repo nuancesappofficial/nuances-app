@@ -1,5 +1,5 @@
 // 開發工具畫面 - 用於測試和數據管理
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -18,13 +18,13 @@ type Props = {
 };
 
 export default function DevToolsScreen({ navigation }: Props) {
-  const [stats, setStats] = useState({
+  const [stats, setStats] = React.useState({
     profiles: 0,
     cachedItems: 0,
     cards: 0,
     reviewHistory: 0,
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = React.useState(false);
 
   const loadStats = async () => {
     try {

@@ -2,7 +2,7 @@
 // Tech Stack v1.5.0: Tap-to-Select OCR Interface
 // 自動 OCR → 顯示可點擊文字框 → 用戶點擊選擇
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Image,
@@ -10,7 +10,7 @@ import {
   Text,
   ActivityIndicator,
   Alert,
-  ScrollView,
+  TouchableOpacity,
   Dimensions,
 } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
@@ -19,26 +19,39 @@ import { extractTextFromImage, OCRBlock } from '../services/ocr/ocrService';
 interface Props {
   imageUri: string;
   onTextBlockSelect: (block: OCRBlock, index: number) => void;
+  onOCRComplete?: (blocks: OCRBlock[]) => void;
   initialSelectedIndex?: number;
 }
+
+const CONTAINER_WIDTH = Dimensions.get('window').width - 32;
+const CONTAINER_HEIGHT = 400;
 
 export default function ImageOCRViewer({ 
   imageUri, 
   onTextBlockSelect,
+  onOCRComplete,
   initialSelectedIndex,
 }: Props) {
   // State
-  const [ocrBlocks, setOCRBlocks] = useState<OCRBlock[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(initialSelectedIndex ?? null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-  const [error, setError] = useState<string | null>(null);
+  const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
+  const [selectedIndex, setSelectedIndex] = React.useState<number | null>(initialSelectedIndex ?? null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [containerLayout, setContainerLayout] = React.useState({ width: CONTAINER_WIDTH, height: CONTAINER_HEIGHT });
+  const [originalImageSize, setOriginalImageSize] = React.useState<{ width: number; height: number } | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const screenWidth = Dimensions.get('window').width - 32; // 扣除 padding
-  const imageHeight = 400; // 固定高度
+  // 取得原始圖片尺寸（用於座標縮放）
+  React.useEffect(() => {
+    if (!imageUri) return;
+    Image.getSize(
+      imageUri,
+      (width, height) => setOriginalImageSize({ width, height }),
+      () => setOriginalImageSize(null)
+    );
+  }, [imageUri]);
 
   // 自動執行 OCR（符合 Tech Stack v1.5.0 第 145 行）
-  useEffect(() => {
+  React.useEffect(() => {
     performOCR();
   }, [imageUri]);
 
@@ -58,6 +71,9 @@ export default function ImageOCRViewer({
       
       if (result.blocks.length === 0) {
         setError('圖片中未識別到文字');
+      } else {
+        // 通知父組件 OCR 完成
+        onOCRComplete?.(result.blocks);
       }
       
     } catch (err) {
@@ -86,15 +102,16 @@ export default function ImageOCRViewer({
 
     return (
       <View style={styles.blocksList}>
-        <Text style={styles.blocksTitle}>✨ 識別到的文字（點擊圖片上的框選擇）：</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text style={styles.blocksTitle}>✨ 識別到的單字（點擊選擇）：</Text>
+        <View style={styles.blocksGrid}>
           {ocrBlocks.map((block, index) => (
-            <View
+            <TouchableOpacity
               key={block.id}
               style={[
                 styles.blockChip,
                 selectedIndex === index && styles.blockChipSelected,
               ]}
+              onPress={() => handleBlockPress(block, index)}
             >
               <Text
                 style={[
@@ -105,9 +122,9 @@ export default function ImageOCRViewer({
               >
                 {block.text}
               </Text>
-            </View>
+            </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
     );
   };
@@ -120,23 +137,21 @@ export default function ImageOCRViewer({
           ? '🔍 正在識別圖片中的文字...'
           : error
           ? `⚠️ ${error}`
-          : `💡 已識別 ${ocrBlocks.length} 個文字區域，點擊任何區域來學習`}
+          : `💡 已識別 ${ocrBlocks.length} 個單字，點擊任何區域來學習`}
       </Text>
 
       {/* 圖片 + SVG 覆蓋層 */}
       <View
         style={styles.imageContainer}
         onLayout={(e) => {
-          setImageSize({
-            width: e.nativeEvent.layout.width,
-            height: e.nativeEvent.layout.height,
-          });
+          const { width, height } = e.nativeEvent.layout;
+          setContainerLayout({ width, height });
         }}
       >
         {/* 底層：原始圖片 */}
         <Image
           source={{ uri: imageUri }}
-          style={[styles.image, { width: screenWidth, height: imageHeight }]}
+          style={[styles.image, { width: CONTAINER_WIDTH, height: CONTAINER_HEIGHT }]}
           resizeMode="contain"
         />
 
@@ -148,31 +163,38 @@ export default function ImageOCRViewer({
           </View>
         )}
 
-        {/* SVG 覆蓋層：可點擊的文字框（符合 Tech Stack v1.5.0 第 150 行）*/}
-        {!isLoading && !error && imageSize.width > 0 && (
+        {/* SVG 覆蓋層：座標依「原始圖 → 顯示區」縮放對齊（resizeMode=contain）*/}
+        {!isLoading && !error && originalImageSize && containerLayout.width > 0 && (
           <Svg
             style={StyleSheet.absoluteFill}
-            width={screenWidth}
-            height={imageHeight}
+            width={containerLayout.width}
+            height={containerLayout.height}
           >
-            {ocrBlocks.map((block, index) => (
-              <Rect
-                key={block.id}
-                x={block.frame.x}
-                y={block.frame.y}
-                width={block.frame.width}
-                height={block.frame.height}
-                // 視覺狀態：未選中（綠色）→ 選中（橙色）
-                fill={
-                  selectedIndex === index
-                    ? 'rgba(255, 152, 0, 0.35)' // 橙色高亮
-                    : 'rgba(76, 175, 80, 0.2)'  // 綠色半透明
-                }
-                stroke={selectedIndex === index ? '#FF9800' : '#4CAF50'}
-                strokeWidth={selectedIndex === index ? 3 : 2}
-                onPress={() => handleBlockPress(block, index)}
-              />
-            ))}
+            {(() => {
+              const { width: origW, height: origH } = originalImageSize;
+              const cw = containerLayout.width;
+              const ch = containerLayout.height;
+              const scale = Math.min(cw / origW, ch / origH);
+              const offsetX = (cw - origW * scale) / 2;
+              const offsetY = (ch - origH * scale) / 2;
+              return ocrBlocks.map((block, index) => (
+                <Rect
+                  key={block.id}
+                  x={block.frame.x * scale + offsetX}
+                  y={block.frame.y * scale + offsetY}
+                  width={block.frame.width * scale}
+                  height={block.frame.height * scale}
+                  fill={
+                    selectedIndex === index
+                      ? 'rgba(255, 152, 0, 0.35)'
+                      : 'rgba(76, 175, 80, 0.2)'
+                  }
+                  stroke={selectedIndex === index ? '#FF9800' : '#4CAF50'}
+                  strokeWidth={selectedIndex === index ? 3 : 2}
+                  onPress={() => handleBlockPress(block, index)}
+                />
+              ));
+            })()}
           </Svg>
         )}
       </View>
@@ -183,7 +205,7 @@ export default function ImageOCRViewer({
       {/* Debug 信息（僅開發模式） */}
       {__DEV__ && !isLoading && (
         <Text style={styles.debugText}>
-          🔧 Debug: {ocrBlocks.length} blocks | Selected: {selectedIndex ?? 'none'}
+          🔧 Debug: {ocrBlocks.length} words | Selected: {selectedIndex ?? 'none'}
         </Text>
       )}
     </View>
@@ -239,12 +261,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '600',
   },
+  blocksGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   blockChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: '#e8f5e9',
     borderRadius: 16,
-    marginRight: 8,
     borderWidth: 1,
     borderColor: '#4CAF50',
   },
@@ -256,7 +282,6 @@ const styles = StyleSheet.create({
   blockChipText: {
     fontSize: 12,
     color: '#2e7d32',
-    maxWidth: 120,
   },
   blockChipTextSelected: {
     color: '#e65100',

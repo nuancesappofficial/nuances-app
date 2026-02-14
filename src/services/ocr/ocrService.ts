@@ -4,6 +4,7 @@
 // NO images are uploaded to AI servers
 
 import TextRecognition from '@react-native-ml-kit/text-recognition';
+import * as FileSystem from 'expo-file-system/legacy';
 import { isOpenAIConfigured, callOpenAI } from '../ai/openaiService';
 
 // ============================================================
@@ -70,6 +71,16 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
   const startTime = Date.now();
   
   try {
+    // 驗證圖片路徑（避免傳空值或過期路徑到 native 導致閃退）
+    if (!imageUri) {
+      throw new Error('OCR failed: empty image URI');
+    }
+    
+    const fileInfo = await FileSystem.getInfoAsync(imageUri);
+    if (!fileInfo.exists) {
+      throw new Error(`OCR failed: image file not found (${imageUri})`);
+    }
+    
     // 調用 Google ML Kit（完全本地處理）
     const result = await TextRecognition.recognize(imageUri);
     
@@ -78,27 +89,33 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
       hasText: !!result.text,
     });
     
-    // 轉換為標準格式
-    const blocks: OCRBlock[] = (result.blocks || []).map((block: any, index: number) => {
-      // ML Kit 的 frame 結構可能因平台而異
-      const frame = block.frame || block.boundingBox || {};
-      return {
-        id: `block_${index}_${Date.now()}`,
-        text: block.text,
-        frame: {
-          x: frame.x !== undefined ? frame.x : (frame.left || 0),
-          y: frame.y !== undefined ? frame.y : (frame.top || 0),
-          width: frame.width !== undefined ? frame.width : ((frame.right || 0) - (frame.left || 0)),
-          height: frame.height !== undefined ? frame.height : ((frame.bottom || 0) - (frame.top || 0)),
-        },
-        confidence: (block as any).confidence !== undefined ? (block as any).confidence : 0.95,
-      };
+    // 以「單字 (word / element)」為單位收集（ML Kit: blocks → lines → elements）
+    const blocks: OCRBlock[] = [];
+    let globalIndex = 0;
+    (result.blocks || []).forEach((block: any) => {
+      (block.lines || []).forEach((line: any) => {
+        (line.elements || []).forEach((element: any) => {
+          const frame = element.frame || element.boundingBox || {};
+          // ML Kit Frame 使用 left, top, width, height
+          const left = frame.left ?? frame.x ?? 0;
+          const top = frame.top ?? frame.y ?? 0;
+          const width = frame.width ?? (frame.right != null && frame.left != null ? frame.right - frame.left : 0);
+          const height = frame.height ?? (frame.bottom != null && frame.top != null ? frame.bottom - frame.top : 0);
+          blocks.push({
+            id: `word_${globalIndex}_${Date.now()}`,
+            text: element.text ?? '',
+            frame: { x: left, y: top, width, height },
+            confidence: (element as any).confidence ?? 0.95,
+          });
+          globalIndex += 1;
+        });
+      });
     });
-    
+
     const fullText = blocks.map(b => b.text).join(' ');
     const processingTime = Date.now() - startTime;
     
-    console.log(`[OCR] ✅ Success: Found ${blocks.length} text blocks in ${processingTime}ms`);
+    console.log(`[OCR] ✅ Success: Found ${blocks.length} words in ${processingTime}ms`);
     console.log(`[OCR] Full text preview: "${fullText.substring(0, 100)}..."`);
     
     return { blocks, fullText, processingTime };
@@ -110,11 +127,11 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
 }
 
 /**
- * 構建智能上下文（Tech Stack v1.5.0 第 146-150 行規範）
+ * 構建智能上下文（7 個單字：前 3 + 關鍵字 + 後 3）
  * 
- * 當用戶點擊文字塊 i 時：
- * - Target: blocks[i].text
- * - Context: blocks[i-1].text + blocks[i+1].text
+ * 規則：
+ * 1. 總共 7 個單字（前 3 + target + 後 3）
+ * 2. 遇到標點符號（. , ! ? ; :）就停止
  * 
  * @param blocks - 所有 OCR 文字塊
  * @param selectedIndex - 用戶選擇的文字塊索引
@@ -129,16 +146,32 @@ export function buildContextPayload(
   }
   
   const targetText = blocks[selectedIndex].text;
-  const prevText = blocks[selectedIndex - 1]?.text || '';
-  const nextText = blocks[selectedIndex + 1]?.text || '';
+  const punctuation = /[.,!?;:]/;
   
-  const contextText = `${prevText} ${nextText}`.trim();
-  const originalSentence = `${prevText} ${targetText} ${nextText}`.trim();
+  // 收集前 3 個單字（遇標點就停）
+  const prevWords: string[] = [];
+  for (let i = selectedIndex - 1; i >= 0 && prevWords.length < 3; i--) {
+    const word = blocks[i].text;
+    if (punctuation.test(word)) break;
+    prevWords.unshift(word);
+  }
   
-  console.log('[OCR] Built context payload:', {
+  // 收集後 3 個單字（遇標點就停）
+  const nextWords: string[] = [];
+  for (let i = selectedIndex + 1; i < blocks.length && nextWords.length < 3; i++) {
+    const word = blocks[i].text;
+    if (punctuation.test(word)) break;
+    nextWords.push(word);
+  }
+  
+  const contextText = `${prevWords.join(' ')} ${nextWords.join(' ')}`.trim();
+  const originalSentence = `${prevWords.join(' ')} ${targetText} ${nextWords.join(' ')}`.trim();
+  
+  console.log('[OCR] Built context (7 words):', {
     target: targetText,
-    hasPrevious: !!prevText,
-    hasNext: !!nextText,
+    prev: prevWords.length,
+    next: nextWords.length,
+    sentence: originalSentence,
   });
   
   return {
@@ -230,6 +263,13 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
 // ============================================================
 // Legacy Compatibility (Optional)
 // ============================================================
+
+/**
+ * 是否可使用 OCR。ML Kit 為本地辨識，無需 API key，視為永遠可用。
+ */
+export function isOCRAvailable(): boolean {
+  return true;
+}
 
 /**
  * @deprecated 舊版接口，保留用於向後兼容
