@@ -8,10 +8,17 @@ import {
   RefreshControl,
   Alert,
   Image,
+  AppState,
+  AppStateStatus,
+  Animated,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import * as Clipboard from 'expo-clipboard';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
+import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
+import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): unknown[] {
@@ -30,9 +37,126 @@ type Props = {
   navigation: any;
 };
 
+const SNACKBAR_DURATION = 2500;
+
 export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
+  const [snackbarVisible, setSnackbarVisible] = React.useState(false);
+  const snackbarOpacity = React.useRef(new Animated.Value(0)).current;
+  const lastProcessedClipboard = React.useRef<string>('');
+  const appState = React.useRef(AppState.currentState);
+  const isScreenFocused = React.useRef(false);
+  const isCheckingClipboard = React.useRef(false);
+  const lastCheckTime = React.useRef(0);
+  const { consumeShareSnackbar } = useShareExtensionSnackbar();
+
+  const [snackbarMessage, setSnackbarMessage] = React.useState('卡片已建立');
+
+  const showSnackbar = React.useCallback((message?: string) => {
+    setSnackbarMessage(message ?? '卡片已建立');
+    setSnackbarVisible(true);
+    Animated.sequence([
+      Animated.timing(snackbarOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.delay(SNACKBAR_DURATION),
+      Animated.timing(snackbarOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setSnackbarVisible(false));
+  }, [snackbarOpacity]);
+
+  // 每次進入直接讀取剪貼簿（觸發 iOS 問題1）；允許則儲存並顯示 Snackbar，取消則不動作
+  const checkClipboard = React.useCallback(async () => {
+    const now = Date.now();
+    if (isCheckingClipboard.current || now - lastCheckTime.current < 1000) {
+      return;
+    }
+
+    isCheckingClipboard.current = true;
+    lastCheckTime.current = now;
+
+    try {
+      // 直接讀取剪貼簿 → 觸發 iOS「Nuances 想要貼上...」（問題1）
+      const currentText = await Clipboard.getStringAsync();
+
+      if (!currentText || currentText.trim().length === 0) {
+        // 用戶點取消或剪貼簿為空 → 當作沒事
+        return;
+      }
+
+      if (currentText === lastProcessedClipboard.current) {
+        // 同一段內容，不重複儲存
+        return;
+      }
+
+      // 用戶點允許且為新內容 → 儲存並顯示 Snackbar
+      lastProcessedClipboard.current = currentText;
+      const result = await pasteTextFromClipboard('demo-user'); // TODO: Replace with actual user ID
+
+      if (result.success) {
+        showSnackbar();
+      }
+    } catch (error) {
+      console.error('[CacheList] Clipboard error:', error);
+    } finally {
+      setTimeout(() => {
+        isCheckingClipboard.current = false;
+      }, 1000);
+    }
+  }, [showSnackbar]);
+
+  const tryShowShareSnackbar = React.useCallback(() => {
+    const message = consumeShareSnackbar();
+    if (message) showSnackbar(message);
+  }, [consumeShareSnackbar, showSnackbar]);
+
+  const shareSnackbarTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 監聽 App 從背景回到前景（當畫面在焦點上時）
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (
+        isScreenFocused.current &&
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        setTimeout(checkClipboard, 500);
+        // Share Extension 處理為非同步，延遲 1.2s 後再檢查，確保 useShareExtension 已完成入庫
+        shareSnackbarTimerRef.current = setTimeout(tryShowShareSnackbar, 1200);
+      }
+      appState.current = nextAppState;
+    });
+    return () => {
+      if (shareSnackbarTimerRef.current) {
+        clearTimeout(shareSnackbarTimerRef.current);
+        shareSnackbarTimerRef.current = null;
+      }
+      subscription.remove();
+    };
+  }, [checkClipboard, tryShowShareSnackbar]);
+
+  // 監聽畫面聚焦（Tab 切換或首次進入）
+  useFocusEffect(
+    React.useCallback(() => {
+      isScreenFocused.current = true;
+      const timer = setTimeout(checkClipboard, 500);
+      const shareTimer = setTimeout(() => {
+        const message = consumeShareSnackbar();
+        if (message) showSnackbar(message);
+      }, 600);
+      return () => {
+        isScreenFocused.current = false;
+        clearTimeout(timer);
+        clearTimeout(shareTimer);
+      };
+    }, [checkClipboard, consumeShareSnackbar, showSnackbar])
+  );
 
   // Query cached items (not deleted, not converted, ordered by creation date)
   React.useEffect(() => {
@@ -206,6 +330,15 @@ export default function CacheListScreen({ navigation }: Props) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       />
+
+      {snackbarVisible && (
+        <Animated.View
+          style={[styles.snackbar, { opacity: snackbarOpacity }]}
+          pointerEvents="none"
+        >
+          <Text style={styles.snackbarText}>✅ {snackbarMessage}</Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -392,5 +525,22 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  snackbar: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: '#323232',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  snackbarText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#fff',
   },
 });
