@@ -16,7 +16,7 @@ import {
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
-import { analyzeText, generateContentForWord, isUsingRealAPI } from '../services/ai';
+import { analyzeText, isUsingRealAPI } from '../services/ai';
 import { extractTextFromImage, isOCRAvailable, buildContextPayload, analyzeTextWithAI } from '../services/ocr';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
@@ -36,6 +36,23 @@ type Props = {
   navigation: any;
   route: any;
 };
+
+function readableAIErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (message.includes('401') || message.toLowerCase().includes('unauthorized')) {
+    return 'AI 服務需要登入授權，請重新登入後再試。';
+  }
+  if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
+    return 'AI 服務目前請求過多，請稍後再試。';
+  }
+  if (message.toLowerCase().includes('network')) {
+    return '網路連線異常，請檢查網路後重試。';
+  }
+  if (message.includes('Edge Function returned a non-2xx status code')) {
+    return 'AI 服務暫時異常，請稍後重試。';
+  }
+  return '無法分析文本，請稍後重試或改用手動輸入。';
+}
 
 export default function CreateCardScreen({ navigation, route }: Props) {
   const { cachedItem } = route.params as { cachedItem: CachedItem };
@@ -162,8 +179,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       console.error('Analysis error:', error);
       Alert.alert(
         '分析失敗',
-        '無法分析文本。請手動輸入單字和定義。',
-        [{ text: '確定' }]
+        readableAIErrorMessage(error),
+        [
+          {
+            text: '手動輸入',
+            style: 'cancel',
+          },
+          {
+            text: '重試',
+            onPress: () => {
+              void performAnalysis();
+            },
+          },
+        ]
       );
     } finally {
       setAnalyzing(false);
@@ -215,7 +243,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           card.definition = definition.trim();
           card.contextualExplanation = contextualExplanation.trim() || undefined;
           card.phoneticTranscription = phoneticTranscription.trim() || undefined;
-          card.tags = tags.trim() ? JSON.stringify(tags.split(',').map(t => t.trim())) : undefined;
+          card.tags = tags.trim() ? tags.split(',').map(t => t.trim()) : undefined;
           card.sourceApp = cachedItem.sourceApp;
           
           // SRS 初始值

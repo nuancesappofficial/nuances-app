@@ -18,6 +18,8 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getSyncErrorMessage, syncWithRetry } from '@services/sync';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
@@ -50,6 +52,7 @@ export default function CacheListScreen({ navigation }: Props) {
   const isCheckingClipboard = React.useRef(false);
   const lastCheckTime = React.useRef(0);
   const hasCheckedClipboardOnFocus = React.useRef(false);
+  const isSyncing = React.useRef(false);
   const { consumeShareSnackbar } = useShareExtensionSnackbar();
 
   const [snackbarMessage, setSnackbarMessage] = React.useState('卡片已建立');
@@ -98,7 +101,11 @@ export default function CacheListScreen({ navigation }: Props) {
 
       // 用戶點允許且為新內容 → 儲存並顯示 Snackbar
       lastProcessedClipboard.current = currentText;
-      const result = await pasteTextFromClipboard('demo-user'); // TODO: Replace with actual user ID
+      const userId = await getCurrentAuthUserId();
+      if (!userId) {
+        return;
+      }
+      const result = await pasteTextFromClipboard(userId);
 
       if (result.success) {
         showSnackbar();
@@ -117,6 +124,37 @@ export default function CacheListScreen({ navigation }: Props) {
     if (message) showSnackbar(message);
   }, [consumeShareSnackbar, showSnackbar]);
 
+  const runSync = React.useCallback(
+    async (interactive: boolean): Promise<boolean> => {
+      if (isSyncing.current) return false;
+
+      const userId = await getCurrentAuthUserId();
+      if (!userId) return false;
+
+      isSyncing.current = true;
+      try {
+        const result = await syncWithRetry(2);
+        if (!result.success && interactive) {
+          const readableMessage = getSyncErrorMessage(result.error ?? result.message);
+          Alert.alert('同步失敗', readableMessage, [
+            { text: '稍後', style: 'cancel' },
+            {
+              text: '重試',
+              onPress: () => {
+                void runSync(true);
+              },
+            },
+          ]);
+          return false;
+        }
+        return result.success;
+      } finally {
+        isSyncing.current = false;
+      }
+    },
+    []
+  );
+
   const shareSnackbarTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 監聽 App 從背景回到前景（當畫面在焦點上時）
@@ -127,6 +165,7 @@ export default function CacheListScreen({ navigation }: Props) {
         appState.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
+        void runSync(false);
         setTimeout(checkClipboard, 500);
         // Share Extension 處理為非同步，延遲 1.2s 後再檢查，確保 useShareExtension 已完成入庫
         shareSnackbarTimerRef.current = setTimeout(tryShowShareSnackbar, 1200);
@@ -140,7 +179,7 @@ export default function CacheListScreen({ navigation }: Props) {
       }
       subscription.remove();
     };
-  }, [checkClipboard, tryShowShareSnackbar]);
+  }, [checkClipboard, runSync, tryShowShareSnackbar]);
 
   // 監聽畫面聚焦（Tab 切換或首次進入）
   // 僅在「首次進入 Cache」時檢查剪貼簿（用戶可能從其他 app 複製後才開啟 Nuances）
@@ -201,11 +240,14 @@ export default function CacheListScreen({ navigation }: Props) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    // Trigger sync here in the future
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    try {
+      await runSync(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [runSync]);
 
   // 刪除快取項目
   const handleDelete = async (item: CachedItem) => {

@@ -85,7 +85,7 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     // 使用 CHINESE 腳本以支援繁體中文、簡體中文識別
     const result = await TextRecognition.recognize(imageUri, TextRecognitionScript.CHINESE);
     
-    console.log(`[OCR] ML Kit raw result (Chinese script):`, {
+    console.log('[OCR] ML Kit raw result (Chinese script):', {
       blockCount: result.blocks?.length || 0,
       hasText: !!result.text,
     });

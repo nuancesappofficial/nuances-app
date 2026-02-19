@@ -43,7 +43,7 @@ export async function seedTestData() {
           item.sourceApp = 'Safari';
           item.userKeywords = 'ephemeral, fleeting';
           item.aiAnalysisCompleted = true;
-          item.aiHighlightedTerms = JSON.stringify(['ephemeral', 'fleeting', 'cherry blossoms']);
+          item.aiHighlightedTerms = ['ephemeral', 'fleeting', 'cherry blossoms'];
           item.convertedToCard = true;
         });
 
@@ -84,9 +84,9 @@ export async function seedTestData() {
       const existingCards = await cardsCollection.query().fetch();
 
       if (existingCards.length === 0) {
-        const now = Date.now();
-        const oneDayAgo = now - 24 * 60 * 60 * 1000;
-        const threeDaysFromNow = now + 3 * 24 * 60 * 60 * 1000;
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
         // 待複習的卡片（已過期）
         await cardsCollection.create((card) => {
@@ -97,13 +97,13 @@ export async function seedTestData() {
           card.definition = '短暫的；轉瞬即逝的 (lasting for a very short time)';
           card.contextualExplanation = '用來描述持續時間很短、很快就會消失的事物，常用於文學或哲學語境。';
           card.phoneticTranscription = '/ɪˈfem.ər.əl/';
-          card.tags = JSON.stringify(['IELTS', 'Advanced', 'Literature']);
+          card.tags = ['IELTS', 'Advanced', 'Literature'];
           card.difficultyLevel = 8;
           card.easeFactor = 2.5;
           card.intervalDays = 1;
           card.repetitions = 1;
           card.nextReviewAt = oneDayAgo; // 需要複習
-          card.lastReviewedAt = now - 2 * 24 * 60 * 60 * 1000;
+          card.lastReviewedAt = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
         });
 
         await cardsCollection.create((card) => {
@@ -114,7 +114,7 @@ export async function seedTestData() {
           card.definition = '韌性；復原力 (the ability to recover quickly from difficulties)';
           card.contextualExplanation = '指面對困難、壓力或創傷後快速恢復的能力，是心理學和個人發展中的重要概念。';
           card.phoneticTranscription = '/rɪˈzɪl.i.əns/';
-          card.tags = JSON.stringify(['IELTS', 'Psychology', 'Character']);
+          card.tags = ['IELTS', 'Psychology', 'Character'];
           card.difficultyLevel = 7;
           card.easeFactor = 2.5;
           card.intervalDays = 1;
@@ -129,7 +129,7 @@ export async function seedTestData() {
           card.originalSentence = 'The arduous climb to the summit tested everyone\'s endurance.';
           card.definition = '艱難的；費力的 (involving or requiring strenuous effort; difficult and tiring)';
           card.phoneticTranscription = '/ˈɑːr.dʒu.əs/';
-          card.tags = JSON.stringify(['IELTS', 'Intermediate']);
+          card.tags = ['IELTS', 'Intermediate'];
           card.difficultyLevel = 6;
           card.easeFactor = 2.5;
           card.intervalDays = 3;
@@ -145,12 +145,12 @@ export async function seedTestData() {
           card.definition = '意外發現珍奇事物的運氣 (the occurrence of finding valuable things by chance)';
           card.contextualExplanation = '指偶然間發現有價值或令人愉快事物的幸運經歷。';
           card.phoneticTranscription = '/ˌser.ənˈdɪp.ə.ti/';
-          card.tags = JSON.stringify(['Advanced', 'Vocabulary']);
+          card.tags = ['Advanced', 'Vocabulary'];
           card.difficultyLevel = 8;
           card.easeFactor = 2.5;
           card.intervalDays = 7;
           card.repetitions = 3;
-          card.nextReviewAt = now + 7 * 24 * 60 * 60 * 1000;
+          card.nextReviewAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
           card.lastReviewedAt = now;
         });
 
@@ -160,12 +160,12 @@ export async function seedTestData() {
           card.originalSentence = 'We need to take a more pragmatic approach to solving this problem.';
           card.definition = '務實的；講求實際的 (dealing with things in a practical way)';
           card.phoneticTranscription = '/præɡˈmæt.ɪk/';
-          card.tags = JSON.stringify(['IELTS', 'Business', 'Academic']);
+          card.tags = ['IELTS', 'Business', 'Academic'];
           card.difficultyLevel = 6;
           card.easeFactor = 2.5;
           card.intervalDays = 1;
           card.repetitions = 0;
-          card.nextReviewAt = now - 6 * 60 * 60 * 1000; // 6小時前（需要複習）
+          card.nextReviewAt = new Date(now.getTime() - 6 * 60 * 60 * 1000); // 6小時前（需要複習）
         });
 
         console.log('✅ 創建了 5 張測試 Cards（3張待複習，2張未來複習）');

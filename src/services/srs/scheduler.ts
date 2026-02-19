@@ -11,6 +11,17 @@ export type SRSData = {
   lastReviewedAt: Date | null;
 };
 
+export function initializeSRSCard(): SRSData {
+  const now = new Date();
+  return {
+    easeFactor: 2.5,
+    intervalDays: 1,
+    repetitions: 0,
+    nextReviewAt: now,
+    lastReviewedAt: null,
+  };
+}
+
 /**
  * 根據用戶評分計算下次複習時間
  * 基於 SM-2 演算法

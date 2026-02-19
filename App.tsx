@@ -2,14 +2,28 @@
 // This version works in Expo Go by using mock data instead of WatermelonDB
 
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  Alert,
+  Linking,
+} from 'react-native';
 import React, { useEffect, useState } from 'react';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
+import {
+  completeOAuthFromUrl,
+  getCurrentSession,
+  signInWithGoogle,
+  supabase,
+} from './src/services/supabase/client';
 
 // Check if we're running in Expo Go
-const isExpoGo = !global.HermesInternal;
+const isExpoGo = !('HermesInternal' in globalThis);
 
 function ShareExtensionSync({
   userId,
@@ -22,9 +36,28 @@ function ShareExtensionSync({
   return <>{children}</>;
 }
 
+function AuthGate({ onPressGoogle, loading }: { onPressGoogle: () => void; loading: boolean }) {
+  return (
+    <View style={styles.authContainer}>
+      <Text style={styles.authTitle}>Nuances</Text>
+      <Text style={styles.authSubtitle}>先登入一次，之後測試不需要每次重登入。</Text>
+      <TouchableOpacity
+        style={[styles.googleButton, loading && styles.googleButtonDisabled]}
+        onPress={onPressGoogle}
+        disabled={loading}
+      >
+        <Text style={styles.googleButtonText}>
+          {loading ? '連線中...' : '使用 Google 登入'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     initializeApp();
@@ -33,26 +66,11 @@ export default function App() {
   const initializeApp = async () => {
     try {
       if (isExpoGo) {
-        // In Expo Go, skip database initialization
-        console.log('✅ Running in Expo Go mode (UI preview only)');
-        setUserId('demo-user'); // Demo user for Expo Go
-      } else {
-        // In Development Build, initialize database
-        const { database } = await import('./src/database');
-        
-        const profiles = await database.get('profiles').query().fetch();
-        console.log(`✅ WatermelonDB initialized (${profiles.length} profiles)`);
-
-        // 設定當前用戶 ID（實際應從 auth 取得）
-        if (profiles.length > 0) {
-          setUserId(profiles[0].userId);
-        } else {
-          setUserId('demo-user');
-        }
-
-        // 測試數據已停用 - 使用真實用戶數據
-        // 如需測試數據，請手動調用 seedTestData()
+        console.log('✅ Running in Expo Go mode');
       }
+
+      const { session } = await getCurrentSession();
+      setUserId(session?.user?.id ?? null);
 
       setIsReady(true);
     } catch (error) {
@@ -60,6 +78,57 @@ export default function App() {
       setIsReady(true); // Continue anyway
     }
   };
+
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleOAuthCallback = React.useCallback(async (url: string) => {
+    if (!url.includes('auth/callback')) return;
+    const { error, handled } = await completeOAuthFromUrl(url);
+    if (handled && error) {
+      Alert.alert('登入失敗', error.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleOAuthCallback(url);
+    });
+
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        void handleOAuthCallback(url);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleOAuthCallback]);
+
+  const handleGoogleSignIn = React.useCallback(async () => {
+    setAuthLoading(true);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        Alert.alert(
+          '登入失敗',
+          `Google OAuth 問題：${error.message}\n\n請檢查 Supabase Google Provider 與 Google Cloud OAuth 設定。`
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知錯誤';
+      Alert.alert('登入失敗', message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
 
   if (!isReady) {
     return (
@@ -80,7 +149,11 @@ export default function App() {
   return (
     <ShareExtensionProvider>
       <ShareExtensionSync userId={userId}>
-        <RootNavigator isExpoGo={isExpoGo} />
+        {userId ? (
+          <RootNavigator isExpoGo={isExpoGo} />
+        ) : (
+          <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
+        )}
       </ShareExtensionSync>
       <StatusBar style="auto" />
     </ShareExtensionProvider>
@@ -104,5 +177,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     textAlign: 'center',
+  },
+  authContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  authTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 12,
+  },
+  authSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  googleButton: {
+    backgroundColor: '#1a73e8',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+  },
+  googleButtonDisabled: {
+    opacity: 0.6,
+  },
+  googleButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -2,6 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 
 import schema from './schema';
+import migrations from './migrations';
 import {
   Profile,
   CachedItem,
@@ -13,8 +14,7 @@ import {
 // Create the SQLite adapter
 const adapter = new SQLiteAdapter({
   schema,
-  // (Optional) migrations can be added here when schema changes
-  // migrations,
+  migrations,
   jsi: true, // Enable JSI for better performance
   onSetUpError: (error) => {
     console.error('Database setup error:', error);

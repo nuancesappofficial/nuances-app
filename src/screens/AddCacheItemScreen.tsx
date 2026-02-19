@@ -23,6 +23,7 @@ import {
   analyzeTextWithAI 
 } from '../services/ocr/ocrService';
 import { analyzeText } from '../services/ai';
+import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
 
 type Props = {
   navigation: any;
@@ -80,7 +81,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     // OCR blocks
     const annotations = editingItem.imageAnnotations;
     if (Array.isArray(annotations) && annotations.length > 0) {
-      setOCRBlocks(annotations as OCRBlock[]);
+      setOCRBlocks(annotations as unknown as OCRBlock[]);
     } else if (typeof annotations === 'string') {
       try {
         const parsed = JSON.parse(annotations);
@@ -222,6 +223,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     setSaving(true);
 
     try {
+      const userId = await requireCurrentAuthUserId();
       await database.write(async () => {
         if (isEditMode && editingItem) {
           // 編輯模式：更新現有項目
@@ -232,7 +234,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           // 新增模式：建立新項目
           const collection = database.get<CachedItem>('cached_items');
           await collection.create((item) => {
-            item.userId = 'demo-user'; // TODO: Replace with actual user ID
+            item.userId = userId;
             item.sourceApp = 'Manual Entry';
             item.convertedToCard = false;
             applyItemFields(item);
@@ -460,7 +462,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
               </TouchableOpacity>
               <Text style={styles.modalTitle}>選擇要學習的文字</Text>
               <Text style={styles.modalCloseText}>
-                {selectedBlockIndex !== null ? `已選擇` : `${ocrBlocks.length} 個`}
+                {selectedBlockIndex !== null ? '已選擇' : `${ocrBlocks.length} 個`}
               </Text>
             </View>
 

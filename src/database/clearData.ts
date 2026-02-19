@@ -1,5 +1,9 @@
 // 清除所有測試數據
 import { database } from './index';
+import Profile from './models/Profile';
+import CachedItem from './models/CachedItem';
+import Card from './models/Card';
+import ReviewHistory from './models/ReviewHistory';
 
 export async function clearAllData() {
   try {
@@ -42,15 +46,15 @@ export async function clearTestDataOnly() {
 
     await database.write(async () => {
       // 刪除測試用戶
-      const profiles = database.get('profiles');
+      const profiles = database.get<Profile>('profiles');
       const testProfiles = await profiles.query().fetch();
       
       for (const profile of testProfiles) {
-        if (profile.userId === 'test-user-001' || profile.userId === 'demo-user') {
+        if (profile.userId.startsWith('test-user-')) {
           console.log(`  刪除測試 profile: ${profile.userId}`);
           
           // 刪除相關的快取項目
-          const cachedItems = database.get('cached_items');
+          const cachedItems = database.get<CachedItem>('cached_items');
           const userItems = await cachedItems
             .query()
             .fetch();
@@ -62,7 +66,7 @@ export async function clearTestDataOnly() {
           }
           
           // 刪除相關的卡片
-          const cards = database.get('cards');
+          const cards = database.get<Card>('cards');
           const userCards = await cards
             .query()
             .fetch();
@@ -74,7 +78,7 @@ export async function clearTestDataOnly() {
           }
           
           // 刪除相關的複習歷史
-          const reviewHistory = database.get('review_history');
+          const reviewHistory = database.get<ReviewHistory>('review_history');
           const userReviews = await reviewHistory
             .query()
             .fetch();

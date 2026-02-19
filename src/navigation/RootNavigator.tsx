@@ -47,7 +47,11 @@ function CardsStack() {
   );
 }
 
-export default function RootNavigator() {
+type RootNavigatorProps = {
+  isExpoGo?: boolean;
+};
+
+export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
   return (
     <NavigationContainer>
       <Tab.Navigator
@@ -84,16 +88,18 @@ export default function RootNavigator() {
           }}
         />
 
-        <Tab.Screen
-          name="DevTools"
-          component={DevToolsScreen}
-          options={{
-            tabBarLabel: '工具',
-            tabBarIcon: ({ color }) => (
-              <TabIcon emoji="🔧" color={color} />
-            ),
-          }}
-        />
+        {__DEV__ && (
+          <Tab.Screen
+            name="DevTools"
+            component={DevToolsScreen}
+            options={{
+              tabBarLabel: '工具',
+              tabBarIcon: ({ color }) => (
+                <TabIcon emoji="🔧" color={color} />
+              ),
+            }}
+          />
+        )}
       </Tab.Navigator>
     </NavigationContainer>
   );

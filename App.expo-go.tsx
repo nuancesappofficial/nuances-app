@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import RootNavigator from './src/navigation/RootNavigator';
 
 // Check if we're running in Expo Go
-const isExpoGo = !global.HermesInternal;
+const isExpoGo = !('HermesInternal' in globalThis);
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);

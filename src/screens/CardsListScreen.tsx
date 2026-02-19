@@ -18,6 +18,31 @@ type Props = {
   navigation: any;
 };
 
+function getTagsArray(tags: unknown): string[] {
+  if (Array.isArray(tags)) {
+    return tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+  if (typeof tags === 'string') {
+    const trimmed = tags.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((tag): tag is string => typeof tag === 'string');
+      }
+    } catch {
+      // fall through
+    }
+
+    return trimmed
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 // Separate component to handle individual card items with hooks
 function CardItem({ 
   item, 
@@ -30,6 +55,7 @@ function CardItem({
 }) {
   const [cachedItem, setCachedItem] = React.useState<CachedItem | null>(null);
   const isDue = new Date(item.nextReviewAt) <= new Date();
+  const tags = getTagsArray(item.tags);
 
   // Fetch associated cachedItem if exists
   React.useEffect(() => {
@@ -105,9 +131,9 @@ function CardItem({
           )}
         </View>
 
-        {item.tags && item.tags.length > 0 && (
+        {tags.length > 0 && (
           <View style={styles.tagsContainer}>
-            {JSON.parse(item.tags).slice(0, 3).map((tag: string, index: number) => (
+            {tags.slice(0, 3).map((tag: string, index: number) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
               </View>

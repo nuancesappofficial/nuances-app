@@ -77,7 +77,7 @@ export default function DevToolsScreen({ navigation }: Props) {
   const handleClearTestData = () => {
     Alert.alert(
       '確認清除',
-      '將清除測試數據（test-user-001 和 demo-user）。保留其他用戶數據。',
+      '將清除測試數據（test-user-*）。保留其他用戶數據。',
       [
         { text: '取消', style: 'cancel' },
         {
@@ -172,7 +172,7 @@ export default function DevToolsScreen({ navigation }: Props) {
           >
             <Text style={styles.buttonText}>清除測試數據</Text>
             <Text style={styles.buttonSubtext}>
-              刪除 test-user-001 和 demo-user 的數據
+              刪除 test-user-* 的數據
             </Text>
           </TouchableOpacity>
 

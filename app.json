@@ -2,6 +2,7 @@
   "expo": {
     "name": "Nuances",
     "slug": "nuances-app",
+    "scheme": "nuances",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
