@@ -5,7 +5,8 @@
 
 import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from 'expo-file-system/legacy';
-import { isOpenAIConfigured, callOpenAI } from '../ai/openaiService';
+import { isOpenAIConfigured } from '../ai/openaiService';
+import { callAIAction } from '../ai/edgeAiClient';
 
 // ============================================================
 // Interfaces
@@ -203,42 +204,25 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
     };
   }
   
-  // 構建純文字 prompt
-  const systemPrompt = `你是一個語言學習助手。分析用戶提供的詞彙並返回 JSON 格式的學習卡片。
-重要：只返回純 JSON，不要包含 markdown 語法或其他文字。`;
-
-  const userPrompt = `"${payload.target_text}" 在句子 "${payload.original_sentence}" 中是什麼意思？
-
-返回 JSON 格式：
-{
-  "keyword": "關鍵詞",
-  "definition": "詞義解釋",
-  "example": "例句",
-  "tags": ["標籤1", "標籤2"],
-  "pronunciation": "音標（可選）"
-}`;
-
   try {
-    const response = await callOpenAI(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
+    const result = await callAIAction<
       {
-        temperature: 0.7,
-        maxTokens: 500,
-        jsonMode: true,
-      }
-    );
-    
-    const result = JSON.parse(response) as AIAnalysisResult;
+        targetText: string;
+        originalSentence: string;
+        contextText: string;
+      },
+      AIAnalysisResult
+    >('analyze_context', {
+      targetText: payload.target_text,
+      originalSentence: payload.original_sentence,
+      contextText: payload.context_text,
+    });
+
     console.log('[OCR] ✅ AI analysis completed:', result.keyword);
-    
     return result;
-    
   } catch (error) {
     console.error('[OCR] ❌ AI analysis error:', error);
-    
+
     // 返回基礎分析結果
     return {
       keyword: payload.target_text,

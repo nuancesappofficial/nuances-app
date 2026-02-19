@@ -1,6 +1,7 @@
 import { supabase } from '@services/supabase/client';
 
 type AIProvider = 'openai' | 'gemini';
+type AIFeatureAction = 'analyze_text' | 'generate_card' | 'analyze_context';
 
 type AIMessage = {
   role: string;
@@ -101,4 +102,38 @@ export async function callAIProxy(request: AIRequest): Promise<string> {
   }
 
   return text;
+}
+
+export async function callAIAction<TPayload, TResult>(
+  action: AIFeatureAction,
+  payload: TPayload
+): Promise<TResult> {
+  const { data, error } = await supabase.functions.invoke(AI_EDGE_FUNCTION_NAME, {
+    body: {
+      action,
+      payload,
+    },
+  });
+
+  if (error) {
+    let detail = error.message;
+    const maybeError = error as unknown as { context?: Response };
+    if (maybeError.context) {
+      try {
+        const response = maybeError.context;
+        const bodyText = await response.text();
+        detail = `${detail} (status: ${response.status}, body: ${bodyText})`;
+      } catch {
+        // Ignore context parse failure and keep base error message.
+      }
+    }
+    throw new Error(`AI action error: ${detail}`);
+  }
+
+  const obj = (data || {}) as Record<string, unknown>;
+  const result = obj.result as TResult | undefined;
+  if (!result) {
+    throw new Error(`AI action returned empty result for action: ${action}`);
+  }
+  return result;
 }

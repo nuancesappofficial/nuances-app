@@ -1,7 +1,7 @@
 // OpenAI API Service
 // 用於文本分析、定義生成等
 
-import { callAIProxy, isAIProxyConfigured } from './edgeAiClient';
+import { callAIAction, callAIProxy, isAIProxyConfigured } from './edgeAiClient';
 
 // API 調用限制和重試邏輯
 const MAX_RETRIES = 3;
@@ -74,50 +74,23 @@ export async function analyzeText(
   keywords: string[];
   suggestedWord: string | null;
 }> {
-  // Prompt 工程：根據學習目標調整
-  const goalInstructions: Record<string, string> = {
-    ielts: 'Focus on academic vocabulary suitable for IELTS exam (band 6-9). Prioritize formal, academic words.',
-    casual: 'Focus on conversational vocabulary, idioms, and slang. Prioritize practical, everyday expressions.',
-    professional: 'Focus on business and professional terminology. Prioritize workplace-relevant vocabulary.',
-  };
-
-  const goalInstruction = goalInstructions[learningGoal || 'ielts'];
-
-  const prompt = `Analyze the following English text and extract 3-5 key vocabulary words that a language learner should focus on.
-
-${goalInstruction}
-
-${userKeywords ? `User has expressed interest in: "${userKeywords}". Prioritize these if they appear in the text.` : ''}
-
-Text: "${text.substring(0, 500)}${text.length > 500 ? '...' : ''}"
-
-IMPORTANT: Return ONLY a valid JSON object, without any markdown formatting or code blocks.
-
-Required format:
-{
-  "keywords": ["word1", "word2", "word3"],
-  "suggestedWord": "word1"
-}
-
-The "suggestedWord" should be the most important/difficult word from the keywords list.`;
-
   try {
-    const response = await callOpenAI([
+    const result = await callAIAction<
       {
-        role: 'system',
-        content: 'You are an expert English language teacher specialized in vocabulary acquisition. Respond with valid JSON only.',
+        text: string;
+        userKeywords?: string;
+        learningGoal?: 'ielts' | 'casual' | 'professional';
       },
       {
-        role: 'user',
-        content: prompt,
-      },
-    ], {
-      temperature: 0.5,
-      maxTokens: 200,
-      jsonMode: true,
+        keywords: string[];
+        suggestedWord: string | null;
+      }
+    >('analyze_text', {
+      text,
+      userKeywords,
+      learningGoal,
     });
 
-    const result = JSON.parse(response);
     return {
       keywords: result.keywords || [],
       suggestedWord: result.suggestedWord || null,
@@ -141,49 +114,25 @@ export async function generateCardContent(
   phoneticTranscription: string | null;
   tags: string[];
 }> {
-  const goalContext: Record<string, string> = {
-    ielts: 'This word is being learned for IELTS exam preparation. Include band level if applicable.',
-    casual: 'This word is being learned for casual conversation. Include usage tips.',
-    professional: 'This word is being learned for professional/business contexts.',
-  };
-
-  const context = goalContext[learningGoal || 'ielts'];
-
-  const prompt = `Create a comprehensive vocabulary card for the word "${targetWord}" as it appears in this sentence:
-
-"${originalSentence.substring(0, 300)}${originalSentence.length > 300 ? '...' : ''}"
-
-${context}
-
-IMPORTANT: Provide ONLY a valid JSON object, without any markdown formatting or code blocks.
-
-Required format:
-{
-  "definition": "A clear definition in Traditional Chinese, followed by English explanation in parentheses. Format: '中文定義 (English definition)'",
-  "contextualExplanation": "A detailed explanation in Traditional Chinese (2-3 sentences) about how this word is used in this specific context, including nuances, connotations, and usage tips.",
-  "phoneticTranscription": "IPA phonetic transcription, e.g., /fəˈnetɪk/",
-  "tags": ["Array", "of", "relevant", "tags"]
-}
-
-Tags examples: IELTS, Band 7, Business, Formal, Informal, Academic, etc.`;
-
   try {
-    const response = await callOpenAI([
+    const result = await callAIAction<
       {
-        role: 'system',
-        content: 'You are an expert English language teacher creating vocabulary cards. Always provide accurate, context-specific definitions in Traditional Chinese and English. Respond with valid JSON only.',
+        targetWord: string;
+        originalSentence: string;
+        learningGoal?: 'ielts' | 'casual' | 'professional';
       },
       {
-        role: 'user',
-        content: prompt,
-      },
-    ], {
-      temperature: 0.7,
-      maxTokens: 600,
-      jsonMode: true,
+        definition: string;
+        contextualExplanation: string;
+        phoneticTranscription: string | null;
+        tags: string[];
+      }
+    >('generate_card', {
+      targetWord,
+      originalSentence,
+      learningGoal,
     });
 
-    const result = JSON.parse(response);
     return {
       definition: result.definition || '',
       contextualExplanation: result.contextualExplanation || '',

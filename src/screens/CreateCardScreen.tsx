@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Image as RNImage,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
@@ -37,6 +38,18 @@ type Props = {
   route: any;
 };
 
+type CreateCardDraft = {
+  targetWord: string;
+  targetPhrase: string;
+  definition: string;
+  contextualExplanation: string;
+  phoneticTranscription: string;
+  tags: string;
+  showAnalysisChoice: boolean;
+  usingRealAPI: boolean;
+  updatedAt: number;
+};
+
 function readableAIErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
   if (message.includes('401') || message.toLowerCase().includes('unauthorized')) {
@@ -56,6 +69,10 @@ function readableAIErrorMessage(error: unknown): string {
 
 export default function CreateCardScreen({ navigation, route }: Props) {
   const { cachedItem } = route.params as { cachedItem: CachedItem };
+  const draftStorageKey = React.useMemo(
+    () => `create_card_draft:${cachedItem.id}`,
+    [cachedItem.id]
+  );
   
   const [targetWord, setTargetWord] = React.useState('');
   const [targetPhrase, setTargetPhrase] = React.useState('');
@@ -68,6 +85,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [saving, setSaving] = React.useState(false);
   const [usingRealAPI, setUsingRealAPI] = React.useState(false);
   const [showAnalysisChoice, setShowAnalysisChoice] = React.useState(true);
+  const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
+  const restoringDraftRef = React.useRef(false);
+
+  const persistDraft = React.useCallback(
+    async (draft: CreateCardDraft) => {
+      await AsyncStorage.setItem(draftStorageKey, JSON.stringify(draft));
+      setHasPersistedDraft(true);
+    },
+    [draftStorageKey]
+  );
 
   React.useEffect(() => {
     // 預填關鍵字（從 userKeywords 提取，移除 [block:X] 標記）
@@ -77,6 +104,70 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     }
     // 不自動執行分析，等用戶選擇
   }, [cachedItem]);
+
+  React.useEffect(() => {
+    let active = true;
+    const restoreDraft = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(draftStorageKey);
+        if (!raw || !active) return;
+
+        const draft = JSON.parse(raw) as Partial<CreateCardDraft>;
+        restoringDraftRef.current = true;
+        if (typeof draft.targetWord === 'string') setTargetWord(draft.targetWord);
+        if (typeof draft.targetPhrase === 'string') setTargetPhrase(draft.targetPhrase);
+        if (typeof draft.definition === 'string') setDefinition(draft.definition);
+        if (typeof draft.contextualExplanation === 'string') {
+          setContextualExplanation(draft.contextualExplanation);
+        }
+        if (typeof draft.phoneticTranscription === 'string') {
+          setPhoneticTranscription(draft.phoneticTranscription);
+        }
+        if (typeof draft.tags === 'string') setTags(draft.tags);
+        if (typeof draft.usingRealAPI === 'boolean') setUsingRealAPI(draft.usingRealAPI);
+        setShowAnalysisChoice(false);
+        setHasPersistedDraft(true);
+      } catch (error) {
+        console.error('[CreateCard] Failed to restore draft:', error);
+      } finally {
+        setTimeout(() => {
+          restoringDraftRef.current = false;
+        }, 0);
+      }
+    };
+
+    void restoreDraft();
+    return () => {
+      active = false;
+    };
+  }, [draftStorageKey]);
+
+  React.useEffect(() => {
+    if (!hasPersistedDraft || restoringDraftRef.current) return;
+
+    const draft: CreateCardDraft = {
+      targetWord,
+      targetPhrase,
+      definition,
+      contextualExplanation,
+      phoneticTranscription,
+      tags,
+      showAnalysisChoice: false,
+      usingRealAPI,
+      updatedAt: Date.now(),
+    };
+    void persistDraft(draft);
+  }, [
+    targetWord,
+    targetPhrase,
+    definition,
+    contextualExplanation,
+    phoneticTranscription,
+    tags,
+    usingRealAPI,
+    hasPersistedDraft,
+    persistDraft,
+  ]);
 
   const performAnalysis = async () => {
     setAnalyzing(true);
@@ -124,6 +215,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             setPhoneticTranscription(result.pronunciation || '');
             setTags(result.tags.join(', '));
             // setSuggestedWords([result.keyword]); // [推薦字功能暫時停用]
+            await persistDraft({
+              targetWord: result.keyword,
+              targetPhrase,
+              definition: result.definition,
+              contextualExplanation: result.example,
+              phoneticTranscription: result.pronunciation || '',
+              tags: result.tags.join(', '),
+              showAnalysisChoice: false,
+              usingRealAPI: isUsingRealAPI(),
+              updatedAt: Date.now(),
+            });
             
             setAnalyzing(false);
             return;
@@ -169,11 +271,28 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
       // 自動填入分析結果
       if (analysis.suggestedWord) {
-        setTargetWord(analysis.suggestedWord);
-        setDefinition(analysis.definition);
-        setContextualExplanation(analysis.contextualExplanation);
-        setPhoneticTranscription(analysis.phoneticTranscription || '');
-        setTags(analysis.tags.join(', '));
+        const nextTargetWord = analysis.suggestedWord;
+        const nextDefinition = analysis.definition;
+        const nextContextualExplanation = analysis.contextualExplanation;
+        const nextPhoneticTranscription = analysis.phoneticTranscription || '';
+        const nextTags = analysis.tags.join(', ');
+
+        setTargetWord(nextTargetWord);
+        setDefinition(nextDefinition);
+        setContextualExplanation(nextContextualExplanation);
+        setPhoneticTranscription(nextPhoneticTranscription);
+        setTags(nextTags);
+        await persistDraft({
+          targetWord: nextTargetWord,
+          targetPhrase,
+          definition: nextDefinition,
+          contextualExplanation: nextContextualExplanation,
+          phoneticTranscription: nextPhoneticTranscription,
+          tags: nextTags,
+          showAnalysisChoice: false,
+          usingRealAPI: isUsingRealAPI(),
+          updatedAt: Date.now(),
+        });
       }
     } catch (error) {
       console.error('Analysis error:', error);
@@ -258,6 +377,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           item.convertedToCard = true;
         });
       });
+      await AsyncStorage.removeItem(draftStorageKey);
+      setHasPersistedDraft(false);
 
       Alert.alert('成功', '卡片創建成功！', [
         {
