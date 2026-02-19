@@ -4,12 +4,15 @@ Version: 1.0.0 (MVP)
 Status: In Development  
 Tech Stack: React Native (Expo) + WatermelonDB + Supabase
 
+**🎉 最新更新**: Share Extension MVP 已完成（2026-02-16）
+
 ## 📋 專案概述
 
 Nuances 是一個跨平台語言學習應用，結合了「無摩擦捕獲」系統、智能快取管理和 AI 驅動的發音教練。
 
 ### 核心功能
-- 📱 Universal Share Extension（從任何 App 捕獲內容）
+- 📱 **Universal Share Extension**（從任何 App 捕獲文字與圖片）✅ 已完成
+- 📋 **剪貼簿快速貼上**（一鍵儲存複製內容）✅ 已完成
 - 🧠 AI 智能詞彙分析與高亮
 - 🗂️ Notion 風格的資料庫管理
 - 🔄 Anki 風格的間隔重複系統
@@ -21,9 +24,10 @@ Nuances 是一個跨平台語言學習應用，結合了「無摩擦捕獲」系
 ### 前端
 - **Framework**: React Native (Expo SDK 54)
 - **Language**: TypeScript
-- **Local Database**: WatermelonDB
+- **Local Database**: WatermelonDB (Schema v2)
 - **State Management**: Legend-State / Zustand
-- **Share Extension**: expo-share-intent
+- **Share Extension**: Custom Config Plugin (Swift Native)
+- **Clipboard**: expo-clipboard
 
 ### 後端
 - **Cloud Database**: Supabase (PostgreSQL)
@@ -32,10 +36,31 @@ Nuances 是一個跨平台語言學習應用，結合了「無摩擦捕獲」系
 - **API Runtime**: Supabase Edge Functions (Deno)
 
 ### AI 服務
+- **Vocabulary Analysis**: Google Gemini 1.5 Flash API (免費)
 - **Pronunciation**: Azure AI Speech SDK
-- **Speech-to-Text**: OpenAI Whisper API
 - **Text-to-Speech**: Azure Neural TTS
-- **OCR**: Google ML Kit (react-native-mlkit)
+- **OCR**: Google ML Kit (本地處理)
+
+## 📱 Share Extension 功能
+
+### Feature A: 文字分享 ✅
+從任何 App（Safari、Notes、LINE 等）反白文字 → 分享 → Nuances
+- 字數限制：2000 字元
+- 自動儲存到 Cache
+
+### Feature B: 圖片分享 ✅
+從相簿或其他 App 分享圖片（1-3 張）→ Nuances
+- 格式支援：HEIC, JPEG, PNG
+- 自動轉換：HEIC → JPEG
+- 壓縮：長邊 <= 1920px
+- 記憶體安全：< 120MB（Native Swift 處理）
+
+### Feature C: 剪貼簿貼上 ✅
+在 App 內直接從剪貼簿貼上文字
+- 符合 iOS 隱私規範
+- 一鍵快速儲存
+
+**📚 詳細設定**: 請參考 [Share Extension 快速設定指南](./docs/SHARE_EXTENSION_QUICK_SETUP.md)
 
 ## 🚀 開始開發
 
@@ -43,7 +68,8 @@ Nuances 是一個跨平台語言學習應用，結合了「無摩擦捕獲」系
 - Node.js 18+
 - npm 或 yarn
 - Expo CLI
-- Expo Go App（測試用）或 Development Build
+- Xcode (macOS, for iOS development)
+- EAS CLI (for builds)
 
 ### 安裝依賴
 ```bash
@@ -122,10 +148,11 @@ nuances-app/
 ### AI 服務依賴
 ```json
 {
-  "microsoft-cognitiveservices-speech-sdk": "^1.35.0",
-  "openai": "^4.20.0"
+  "microsoft-cognitiveservices-speech-sdk": "^1.35.0"
 }
 ```
+
+**注意：** 本專案使用 Google Gemini API（透過 REST API 調用），無需安裝額外的 npm 套件。
 
 ## 🔐 環境變量
 
@@ -136,15 +163,21 @@ nuances-app/
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# Azure AI
+# Azure AI Speech
 EXPO_PUBLIC_AZURE_SPEECH_KEY=your_azure_speech_key
 EXPO_PUBLIC_AZURE_SPEECH_REGION=your_region
 
-# OpenAI
-EXPO_PUBLIC_OPENAI_API_KEY=your_openai_api_key
+# Google Gemini API (免費方案: 1,500 RPD, 15 RPM)
+EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 ```
 
 ⚠️ **不要提交 `.env` 文件到 Git！**
+
+### 取得 API Keys
+
+1. **Gemini API**: 前往 [Google AI Studio](https://aistudio.google.com/app/apikey) 建立免費 API Key
+2. **Azure Speech**: 在 [Azure Portal](https://portal.azure.com) 建立 Speech Services 資源
+3. **Supabase**: 在 [Supabase Dashboard](https://supabase.com/dashboard) 建立專案
 
 ## 🏗️ 開發階段
 

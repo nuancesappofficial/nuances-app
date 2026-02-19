@@ -3,7 +3,7 @@
 // Uses Google ML Kit for 100% local text extraction
 // NO images are uploaded to AI servers
 
-import TextRecognition from '@react-native-ml-kit/text-recognition';
+import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from 'expo-file-system/legacy';
 import { isOpenAIConfigured, callOpenAI } from '../ai/openaiService';
 
@@ -82,9 +82,10 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     }
     
     // 調用 Google ML Kit（完全本地處理）
-    const result = await TextRecognition.recognize(imageUri);
+    // 使用 CHINESE 腳本以支援繁體中文、簡體中文識別
+    const result = await TextRecognition.recognize(imageUri, TextRecognitionScript.CHINESE);
     
-    console.log(`[OCR] ML Kit raw result:`, {
+    console.log(`[OCR] ML Kit raw result (Chinese script):`, {
       blockCount: result.blocks?.length || 0,
       hasText: !!result.text,
     });
@@ -206,11 +207,7 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
   const systemPrompt = `你是一個語言學習助手。分析用戶提供的詞彙並返回 JSON 格式的學習卡片。
 重要：只返回純 JSON，不要包含 markdown 語法或其他文字。`;
 
-  const userPrompt = `請分析以下詞彙：
-
-目標詞彙: "${payload.target_text}"
-上下文: "${payload.context_text}"
-完整句子: "${payload.original_sentence}"
+  const userPrompt = `"${payload.target_text}" 在句子 "${payload.original_sentence}" 中是什麼意思？
 
 返回 JSON 格式：
 {
@@ -230,19 +227,11 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
       {
         temperature: 0.7,
         maxTokens: 500,
+        jsonMode: true,
       }
     );
     
-    // 清理可能的 markdown 語法
-    let cleanedResponse = response.trim();
-    if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse
-        .replace(/^```(?:json)?\n?/, '')
-        .replace(/\n?```$/, '')
-        .trim();
-    }
-    
-    const result = JSON.parse(cleanedResponse) as AIAnalysisResult;
+    const result = JSON.parse(response) as AIAnalysisResult;
     console.log('[OCR] ✅ AI analysis completed:', result.keyword);
     
     return result;

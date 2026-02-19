@@ -1,7 +1,7 @@
 // AI Analysis Service for Nuances App
 // This service handles AI-powered vocabulary analysis and highlighting
 
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+import { callAIProxy, isAIProxyConfigured } from './edgeAiClient';
 
 export type AnalysisResult = {
   highlightedTerms: string[];
@@ -11,7 +11,7 @@ export type AnalysisResult = {
 };
 
 /**
- * Analyze text content using OpenAI API
+ * Analyze text content using Gemini API
  * Identifies key vocabulary terms based on user's learning goal
  */
 export async function analyzeText(
@@ -20,42 +20,27 @@ export async function analyzeText(
   learningGoal?: string
 ): Promise<AnalysisResult> {
   try {
-    if (!OPENAI_API_KEY) {
-      console.warn('OpenAI API key not configured, using mock analysis');
+    if (!isAIProxyConfigured()) {
+      console.warn('AI proxy not configured, using mock analysis');
       return mockAnalysis(text);
     }
 
     const prompt = buildAnalysisPrompt(text, userKeywords, learningGoal);
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a language learning assistant that helps identify important vocabulary and phrases for learners.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
+    const aiResponse = await callAIProxy({
+      provider: 'gemini',
+      messages: [
+        {
+          role: 'user',
+          content: `[System Instructions]\nYou are a language learning assistant that helps identify important vocabulary and phrases for learners.\n\n[User Query]\n${prompt}`,
+        },
+      ],
+      options: {
+        model: 'gemini-2.0-flash-lite',
         temperature: 0.7,
-        max_tokens: 500,
-      }),
+        maxTokens: 500,
+      },
     });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const aiResponse = data.choices[0]?.message?.content || '';
 
     return parseAIResponse(aiResponse);
   } catch (error) {

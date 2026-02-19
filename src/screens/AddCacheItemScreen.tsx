@@ -26,9 +26,13 @@ import { analyzeText } from '../services/ai';
 
 type Props = {
   navigation: any;
+  route?: any;
 };
 
-export default function AddCacheItemScreen({ navigation }: Props) {
+export default function AddCacheItemScreen({ navigation, route }: Props) {
+  const editingItem: CachedItem | undefined = route?.params?.cachedItem;
+  const isEditMode = !!editingItem;
+
   const [contentType, setContentType] = React.useState<
     'text' | 'url' | 'image'
   >('text');
@@ -47,26 +51,63 @@ export default function AddCacheItemScreen({ navigation }: Props) {
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
   const [recommendedWords, setRecommendedWords] = React.useState<string[]>([]);
 
-  /**
-   * OCR 完成後推薦詞彙
-   */
-  const handleOCRComplete = React.useCallback(async (blocks: OCRBlock[]) => {
-    setOCRBlocks(blocks);
-    
-    // AI 推薦詞彙（從整篇文章）
-    if (blocks.length > 0) {
-      setAnalyzing(true);
-      try {
-        const fullText = blocks.map(b => b.text).join(' ');
-        const analysis = await analyzeText(fullText, '', 'ielts');
-        setRecommendedWords(analysis.keywords);
-        console.log('[AddCache] AI recommended words:', analysis.keywords);
-      } catch (error) {
-        console.error('[AddCache] AI vocabulary recommendation failed:', error);
-      } finally {
-        setAnalyzing(false);
+  // 編輯模式：預填現有資料
+  React.useEffect(() => {
+    if (!editingItem) return;
+    setContentType((editingItem.contentType as 'text' | 'url' | 'image') ?? 'text');
+    setContentText(editingItem.contentText ?? '');
+    setContentUrl(editingItem.contentUrl ?? '');
+
+    // 關鍵字：移除 [block:X] 標記只顯示純文字
+    if (editingItem.userKeywords) {
+      const keywordOnly = editingItem.userKeywords.replace(/\s*\[block:\d+\]/, '').trim();
+      setKeywords(keywordOnly);
+      // 還原 block index
+      const match = editingItem.userKeywords.match(/\[block:(\d+)\]/);
+      if (match) setSelectedBlockIndex(parseInt(match[1], 10));
+    }
+
+    // 圖片：Share Extension 使用 mediaUri，手動新增使用 imageStoragePath
+    const imgPath = editingItem.imageStoragePath ?? editingItem.mediaUri;
+    if (imgPath) {
+      setSelectedImage(imgPath);
+      // 如果 contentUrl 為空（Share Extension 情況），回填圖片路徑以通過驗證
+      if (!editingItem.contentUrl) {
+        setContentUrl(imgPath);
       }
     }
+
+    // OCR blocks
+    const annotations = editingItem.imageAnnotations;
+    if (Array.isArray(annotations) && annotations.length > 0) {
+      setOCRBlocks(annotations as OCRBlock[]);
+    } else if (typeof annotations === 'string') {
+      try {
+        const parsed = JSON.parse(annotations);
+        if (Array.isArray(parsed)) setOCRBlocks(parsed as OCRBlock[]);
+      } catch { /* ignore */ }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * OCR 完成後儲存 blocks（AI 推薦詞彙功能暫時關閉）
+   */
+  const handleOCRComplete = React.useCallback((blocks: OCRBlock[]) => {
+    setOCRBlocks(blocks);
+    // [AI 推薦詞彙功能暫時停用] 待啟用時取消以下注釋：
+    // if (blocks.length > 0) {
+    //   setAnalyzing(true);
+    //   try {
+    //     const fullText = blocks.map(b => b.text).join(' ');
+    //     const analysis = await analyzeText(fullText, '', 'ielts');
+    //     setRecommendedWords(analysis.keywords);
+    //   } catch (error) {
+    //     console.error('[AddCache] AI vocabulary recommendation failed:', error);
+    //   } finally {
+    //     setAnalyzing(false);
+    //   }
+    // }
   }, []);
 
   /**
@@ -130,8 +171,8 @@ export default function AddCacheItemScreen({ navigation }: Props) {
   };
 
   const handleSave = async () => {
-    if (!contentText && !contentUrl) {
-      Alert.alert('錯誤', '請輸入內容或 URL');
+    if (!contentText && !contentUrl && !selectedImage) {
+      Alert.alert('錯誤', '請輸入內容、URL 或選擇圖片');
       return;
     }
 
@@ -154,55 +195,59 @@ export default function AddCacheItemScreen({ navigation }: Props) {
     await performSave();
   };
 
+  const applyItemFields = (item: CachedItem) => {
+    item.contentType = contentType;
+    item.contentText = contentText || undefined;
+    item.contentUrl = contentUrl || undefined;
+    item.userKeywords = keywords || undefined;
+
+    if (ocrBlocks.length > 0) {
+      item.imageAnnotations = ocrBlocks as any;
+    }
+
+    if (selectedBlockIndex !== null) {
+      item.userKeywords = `${keywords} [block:${selectedBlockIndex}]`;
+    }
+
+    if (aiAnalysisResult) {
+      item.aiAnalysisCompleted = true;
+    }
+
+    if (selectedImage) {
+      item.imageStoragePath = selectedImage;
+    }
+  };
+
   const performSave = async () => {
     setSaving(true);
 
     try {
-      const collection = database.get<CachedItem>('cached_items');
-
       await database.write(async () => {
-        await collection.create((item) => {
-          item.userId = 'demo-user'; // TODO: Replace with actual user ID
-          item.contentType = contentType;
-          item.contentText = contentText || undefined;
-          item.contentUrl = contentUrl || undefined;
-          item.userKeywords = keywords || undefined;
-          item.sourceApp = 'Manual Entry';
-          item.convertedToCard = false;
-          
-          // Tech Stack v1.5.0: 儲存 OCR blocks（@json 裝飾器會自動序列化）
-          if (ocrBlocks.length > 0) {
-            item.imageAnnotations = ocrBlocks as any; // 使用相同欄位以保持數據庫兼容
-          }
-          
-          // 儲存用戶選擇的文字塊索引
-          if (selectedBlockIndex !== null) {
-            item.userKeywords = `${keywords} [block:${selectedBlockIndex}]`;
-          }
-          
-          // 如果有 AI 分析結果，標記為已完成
-          if (aiAnalysisResult) {
-            item.aiAnalysisCompleted = true;
-          }
-          
-          // 儲存圖片路徑
-          if (selectedImage) {
-            item.imageStoragePath = selectedImage;
-          }
-          
-          // Set expiration for free tier (24 hours)
-          const expiresAt = new Date();
-          expiresAt.setHours(expiresAt.getHours() + 24);
-          item.expiresAt = expiresAt;
-        });
+        if (isEditMode && editingItem) {
+          // 編輯模式：更新現有項目
+          await editingItem.update((item) => {
+            applyItemFields(item);
+          });
+        } else {
+          // 新增模式：建立新項目
+          const collection = database.get<CachedItem>('cached_items');
+          await collection.create((item) => {
+            item.userId = 'demo-user'; // TODO: Replace with actual user ID
+            item.sourceApp = 'Manual Entry';
+            item.convertedToCard = false;
+            applyItemFields(item);
+
+            const expiresAt = new Date();
+            expiresAt.setHours(expiresAt.getHours() + 24);
+            item.expiresAt = expiresAt;
+          });
+        }
       });
 
-      Alert.alert('成功', '已保存到快取！', [
+      Alert.alert('成功', isEditMode ? '已更新快取！' : '已保存到快取！', [
         {
           text: '確定',
-          onPress: () => {
-            navigation.goBack();
-          },
+          onPress: () => navigation.goBack(),
         },
       ]);
     } catch (error) {
@@ -221,7 +266,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
           <Text style={styles.closeButtonText}>✕</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add to Cache</Text>
+        <Text style={styles.headerTitle}>{isEditMode ? '編輯快取' : 'Add to Cache'}</Text>
         <TouchableOpacity
           onPress={handleSave}
           style={styles.saveButton}
@@ -365,6 +410,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
             ✨ 已選擇：{ocrBlocks[selectedBlockIndex].text}
           </Text>
         )}
+        {/* [AI 推薦詞彙功能暫時停用] analyzing 指示和推薦詞彙 UI 隱藏中
         {analyzing && (
           <View style={styles.analyzingContainer}>
             <ActivityIndicator size="small" color="#4CAF50" />
@@ -387,6 +433,7 @@ export default function AddCacheItemScreen({ navigation }: Props) {
             </View>
           </View>
         )}
+        */}
         <Text style={styles.hint}>
           添加關鍵字來指導 AI 分析這段內容
         </Text>

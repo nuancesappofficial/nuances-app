@@ -49,6 +49,7 @@ export default function CacheListScreen({ navigation }: Props) {
   const isScreenFocused = React.useRef(false);
   const isCheckingClipboard = React.useRef(false);
   const lastCheckTime = React.useRef(0);
+  const hasCheckedClipboardOnFocus = React.useRef(false);
   const { consumeShareSnackbar } = useShareExtensionSnackbar();
 
   const [snackbarMessage, setSnackbarMessage] = React.useState('卡片已建立');
@@ -142,17 +143,26 @@ export default function CacheListScreen({ navigation }: Props) {
   }, [checkClipboard, tryShowShareSnackbar]);
 
   // 監聽畫面聚焦（Tab 切換或首次進入）
+  // 僅在「首次進入 Cache」時檢查剪貼簿（用戶可能從其他 app 複製後才開啟 Nuances）
+  // Tab 切換不檢查，避免在 App 內複製（如從卡片、快取）後切到 Cache 時誤觸發貼上
   useFocusEffect(
     React.useCallback(() => {
       isScreenFocused.current = true;
-      const timer = setTimeout(checkClipboard, 500);
       const shareTimer = setTimeout(() => {
         const message = consumeShareSnackbar();
         if (message) showSnackbar(message);
       }, 600);
+      if (!hasCheckedClipboardOnFocus.current) {
+        hasCheckedClipboardOnFocus.current = true;
+        const clipboardTimer = setTimeout(checkClipboard, 500);
+        return () => {
+          isScreenFocused.current = false;
+          clearTimeout(clipboardTimer);
+          clearTimeout(shareTimer);
+        };
+      }
       return () => {
         isScreenFocused.current = false;
-        clearTimeout(timer);
         clearTimeout(shareTimer);
       };
     }, [checkClipboard, consumeShareSnackbar, showSnackbar])
@@ -226,7 +236,11 @@ export default function CacheListScreen({ navigation }: Props) {
   };
 
   const renderItem = ({ item }: { item: CachedItem }) => (
-    <View style={styles.itemContainer}>
+    <TouchableOpacity
+      style={styles.itemContainer}
+      activeOpacity={0.85}
+      onPress={() => navigation.navigate('AddCacheItem', { cachedItem: item })}
+    >
       <View style={styles.itemHeader}>
         <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
         {item.sourceApp && (
@@ -290,7 +304,10 @@ export default function CacheListScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
       </View>
-    </View>
+
+      {/* 點擊提示 */}
+      <Text style={styles.editHint}>點擊卡片可編輯</Text>
+    </TouchableOpacity>
   );
 
   const renderEmpty = () => (
@@ -542,5 +559,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#fff',
+  },
+  editHint: {
+    fontSize: 11,
+    color: '#bbb',
+    textAlign: 'right',
+    marginTop: 6,
+    fontStyle: 'italic',
   },
 });

@@ -85,7 +85,6 @@ export default function CardReviewScreen({ navigation, route }: Props) {
           review.userId = card.userId;
           review.cardId = card.id;
           review.rating = rating;
-          review.reviewedAt = new Date();
         });
       });
 
@@ -336,10 +335,10 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   cardContainer: {
-    height: 400,
-    marginTop: 24,
-    marginHorizontal: 16,
-    marginBottom: 24,
+    flex: 1,
+    marginTop: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
   },
   card: {
     flex: 1,
@@ -443,8 +442,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   ratingContainer: {
-    marginBottom: 16,
-    marginHorizontal: 16,
+    marginBottom: 8,
+    marginHorizontal: 12,
   },
   ratingLabel: {
     fontSize: 16,
@@ -488,11 +487,11 @@ const styles = StyleSheet.create({
   progressInfo: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 12,
+    paddingVertical: 10,
     backgroundColor: '#fff',
     borderRadius: 8,
-    marginHorizontal: 16,
-    marginBottom: 16,
+    marginHorizontal: 12,
+    marginBottom: 8,
   },
   progressText: {
     fontSize: 12,

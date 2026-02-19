@@ -1,5 +1,5 @@
 // Mock AI Analyzer - 簡單的文本分析
-// 待替換為真實的 OpenAI API
+// 當 Gemini API 未配置或失敗時使用
 
 /**
  * 提取文本中的關鍵詞
@@ -29,12 +29,12 @@ export function extractKeywords(text: string, maxKeywords: number = 5): string[]
     .slice(0, maxKeywords * 2); // 先取兩倍數量
   
   // 去重並限制數量
-  return [...new Set(keywords)].slice(0, maxKeywords);
+  return Array.from(new Set(keywords)).slice(0, maxKeywords);
 }
 
 /**
  * 為單字生成簡單的定義（Mock）
- * 真實實現應該調用 OpenAI API
+ * 真實實現應該調用 Gemini API
  */
 export function generateMockDefinition(word: string): string {
   const mockDefinitions: Record<string, string> = {

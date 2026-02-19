@@ -7,8 +7,10 @@ export default class CachedItem extends Model {
 
   @field('user_id') userId!: string;
   @field('content_type') contentType!: ContentType;
+  @field('type') type?: 'text' | 'image'; // Share Extension 專用
   @field('content_text') contentText?: string;
   @field('content_url') contentUrl?: string;
+  @field('media_uri') mediaUri?: string; // Share Extension 圖片本地路徑
   @field('source_app') sourceApp?: string;
   @field('user_keywords') userKeywords?: string;
 

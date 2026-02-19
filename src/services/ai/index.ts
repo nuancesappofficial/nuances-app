@@ -1,7 +1,8 @@
-// AI Service - 智能選擇使用 OpenAI 或 Mock
-import { 
-  isOpenAIConfigured, 
-  analyzeAndGenerateCard as openaiAnalyze 
+// AI Service - 使用 OpenAI gpt-4o-mini
+import {
+  isOpenAIConfigured,
+  analyzeAndGenerateCard as openaiAnalyze,
+  generateCardContent as openaiGenerateCardContent,
 } from './openaiService';
 import { analyzeCachedItem as mockAnalyze } from './mockAnalyzer';
 
@@ -24,23 +25,18 @@ export async function analyzeText(
   userKeywords?: string,
   learningGoal?: 'ielts' | 'casual' | 'professional'
 ): Promise<AnalysisResult> {
-  // 檢查是否配置了 OpenAI API
   const useRealAPI = isOpenAIConfigured();
 
   console.log(`🤖 Using ${useRealAPI ? 'OpenAI API' : 'Mock AI'} for analysis`);
 
   try {
     if (useRealAPI) {
-      // 使用真實的 OpenAI API
       const result = await openaiAnalyze(text, userKeywords, learningGoal);
       console.log('✅ OpenAI analysis completed');
       return result;
     } else {
-      // 回退到 Mock AI
       console.log('⚠️ OpenAI API not configured, using Mock AI');
       const mockResult = mockAnalyze(text, userKeywords);
-      
-      // 將 Mock 結果轉換為標準格式
       return {
         keywords: mockResult.keywords,
         suggestedWord: mockResult.suggestedWord,
@@ -51,9 +47,8 @@ export async function analyzeText(
       };
     }
   } catch (error) {
-    console.error('Analysis error:', error);
-    
-    // 如果 OpenAI 失敗，回退到 Mock
+    console.warn('Analysis error (falling back to Mock AI):', error);
+
     if (useRealAPI) {
       console.log('⚠️ OpenAI failed, falling back to Mock AI');
       const mockResult = mockAnalyze(text, userKeywords);
@@ -66,7 +61,7 @@ export async function analyzeText(
         tags: mockResult.tags,
       };
     }
-    
+
     throw error;
   }
 }
@@ -90,17 +85,15 @@ export async function generateContentForWord(
 
   try {
     if (useRealAPI) {
-      const { generateCardContent } = await import('./openaiService');
-      const result = await generateCardContent(word, originalText, learningGoal);
+      const result = await openaiGenerateCardContent(word, originalText, learningGoal);
       return result;
     } else {
-      // Mock 版本
-      const { 
-        generateMockDefinition, 
-        generateMockExplanation, 
-        generateMockTags 
+      const {
+        generateMockDefinition,
+        generateMockExplanation,
+        generateMockTags,
       } = await import('./mockAnalyzer');
-      
+
       return {
         definition: generateMockDefinition(word),
         contextualExplanation: generateMockExplanation(word, originalText),
@@ -113,6 +106,3 @@ export async function generateContentForWord(
     throw error;
   }
 }
-
-// 重新導出類型
-export type { AnalysisResult };

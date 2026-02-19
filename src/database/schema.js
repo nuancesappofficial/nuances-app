@@ -1,11 +1,11 @@
 // WatermelonDB Schema
 // ⚠️ 重要：每次修改此文件時，必須增加 version 號！
-// Version: 1
+// Version: 2 - 新增 type 與 media_uri 欄位支援 Share Extension 圖片
 
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export default appSchema({
-  version: 1,
+  version: 2,
   tables: [
     // ============================================
     // PROFILES TABLE
@@ -34,8 +34,10 @@ export default appSchema({
       columns: [
         { name: 'user_id', type: 'string', isIndexed: true },
         { name: 'content_type', type: 'string' }, // 'text' | 'url' | 'image' | 'video'
+        { name: 'type', type: 'string', isOptional: true }, // 'text' | 'image' - Share Extension 專用
         { name: 'content_text', type: 'string', isOptional: true },
         { name: 'content_url', type: 'string', isOptional: true },
+        { name: 'media_uri', type: 'string', isOptional: true }, // Share Extension 圖片本地路徑
         { name: 'source_app', type: 'string', isOptional: true },
         { name: 'user_keywords', type: 'string', isOptional: true },
         { name: 'image_annotations', type: 'string', isOptional: true }, // JSON string

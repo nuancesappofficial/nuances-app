@@ -1,12 +1,7 @@
 // OpenAI API Service
 // 用於文本分析、定義生成等
 
-import Constants from 'expo-constants';
-
-const OPENAI_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_OPENAI_API_KEY || 
-                       process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+import { callAIProxy, isAIProxyConfigured } from './edgeAiClient';
 
 // API 調用限制和重試邏輯
 const MAX_RETRIES = 3;
@@ -18,7 +13,7 @@ const RETRY_DELAY = 1000; // 1 秒
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * 調用 OpenAI API
+ * 調用 OpenAI API（支援 JSON mode，確保回應為合法 JSON）
  */
 export async function callOpenAI(
   messages: { role: string; content: any }[],
@@ -26,48 +21,39 @@ export async function callOpenAI(
     model?: string;
     temperature?: number;
     maxTokens?: number;
+    jsonMode?: boolean; // 啟用 response_format: json_object
   } = {}
 ): Promise<string> {
   const {
-    model = 'gpt-4o-mini', // 使用較便宜的模型
+    model = 'gpt-4o-mini',
     temperature = 0.7,
     maxTokens = 1000,
+    jsonMode = false,
   } = options;
 
-  if (!OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured. Please set EXPO_PUBLIC_OPENAI_API_KEY in .env');
+  if (!isAIProxyConfigured()) {
+    throw new Error(
+      'AI proxy not configured. Please set Supabase env and deploy Edge Function.'
+    );
   }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
+      return await callAIProxy({
+        provider: 'openai',
+        messages,
+        options: {
           model,
-          messages,
           temperature,
-          max_tokens: maxTokens,
-        }),
+          maxTokens,
+          jsonMode,
+        },
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          `OpenAI API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`
-        );
-      }
-
-      const data = await response.json();
-      return data.choices[0]?.message?.content || '';
     } catch (error) {
       console.error(`OpenAI API attempt ${attempt + 1} failed:`, error);
       
       if (attempt < MAX_RETRIES - 1) {
-        await delay(RETRY_DELAY * (attempt + 1)); // 指數退避
+        await delay(RETRY_DELAY * (attempt + 1));
       } else {
         throw error;
       }
@@ -119,36 +105,25 @@ The "suggestedWord" should be the most important/difficult word from the keyword
     const response = await callOpenAI([
       {
         role: 'system',
-        content: 'You are an expert English language teacher specialized in vocabulary acquisition. Always respond with valid JSON only, without markdown formatting or backticks.',
+        content: 'You are an expert English language teacher specialized in vocabulary acquisition. Respond with valid JSON only.',
       },
       {
         role: 'user',
         content: prompt,
       },
     ], {
-      temperature: 0.5, // 較低溫度確保一致性
+      temperature: 0.5,
       maxTokens: 200,
+      jsonMode: true,
     });
 
-    // 清理響應：移除可能的 markdown 格式
-    let cleanedResponse = response.trim();
-    
-    // 移除 markdown code block 標記
-    if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-    
-    console.log('[OpenAI] Cleaned response for analyzeText:', cleanedResponse);
-
-    // 解析 JSON 響應
-    const result = JSON.parse(cleanedResponse);
+    const result = JSON.parse(response);
     return {
       keywords: result.keywords || [],
       suggestedWord: result.suggestedWord || null,
     };
   } catch (error) {
-    console.error('Error analyzing text with OpenAI:', error);
-    console.error('[OpenAI] Raw response was:', response);
+    console.error('[OpenAI] Error in analyzeText:', error);
     throw error;
   }
 }
@@ -196,7 +171,7 @@ Tags examples: IELTS, Band 7, Business, Formal, Informal, Academic, etc.`;
     const response = await callOpenAI([
       {
         role: 'system',
-        content: 'You are an expert English language teacher creating vocabulary cards. Always provide accurate, context-specific definitions in Traditional Chinese and English. Always respond with valid JSON only, without markdown formatting or backticks.',
+        content: 'You are an expert English language teacher creating vocabulary cards. Always provide accurate, context-specific definitions in Traditional Chinese and English. Respond with valid JSON only.',
       },
       {
         role: 'user',
@@ -205,19 +180,10 @@ Tags examples: IELTS, Band 7, Business, Formal, Informal, Academic, etc.`;
     ], {
       temperature: 0.7,
       maxTokens: 600,
+      jsonMode: true,
     });
 
-    // 清理響應：移除可能的 markdown 格式
-    let cleanedResponse = response.trim();
-    
-    // 移除 markdown code block 標記
-    if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-    
-    console.log('[OpenAI] Cleaned response for generateCardContent:', cleanedResponse.substring(0, 200) + '...');
-
-    const result = JSON.parse(cleanedResponse);
+    const result = JSON.parse(response);
     return {
       definition: result.definition || '',
       contextualExplanation: result.contextualExplanation || '',
@@ -225,8 +191,7 @@ Tags examples: IELTS, Band 7, Business, Formal, Informal, Academic, etc.`;
       tags: result.tags || [],
     };
   } catch (error) {
-    console.error('Error generating card content with OpenAI:', error);
-    console.error('[OpenAI] Raw response was:', response?.substring(0, 500));
+    console.error('[OpenAI] Error in generateCardContent:', error);
     throw error;
   }
 }
@@ -267,5 +232,5 @@ export async function analyzeAndGenerateCard(
  * 檢查 API Key 是否已配置
  */
 export function isOpenAIConfigured(): boolean {
-  return !!OPENAI_API_KEY && OPENAI_API_KEY.length > 0;
+  return isAIProxyConfigured();
 }

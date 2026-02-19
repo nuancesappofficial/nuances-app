@@ -74,8 +74,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         
         if (!isOCRAvailable()) {
           Alert.alert(
-            '需要 OpenAI API',
-            '圖片文字識別需要 OpenAI API 金鑰。請在 .env 文件中配置 EXPO_PUBLIC_OPENAI_API_KEY。'
+            '需要 ML Kit OCR',
+            '圖片文字識別功能需要 Google ML Kit。請確保已安裝相關依賴。'
           );
           setAnalyzing(false);
           return;
@@ -106,7 +106,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             setContextualExplanation(result.example);
             setPhoneticTranscription(result.pronunciation || '');
             setTags(result.tags.join(', '));
-            setSuggestedWords([result.keyword]);
+            // setSuggestedWords([result.keyword]); // [推薦字功能暫時停用]
             
             setAnalyzing(false);
             return;
@@ -141,15 +141,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         setAnalyzing(false);
         return;
       }
-      // 使用智能 AI 服務（自動選擇 OpenAI 或 Mock）
+      // 使用智能 AI 服務（自動選擇 Gemini 或 Mock）
       const analysis = await analyzeText(
         textToAnalyze,
         cachedItem.userKeywords,
         'ielts' // TODO: 從用戶 profile 獲取
       );
       
-      setSuggestedWords(analysis.keywords);
-      
+      // setSuggestedWords(analysis.keywords); // [推薦字功能暫時停用]
+
       // 自動填入分析結果
       if (analysis.suggestedWord) {
         setTargetWord(analysis.suggestedWord);
@@ -170,29 +170,22 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     }
   };
 
-  // 當用戶選擇不同的單字時，重新生成內容
-  const handleWordSelection = async (word: string) => {
-    setTargetWord(word);
-    setAnalyzing(true);
-    
-    try {
-      const content = await generateContentForWord(
-        word,
-        cachedItem.contentText || '',
-        'ielts'
-      );
-      
-      setDefinition(content.definition);
-      setContextualExplanation(content.contextualExplanation);
-      setPhoneticTranscription(content.phoneticTranscription || '');
-      setTags(content.tags.join(', '));
-    } catch (error) {
-      console.error('Error generating content for word:', error);
-      // 保持當前單字，讓用戶手動編輯
-    } finally {
-      setAnalyzing(false);
-    }
-  };
+  // [推薦字功能暫時停用] handleWordSelection 保留但不呼叫 API
+  // const handleWordSelection = async (word: string) => {
+  //   setTargetWord(word);
+  //   setAnalyzing(true);
+  //   try {
+  //     const content = await generateContentForWord(word, cachedItem.contentText || '', 'ielts');
+  //     setDefinition(content.definition);
+  //     setContextualExplanation(content.contextualExplanation);
+  //     setPhoneticTranscription(content.phoneticTranscription || '');
+  //     setTags(content.tags.join(', '));
+  //   } catch (error) {
+  //     console.error('Error generating content for word:', error);
+  //   } finally {
+  //     setAnalyzing(false);
+  //   }
+  // };
 
   const handleSave = async () => {
     // 驗證必填欄位
@@ -340,7 +333,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           <View style={styles.analyzingContainer}>
             <ActivityIndicator size="small" color="#4CAF50" />
             <Text style={styles.analyzingText}>
-              {usingRealAPI ? '🤖 OpenAI GPT-4 分析中...' : '🤖 AI 分析中...'}
+              {'🤖 AI 分析中...'}
             </Text>
           </View>
         )}
@@ -350,13 +343,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           <View style={styles.apiStatusContainer}>
             <Text style={styles.apiStatusText}>
               {usingRealAPI 
-                ? '✨ 使用 OpenAI GPT-4 分析' 
-                : '💡 使用基礎 AI（設置 API Key 啟用高級功能）'}
+                ? '✨ 使用 AI 分析' 
+                : '💡 使用基礎 AI'}
             </Text>
           </View>
         )}
 
-        {/* AI 建議的關鍵字 */}
+        {/* [推薦字功能暫時停用] AI 建議關鍵字 chips 隱藏中
         {!analyzing && suggestedWords.length > 0 && (
           <View style={styles.suggestionsContainer}>
             <Text style={styles.label}>💡 AI 建議的關鍵字（點擊自動填入）</Text>
@@ -364,18 +357,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               {suggestedWords.map((word, index) => (
                 <TouchableOpacity
                   key={index}
-                  style={[
-                    styles.suggestionChip,
-                    targetWord === word && styles.suggestionChipActive,
-                  ]}
+                  style={[styles.suggestionChip, targetWord === word && styles.suggestionChipActive]}
                   onPress={() => handleWordSelection(word)}
                 >
-                  <Text
-                    style={[
-                      styles.suggestionChipText,
-                      targetWord === word && styles.suggestionChipTextActive,
-                    ]}
-                  >
+                  <Text style={[styles.suggestionChipText, targetWord === word && styles.suggestionChipTextActive]}>
                     {word}
                   </Text>
                 </TouchableOpacity>
@@ -383,6 +368,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             </View>
           </View>
         )}
+        */}
 
         {/* 目標單字 */}
         <Text style={styles.label}>Target Word *</Text>
