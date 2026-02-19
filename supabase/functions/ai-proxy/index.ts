@@ -3,7 +3,11 @@
 declare const Deno: any;
 
 type Provider = 'openai' | 'gemini';
-type Action = 'analyze_text' | 'generate_card' | 'analyze_context';
+type Action =
+  | 'analyze_text'
+  | 'generate_card'
+  | 'analyze_context'
+  | 'usage_summary';
 
 type LegacyRequestBody = {
   provider: Provider;
@@ -34,9 +38,19 @@ type AnalyzeContextPayload = {
   contextText?: string;
 };
 
+type UsageSummaryPayload = {
+  day?: string;
+  includeRecent?: boolean;
+  limit?: number;
+};
+
 type ActionRequestBody = {
   action: Action;
-  payload: AnalyzeTextPayload | GenerateCardPayload | AnalyzeContextPayload;
+  payload?:
+    | AnalyzeTextPayload
+    | GenerateCardPayload
+    | AnalyzeContextPayload
+    | UsageSummaryPayload;
 };
 
 type RequestBody = LegacyRequestBody | ActionRequestBody;
@@ -76,6 +90,10 @@ const MAX_TOKENS_CONTEXT = Number(
   Deno.env.get('AI_MAX_TOKENS_CONTEXT') ?? '500'
 );
 const MAX_TOKENS_LEGACY = Number(Deno.env.get('AI_MAX_TOKENS_LEGACY') ?? '900');
+const USAGE_RETENTION_DAYS = Number(Deno.env.get('AI_USAGE_RETENTION_DAYS') ?? '14');
+const USAGE_RECENT_LIMIT_MAX = Number(
+  Deno.env.get('AI_USAGE_RECENT_LIMIT_MAX') ?? '50'
+);
 
 const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')
   ?? 'gpt-4o-mini')
@@ -90,6 +108,17 @@ const GEMINI_ALLOWED_MODELS = (Deno.env.get('GEMINI_ALLOWED_MODELS')
   .filter(Boolean);
 
 const kv = await Deno.openKv();
+const SUPPORTED_ACTIONS = new Set<Action>([
+  'analyze_text',
+  'generate_card',
+  'analyze_context',
+  'usage_summary',
+]);
+const BILLABLE_ACTIONS = new Set<Action>([
+  'analyze_text',
+  'generate_card',
+  'analyze_context',
+]);
 
 const GOAL_INSTRUCTIONS: Record<string, string> = {
   ielts:
@@ -165,6 +194,105 @@ function extractJsonObject(raw: string): string {
 
 function parseJson<T>(raw: string): T {
   return JSON.parse(extractJsonObject(raw)) as T;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function validateAnalyzeTextPayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const errors: string[] = [];
+  if (typeof payload.text !== 'string' || !payload.text.trim()) {
+    errors.push('payload.text is required and must be a non-empty string');
+  }
+  if (
+    payload.userKeywords !== undefined &&
+    typeof payload.userKeywords !== 'string'
+  ) {
+    errors.push('payload.userKeywords must be a string when provided');
+  }
+  if (
+    payload.learningGoal !== undefined &&
+    typeof payload.learningGoal !== 'string'
+  ) {
+    errors.push('payload.learningGoal must be a string when provided');
+  }
+  return errors;
+}
+
+function validateGenerateCardPayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const errors: string[] = [];
+  if (typeof payload.targetWord !== 'string' || !payload.targetWord.trim()) {
+    errors.push('payload.targetWord is required and must be a non-empty string');
+  }
+  if (
+    typeof payload.originalSentence !== 'string' ||
+    !payload.originalSentence.trim()
+  ) {
+    errors.push(
+      'payload.originalSentence is required and must be a non-empty string'
+    );
+  }
+  if (
+    payload.learningGoal !== undefined &&
+    typeof payload.learningGoal !== 'string'
+  ) {
+    errors.push('payload.learningGoal must be a string when provided');
+  }
+  return errors;
+}
+
+function validateAnalyzeContextPayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const errors: string[] = [];
+  if (typeof payload.targetText !== 'string' || !payload.targetText.trim()) {
+    errors.push('payload.targetText is required and must be a non-empty string');
+  }
+  if (
+    typeof payload.originalSentence !== 'string' ||
+    !payload.originalSentence.trim()
+  ) {
+    errors.push(
+      'payload.originalSentence is required and must be a non-empty string'
+    );
+  }
+  if (payload.contextText !== undefined && typeof payload.contextText !== 'string') {
+    errors.push('payload.contextText must be a string when provided');
+  }
+  return errors;
+}
+
+function validateUsageSummaryPayload(payload: unknown): string[] {
+  if (payload === undefined) return [];
+  if (!isObject(payload)) return ['payload must be an object when provided'];
+  const errors: string[] = [];
+  if (payload.day !== undefined && typeof payload.day !== 'string') {
+    errors.push('payload.day must be a string in YYYY-MM-DD format');
+  }
+  if (
+    payload.includeRecent !== undefined &&
+    typeof payload.includeRecent !== 'boolean'
+  ) {
+    errors.push('payload.includeRecent must be a boolean');
+  }
+  if (payload.limit !== undefined && typeof payload.limit !== 'number') {
+    errors.push('payload.limit must be a number');
+  }
+  return errors;
+}
+
+function validateActionPayload(action: Action, payload: unknown): string[] {
+  if (action === 'analyze_text') return validateAnalyzeTextPayload(payload);
+  if (action === 'generate_card') return validateGenerateCardPayload(payload);
+  if (action === 'analyze_context') return validateAnalyzeContextPayload(payload);
+  if (action === 'usage_summary') return validateUsageSummaryPayload(payload);
+  return ['unsupported action'];
+}
+
+function isValidDayBucket(input: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(input);
 }
 
 function toGeminiContents(messages: LegacyRequestBody['messages']) {
@@ -245,6 +373,99 @@ async function enforceLimits(userId: string): Promise<Response | null> {
   }
 
   return null;
+}
+
+async function trackUsage(params: {
+  userId: string;
+  action: string;
+  status: 'success' | 'error' | 'invalid_request' | 'rate_limited';
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const now = new Date();
+    const dayBucket = now.toISOString().slice(0, 10);
+    const ttlMs = Math.max(1, USAGE_RETENTION_DAYS) * 24 * 60 * 60 * 1000;
+    const eventId = `${now.toISOString()}-${crypto.randomUUID()}`;
+    await kv.set(
+      ['ai-usage-event', dayBucket, params.userId, eventId],
+      {
+        userId: params.userId,
+        action: params.action,
+        status: params.status,
+        timestamp: now.toISOString(),
+        meta: params.meta ?? {},
+      },
+      { expireIn: ttlMs }
+    );
+    await incrementCounter(
+      ['ai-usage-count', dayBucket, params.userId, params.action, params.status],
+      ttlMs
+    );
+  } catch (err) {
+    console.error('[ai-proxy] usage tracking failed', err);
+  }
+}
+
+async function getUsageSummary(
+  userId: string,
+  payload?: UsageSummaryPayload
+): Promise<Response> {
+  const dayInput = sanitizeText(payload?.day, 10);
+  const dayBucket = isValidDayBucket(dayInput)
+    ? dayInput
+    : new Date().toISOString().slice(0, 10);
+  const includeRecent = payload?.includeRecent ?? true;
+  const limit = Math.max(
+    1,
+    Math.min(
+      typeof payload?.limit === 'number'
+        ? Math.floor(payload.limit)
+        : 20,
+      USAGE_RECENT_LIMIT_MAX
+    )
+  );
+
+  const actions = [
+    'analyze_text',
+    'generate_card',
+    'analyze_context',
+    'legacy_openai',
+    'legacy_gemini',
+  ];
+  const statuses = ['success', 'error', 'invalid_request', 'rate_limited'];
+  const counts: Record<string, Record<string, number>> = {};
+
+  for (const action of actions) {
+    counts[action] = {};
+    for (const status of statuses) {
+      const entry = await kv.get([
+        'ai-usage-count',
+        dayBucket,
+        userId,
+        action,
+        status,
+      ]);
+      counts[action][status] = (entry.value as number | null) ?? 0;
+    }
+  }
+
+  const recent: Array<Record<string, unknown>> = [];
+  if (includeRecent) {
+    const iter = kv.list({
+      prefix: ['ai-usage-event', dayBucket, userId],
+    }, { reverse: true, limit });
+    for await (const item of iter) {
+      recent.push(item.value ?? {});
+    }
+  }
+
+  return jsonResponse({
+    result: {
+      day: dayBucket,
+      counts,
+      recent,
+    },
+  });
 }
 
 async function callOpenAIChat(params: {
@@ -547,21 +768,92 @@ Deno.serve(async (req: Request) => {
     if (!userId) {
       return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
     }
-
-    const limitsError = await enforceLimits(userId);
-    if (limitsError) return limitsError;
-
-    const body = (await req.json()) as RequestBody;
+    let body: RequestBody;
+    try {
+      body = (await req.json()) as RequestBody;
+    } catch {
+      await trackUsage({
+        userId,
+        action: 'unknown',
+        status: 'invalid_request',
+        meta: { reason: 'invalid_json' },
+      });
+      return jsonResponse(
+        {
+          error: 'Invalid JSON payload',
+          details: ['Request body must be valid JSON'],
+        },
+        400
+      );
+    }
 
     if (isActionRequest(body)) {
+      if (!SUPPORTED_ACTIONS.has(body.action)) {
+        await trackUsage({
+          userId,
+          action: String(body.action),
+          status: 'invalid_request',
+          meta: { reason: 'unsupported_action' },
+        });
+        return jsonResponse(
+          {
+            error: 'Unsupported action',
+            details: [`Supported actions: ${[...SUPPORTED_ACTIONS].join(', ')}`],
+          },
+          400
+        );
+      }
+
+      const validationErrors = validateActionPayload(body.action, body.payload);
+      if (validationErrors.length > 0) {
+        await trackUsage({
+          userId,
+          action: body.action,
+          status: 'invalid_request',
+          meta: { validationErrors },
+        });
+        return jsonResponse(
+          {
+            error: 'Invalid action payload',
+            details: validationErrors,
+          },
+          400
+        );
+      }
+
+      if (BILLABLE_ACTIONS.has(body.action)) {
+        const limitsError = await enforceLimits(userId);
+        if (limitsError) {
+          await trackUsage({
+            userId,
+            action: body.action,
+            status: 'rate_limited',
+          });
+          return limitsError;
+        }
+      }
+
       if (body.action === 'analyze_text') {
-        return await handleAnalyzeText(body.payload as AnalyzeTextPayload);
+        const response = await handleAnalyzeText(body.payload as AnalyzeTextPayload);
+        await trackUsage({ userId, action: body.action, status: 'success' });
+        return response;
       }
       if (body.action === 'generate_card') {
-        return await handleGenerateCard(body.payload as GenerateCardPayload);
+        const response = await handleGenerateCard(
+          body.payload as GenerateCardPayload
+        );
+        await trackUsage({ userId, action: body.action, status: 'success' });
+        return response;
       }
       if (body.action === 'analyze_context') {
-        return await handleAnalyzeContext(body.payload as AnalyzeContextPayload);
+        const response = await handleAnalyzeContext(
+          body.payload as AnalyzeContextPayload
+        );
+        await trackUsage({ userId, action: body.action, status: 'success' });
+        return response;
+      }
+      if (body.action === 'usage_summary') {
+        return await getUsageSummary(userId, body.payload as UsageSummaryPayload);
       }
       return jsonResponse({ error: 'Unsupported action' }, 400);
     }
@@ -569,10 +861,26 @@ Deno.serve(async (req: Request) => {
     // Backward-compatible legacy mode (kept for temporary compatibility).
     if (isLegacyRequest(body)) {
       if (!Array.isArray(body.messages) || body.messages.length === 0) {
+        await trackUsage({
+          userId,
+          action: `legacy_${body.provider ?? 'unknown'}`,
+          status: 'invalid_request',
+          meta: { reason: 'messages_required' },
+        });
         return jsonResponse(
           { error: 'Invalid payload: provider/messages required' },
           400
         );
+      }
+
+      const limitsError = await enforceLimits(userId);
+      if (limitsError) {
+        await trackUsage({
+          userId,
+          action: `legacy_${body.provider}`,
+          status: 'rate_limited',
+        });
+        return limitsError;
       }
 
       const options = body.options || {};
@@ -590,6 +898,11 @@ Deno.serve(async (req: Request) => {
           maxTokens,
           jsonMode: options.jsonMode,
         });
+        await trackUsage({
+          userId,
+          action: 'legacy_openai',
+          status: 'success',
+        });
         return jsonResponse({ content });
       }
 
@@ -604,12 +917,34 @@ Deno.serve(async (req: Request) => {
             typeof options.temperature === 'number' ? options.temperature : 0.7,
           maxTokens,
         });
+        await trackUsage({
+          userId,
+          action: 'legacy_gemini',
+          status: 'success',
+        });
         return jsonResponse({ content });
       }
     }
 
+    await trackUsage({
+      userId,
+      action: 'unknown',
+      status: 'invalid_request',
+      meta: { reason: 'invalid_payload_shape' },
+    });
     return jsonResponse({ error: 'Invalid payload' }, 400);
   } catch (error) {
+    const userId = getUserIdFromAuthorization(req);
+    if (userId) {
+      await trackUsage({
+        userId,
+        action: 'unknown',
+        status: 'error',
+        meta: {
+          message: error instanceof Error ? error.message : 'Unexpected error',
+        },
+      });
+    }
     return jsonResponse(
       {
         error: error instanceof Error ? error.message : 'Unexpected error',
