@@ -168,6 +168,12 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     if (!result.canceled && result.assets[0]) {
       setSelectedImage(result.assets[0].uri);
       setContentUrl(result.assets[0].uri);
+      setContentType('image');
+
+      // 與相簿流程一致：拍照後自動進入 OCR 選字流程
+      setTimeout(() => {
+        setShowOCRViewer(true);
+      }, 300);
     }
   };
 
