@@ -33,6 +33,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-camera",
       "./plugins/withShareExtension.js"
     ],
     "owner": "jeffenglishlearning",

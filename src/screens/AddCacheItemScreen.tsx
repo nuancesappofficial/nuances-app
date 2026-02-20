@@ -14,9 +14,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import ImageOCRViewer from '../components/ImageOCRViewer';
+import ImageCropperModal from '../components/ImageCropperModal';
 import { 
   type OCRBlock, 
   buildContextPayload, 
@@ -47,10 +49,16 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const [selectedBlockIndex, setSelectedBlockIndex] = React.useState<number | null>(null);
   
   const [showOCRViewer, setShowOCRViewer] = React.useState(false);
+  const [showCamera, setShowCamera] = React.useState(false);
+  const [cameraFacing, setCameraFacing] = React.useState<CameraType>('back');
+  const [showCropper, setShowCropper] = React.useState(false);
+  const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
   const [recommendedWords, setRecommendedWords] = React.useState<string[]>([]);
+  const cameraRef = React.useRef<CameraView | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   // 編輯模式：預填現有資料
   React.useEffect(() => {
@@ -134,50 +142,68 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
+      allowsEditing: false,
       quality: 1, // 高品質以利 OCR
     });
 
     if (!result.canceled && result.assets[0]) {
-      setSelectedImage(result.assets[0].uri);
-      setContentUrl(result.assets[0].uri);
-      setContentType('image');
-      
-      // 自動開啟 OCR Viewer（Tech Stack v1.5.0）
-      setTimeout(() => {
-        setShowOCRViewer(true);
-      }, 300);
+      setPendingCropImage(result.assets[0].uri);
+      setShowCropper(true);
     }
   };
 
   const takePhoto = async () => {
-    // Request permissions
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('權限需求', '需要相機權限才能拍照');
-      return;
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert('權限需求', '需要相機權限才能拍照');
+        return;
+      }
     }
 
-    // Launch camera
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      setSelectedImage(result.assets[0].uri);
-      setContentUrl(result.assets[0].uri);
-      setContentType('image');
-
-      // 與相簿流程一致：拍照後自動進入 OCR 選字流程
-      setTimeout(() => {
-        setShowOCRViewer(true);
-      }, 300);
-    }
+    setShowCamera(true);
   };
+
+  const closeCamera = React.useCallback(() => {
+    setShowCamera(false);
+  }, []);
+
+  const toggleCameraFacing = React.useCallback(() => {
+    setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+  }, []);
+
+  const capturePhoto = React.useCallback(async () => {
+    try {
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.9 });
+      if (!photo?.uri) {
+        Alert.alert('拍照失敗', '請再試一次');
+        return;
+      }
+      setShowCamera(false);
+      setPendingCropImage(photo.uri);
+      setShowCropper(true);
+    } catch (error) {
+      console.error('[AddCache] capture photo failed:', error);
+      Alert.alert('拍照失敗', '請再試一次');
+    }
+  }, []);
+
+  const handleCropConfirm = React.useCallback((croppedUri: string) => {
+    console.log('[AddCache] Crop confirmed:', croppedUri);
+    setShowCropper(false);
+    setPendingCropImage(null);
+    setSelectedImage(croppedUri);
+    setContentUrl(croppedUri);
+    setContentType('image');
+    setTimeout(() => {
+      setShowOCRViewer(true);
+    }, 250);
+  }, []);
+
+  const handleCropCancel = React.useCallback(() => {
+    setShowCropper(false);
+    setPendingCropImage(null);
+  }, []);
 
   const handleSave = async () => {
     if (!contentText && !contentUrl && !selectedImage) {
@@ -384,6 +410,15 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    style={styles.cropButton}
+                    onPress={() => {
+                      setPendingCropImage(selectedImage);
+                      setShowCropper(true);
+                    }}
+                  >
+                    <Text style={styles.cropButtonText}>✂️ 重新裁切</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={styles.removeImageButton}
                     onPress={() => {
                       setSelectedImage(null);
@@ -495,6 +530,53 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           </View>
         </Modal>
       )}
+
+      <Modal
+        visible={showCamera}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={closeCamera}
+      >
+        <View style={styles.cameraContainer}>
+          {cameraPermission?.granted ? (
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing={cameraFacing}
+            />
+          ) : (
+            <View style={styles.cameraPermissionFallback}>
+              <Text style={styles.cameraPermissionText}>需要相機權限才能拍照</Text>
+            </View>
+          )}
+
+          <View style={styles.cameraTopBar}>
+            <TouchableOpacity style={styles.cameraTopButton} onPress={closeCamera}>
+              <Text style={styles.cameraTopButtonText}>✕</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cameraTopButton} onPress={toggleCameraFacing}>
+              <Text style={styles.cameraTopButtonText}>↺</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.cameraBottomBar}>
+            <TouchableOpacity
+              style={styles.shutterOuter}
+              onPress={capturePhoto}
+              disabled={!cameraPermission?.granted}
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <ImageCropperModal
+        visible={showCropper}
+        imageUri={pendingCropImage}
+        onCancel={handleCropCancel}
+        onConfirm={handleCropConfirm}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -687,6 +769,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  cropButton: {
+    backgroundColor: 'rgba(33, 150, 243, 0.92)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+  },
+  cropButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   removeImageButton: {
     backgroundColor: 'rgba(244, 67, 54, 0.9)',
     paddingHorizontal: 12,
@@ -766,5 +859,65 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#1976D2',
     fontWeight: '500',
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  cameraPermissionFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111',
+  },
+  cameraPermissionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cameraTopBar: {
+    position: 'absolute',
+    top: 56,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  cameraTopButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraTopButtonText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  cameraBottomBar: {
+    position: 'absolute',
+    bottom: 42,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  shutterOuter: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    borderWidth: 4,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  shutterInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff',
   },
 });
