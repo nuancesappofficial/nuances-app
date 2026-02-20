@@ -77,7 +77,13 @@ function CardItem({
   return (
     <View style={styles.cardContainer}>
       <TouchableOpacity 
-        onPress={() => navigation.navigate('CardReview', { card: item })}
+        onPress={() =>
+          navigation.navigate('CardReview', {
+            cardId: item.id,
+            cardIds: [item.id],
+            queueIndex: 0,
+          })
+        }
         style={styles.cardContent}
       >
         <View style={styles.cardHeader}>
@@ -248,7 +254,13 @@ export default function CardsListScreen({ navigation }: Props) {
       .fetch();
 
     if (dueCards.length > 0) {
-      navigation.navigate('CardReview', { card: dueCards[0] });
+      navigation.navigate('CardReview', {
+        cardId: dueCards[0].id,
+        cardIds: dueCards.map((card) => card.id),
+        queueIndex: 0,
+      });
+    } else {
+      Alert.alert('沒有待複習卡片', '目前沒有需要複習的卡片。');
     }
   };
 
