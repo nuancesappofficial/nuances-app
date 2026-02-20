@@ -51,6 +51,7 @@ type CreateCardDraft = {
   usingRealAPI: boolean;
   updatedAt: number;
 };
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function readableAIErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -86,8 +87,8 @@ async function hasLocalSession(): Promise<boolean> {
 export default function CreateCardScreen({ navigation, route }: Props) {
   const { cachedItem } = route.params as { cachedItem: CachedItem };
   const draftStorageKey = React.useMemo(
-    () => `create_card_draft:${cachedItem.id}`,
-    [cachedItem.id]
+    () => `create_card_draft:${cachedItem.userId}:${cachedItem.id}`,
+    [cachedItem.userId, cachedItem.id]
   );
   
   const [targetWord, setTargetWord] = React.useState('');
@@ -126,10 +127,27 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     let active = true;
     const restoreDraft = async () => {
       try {
+        if (cachedItem.convertedToCard) {
+          await AsyncStorage.removeItem(draftStorageKey);
+          if (active) {
+            setHasPersistedDraft(false);
+          }
+          return;
+        }
+
         const raw = await AsyncStorage.getItem(draftStorageKey);
         if (!raw || !active) return;
 
         const draft = JSON.parse(raw) as Partial<CreateCardDraft>;
+        if (
+          typeof draft.updatedAt !== 'number' ||
+          Date.now() - draft.updatedAt > DRAFT_TTL_MS
+        ) {
+          await AsyncStorage.removeItem(draftStorageKey);
+          setHasPersistedDraft(false);
+          return;
+        }
+
         restoringDraftRef.current = true;
         if (typeof draft.targetWord === 'string') setTargetWord(draft.targetWord);
         if (typeof draft.targetPhrase === 'string') setTargetPhrase(draft.targetPhrase);
@@ -142,7 +160,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         }
         if (typeof draft.tags === 'string') setTags(draft.tags);
         if (typeof draft.usingRealAPI === 'boolean') setUsingRealAPI(draft.usingRealAPI);
-        setShowAnalysisChoice(false);
+        if (typeof draft.showAnalysisChoice === 'boolean') {
+          setShowAnalysisChoice(draft.showAnalysisChoice);
+        } else {
+          setShowAnalysisChoice(false);
+        }
         setHasPersistedDraft(true);
       } catch (error) {
         console.error('[CreateCard] Failed to restore draft:', error);
@@ -157,7 +179,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => {
       active = false;
     };
-  }, [draftStorageKey]);
+  }, [draftStorageKey, cachedItem.convertedToCard]);
 
   React.useEffect(() => {
     if (!hasPersistedDraft || restoringDraftRef.current) return;
