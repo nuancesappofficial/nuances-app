@@ -17,6 +17,7 @@ import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import {
   completeOAuthFromUrl,
+  getCurrentUser,
   getCurrentSession,
   signInWithGoogle,
   supabase,
@@ -58,6 +59,7 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     initializeApp();
@@ -70,7 +72,12 @@ export default function App() {
       }
 
       const { session } = await getCurrentSession();
-      setUserId(session?.user?.id ?? null);
+      if (session?.access_token) {
+        const { user } = await getCurrentUser();
+        setUserId(user?.id ?? null);
+      } else {
+        setUserId(null);
+      }
 
       setIsReady(true);
     } catch (error) {
@@ -81,7 +88,14 @@ export default function App() {
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
+      if (!session?.access_token) {
+        setUserId(null);
+        return;
+      }
+      void (async () => {
+        const { user } = await getCurrentUser();
+        setUserId(user?.id ?? null);
+      })();
     });
     return () => {
       data.subscription.unsubscribe();
@@ -90,9 +104,16 @@ export default function App() {
 
   const handleOAuthCallback = React.useCallback(async (url: string) => {
     if (!url.includes('auth/callback')) return;
+    if (lastHandledOAuthUrlRef.current === url) return;
+    lastHandledOAuthUrlRef.current = url;
+
     const { error, handled } = await completeOAuthFromUrl(url);
     if (handled && error) {
       Alert.alert('登入失敗', error.message);
+      return;
+    }
+    if (handled && !error) {
+      Alert.alert('登入成功', 'Google 帳號登入成功。');
     }
   }, []);
 

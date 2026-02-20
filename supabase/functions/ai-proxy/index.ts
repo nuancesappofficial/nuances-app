@@ -55,10 +55,6 @@ type ActionRequestBody = {
 
 type RequestBody = LegacyRequestBody | ActionRequestBody;
 
-type JwtPayload = {
-  sub?: string;
-};
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -94,6 +90,11 @@ const USAGE_RETENTION_DAYS = Number(Deno.env.get('AI_USAGE_RETENTION_DAYS') ?? '
 const USAGE_RECENT_LIMIT_MAX = Number(
   Deno.env.get('AI_USAGE_RECENT_LIMIT_MAX') ?? '50'
 );
+// Default to fail-open for compatibility because some hosted runtimes
+// do not provide Deno KV for Edge Functions.
+const ALLOW_BILLABLE_WITHOUT_KV = String(
+  Deno.env.get('AI_ALLOW_BILLABLE_WITHOUT_KV') ?? 'true'
+).toLowerCase() === 'true';
 
 const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')
   ?? 'gpt-4o-mini')
@@ -107,7 +108,27 @@ const GEMINI_ALLOWED_MODELS = (Deno.env.get('GEMINI_ALLOWED_MODELS')
   .map((item: string) => item.trim())
   .filter(Boolean);
 
-const kv = await Deno.openKv();
+let kvClient: any | null = null;
+let kvInitAttempted = false;
+
+async function getKvClient(): Promise<any | null> {
+  if (kvInitAttempted) return kvClient;
+  kvInitAttempted = true;
+
+  try {
+    if (typeof Deno?.openKv !== 'function') {
+      console.warn('[ai-proxy] Deno KV is unavailable in this runtime; limits/usage tracking disabled');
+      kvClient = null;
+      return kvClient;
+    }
+    kvClient = await Deno.openKv();
+    return kvClient;
+  } catch (error) {
+    console.error('[ai-proxy] Failed to initialize Deno KV; limits/usage tracking disabled', error);
+    kvClient = null;
+    return kvClient;
+  }
+}
 const SUPPORTED_ACTIONS = new Set<Action>([
   'analyze_text',
   'generate_card',
@@ -136,27 +157,51 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function base64UrlToJson(input: string): JwtPayload {
-  const padded = input.replace(/-/g, '+').replace(/_/g, '/')
-    + '='.repeat((4 - (input.length % 4)) % 4);
-  const decoded = atob(padded);
-  return JSON.parse(decoded) as JwtPayload;
-}
-
-function getUserIdFromAuthorization(req: Request): string | null {
+function getBearerToken(req: Request): string | null {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.slice(7).trim();
+}
 
-  const token = authHeader.slice(7);
-  const parts = token.split('.');
-  if (parts.length < 2) return null;
+async function resolveUserIdViaSupabaseAuth(
+  req: Request,
+  token: string
+): Promise<string | null> {
+  const requestUrl = new URL(req.url);
+  const supabaseOrigin = requestUrl.origin;
+  const reqApiKey = req.headers.get('apikey');
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const apiKey = reqApiKey || supabaseAnonKey || supabaseServiceRoleKey;
+  if (!supabaseOrigin || !apiKey) return null;
 
   try {
-    const payload = base64UrlToJson(parts[1]);
-    return payload.sub ?? null;
+    const response = await fetch(`${supabaseOrigin}/auth/v1/user`, {
+      method: 'GET',
+      headers: {
+        apikey: apiKey,
+        authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as Record<string, unknown>;
+    if (typeof payload.id === 'string' && payload.id.trim()) {
+      return payload.id;
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+async function getUserIdFromAuthorization(req: Request): Promise<string | null> {
+  const token = getBearerToken(req);
+  if (!token) return null;
+
+  // Always verify bearer token via Supabase Auth service.
+  return await resolveUserIdViaSupabaseAuth(req, token);
 }
 
 function sanitizeText(input: unknown, maxLen: number): string {
@@ -319,6 +364,7 @@ function toGeminiContents(messages: LegacyRequestBody['messages']) {
 }
 
 async function incrementCounter(
+  kv: any,
   key: readonly unknown[],
   expireInMs: number
 ): Promise<number> {
@@ -338,11 +384,27 @@ async function incrementCounter(
 }
 
 async function enforceLimits(userId: string): Promise<Response | null> {
+  const kv = await getKvClient();
+  if (!kv) {
+    if (ALLOW_BILLABLE_WITHOUT_KV) {
+      console.warn('[ai-proxy] KV unavailable; allowing request due to AI_ALLOW_BILLABLE_WITHOUT_KV=true');
+      return null;
+    }
+    return jsonResponse(
+      {
+        error: 'Service temporarily unavailable',
+        reason: 'rate_limit_store_unavailable',
+      },
+      503
+    );
+  }
+
   const now = new Date();
   const minuteBucket = `${now.toISOString().slice(0, 16)}`;
   const dayBucket = now.toISOString().slice(0, 10);
 
   const minuteCount = await incrementCounter(
+    kv,
     ['ai-rate', userId, minuteBucket],
     2 * 60 * 1000
   );
@@ -358,6 +420,7 @@ async function enforceLimits(userId: string): Promise<Response | null> {
   }
 
   const dayCount = await incrementCounter(
+    kv,
     ['ai-quota', userId, dayBucket],
     2 * 24 * 60 * 60 * 1000
   );
@@ -382,6 +445,11 @@ async function trackUsage(params: {
   meta?: Record<string, unknown>;
 }): Promise<void> {
   try {
+    const kv = await getKvClient();
+    if (!kv) {
+      return;
+    }
+
     const now = new Date();
     const dayBucket = now.toISOString().slice(0, 10);
     const ttlMs = Math.max(1, USAGE_RETENTION_DAYS) * 24 * 60 * 60 * 1000;
@@ -398,6 +466,7 @@ async function trackUsage(params: {
       { expireIn: ttlMs }
     );
     await incrementCounter(
+      kv,
       ['ai-usage-count', dayBucket, params.userId, params.action, params.status],
       ttlMs
     );
@@ -410,6 +479,17 @@ async function getUsageSummary(
   userId: string,
   payload?: UsageSummaryPayload
 ): Promise<Response> {
+  const kv = await getKvClient();
+  if (!kv) {
+    return jsonResponse(
+      {
+        error: 'Usage summary unavailable',
+        reason: 'usage_store_unavailable',
+      },
+      503
+    );
+  }
+
   const dayInput = sanitizeText(payload?.day, 10);
   const dayBucket = isValidDayBucket(dayInput)
     ? dayInput
@@ -764,7 +844,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const userId = getUserIdFromAuthorization(req);
+    const userId = await getUserIdFromAuthorization(req);
     if (!userId) {
       return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
     }
@@ -934,7 +1014,7 @@ Deno.serve(async (req: Request) => {
     });
     return jsonResponse({ error: 'Invalid payload' }, 400);
   } catch (error) {
-    const userId = getUserIdFromAuthorization(req);
+    const userId = await getUserIdFromAuthorization(req);
     if (userId) {
       await trackUsage({
         userId,

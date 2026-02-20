@@ -16,6 +16,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
+    // Use PKCE so deep-link callbacks carry ?code=... instead of hash tokens,
+    // which are unreliable on iOS custom-scheme redirects.
+    flowType: 'pkce',
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

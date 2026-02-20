@@ -1,2 +1,2 @@
 [functions.ai-proxy]
-verify_jwt = true
+verify_jwt = false
