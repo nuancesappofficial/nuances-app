@@ -9,7 +9,7 @@ import CardsListScreen from '../screens/CardsListScreen';
 import AddCacheItemScreen from '../screens/AddCacheItemScreen';
 import CreateCardScreen from '../screens/CreateCardScreen';
 import CardReviewScreen from '../screens/CardReviewScreen';
-import DevToolsScreen from '../screens/DevToolsScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -88,18 +88,16 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           }}
         />
 
-        {__DEV__ && (
-          <Tab.Screen
-            name="DevTools"
-            component={DevToolsScreen}
-            options={{
-              tabBarLabel: '工具',
-              tabBarIcon: ({ color }) => (
-                <TabIcon emoji="🔧" color={color} />
-              ),
-            }}
-          />
-        )}
+        <Tab.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            tabBarLabel: '設定',
+            tabBarIcon: ({ color }) => (
+              <TabIcon emoji="⚙️" color={color} />
+            ),
+          }}
+        />
       </Tab.Navigator>
     </NavigationContainer>
   );

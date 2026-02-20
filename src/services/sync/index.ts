@@ -116,6 +116,8 @@ export async function sync(): Promise<SyncResult> {
 
       // Optional: handle migration conflicts
       migrationsEnabledAtVersion: 1,
+      // Allow server "updated" rows to create locally when local row doesn't exist yet.
+      sendCreatedAsUpdated: true,
     });
 
     console.log('Sync completed successfully');
@@ -276,7 +278,14 @@ async function pushTableChanges(tableName: string, changes: any, userId: string)
     if (records.length === 0) {
       return;
     }
-    const { error } = await supabase.from(tableName).insert(records);
+    const response =
+      tableName === 'profiles'
+        ? await supabase.from(tableName).upsert(records, {
+            onConflict: 'id',
+            ignoreDuplicates: false,
+          })
+        : await supabase.from(tableName).insert(records);
+    const { error } = response;
     if (error) throw new Error(`Error inserting ${tableName}: ${error.message}`);
   }
 

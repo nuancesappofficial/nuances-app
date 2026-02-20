@@ -24,6 +24,10 @@ import {
   extractKeywordText,
   parseSelectedBlockIndexes,
 } from '../services/ocr/selectionMarkers';
+import {
+  getEffectiveLearningGoal,
+  loadUserSettings,
+} from '../services/settings/userSettings';
 import { type OCRBlock } from '../services/ocr/ocrService';
 import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
 
@@ -55,8 +59,22 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
+  const [learningGoal, setLearningGoal] = React.useState<'ielts' | 'casual' | 'professional'>('ielts');
   const cameraRef = React.useRef<CameraView | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  React.useEffect(() => {
+    let active = true;
+    const loadGoal = async () => {
+      const settings = await loadUserSettings();
+      if (!active) return;
+      setLearningGoal(getEffectiveLearningGoal(settings));
+    };
+    void loadGoal();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 編輯模式：預填現有資料
   React.useEffect(() => {
@@ -506,6 +524,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                 onOCRComplete={handleOCRComplete}
                 initialSelectedIndexes={selectedBlockIndexes}
                 recommendedCount={5}
+                learningGoal={learningGoal}
               />
             ) : (
               <View style={styles.errorContainer}>

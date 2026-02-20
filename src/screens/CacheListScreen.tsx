@@ -20,6 +20,7 @@ import { Q } from '@nozbe/watermelondb';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import { getSyncErrorMessage, syncWithRetry } from '@services/sync';
+import { loadUserSettings } from '@services/settings/userSettings';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
@@ -45,6 +46,7 @@ export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
   const [snackbarVisible, setSnackbarVisible] = React.useState(false);
+  const [clipboardMode, setClipboardMode] = React.useState<'active' | 'passive'>('passive');
   const snackbarOpacity = React.useRef(new Animated.Value(0)).current;
   const lastProcessedClipboard = React.useRef<string>('');
   const appState = React.useRef(AppState.currentState);
@@ -172,6 +174,11 @@ export default function CacheListScreen({ navigation }: Props) {
 
   const shareSnackbarTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const refreshClipboardMode = React.useCallback(async () => {
+    const settings = await loadUserSettings();
+    setClipboardMode(settings.clipboardMode);
+  }, []);
+
   // 監聽 App 從背景回到前景（當畫面在焦點上時）
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
@@ -180,7 +187,14 @@ export default function CacheListScreen({ navigation }: Props) {
         appState.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
+        void refreshClipboardMode();
         void runSync(false);
+        void (async () => {
+          const settings = await loadUserSettings();
+          if (settings.clipboardMode === 'active') {
+            await checkClipboard(false);
+          }
+        })();
         // Share Extension 處理為非同步，延遲 1.2s 後再檢查，確保 useShareExtension 已完成入庫
         shareSnackbarTimerRef.current = setTimeout(tryShowShareSnackbar, 1200);
       }
@@ -193,12 +207,19 @@ export default function CacheListScreen({ navigation }: Props) {
       }
       subscription.remove();
     };
-  }, [runSync, tryShowShareSnackbar]);
+  }, [checkClipboard, clipboardMode, refreshClipboardMode, runSync, tryShowShareSnackbar]);
 
   // 監聽畫面聚焦（Tab 切換或首次進入），僅處理 focus state 與分享結果提示。
   useFocusEffect(
     React.useCallback(() => {
       isScreenFocused.current = true;
+      void refreshClipboardMode();
+      void (async () => {
+        const settings = await loadUserSettings();
+        if (settings.clipboardMode === 'active') {
+          await checkClipboard(false);
+        }
+      })();
       const shareTimer = setTimeout(() => {
         const message = consumeShareSnackbar();
         if (message) showSnackbar(message);
@@ -207,7 +228,7 @@ export default function CacheListScreen({ navigation }: Props) {
         isScreenFocused.current = false;
         clearTimeout(shareTimer);
       };
-    }, [consumeShareSnackbar, showSnackbar])
+    }, [checkClipboard, consumeShareSnackbar, refreshClipboardMode, showSnackbar])
   );
 
   // Query cached items (not deleted, not converted, ordered by creation date)
@@ -372,12 +393,14 @@ export default function CacheListScreen({ navigation }: Props) {
           </Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.pasteButton}
-            onPress={handlePastePress}
-          >
-            <Text style={styles.pasteButtonText}>貼上</Text>
-          </TouchableOpacity>
+          {clipboardMode === 'passive' && (
+            <TouchableOpacity
+              style={styles.pasteButton}
+              onPress={handlePastePress}
+            >
+              <Text style={styles.pasteButtonText}>貼上</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => navigation.navigate('AddCacheItem')}

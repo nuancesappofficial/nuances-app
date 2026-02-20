@@ -25,6 +25,10 @@ import {
   extractKeywordText,
   parseSelectedBlockIndexes,
 } from '../services/ocr/selectionMarkers';
+import {
+  getEffectiveLearningGoal,
+  loadUserSettings,
+} from '../services/settings/userSettings';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): { text?: string }[] {
@@ -117,6 +121,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
   const [multiCardDrafts, setMultiCardDrafts] = React.useState<MultiCardDraft[]>([]);
+  const [learningGoalForAI, setLearningGoalForAI] = React.useState<'ielts' | 'casual' | 'professional'>('ielts');
   const restoringDraftRef = React.useRef(false);
   const authRedirectingRef = React.useRef(false);
   const selectedBlockIndexes = React.useMemo(
@@ -242,6 +247,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     }
   }, [targetPhrase, contextualExplanation, phoneticTranscription, tags]);
 
+  React.useEffect(() => {
+    let active = true;
+    const loadGoal = async () => {
+      const settings = await loadUserSettings();
+      if (!active) return;
+      setLearningGoalForAI(getEffectiveLearningGoal(settings));
+    };
+    void loadGoal();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const performAnalysis = async () => {
     setAnalyzing(true);
     setUsingRealAPI(isUsingRealAPI());
@@ -360,7 +378,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       const analysis = await analyzeText(
         textToAnalyze,
         cachedItem.userKeywords,
-        'ielts' // TODO: 從用戶 profile 獲取
+        learningGoalForAI
       );
       
       // setSuggestedWords(analysis.keywords); // [推薦字功能暫時停用]
