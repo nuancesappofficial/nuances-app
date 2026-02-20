@@ -19,12 +19,12 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import ImageOCRViewer from '../components/ImageOCRViewer';
 import ImageCropperModal from '../components/ImageCropperModal';
-import { 
-  type OCRBlock, 
-  buildContextPayload, 
-  analyzeTextWithAI 
-} from '../services/ocr/ocrService';
-import { analyzeText } from '../services/ai';
+import {
+  buildKeywordsWithSelectionMarker,
+  extractKeywordText,
+  parseSelectedBlockIndexes,
+} from '../services/ocr/selectionMarkers';
+import { type OCRBlock } from '../services/ocr/ocrService';
 import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
 
 type Props = {
@@ -46,7 +46,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   
   // Tech Stack v1.5.0: 儲存 OCR blocks 而非手動標註
   const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
-  const [selectedBlockIndex, setSelectedBlockIndex] = React.useState<number | null>(null);
+  const [selectedBlockIndexes, setSelectedBlockIndexes] = React.useState<number[]>([]);
   
   const [showOCRViewer, setShowOCRViewer] = React.useState(false);
   const [showCamera, setShowCamera] = React.useState(false);
@@ -54,9 +54,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const [showCropper, setShowCropper] = React.useState(false);
   const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const [analyzing, setAnalyzing] = React.useState(false);
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
-  const [recommendedWords, setRecommendedWords] = React.useState<string[]>([]);
   const cameraRef = React.useRef<CameraView | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
@@ -67,13 +65,10 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     setContentText(editingItem.contentText ?? '');
     setContentUrl(editingItem.contentUrl ?? '');
 
-    // 關鍵字：移除 [block:X] 標記只顯示純文字
+    // 關鍵字：移除 [block:X]/[blocks:X,Y] 標記只顯示純文字
     if (editingItem.userKeywords) {
-      const keywordOnly = editingItem.userKeywords.replace(/\s*\[block:\d+\]/, '').trim();
-      setKeywords(keywordOnly);
-      // 還原 block index
-      const match = editingItem.userKeywords.match(/\[block:(\d+)\]/);
-      if (match) setSelectedBlockIndex(parseInt(match[1], 10));
+      setKeywords(extractKeywordText(editingItem.userKeywords));
+      setSelectedBlockIndexes(parseSelectedBlockIndexes(editingItem.userKeywords));
     }
 
     // 圖片：Share Extension 使用 mediaUri，手動新增使用 imageStoragePath
@@ -104,30 +99,18 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
    */
   const handleOCRComplete = React.useCallback((blocks: OCRBlock[]) => {
     setOCRBlocks(blocks);
-    // [AI 推薦詞彙功能暫時停用] 待啟用時取消以下注釋：
-    // if (blocks.length > 0) {
-    //   setAnalyzing(true);
-    //   try {
-    //     const fullText = blocks.map(b => b.text).join(' ');
-    //     const analysis = await analyzeText(fullText, '', 'ielts');
-    //     setRecommendedWords(analysis.keywords);
-    //   } catch (error) {
-    //     console.error('[AddCache] AI vocabulary recommendation failed:', error);
-    //   } finally {
-    //     setAnalyzing(false);
-    //   }
-    // }
+    // 保留於本地，待後續擴充推薦詞功能
   }, []);
 
   /**
    * 處理用戶點擊 OCR 文字塊（Tech Stack v1.5.0 第 146-150 行）
    */
-  const handleTextBlockSelect = React.useCallback(async (block: OCRBlock, index: number) => {
-    console.log('[AddCache] User selected text block:', block.text);
-    setSelectedBlockIndex(index);
-    
-    // 自動填入關鍵字
-    setKeywords(block.text);
+  const handleSelectionChange = React.useCallback((indexes: number[], blocks: OCRBlock[]) => {
+    setSelectedBlockIndexes(indexes);
+    const selectedTexts = indexes
+      .map((index) => blocks[index]?.text?.trim())
+      .filter((text): text is string => Boolean(text));
+    setKeywords(selectedTexts.join(', '));
   }, []);
 
   const pickImage = async () => {
@@ -212,7 +195,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     }
 
     // 圖片類型且未選擇文字時，提示用戶
-    if (contentType === 'image' && selectedImage && selectedBlockIndex === null) {
+    if (contentType === 'image' && selectedImage && selectedBlockIndexes.length === 0) {
       Alert.alert(
         '提示',
         '您還沒有選擇要學習的文字。要繼續嗎？',
@@ -234,15 +217,16 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     item.contentType = contentType;
     item.contentText = contentText || undefined;
     item.contentUrl = contentUrl || undefined;
-    item.userKeywords = keywords || undefined;
+    item.userKeywords = extractKeywordText(keywords) || undefined;
 
     if (ocrBlocks.length > 0) {
       item.imageAnnotations = ocrBlocks as any;
     }
 
-    if (selectedBlockIndex !== null) {
-      item.userKeywords = `${keywords} [block:${selectedBlockIndex}]`;
-    }
+    item.userKeywords = buildKeywordsWithSelectionMarker(keywords, selectedBlockIndexes) || undefined;
+    item.aiHighlightedTerms = selectedBlockIndexes
+      .map((index) => ocrBlocks[index]?.text?.trim())
+      .filter((text): text is string => Boolean(text));
 
     if (aiAnalysisResult) {
       item.aiAnalysisCompleted = true;
@@ -424,7 +408,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                       setSelectedImage(null);
                       setContentUrl('');
                       setOCRBlocks([]);
-                      setSelectedBlockIndex(null);
+                      setSelectedBlockIndexes([]);
                       setAIAnalysisResult(null);
                     }}
                   >
@@ -456,9 +440,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           onChangeText={setKeywords}
           autoCapitalize="none"
         />
-        {selectedBlockIndex !== null && ocrBlocks[selectedBlockIndex] && (
+        {selectedBlockIndexes.length > 0 && (
           <Text style={styles.ocrHint}>
-            ✨ 已選擇：{ocrBlocks[selectedBlockIndex].text}
+            ✨ 已選擇 {selectedBlockIndexes.length} 個區域
           </Text>
         )}
         {/* [AI 推薦詞彙功能暫時停用] analyzing 指示和推薦詞彙 UI 隱藏中
@@ -511,16 +495,17 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
               </TouchableOpacity>
               <Text style={styles.modalTitle}>選擇要學習的文字</Text>
               <Text style={styles.modalCloseText}>
-                {selectedBlockIndex !== null ? '已選擇' : `${ocrBlocks.length} 個`}
+                {selectedBlockIndexes.length > 0 ? `已選 ${selectedBlockIndexes.length}` : `${ocrBlocks.length} 個`}
               </Text>
             </View>
 
             {selectedImage ? (
               <ImageOCRViewer
                 imageUri={selectedImage}
-                onTextBlockSelect={handleTextBlockSelect}
+                onSelectionChange={handleSelectionChange}
                 onOCRComplete={handleOCRComplete}
-                initialSelectedIndex={selectedBlockIndex ?? undefined}
+                initialSelectedIndexes={selectedBlockIndexes}
+                recommendedCount={5}
               />
             ) : (
               <View style={styles.errorContainer}>

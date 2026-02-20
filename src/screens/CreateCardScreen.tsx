@@ -21,6 +21,10 @@ import { analyzeText, isUsingRealAPI } from '../services/ai';
 import { extractTextFromImage, isOCRAvailable, buildContextPayload, analyzeTextWithAI } from '../services/ocr';
 import { AIAuthError } from '../services/ai/edgeAiClient';
 import { supabase } from '../services/supabase/client';
+import {
+  extractKeywordText,
+  parseSelectedBlockIndexes,
+} from '../services/ocr/selectionMarkers';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): { text?: string }[] {
@@ -52,6 +56,14 @@ type CreateCardDraft = {
   updatedAt: number;
 };
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+type MultiCardDraft = {
+  targetWord: string;
+  definition: string;
+  contextualExplanation?: string;
+  phoneticTranscription?: string;
+  tags: string[];
+};
 
 function readableAIErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -104,8 +116,24 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [showAnalysisChoice, setShowAnalysisChoice] = React.useState(true);
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
+  const [multiCardDrafts, setMultiCardDrafts] = React.useState<MultiCardDraft[]>([]);
   const restoringDraftRef = React.useRef(false);
   const authRedirectingRef = React.useRef(false);
+  const selectedBlockIndexes = React.useMemo(
+    () => parseSelectedBlockIndexes(cachedItem.userKeywords),
+    [cachedItem.userKeywords]
+  );
+  const selectedTerms = React.useMemo(() => {
+    if (Array.isArray(cachedItem.aiHighlightedTerms) && cachedItem.aiHighlightedTerms.length > 0) {
+      return cachedItem.aiHighlightedTerms
+        .map((term) => term.trim())
+        .filter(Boolean);
+    }
+    const annotations = getAnnotationsArray(cachedItem.imageAnnotations);
+    return selectedBlockIndexes
+      .map((index) => annotations[index]?.text?.trim())
+      .filter((term): term is string => Boolean(term));
+  }, [cachedItem.aiHighlightedTerms, cachedItem.imageAnnotations, selectedBlockIndexes]);
 
   const persistDraft = React.useCallback(
     async (draft: CreateCardDraft) => {
@@ -116,10 +144,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   );
 
   React.useEffect(() => {
-    // 預填關鍵字（從 userKeywords 提取，移除 [block:X] 標記）
+    // 預填關鍵字（移除 [block:X]/[blocks:X,Y] 標記）
     if (cachedItem.userKeywords) {
-      const keywordOnly = cachedItem.userKeywords.replace(/\s*\[block:\d+\]/, '').trim();
-      setTargetWord(keywordOnly);
+      setTargetWord(extractKeywordText(cachedItem.userKeywords));
     }
     // 不自動執行分析，等用戶選擇
   }, [cachedItem]);
@@ -239,40 +266,63 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         const annotations = getAnnotationsArray(cachedItem.imageAnnotations);
 
         if (annotations.length > 0) {
-          // 解析 userKeywords 中的 block 索引（格式：關鍵字 [block:索引]）
-          let selectedBlockIndex: number | null = null;
-          if (cachedItem.userKeywords) {
-            const match = cachedItem.userKeywords.match(/\[block:(\d+)\]/);
-            if (match) {
-              selectedBlockIndex = parseInt(match[1], 10);
-            }
-          }
+          const validSelectedIndexes = selectedBlockIndexes.filter(
+            (index) => Number.isInteger(index) && index >= 0 && index < annotations.length
+          );
+          if (validSelectedIndexes.length > 0) {
+            console.log('[CreateCard] Using context-based analysis for blocks:', validSelectedIndexes);
+            const nextDrafts: MultiCardDraft[] = [];
 
-          if (selectedBlockIndex !== null && selectedBlockIndex < annotations.length) {
-            // 使用上下文分析（Tech Stack v1.5.0）
-            console.log('[CreateCard] Using context-based analysis for block:', selectedBlockIndex);
-            const payload = buildContextPayload(annotations as any[], selectedBlockIndex);
-            const result = await analyzeTextWithAI(payload);
-            
-            // 直接設定分析結果，跳過舊的 analyzeText
-            setTargetWord(result.keyword);
-            setDefinition(result.definition);
-            setContextualExplanation(result.example);
-            setPhoneticTranscription(result.pronunciation || '');
-            setTags(result.tags.join(', '));
-            // setSuggestedWords([result.keyword]); // [推薦字功能暫時停用]
-            await persistDraft({
-              targetWord: result.keyword,
-              targetPhrase,
-              definition: result.definition,
-              contextualExplanation: result.example,
-              phoneticTranscription: result.pronunciation || '',
-              tags: result.tags.join(', '),
-              showAnalysisChoice: false,
-              usingRealAPI: isUsingRealAPI(),
-              updatedAt: Date.now(),
-            });
-            
+            for (const selectedIndex of validSelectedIndexes) {
+              try {
+                const payload = buildContextPayload(annotations as any[], selectedIndex);
+                const result = await analyzeTextWithAI(payload);
+                nextDrafts.push({
+                  targetWord: result.keyword,
+                  definition: result.definition,
+                  contextualExplanation: result.example || undefined,
+                  phoneticTranscription: result.pronunciation || undefined,
+                  tags: result.tags,
+                });
+              } catch (error) {
+                const fallbackWord = annotations[selectedIndex]?.text || '';
+                if (fallbackWord.trim()) {
+                  nextDrafts.push({
+                    targetWord: fallbackWord.trim(),
+                    definition: `${fallbackWord.trim()}（待補充定義）`,
+                    contextualExplanation: undefined,
+                    phoneticTranscription: undefined,
+                    tags: [],
+                  });
+                }
+                console.error('[CreateCard] Block analysis failed, fallback to local word:', error);
+              }
+            }
+
+            const dedupedDrafts = Array.from(
+              new Map(nextDrafts.map((draft) => [draft.targetWord.toLowerCase(), draft])).values()
+            );
+            setMultiCardDrafts(dedupedDrafts);
+
+            if (dedupedDrafts.length > 0) {
+              const first = dedupedDrafts[0];
+              setTargetWord(first.targetWord);
+              setDefinition(first.definition);
+              setContextualExplanation(first.contextualExplanation || '');
+              setPhoneticTranscription(first.phoneticTranscription || '');
+              setTags(first.tags.join(', '));
+              await persistDraft({
+                targetWord: first.targetWord,
+                targetPhrase,
+                definition: first.definition,
+                contextualExplanation: first.contextualExplanation || '',
+                phoneticTranscription: first.phoneticTranscription || '',
+                tags: first.tags.join(', '),
+                showAnalysisChoice: false,
+                usingRealAPI: isUsingRealAPI(),
+                updatedAt: Date.now(),
+              });
+            }
             setAnalyzing(false);
             return;
           } else {
@@ -314,6 +364,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       );
       
       // setSuggestedWords(analysis.keywords); // [推薦字功能暫時停用]
+      setMultiCardDrafts([]);
 
       // 自動填入分析結果
       if (analysis.suggestedWord) {
@@ -412,12 +463,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
   const handleSave = async () => {
     // 驗證必填欄位
-    if (!targetWord.trim()) {
+    if (!targetWord.trim() && selectedTerms.length === 0) {
       Alert.alert('錯誤', '請輸入目標單字');
       return;
     }
 
-    if (!definition.trim()) {
+    if (!definition.trim() && selectedTerms.length <= 1) {
       Alert.alert('錯誤', '請輸入定義');
       return;
     }
@@ -426,27 +477,57 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
     try {
       const cardsCollection = database.get<Card>('cards');
+      const uniqueTerms = Array.from(new Set(selectedTerms.map((term) => term.trim()).filter(Boolean)));
+      const draftsToCreate: MultiCardDraft[] =
+        multiCardDrafts.length > 0
+          ? multiCardDrafts
+          : uniqueTerms.map((term) => ({
+              targetWord: term,
+              definition: definition.trim() || `${term}（待補充定義）`,
+              contextualExplanation: contextualExplanation.trim() || undefined,
+              phoneticTranscription: phoneticTranscription.trim() || undefined,
+              tags: tags.trim() ? tags.split(',').map((t) => t.trim()) : [],
+            }));
+      const shouldBatchCreate = draftsToCreate.length > 1;
 
       await database.write(async () => {
-        // 創建卡片
-        await cardsCollection.create((card) => {
-          card.userId = cachedItem.userId;
-          card.cachedItemId = cachedItem.id;
-          card.targetWord = targetWord.trim();
-          card.targetPhrase = targetPhrase.trim() || undefined;
-          card.originalSentence = cachedItem.contentText || cachedItem.contentUrl || '';
-          card.definition = definition.trim();
-          card.contextualExplanation = contextualExplanation.trim() || undefined;
-          card.phoneticTranscription = phoneticTranscription.trim() || undefined;
-          card.tags = tags.trim() ? tags.split(',').map(t => t.trim()) : undefined;
-          card.sourceApp = cachedItem.sourceApp;
-          
-          // SRS 初始值
-          card.easeFactor = 2.5;
-          card.intervalDays = 1;
-          card.repetitions = 0;
-          card.nextReviewAt = new Date(); // 立即可複習
-        });
+        if (shouldBatchCreate) {
+          for (const draft of draftsToCreate) {
+            await cardsCollection.create((card) => {
+              card.userId = cachedItem.userId;
+              card.cachedItemId = cachedItem.id;
+              card.targetWord = draft.targetWord;
+              card.targetPhrase = targetPhrase.trim() || undefined;
+              card.originalSentence = cachedItem.contentText || cachedItem.contentUrl || '';
+              card.definition = draft.definition.trim() || `${draft.targetWord}（待補充定義）`;
+              card.contextualExplanation = draft.contextualExplanation || undefined;
+              card.phoneticTranscription = draft.phoneticTranscription || undefined;
+              card.tags = draft.tags.length > 0 ? draft.tags : undefined;
+              card.sourceApp = cachedItem.sourceApp;
+              card.easeFactor = 2.5;
+              card.intervalDays = 1;
+              card.repetitions = 0;
+              card.nextReviewAt = new Date();
+            });
+          }
+        } else {
+          await cardsCollection.create((card) => {
+            card.userId = cachedItem.userId;
+            card.cachedItemId = cachedItem.id;
+            card.targetWord = targetWord.trim();
+            card.targetPhrase = targetPhrase.trim() || undefined;
+            card.originalSentence = cachedItem.contentText || cachedItem.contentUrl || '';
+            card.definition = definition.trim();
+            card.contextualExplanation = contextualExplanation.trim() || undefined;
+            card.phoneticTranscription = phoneticTranscription.trim() || undefined;
+            card.tags = tags.trim() ? tags.split(',').map((t) => t.trim()) : undefined;
+            card.sourceApp = cachedItem.sourceApp;
+            card.easeFactor = 2.5;
+            card.intervalDays = 1;
+            card.repetitions = 0;
+            card.nextReviewAt = new Date();
+          });
+        }
 
         // 更新 CachedItem 狀態
         await cachedItem.update((item) => {
@@ -456,7 +537,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       await AsyncStorage.removeItem(draftStorageKey);
       setHasPersistedDraft(false);
 
-      Alert.alert('成功', '卡片創建成功！', [
+      const createdCount = shouldBatchCreate ? draftsToCreate.length : 1;
+      Alert.alert('成功', createdCount > 1 ? `已建立 ${createdCount} 張卡片` : '卡片創建成功！', [
         {
           text: '確定',
           onPress: () => navigation.goBack(),
@@ -522,6 +604,25 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             <Text style={styles.previewText} numberOfLines={1}>
               {cachedItem.contentUrl}
             </Text>
+          )}
+          {selectedTerms.length > 1 && (
+            <Text style={styles.batchHint}>
+              🧩 已選取 {selectedTerms.length} 個區塊，儲存時會一次建立多張卡片
+            </Text>
+          )}
+          {multiCardDrafts.length > 0 && (
+            <View style={styles.multiPreviewContainer}>
+              {multiCardDrafts.map((draft, index) => (
+                <View key={`${draft.targetWord}-${index}`} style={styles.multiPreviewCard}>
+                  <Text style={styles.multiPreviewTitle}>
+                    Card {index + 1}: {draft.targetWord}
+                  </Text>
+                  <Text style={styles.multiPreviewText} numberOfLines={2}>
+                    {draft.definition}
+                  </Text>
+                </View>
+              ))}
+            </View>
           )}
         </View>
 
@@ -755,6 +856,34 @@ const styles = StyleSheet.create({
     color: '#333',
     lineHeight: 20,
     fontStyle: 'italic',
+  },
+  batchHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: '600',
+  },
+  multiPreviewContainer: {
+    marginTop: 10,
+    gap: 8,
+  },
+  multiPreviewCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#dce3ea',
+    padding: 10,
+  },
+  multiPreviewTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  multiPreviewText: {
+    fontSize: 12,
+    color: '#4f5d6b',
+    lineHeight: 18,
   },
   analyzingContainer: {
     flexDirection: 'row',
