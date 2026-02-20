@@ -74,50 +74,84 @@ class ShareViewController: UIViewController {
     }
     
     private func handleSharedContent() {
-        guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
-              let attachments = extensionItem.attachments else {
+        guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem],
+              !extensionItems.isEmpty else {
+            self.closeExtension(success: false)
+            return
+        }
+
+        let attachments = extensionItems
+            .compactMap { $0.attachments }
+            .flatMap { $0 }
+
+        guard !attachments.isEmpty else {
             self.closeExtension(success: false)
             return
         }
         
         // 判斷分享類型：純文字或圖片
-        if let textAttachment = attachments.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }) {
-            handleTextShare(textAttachment)
+        let textAttachments = attachments.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+        }
+        let imageAttachments = attachments.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+        }
+
+        if !textAttachments.isEmpty {
+            handleTextShare(textAttachments)
+        } else if !imageAttachments.isEmpty {
+            handleImageShare(imageAttachments)
         } else {
-            let imageAttachments = attachments.filter { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }
-            if !imageAttachments.isEmpty {
-                handleImageShare(imageAttachments)
-            } else {
-                self.closeExtension(success: false)
-            }
+            self.closeExtension(success: false)
         }
     }
     
     // MARK: - 處理純文字分享
-    private func handleTextShare(_ attachment: NSItemProvider) {
-        attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] (data, error) in
+    private func handleTextShare(_ attachments: [NSItemProvider]) {
+        let limitedAttachments = Array(attachments.prefix(maxQueuedItems))
+        var processedTexts: [String] = []
+        let dispatchGroup = DispatchGroup()
+
+        for attachment in limitedAttachments {
+            dispatchGroup.enter()
+            attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] (data, error) in
+                defer { dispatchGroup.leave() }
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("Error loading text: \\(error)")
+                    return
+                }
+                
+                var textContent = ""
+                if let text = data as? String {
+                    textContent = text
+                } else if let url = data as? URL, let text = try? String(contentsOf: url) {
+                    textContent = text
+                }
+                
+                // 套用字數限制
+                if textContent.count > self.maxTextLength {
+                    textContent = String(textContent.prefix(self.maxTextLength))
+                }
+                
+                let normalized = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalized.isEmpty {
+                    processedTexts.append(normalized)
+                }
+            }
+        }
+
+        dispatchGroup.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
-            
-            if let error = error {
-                print("Error loading text: \\(error)")
+            if processedTexts.isEmpty {
                 self.closeExtension(success: false)
                 return
             }
-            
-            var textContent = ""
-            if let text = data as? String {
-                textContent = text
-            } else if let url = data as? URL, let text = try? String(contentsOf: url) {
-                textContent = text
+
+            for text in processedTexts {
+                self.saveTextToSharedStorage(text)
             }
-            
-            // 套用字數限制
-            if textContent.count > self.maxTextLength {
-                textContent = String(textContent.prefix(self.maxTextLength))
-            }
-            
-            // 儲存到 App Groups UserDefaults
-            self.saveTextToSharedStorage(textContent)
             self.closeExtension(success: true)
         }
     }
