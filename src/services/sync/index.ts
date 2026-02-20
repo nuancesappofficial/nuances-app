@@ -197,25 +197,29 @@ async function pullChangesFromSupabase(
   if (reviewHistoryError) throw reviewHistoryError;
 
   // Transform Supabase data to WatermelonDB format
+  // NOTE:
+  // Watermelon sync is configured with sendCreatedAsUpdated: true.
+  // So server must return new/changed rows in `updated` only, and keep `created` empty.
+  // Returning the same rows in both buckets causes duplicate insert attempts and diagnostics.
   return {
     profiles: {
-      created: transformProfiles(profiles || [], 'created'),
+      created: [],
       updated: transformProfiles(profiles || [], 'updated'),
       deleted: [], // Handle deletions separately if needed
     },
     cached_items: {
-      created: transformCachedItems(cachedItems || []),
+      created: [],
       updated: transformCachedItems(cachedItems || []),
       deleted: transformDeletedItems(cachedItems || []),
     },
     cards: {
-      created: transformCards(cards || []),
+      created: [],
       updated: transformCards(cards || []),
       deleted: transformDeletedItems(cards || []),
     },
     review_history: {
-      created: transformReviewHistory(reviewHistory || []),
-      updated: [],
+      created: [],
+      updated: transformReviewHistory(reviewHistory || []),
       deleted: [],
     },
   };

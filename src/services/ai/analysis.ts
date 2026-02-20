@@ -25,6 +25,11 @@ export async function analyzeText(
       return mockAnalysis(text);
     }
 
+    const normalizedKeywords =
+      typeof userKeywords === 'string' && userKeywords.trim()
+        ? userKeywords.trim()
+        : undefined;
+
     const actionResult = await callAIAction<
       {
         text: string;
@@ -37,7 +42,7 @@ export async function analyzeText(
       }
     >('analyze_text', {
       text,
-      userKeywords,
+      userKeywords: normalizedKeywords,
       learningGoal,
     });
 

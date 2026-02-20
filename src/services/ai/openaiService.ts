@@ -13,6 +13,12 @@ const RETRY_DELAY = 1000; // 1 秒
  */
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 /**
  * 調用 OpenAI API（支援 JSON mode，確保回應為合法 JSON）
  */
@@ -76,6 +82,8 @@ export async function analyzeText(
   suggestedWord: string | null;
 }> {
   try {
+    const normalizedKeywords = normalizeOptionalString(userKeywords);
+
     const result = await callAIAction<
       {
         text: string;
@@ -92,7 +100,7 @@ export async function analyzeText(
       }
     >('analyze_text', {
       text,
-      userKeywords,
+      userKeywords: normalizedKeywords,
       learningGoal: personalization?.learningGoal,
       proficiencyStandard: personalization?.proficiencyStandard,
       proficiencyLevel: personalization?.proficiencyLevel,

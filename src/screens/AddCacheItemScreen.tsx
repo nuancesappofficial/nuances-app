@@ -39,6 +39,7 @@ type Props = {
 export default function AddCacheItemScreen({ navigation, route }: Props) {
   const editingItem: CachedItem | undefined = route?.params?.cachedItem;
   const isEditMode = !!editingItem;
+  const openCropOnLoad = Boolean(route?.params?.openCropOnLoad);
 
   const [contentType, setContentType] = React.useState<
     'text' | 'url' | 'image'
@@ -111,6 +112,15 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (!isEditMode || !openCropOnLoad) return;
+    const imgPath = editingItem?.imageStoragePath ?? editingItem?.mediaUri;
+    if (!imgPath) return;
+    setPendingCropImage(imgPath);
+    setShowOCRViewer(false);
+    setShowCropper(true);
+  }, [isEditMode, openCropOnLoad, editingItem]);
 
   /**
    * OCR 完成後儲存 blocks（AI 推薦詞彙功能暫時關閉）
@@ -282,6 +292,12 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           });
         }
       });
+
+      // 由 Cache 圖片流程進入（openCropOnLoad）時，保存後直接前往 Create Card
+      if (isEditMode && editingItem && openCropOnLoad) {
+        navigation.replace('CreateCard', { cachedItem: editingItem });
+        return;
+      }
 
       if (!isEditMode && createdItem) {
         navigation.replace('CreateCard', { cachedItem: createdItem });

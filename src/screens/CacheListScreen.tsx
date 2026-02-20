@@ -301,11 +301,54 @@ export default function CacheListScreen({ navigation }: Props) {
     );
   };
 
+  const handleClearCache = async () => {
+    if (!cachedItems || cachedItems.length === 0) {
+      Alert.alert('沒有可清除的快取', '目前快取列表是空的。');
+      return;
+    }
+
+    Alert.alert(
+      '清除全部快取',
+      `確定要清除目前 ${cachedItems.length} 筆快取嗎？此動作無法復原。`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '清除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await database.write(async () => {
+                for (const item of cachedItems) {
+                  await item.update((record) => {
+                    record.deletedAt = new Date();
+                  });
+                }
+              });
+              showSnackbar('已清除全部快取');
+            } catch (error) {
+              console.error('[CacheList] clear cache failed:', error);
+              Alert.alert('錯誤', '清除快取失敗，請稍後再試。');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: CachedItem }) => (
     <TouchableOpacity
       style={styles.itemContainer}
       activeOpacity={0.85}
-      onPress={() => navigation.navigate('CreateCard', { cachedItem: item })}
+      onPress={() => {
+        if (item.contentType === 'image') {
+          navigation.navigate('AddCacheItem', {
+            cachedItem: item,
+            openCropOnLoad: true,
+          });
+          return;
+        }
+        navigation.navigate('CreateCard', { cachedItem: item });
+      }}
     >
       <View style={styles.itemHeader}>
         <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
@@ -402,6 +445,14 @@ export default function CacheListScreen({ navigation }: Props) {
             </TouchableOpacity>
           )}
           <TouchableOpacity
+            style={styles.clearCacheButton}
+            onPress={() => {
+              void handleClearCache();
+            }}
+          >
+            <Text style={styles.clearCacheButtonText}>Clear</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.addButton}
             onPress={() => navigation.navigate('AddCacheItem')}
           >
@@ -495,6 +546,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#2E7D32',
+  },
+  clearCacheButton: {
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ef9a9a',
+    backgroundColor: '#ffebee',
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearCacheButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#c62828',
   },
   listContent: {
     padding: 16,
