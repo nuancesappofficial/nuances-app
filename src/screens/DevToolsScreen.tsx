@@ -12,9 +12,25 @@ import {
 import { clearAllData, clearTestDataOnly } from '../database/clearData';
 import { seedTestData } from '../database/seedTestData';
 import { database } from '../database';
+import { AIAuthError, callAIAction } from '../services/ai/edgeAiClient';
 
 type Props = {
   navigation: any;
+};
+
+type AIUsageAction =
+  | 'analyze_text'
+  | 'generate_card'
+  | 'analyze_context'
+  | 'legacy_openai'
+  | 'legacy_gemini';
+
+type AIUsageStatus = 'success' | 'error' | 'invalid_request' | 'rate_limited';
+
+type AIUsageSummary = {
+  day: string;
+  counts: Record<AIUsageAction, Record<AIUsageStatus, number>>;
+  recent: Array<Record<string, unknown>>;
 };
 
 export default function DevToolsScreen({ navigation }: Props) {
@@ -25,6 +41,8 @@ export default function DevToolsScreen({ navigation }: Props) {
     reviewHistory: 0,
   });
   const [loading, setLoading] = React.useState(false);
+  const [usageLoading, setUsageLoading] = React.useState(false);
+  const [usageSummary, setUsageSummary] = React.useState<AIUsageSummary | null>(null);
 
   const loadStats = async () => {
     try {
@@ -125,6 +143,42 @@ export default function DevToolsScreen({ navigation }: Props) {
     );
   };
 
+  const usageActions: AIUsageAction[] = [
+    'analyze_text',
+    'generate_card',
+    'analyze_context',
+    'legacy_openai',
+    'legacy_gemini',
+  ];
+
+  const handleFetchAIUsage = async () => {
+    setUsageLoading(true);
+    try {
+      const result = await callAIAction<
+        {
+          includeRecent: boolean;
+          limit: number;
+        },
+        AIUsageSummary
+      >('usage_summary', {
+        includeRecent: true,
+        limit: 20,
+      });
+      setUsageSummary(result);
+    } catch (error) {
+      if (error instanceof AIAuthError) {
+        Alert.alert('需要登入', '請先完成登入，再查看 AI 使用量。');
+      } else {
+        Alert.alert(
+          '讀取失敗',
+          error instanceof Error ? error.message : '無法讀取 AI 使用量'
+        );
+      }
+    } finally {
+      setUsageLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -200,6 +254,48 @@ export default function DevToolsScreen({ navigation }: Props) {
               4 個快取項目 + 5 張卡片
             </Text>
           </TouchableOpacity>
+        </View>
+
+        {/* AI 使用量 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🤖 AI 使用量</Text>
+
+          <TouchableOpacity
+            style={[styles.button, styles.buttonInfo]}
+            onPress={handleFetchAIUsage}
+            disabled={usageLoading}
+          >
+            <Text style={styles.buttonText}>
+              {usageLoading ? '讀取中...' : '讀取今日 AI 使用量'}
+            </Text>
+            <Text style={styles.buttonSubtext}>
+              從 Edge Function usage_summary 取得統計
+            </Text>
+          </TouchableOpacity>
+
+          {usageSummary && (
+            <View style={styles.usageCard}>
+              <Text style={styles.usageDay}>日期：{usageSummary.day}</Text>
+              {usageActions.map((action) => {
+                const stats = usageSummary.counts[action];
+                const success = stats?.success ?? 0;
+                const error = stats?.error ?? 0;
+                const invalid = stats?.invalid_request ?? 0;
+                const rateLimited = stats?.rate_limited ?? 0;
+                return (
+                  <View key={action} style={styles.usageRow}>
+                    <Text style={styles.usageAction}>{action}</Text>
+                    <Text style={styles.usageStats}>
+                      ok:{success} err:{error} invalid:{invalid} 429:{rateLimited}
+                    </Text>
+                  </View>
+                );
+              })}
+              <Text style={styles.usageRecent}>
+                recent events: {usageSummary.recent?.length ?? 0}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* 說明 */}
@@ -307,6 +403,9 @@ const styles = StyleSheet.create({
   buttonDanger: {
     backgroundColor: '#F44336',
   },
+  buttonInfo: {
+    backgroundColor: '#1976D2',
+  },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
@@ -327,5 +426,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1976D2',
     lineHeight: 20,
+  },
+  usageCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e3e8ef',
+  },
+  usageDay: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  usageRow: {
+    marginBottom: 6,
+  },
+  usageAction: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#222',
+  },
+  usageStats: {
+    fontSize: 12,
+    color: '#555',
+    marginTop: 2,
+  },
+  usageRecent: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
   },
 });
