@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Alert,
   Image,
   Modal,
@@ -25,6 +26,7 @@ type Rect = {
 };
 
 type CornerKey = 'topLeft' | 'topRight' | 'bottomRight' | 'bottomLeft';
+type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 
 type Props = {
   visible: boolean;
@@ -36,6 +38,7 @@ type Props = {
 const MIN_EDGE = 60;
 const HANDLE_SIZE = 24;
 const HANDLE_HITBOX_SIZE = 44;
+const EDGE_HITBOX_SIZE = 28;
 
 export default function ImageCropperModal({
   visible,
@@ -47,6 +50,8 @@ export default function ImageCropperModal({
   const [containerSize, setContainerSize] = React.useState<Size>({ width: 0, height: 0 });
   const [cropRect, setCropRect] = React.useState<Rect | null>(null);
   const [processing, setProcessing] = React.useState(false);
+  const gridOpacity = React.useRef(new Animated.Value(0)).current;
+  const gridFadeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cropRectRef = React.useRef<Rect | null>(null);
   const displayMetricsRef = React.useRef<{
@@ -102,8 +107,13 @@ export default function ImageCropperModal({
       setCropRect(null);
       setImageSize(null);
       setProcessing(false);
+      gridOpacity.setValue(0);
+      if (gridFadeTimeoutRef.current) {
+        clearTimeout(gridFadeTimeoutRef.current);
+        gridFadeTimeoutRef.current = null;
+      }
     }
-  }, [visible]);
+  }, [gridOpacity, visible]);
 
   React.useEffect(() => {
     cropRectRef.current = cropRect;
@@ -117,6 +127,32 @@ export default function ImageCropperModal({
     return Math.min(Math.max(value, min), max);
   }, []);
 
+  const showGrid = React.useCallback(() => {
+    if (gridFadeTimeoutRef.current) {
+      clearTimeout(gridFadeTimeoutRef.current);
+      gridFadeTimeoutRef.current = null;
+    }
+    Animated.timing(gridOpacity, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  }, [gridOpacity]);
+
+  const scheduleGridFade = React.useCallback(() => {
+    if (gridFadeTimeoutRef.current) {
+      clearTimeout(gridFadeTimeoutRef.current);
+    }
+    gridFadeTimeoutRef.current = setTimeout(() => {
+      Animated.timing(gridOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+      gridFadeTimeoutRef.current = null;
+    }, 500);
+  }, [gridOpacity]);
+
   const createHandleResponder = React.useCallback(
     (corner: CornerKey) => {
       let startRect: Rect | null = null;
@@ -127,11 +163,13 @@ export default function ImageCropperModal({
         onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderGrant: () => {
+          showGrid();
           const rect = cropRectRef.current;
           if (!rect) return;
           startRect = rect;
         },
         onPanResponderMove: (_, gestureState) => {
+          showGrid();
           const metrics = displayMetricsRef.current;
           if (!startRect || !metrics) return;
           const dx = gestureState.dx;
@@ -181,15 +219,71 @@ export default function ImageCropperModal({
 
           setCropRect(next);
         },
+        onPanResponderRelease: scheduleGridFade,
+        onPanResponderTerminate: scheduleGridFade,
       });
     },
-    [clamp]
+    [clamp, scheduleGridFade, showGrid]
   );
 
   const topLeftResponder = React.useRef(createHandleResponder('topLeft')).current;
   const topRightResponder = React.useRef(createHandleResponder('topRight')).current;
   const bottomRightResponder = React.useRef(createHandleResponder('bottomRight')).current;
   const bottomLeftResponder = React.useRef(createHandleResponder('bottomLeft')).current;
+
+  const createEdgeResponder = React.useCallback(
+    (edge: EdgeKey) => {
+      let startRect: Rect | null = null;
+
+      return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderGrant: () => {
+          showGrid();
+          const rect = cropRectRef.current;
+          if (!rect) return;
+          startRect = rect;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          showGrid();
+          const metrics = displayMetricsRef.current;
+          if (!startRect || !metrics) return;
+          const dx = gestureState.dx;
+          const dy = gestureState.dy;
+
+          const right = startRect.x + startRect.width;
+          const bottom = startRect.y + startRect.height;
+          let next: Rect = startRect;
+
+          if (edge === 'top') {
+            const y = clamp(startRect.y + dy, 0, bottom - MIN_EDGE);
+            next = { x: startRect.x, y, width: startRect.width, height: bottom - y };
+          } else if (edge === 'right') {
+            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.width);
+            next = { x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: startRect.height };
+          } else if (edge === 'bottom') {
+            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.height);
+            next = { x: startRect.x, y: startRect.y, width: startRect.width, height: newBottom - startRect.y };
+          } else {
+            const x = clamp(startRect.x + dx, 0, right - MIN_EDGE);
+            next = { x, y: startRect.y, width: right - x, height: startRect.height };
+          }
+
+          setCropRect(next);
+        },
+        onPanResponderRelease: scheduleGridFade,
+        onPanResponderTerminate: scheduleGridFade,
+      });
+    },
+    [clamp, scheduleGridFade, showGrid]
+  );
+
+  const topEdgeResponder = React.useRef(createEdgeResponder('top')).current;
+  const rightEdgeResponder = React.useRef(createEdgeResponder('right')).current;
+  const bottomEdgeResponder = React.useRef(createEdgeResponder('bottom')).current;
+  const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
 
   const handleConfirm = React.useCallback(async () => {
     if (!imageUri || !cropRect || !imageSize || !displayMetrics) return;
@@ -306,6 +400,69 @@ export default function ImageCropperModal({
                   },
                 ]}
               />
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.gridOverlay,
+                  {
+                    left: displayMetrics.left + cropRect.x,
+                    top: displayMetrics.top + cropRect.y,
+                    width: cropRect.width,
+                    height: cropRect.height,
+                    opacity: gridOpacity,
+                  },
+                ]}
+              >
+                <View style={[styles.gridVerticalLine, { left: `${100 / 3}%` }]} />
+                <View style={[styles.gridVerticalLine, { left: `${(100 * 2) / 3}%` }]} />
+                <View style={[styles.gridHorizontalLine, { top: `${100 / 3}%` }]} />
+                <View style={[styles.gridHorizontalLine, { top: `${(100 * 2) / 3}%` }]} />
+              </Animated.View>
+
+              <View
+                style={[
+                  styles.edgeHitboxHorizontal,
+                  {
+                    left: displayMetrics.left + cropRect.x + HANDLE_HITBOX_SIZE / 2,
+                    top: displayMetrics.top + cropRect.y - EDGE_HITBOX_SIZE / 2,
+                    width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
+                  },
+                ]}
+                {...topEdgeResponder.panHandlers}
+              />
+              <View
+                style={[
+                  styles.edgeHitboxVertical,
+                  {
+                    left: displayMetrics.left + cropRect.x + cropRect.width - EDGE_HITBOX_SIZE / 2,
+                    top: displayMetrics.top + cropRect.y + HANDLE_HITBOX_SIZE / 2,
+                    height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                  },
+                ]}
+                {...rightEdgeResponder.panHandlers}
+              />
+              <View
+                style={[
+                  styles.edgeHitboxHorizontal,
+                  {
+                    left: displayMetrics.left + cropRect.x + HANDLE_HITBOX_SIZE / 2,
+                    top: displayMetrics.top + cropRect.y + cropRect.height - EDGE_HITBOX_SIZE / 2,
+                    width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
+                  },
+                ]}
+                {...bottomEdgeResponder.panHandlers}
+              />
+              <View
+                style={[
+                  styles.edgeHitboxVertical,
+                  {
+                    left: displayMetrics.left + cropRect.x - EDGE_HITBOX_SIZE / 2,
+                    top: displayMetrics.top + cropRect.y + HANDLE_HITBOX_SIZE / 2,
+                    height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                  },
+                ]}
+                {...leftEdgeResponder.panHandlers}
+              />
 
               <View
                 style={[
@@ -416,6 +573,25 @@ const styles = StyleSheet.create({
     borderColor: '#7CFF7A',
     backgroundColor: 'transparent',
   },
+  gridOverlay: {
+    position: 'absolute',
+  },
+  gridVerticalLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    marginLeft: -0.5,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
+  gridHorizontalLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    marginTop: -0.5,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
   cornerHandle: {
     width: HANDLE_SIZE,
     height: HANDLE_SIZE,
@@ -432,6 +608,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 20,
     elevation: 20,
+  },
+  edgeHitboxHorizontal: {
+    position: 'absolute',
+    height: EDGE_HITBOX_SIZE,
+    zIndex: 15,
+    elevation: 15,
+  },
+  edgeHitboxVertical: {
+    position: 'absolute',
+    width: EDGE_HITBOX_SIZE,
+    zIndex: 15,
+    elevation: 15,
   },
   loadingContainer: {
     flex: 1,
