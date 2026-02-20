@@ -51,7 +51,6 @@ export default function CacheListScreen({ navigation }: Props) {
   const isScreenFocused = React.useRef(false);
   const isCheckingClipboard = React.useRef(false);
   const lastCheckTime = React.useRef(0);
-  const hasCheckedClipboardOnFocus = React.useRef(false);
   const isSyncing = React.useRef(false);
   const { consumeShareSnackbar } = useShareExtensionSnackbar();
 
@@ -75,8 +74,8 @@ export default function CacheListScreen({ navigation }: Props) {
     ]).start(() => setSnackbarVisible(false));
   }, [snackbarOpacity]);
 
-  // 每次進入直接讀取剪貼簿（觸發 iOS 問題1）；允許則儲存並顯示 Snackbar，取消則不動作
-  const checkClipboard = React.useCallback(async () => {
+  // 僅在用戶手動點擊「貼上」時讀取剪貼簿，避免自動觸發 iOS 貼上權限彈窗。
+  const checkClipboard = React.useCallback(async (interactive = false) => {
     const now = Date.now();
     if (isCheckingClipboard.current || now - lastCheckTime.current < 1000) {
       return;
@@ -90,12 +89,16 @@ export default function CacheListScreen({ navigation }: Props) {
       const currentText = await Clipboard.getStringAsync();
 
       if (!currentText || currentText.trim().length === 0) {
-        // 用戶點取消或剪貼簿為空 → 當作沒事
+        if (interactive) {
+          Alert.alert('剪貼簿是空的', '目前沒有可貼上的文字內容。');
+        }
         return;
       }
 
       if (currentText === lastProcessedClipboard.current) {
-        // 同一段內容，不重複儲存
+        if (interactive) {
+          Alert.alert('已是最新內容', '這段文字已經貼上過了。');
+        }
         return;
       }
 
@@ -103,21 +106,33 @@ export default function CacheListScreen({ navigation }: Props) {
       lastProcessedClipboard.current = currentText;
       const userId = await getCurrentAuthUserId();
       if (!userId) {
+        if (interactive) {
+          Alert.alert('需要登入', '請先登入後再使用貼上功能。');
+        }
         return;
       }
       const result = await pasteTextFromClipboard(userId);
 
       if (result.success) {
-        showSnackbar();
+        showSnackbar('已從剪貼簿新增 1 筆快取');
+      } else if (interactive) {
+        Alert.alert('貼上失敗', result.message || '無法將剪貼簿內容加入快取。');
       }
     } catch (error) {
       console.error('[CacheList] Clipboard error:', error);
+      if (interactive) {
+        Alert.alert('貼上失敗', '剪貼簿讀取失敗，請稍後再試。');
+      }
     } finally {
       setTimeout(() => {
         isCheckingClipboard.current = false;
       }, 1000);
     }
   }, [showSnackbar]);
+
+  const handlePastePress = React.useCallback(() => {
+    void checkClipboard(true);
+  }, [checkClipboard]);
 
   const tryShowShareSnackbar = React.useCallback(() => {
     const message = consumeShareSnackbar();
@@ -166,7 +181,6 @@ export default function CacheListScreen({ navigation }: Props) {
         nextAppState === 'active'
       ) {
         void runSync(false);
-        setTimeout(checkClipboard, 500);
         // Share Extension 處理為非同步，延遲 1.2s 後再檢查，確保 useShareExtension 已完成入庫
         shareSnackbarTimerRef.current = setTimeout(tryShowShareSnackbar, 1200);
       }
@@ -179,11 +193,9 @@ export default function CacheListScreen({ navigation }: Props) {
       }
       subscription.remove();
     };
-  }, [checkClipboard, runSync, tryShowShareSnackbar]);
+  }, [runSync, tryShowShareSnackbar]);
 
-  // 監聽畫面聚焦（Tab 切換或首次進入）
-  // 僅在「首次進入 Cache」時檢查剪貼簿（用戶可能從其他 app 複製後才開啟 Nuances）
-  // Tab 切換不檢查，避免在 App 內複製（如從卡片、快取）後切到 Cache 時誤觸發貼上
+  // 監聽畫面聚焦（Tab 切換或首次進入），僅處理 focus state 與分享結果提示。
   useFocusEffect(
     React.useCallback(() => {
       isScreenFocused.current = true;
@@ -191,20 +203,11 @@ export default function CacheListScreen({ navigation }: Props) {
         const message = consumeShareSnackbar();
         if (message) showSnackbar(message);
       }, 600);
-      if (!hasCheckedClipboardOnFocus.current) {
-        hasCheckedClipboardOnFocus.current = true;
-        const clipboardTimer = setTimeout(checkClipboard, 500);
-        return () => {
-          isScreenFocused.current = false;
-          clearTimeout(clipboardTimer);
-          clearTimeout(shareTimer);
-        };
-      }
       return () => {
         isScreenFocused.current = false;
         clearTimeout(shareTimer);
       };
-    }, [checkClipboard, consumeShareSnackbar, showSnackbar])
+    }, [consumeShareSnackbar, showSnackbar])
   );
 
   // Query cached items (not deleted, not converted, ordered by creation date)
@@ -281,7 +284,7 @@ export default function CacheListScreen({ navigation }: Props) {
     <TouchableOpacity
       style={styles.itemContainer}
       activeOpacity={0.85}
-      onPress={() => navigation.navigate('AddCacheItem', { cachedItem: item })}
+      onPress={() => navigation.navigate('CreateCard', { cachedItem: item })}
     >
       <View style={styles.itemHeader}>
         <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
@@ -336,19 +339,16 @@ export default function CacheListScreen({ navigation }: Props) {
           )}
         </View>
         
-        {/* 創建卡片按鈕 */}
-        {!item.convertedToCard && (
-          <TouchableOpacity
-            style={styles.createCardButton}
-            onPress={() => navigation.navigate('CreateCard', { cachedItem: item })}
-          >
-            <Text style={styles.createCardButtonText}>📇 創建卡片</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => navigation.navigate('AddCacheItem', { cachedItem: item })}
+        >
+          <Text style={styles.editButtonText}>✏️ 編輯</Text>
+        </TouchableOpacity>
       </View>
 
       {/* 點擊提示 */}
-      <Text style={styles.editHint}>點擊卡片可編輯</Text>
+      <Text style={styles.editHint}>點擊卡片可直接建立卡片</Text>
     </TouchableOpacity>
   );
 
@@ -371,12 +371,20 @@ export default function CacheListScreen({ navigation }: Props) {
             {cachedItems?.length || 0} items
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => navigation.navigate('AddCacheItem')}
-        >
-          <Text style={styles.addButtonText}>+</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.pasteButton}
+            onPress={handlePastePress}
+          >
+            <Text style={styles.pasteButtonText}>貼上</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => navigation.navigate('AddCacheItem')}
+          >
+            <Text style={styles.addButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -444,6 +452,26 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#fff',
     fontWeight: '300',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pasteButton: {
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pasteButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2E7D32',
   },
   listContent: {
     padding: 16,
@@ -552,16 +580,16 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginLeft: 4,
   },
-  createCardButton: {
-    backgroundColor: '#4CAF50',
+  editButton: {
+    backgroundColor: '#f1f3f5',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
   },
-  createCardButtonText: {
+  editButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#fff',
+    color: '#333',
   },
   emptyContainer: {
     alignItems: 'center',
