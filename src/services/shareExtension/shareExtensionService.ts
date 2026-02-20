@@ -11,6 +11,7 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 import { Paths } from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database } from '@database/index';
 import CachedItem from '@database/models/CachedItem';
 import {
@@ -21,6 +22,52 @@ import {
 
 const MAX_TEXT_LENGTH = 2000;
 const SHARED_IMAGES_SUBDIR = 'SharedImages';
+const SHARE_INGEST_EVENTS_KEY = 'share_extension_ingest_events';
+const MAX_SHARE_INGEST_EVENTS = 120;
+
+export type ShareIngestEventLevel = 'info' | 'warn' | 'error';
+
+export interface ShareIngestEvent {
+  id: string;
+  timestamp: string;
+  level: ShareIngestEventLevel;
+  stage: string;
+  message: string;
+  meta?: Record<string, unknown>;
+}
+
+async function appendShareIngestEvent(
+  event: Omit<ShareIngestEvent, 'id' | 'timestamp'>
+): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(SHARE_INGEST_EVENTS_KEY);
+    const existing = raw ? (JSON.parse(raw) as ShareIngestEvent[]) : [];
+    const next: ShareIngestEvent = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      ...event,
+    };
+    const merged = [next, ...existing].slice(0, MAX_SHARE_INGEST_EVENTS);
+    await AsyncStorage.setItem(SHARE_INGEST_EVENTS_KEY, JSON.stringify(merged));
+  } catch {
+    // Avoid breaking ingest flow when local event log write fails.
+  }
+}
+
+export async function getShareIngestEvents(): Promise<ShareIngestEvent[]> {
+  try {
+    const raw = await AsyncStorage.getItem(SHARE_INGEST_EVENTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ShareIngestEvent[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function clearShareIngestEvents(): Promise<void> {
+  await AsyncStorage.removeItem(SHARE_INGEST_EVENTS_KEY);
+}
 
 /**
  * 取得 App 的 document 目錄路徑（file:// 格式，結尾含 /）
@@ -66,11 +113,30 @@ export interface SharedContent {
  */
 export async function checkAndProcessSharedContent(userId: string): Promise<number> {
   try {
+    await appendShareIngestEvent({
+      level: 'info',
+      stage: 'check_start',
+      message: 'Start checking App Group shared content',
+      meta: { userId },
+    });
     const items: SharedContentItem[] | null = await getAppGroupSharedContent();
 
     if (!items || items.length === 0) {
+      await appendShareIngestEvent({
+        level: 'info',
+        stage: 'check_empty',
+        message: 'No pending shared content',
+        meta: { userId },
+      });
       return 0;
     }
+
+    await appendShareIngestEvent({
+      level: 'info',
+      stage: 'check_found',
+      message: 'Found pending shared content items',
+      meta: { userId, itemCount: items.length },
+    });
 
     let totalCount = 0;
 
@@ -78,16 +144,50 @@ export async function checkAndProcessSharedContent(userId: string): Promise<numb
       if (item.type === 'text' && item.content) {
         await saveTextToCache(userId, item.content);
         totalCount += 1;
+        await appendShareIngestEvent({
+          level: 'info',
+          stage: 'ingest_text_ok',
+          message: 'Saved shared text item to cache',
+          meta: { userId, textLength: item.content.length },
+        });
       } else if (item.type === 'image' && item.images && item.images.length > 0) {
         await saveImagesToCache(userId, item.images);
         totalCount += item.images.length;
+        await appendShareIngestEvent({
+          level: 'info',
+          stage: 'ingest_image_ok',
+          message: 'Saved shared image items to cache',
+          meta: { userId, imageCount: item.images.length },
+        });
+      } else {
+        await appendShareIngestEvent({
+          level: 'warn',
+          stage: 'ingest_item_skipped',
+          message: 'Skipped unsupported or empty shared item',
+          meta: { userId, itemType: item?.type ?? 'unknown' },
+        });
       }
     }
 
     await clearAppGroupSharedContent();
+    await appendShareIngestEvent({
+      level: 'info',
+      stage: 'check_complete',
+      message: 'Finished processing shared content and cleared App Group queue',
+      meta: { userId, totalCount },
+    });
     return totalCount;
   } catch (error) {
     console.error('Error processing shared content:', error);
+    await appendShareIngestEvent({
+      level: 'error',
+      stage: 'check_error',
+      message: 'Processing shared content failed',
+      meta: {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return 0;
   }
 }
@@ -117,6 +217,15 @@ async function saveTextToCache(userId: string, text: string): Promise<void> {
     console.log('Text saved to cache successfully');
   } catch (error) {
     console.error('Error saving text to cache:', error);
+    await appendShareIngestEvent({
+      level: 'error',
+      stage: 'save_text_error',
+      message: 'Failed to save shared text to cache',
+      meta: {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     throw error;
   }
 }
@@ -190,6 +299,16 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
     }
   } catch (error) {
     console.error('Error saving images to cache:', error);
+    await appendShareIngestEvent({
+      level: 'error',
+      stage: 'save_images_error',
+      message: 'Failed to save shared images to cache',
+      meta: {
+        userId,
+        imageCount: imagePaths.length,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     throw error;
   }
 }
