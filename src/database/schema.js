@@ -1,11 +1,11 @@
 // WatermelonDB Schema
 // ⚠️ 重要：每次修改此文件時，必須增加 version 號！
-// Version: 2 - 新增 type 與 media_uri 欄位支援 Share Extension 圖片
+// Version: 3 - cards 新增 part_of_speech 與 frequent_collocations 欄位
 
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export default appSchema({
-  version: 2,
+  version: 3,
   tables: [
     // ============================================
     // PROFILES TABLE
@@ -65,7 +65,9 @@ export default appSchema({
         { name: 'target_phrase', type: 'string', isOptional: true },
         { name: 'original_sentence', type: 'string' },
         { name: 'definition', type: 'string' },
+        { name: 'part_of_speech', type: 'string', isOptional: true },
         { name: 'contextual_explanation', type: 'string', isOptional: true },
+        { name: 'frequent_collocations', type: 'string', isOptional: true },
         { name: 'phonetic_transcription', type: 'string', isOptional: true },
         { name: 'reference_audio_url', type: 'string', isOptional: true },
         { name: 'difficulty_level', type: 'number', isOptional: true },

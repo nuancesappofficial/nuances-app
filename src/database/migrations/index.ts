@@ -19,5 +19,17 @@ export default schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 3,
+      steps: [
+        addColumns({
+          table: 'cards',
+          columns: [
+            { name: 'part_of_speech', type: 'string', isOptional: true },
+            { name: 'frequent_collocations', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 });

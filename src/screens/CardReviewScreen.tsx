@@ -274,9 +274,18 @@ export default function CardReviewScreen({ navigation, route }: Props) {
               {/* Context：只顯示文字，不顯示路徑 */}
               {!isFilePath(card.originalSentence) && (
                 <>
-                  <Text style={styles.label}>Context</Text>
+                  <Text style={styles.label}>AI Input Sentence</Text>
                   <Text style={styles.originalSentence}>
                     {card.originalSentence}
+                  </Text>
+                </>
+              )}
+
+              {card.frequentCollocations && (
+                <>
+                  <Text style={styles.label}>Frequent Collocations</Text>
+                  <Text style={styles.originalSentence}>
+                    {card.frequentCollocations}
                   </Text>
                 </>
               )}
@@ -287,6 +296,13 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                   <Text style={styles.phonetic}>
                     {card.phoneticTranscription}
                   </Text>
+                </>
+              )}
+
+              {card.partOfSpeech && (
+                <>
+                  <Text style={styles.label}>Part of Speech</Text>
+                  <Text style={styles.originalSentence}>{card.partOfSpeech}</Text>
                 </>
               )}
             </ScrollView>

@@ -26,9 +26,10 @@ import {
   parseSelectedBlockIndexes,
 } from '../services/ocr/selectionMarkers';
 import {
-  getEffectiveLearningGoal,
+  getEffectiveAIPersonalization,
   loadUserSettings,
 } from '../services/settings/userSettings';
+import type { AIPersonalizationOptions } from '../services/ai/types';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): { text?: string }[] {
@@ -52,7 +53,9 @@ type CreateCardDraft = {
   targetWord: string;
   targetPhrase: string;
   definition: string;
+  partOfSpeech: string;
   contextualExplanation: string;
+  frequentCollocations: string;
   phoneticTranscription: string;
   tags: string;
   showAnalysisChoice: boolean;
@@ -64,7 +67,9 @@ const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 type MultiCardDraft = {
   targetWord: string;
   definition: string;
+  partOfSpeech?: string;
   contextualExplanation?: string;
+  frequentCollocations?: string;
   phoneticTranscription?: string;
   tags: string[];
 };
@@ -110,7 +115,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [targetWord, setTargetWord] = React.useState('');
   const [targetPhrase, setTargetPhrase] = React.useState('');
   const [definition, setDefinition] = React.useState('');
+  const [partOfSpeech, setPartOfSpeech] = React.useState('');
   const [contextualExplanation, setContextualExplanation] = React.useState('');
+  const [frequentCollocations, setFrequentCollocations] = React.useState('');
   const [phoneticTranscription, setPhoneticTranscription] = React.useState('');
   const [tags, setTags] = React.useState('');
   const [suggestedWords, setSuggestedWords] = React.useState<string[]>([]);
@@ -121,7 +128,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
   const [multiCardDrafts, setMultiCardDrafts] = React.useState<MultiCardDraft[]>([]);
-  const [learningGoalForAI, setLearningGoalForAI] = React.useState<'ielts' | 'casual' | 'professional'>('ielts');
+  const [aiPersonalization, setAIPersonalization] = React.useState<AIPersonalizationOptions>({
+    learningGoal: 'ielts',
+  });
   const restoringDraftRef = React.useRef(false);
   const authRedirectingRef = React.useRef(false);
   const selectedBlockIndexes = React.useMemo(
@@ -185,8 +194,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         if (typeof draft.targetWord === 'string') setTargetWord(draft.targetWord);
         if (typeof draft.targetPhrase === 'string') setTargetPhrase(draft.targetPhrase);
         if (typeof draft.definition === 'string') setDefinition(draft.definition);
+        if (typeof draft.partOfSpeech === 'string') setPartOfSpeech(draft.partOfSpeech);
         if (typeof draft.contextualExplanation === 'string') {
           setContextualExplanation(draft.contextualExplanation);
+        }
+        if (typeof draft.frequentCollocations === 'string') {
+          setFrequentCollocations(draft.frequentCollocations);
         }
         if (typeof draft.phoneticTranscription === 'string') {
           setPhoneticTranscription(draft.phoneticTranscription);
@@ -221,7 +234,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       targetWord,
       targetPhrase,
       definition,
+      partOfSpeech,
       contextualExplanation,
+      frequentCollocations,
       phoneticTranscription,
       tags,
       showAnalysisChoice: false,
@@ -233,7 +248,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     targetWord,
     targetPhrase,
     definition,
+    partOfSpeech,
     contextualExplanation,
+    frequentCollocations,
     phoneticTranscription,
     tags,
     usingRealAPI,
@@ -242,17 +259,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   ]);
 
   React.useEffect(() => {
-    if (targetPhrase || contextualExplanation || phoneticTranscription || tags) {
+    if (targetPhrase || partOfSpeech || contextualExplanation || frequentCollocations || phoneticTranscription || tags) {
       setShowAdvancedFields(true);
     }
-  }, [targetPhrase, contextualExplanation, phoneticTranscription, tags]);
+  }, [targetPhrase, partOfSpeech, contextualExplanation, frequentCollocations, phoneticTranscription, tags]);
 
   React.useEffect(() => {
     let active = true;
     const loadGoal = async () => {
       const settings = await loadUserSettings();
       if (!active) return;
-      setLearningGoalForAI(getEffectiveLearningGoal(settings));
+      setAIPersonalization(getEffectiveAIPersonalization(settings));
     };
     void loadGoal();
     return () => {
@@ -294,11 +311,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             for (const selectedIndex of validSelectedIndexes) {
               try {
                 const payload = buildContextPayload(annotations as any[], selectedIndex);
-                const result = await analyzeTextWithAI(payload);
+                const result = await analyzeTextWithAI(payload, aiPersonalization);
                 nextDrafts.push({
                   targetWord: result.keyword,
                   definition: result.definition,
+                  partOfSpeech: result.partOfSpeech || '',
                   contextualExplanation: result.example || undefined,
+                  frequentCollocations: result.frequentCollocations || undefined,
                   phoneticTranscription: result.pronunciation || undefined,
                   tags: result.tags,
                 });
@@ -308,7 +327,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   nextDrafts.push({
                     targetWord: fallbackWord.trim(),
                     definition: `${fallbackWord.trim()}（待補充定義）`,
+                    partOfSpeech: '',
                     contextualExplanation: undefined,
+                    frequentCollocations: undefined,
                     phoneticTranscription: undefined,
                     tags: [],
                   });
@@ -326,14 +347,18 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               const first = dedupedDrafts[0];
               setTargetWord(first.targetWord);
               setDefinition(first.definition);
+              setPartOfSpeech(first.partOfSpeech || '');
               setContextualExplanation(first.contextualExplanation || '');
+              setFrequentCollocations(first.frequentCollocations || '');
               setPhoneticTranscription(first.phoneticTranscription || '');
               setTags(first.tags.join(', '));
               await persistDraft({
                 targetWord: first.targetWord,
                 targetPhrase,
                 definition: first.definition,
+                partOfSpeech: first.partOfSpeech || '',
                 contextualExplanation: first.contextualExplanation || '',
+                frequentCollocations: first.frequentCollocations || '',
                 phoneticTranscription: first.phoneticTranscription || '',
                 tags: first.tags.join(', '),
                 showAnalysisChoice: false,
@@ -378,7 +403,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       const analysis = await analyzeText(
         textToAnalyze,
         cachedItem.userKeywords,
-        learningGoalForAI
+        aiPersonalization
       );
       
       // setSuggestedWords(analysis.keywords); // [推薦字功能暫時停用]
@@ -388,20 +413,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       if (analysis.suggestedWord) {
         const nextTargetWord = analysis.suggestedWord;
         const nextDefinition = analysis.definition;
+        const nextPartOfSpeech = analysis.partOfSpeech || '';
         const nextContextualExplanation = analysis.contextualExplanation;
+        const nextFrequentCollocations = analysis.frequentCollocations || '';
         const nextPhoneticTranscription = analysis.phoneticTranscription || '';
         const nextTags = analysis.tags.join(', ');
 
         setTargetWord(nextTargetWord);
         setDefinition(nextDefinition);
+        setPartOfSpeech(nextPartOfSpeech);
         setContextualExplanation(nextContextualExplanation);
+        setFrequentCollocations(nextFrequentCollocations);
         setPhoneticTranscription(nextPhoneticTranscription);
         setTags(nextTags);
         await persistDraft({
           targetWord: nextTargetWord,
           targetPhrase,
           definition: nextDefinition,
+          partOfSpeech: nextPartOfSpeech,
           contextualExplanation: nextContextualExplanation,
+          frequentCollocations: nextFrequentCollocations,
           phoneticTranscription: nextPhoneticTranscription,
           tags: nextTags,
           showAnalysisChoice: false,
@@ -502,7 +533,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           : uniqueTerms.map((term) => ({
               targetWord: term,
               definition: definition.trim() || `${term}（待補充定義）`,
+              partOfSpeech: partOfSpeech.trim() || undefined,
               contextualExplanation: contextualExplanation.trim() || undefined,
+              frequentCollocations: frequentCollocations.trim() || undefined,
               phoneticTranscription: phoneticTranscription.trim() || undefined,
               tags: tags.trim() ? tags.split(',').map((t) => t.trim()) : [],
             }));
@@ -518,7 +551,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               card.targetPhrase = targetPhrase.trim() || undefined;
               card.originalSentence = cachedItem.contentText || cachedItem.contentUrl || '';
               card.definition = draft.definition.trim() || `${draft.targetWord}（待補充定義）`;
+              card.partOfSpeech = draft.partOfSpeech || undefined;
               card.contextualExplanation = draft.contextualExplanation || undefined;
+              card.frequentCollocations = draft.frequentCollocations || undefined;
               card.phoneticTranscription = draft.phoneticTranscription || undefined;
               card.tags = draft.tags.length > 0 ? draft.tags : undefined;
               card.sourceApp = cachedItem.sourceApp;
@@ -536,7 +571,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             card.targetPhrase = targetPhrase.trim() || undefined;
             card.originalSentence = cachedItem.contentText || cachedItem.contentUrl || '';
             card.definition = definition.trim();
+            card.partOfSpeech = partOfSpeech.trim() || undefined;
             card.contextualExplanation = contextualExplanation.trim() || undefined;
+            card.frequentCollocations = frequentCollocations.trim() || undefined;
             card.phoneticTranscription = phoneticTranscription.trim() || undefined;
             card.tags = tags.trim() ? tags.split(',').map((t) => t.trim()) : undefined;
             card.sourceApp = cachedItem.sourceApp;
@@ -767,6 +804,27 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               placeholder="用來描述持續時間很短、很快就會消失的事物..."
               value={contextualExplanation}
               onChangeText={setContextualExplanation}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+
+            {/* 詞性 */}
+            <Text style={styles.label}>Part of Speech (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="例如：noun, verb, adjective"
+              value={partOfSpeech}
+              onChangeText={setPartOfSpeech}
+            />
+
+            {/* 常見搭配詞 */}
+            <Text style={styles.label}>Frequent Collocations (Optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="例如：take responsibility; bear responsibility"
+              value={frequentCollocations}
+              onChangeText={setFrequentCollocations}
               multiline
               numberOfLines={3}
               textAlignVertical="top"

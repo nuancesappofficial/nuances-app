@@ -18,7 +18,9 @@ export default class Card extends Model {
   @field('target_phrase') targetPhrase?: string;
   @field('original_sentence') originalSentence!: string;
   @field('definition') definition!: string;
+  @field('part_of_speech') partOfSpeech?: string;
   @field('contextual_explanation') contextualExplanation?: string;
+  @field('frequent_collocations') frequentCollocations?: string;
   @field('phonetic_transcription') phoneticTranscription?: string;
   @field('reference_audio_url') referenceAudioUrl?: string;
   @field('difficulty_level') difficultyLevel?: number;

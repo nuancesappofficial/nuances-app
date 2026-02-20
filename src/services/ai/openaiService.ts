@@ -2,6 +2,7 @@
 // 用於文本分析、定義生成等
 
 import { callAIAction, callAIProxy, isAIProxyConfigured } from './edgeAiClient';
+import type { AIPersonalizationOptions } from './types';
 
 // API 調用限制和重試邏輯
 const MAX_RETRIES = 3;
@@ -69,7 +70,7 @@ export async function callOpenAI(
 export async function analyzeText(
   text: string,
   userKeywords?: string,
-  learningGoal?: 'ielts' | 'casual' | 'professional'
+  personalization?: AIPersonalizationOptions
 ): Promise<{
   keywords: string[];
   suggestedWord: string | null;
@@ -80,6 +81,10 @@ export async function analyzeText(
         text: string;
         userKeywords?: string;
         learningGoal?: 'ielts' | 'casual' | 'professional';
+        proficiencyStandard?: string;
+        proficiencyLevel?: string;
+        domain?: string;
+        tone?: string;
       },
       {
         keywords: string[];
@@ -88,7 +93,11 @@ export async function analyzeText(
     >('analyze_text', {
       text,
       userKeywords,
-      learningGoal,
+      learningGoal: personalization?.learningGoal,
+      proficiencyStandard: personalization?.proficiencyStandard,
+      proficiencyLevel: personalization?.proficiencyLevel,
+      domain: personalization?.domain,
+      tone: personalization?.tone,
     });
 
     return {
@@ -107,10 +116,12 @@ export async function analyzeText(
 export async function generateCardContent(
   targetWord: string,
   originalSentence: string,
-  learningGoal?: 'ielts' | 'casual' | 'professional'
+  personalization?: AIPersonalizationOptions
 ): Promise<{
   definition: string;
+  partOfSpeech: string;
   contextualExplanation: string;
+  frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
 }> {
@@ -120,22 +131,38 @@ export async function generateCardContent(
         targetWord: string;
         originalSentence: string;
         learningGoal?: 'ielts' | 'casual' | 'professional';
+        proficiencyStandard?: string;
+        proficiencyLevel?: string;
+        domain?: string;
+        tone?: string;
       },
       {
         definition: string;
+        partOfSpeech?: string;
+        ['part of speech']?: string;
         contextualExplanation: string;
+        frequentCollocations?: string;
+        ['Frequent collocations']?: string;
         phoneticTranscription: string | null;
         tags: string[];
       }
     >('generate_card', {
       targetWord,
       originalSentence,
-      learningGoal,
+      learningGoal: personalization?.learningGoal,
+      proficiencyStandard: personalization?.proficiencyStandard,
+      proficiencyLevel: personalization?.proficiencyLevel,
+      domain: personalization?.domain,
+      tone: personalization?.tone,
     });
 
     return {
       definition: result.definition || '',
+      partOfSpeech:
+        result.partOfSpeech || result['part of speech'] || '',
       contextualExplanation: result.contextualExplanation || '',
+      frequentCollocations:
+        result.frequentCollocations || result['Frequent collocations'] || '',
       phoneticTranscription: result.phoneticTranscription || null,
       tags: result.tags || [],
     };
@@ -151,24 +178,26 @@ export async function generateCardContent(
 export async function analyzeAndGenerateCard(
   text: string,
   userKeywords?: string,
-  learningGoal?: 'ielts' | 'casual' | 'professional'
+  personalization?: AIPersonalizationOptions
 ): Promise<{
   keywords: string[];
   suggestedWord: string | null;
   definition: string;
+  partOfSpeech: string;
   contextualExplanation: string;
+  frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
 }> {
   // 步驟 1: 分析文本提取關鍵詞
-  const { keywords, suggestedWord } = await analyzeText(text, userKeywords, learningGoal);
+  const { keywords, suggestedWord } = await analyzeText(text, userKeywords, personalization);
 
   if (!suggestedWord) {
     throw new Error('No suitable vocabulary word found in the text');
   }
 
   // 步驟 2: 為建議的單字生成詳細內容
-  const cardContent = await generateCardContent(suggestedWord, text, learningGoal);
+  const cardContent = await generateCardContent(suggestedWord, text, personalization);
 
   return {
     keywords,

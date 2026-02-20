@@ -7,6 +7,7 @@ import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/tex
 import * as FileSystem from 'expo-file-system/legacy';
 import { isOpenAIConfigured } from '../ai/openaiService';
 import { AIAuthError, callAIAction } from '../ai/edgeAiClient';
+import type { AIPersonalizationOptions } from '../ai/types';
 
 // ============================================================
 // Interfaces
@@ -50,8 +51,10 @@ export interface ContextPayload {
  */
 export interface AIAnalysisResult {
   keyword: string;
+  partOfSpeech?: string;
   definition: string;
   example: string;
+  frequentCollocations?: string;
   tags: string[];
   pronunciation?: string;
 }
@@ -190,7 +193,10 @@ export function buildContextPayload(
  * @param payload - 上下文數據（純文字）
  * @returns AI 分析結果
  */
-export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnalysisResult> {
+export async function analyzeTextWithAI(
+  payload: ContextPayload,
+  personalization?: AIPersonalizationOptions
+): Promise<AIAnalysisResult> {
   console.log('[OCR] Analyzing text with AI (TEXT ONLY, NO IMAGE)...');
   
   // 如果未配置 OpenAI，返回 Mock 數據
@@ -198,8 +204,10 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
     console.log('[OCR] OpenAI not configured, using mock analysis');
     return {
       keyword: payload.target_text,
+      partOfSpeech: '',
       definition: '(Mock) AI 分析功能需要配置 OpenAI API Key',
       example: `Example: ${payload.original_sentence}`,
+      frequentCollocations: '',
       tags: ['mock', 'unconfigured'],
     };
   }
@@ -210,12 +218,22 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
         targetText: string;
         originalSentence: string;
         contextText: string;
+        learningGoal?: 'ielts' | 'casual' | 'professional';
+        proficiencyStandard?: string;
+        proficiencyLevel?: string;
+        domain?: string;
+        tone?: string;
       },
       AIAnalysisResult
     >('analyze_context', {
       targetText: payload.target_text,
       originalSentence: payload.original_sentence,
       contextText: payload.context_text,
+      learningGoal: personalization?.learningGoal,
+      proficiencyStandard: personalization?.proficiencyStandard,
+      proficiencyLevel: personalization?.proficiencyLevel,
+      domain: personalization?.domain,
+      tone: personalization?.tone,
     });
 
     console.log('[OCR] ✅ AI analysis completed:', result.keyword);
@@ -229,8 +247,10 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
     // 返回基礎分析結果
     return {
       keyword: payload.target_text,
+      partOfSpeech: '',
       definition: '無法生成定義（請檢查 API 配置）',
       example: payload.original_sentence,
+      frequentCollocations: '',
       tags: ['error'],
     };
   }

@@ -16,6 +16,14 @@ import {
   saveUserSettings,
 } from '@services/settings/userSettings';
 
+const PROFICIENCY_LEVEL_OPTIONS: Record<string, string[]> = {
+  cefr: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
+  ielts: ['4.0-5.0', '5.5-6.0', '6.5-7.0', '7.5-8.0', '8.5-9.0'],
+  toefl: ['0-45', '46-60', '61-80', '81-100', '101-120'],
+  toeic: ['10-250', '255-400', '405-600', '605-780', '785-900', '905-990'],
+  gept: ['初級', '中級', '中高級', '高級', '優級'],
+};
+
 type Props = {
   navigation: any;
 };
@@ -48,7 +56,9 @@ function OptionChip<T extends string>({
 
 export default function SettingsScreen({ navigation }: Props) {
   const [settings, setSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
+  const [savedSettings, setSavedSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
   const [saving, setSaving] = React.useState(false);
+  const [saveNotice, setSaveNotice] = React.useState('');
 
   React.useEffect(() => {
     let active = true;
@@ -56,6 +66,7 @@ export default function SettingsScreen({ navigation }: Props) {
       const loaded = await loadUserSettings();
       if (!active) return;
       setSettings(loaded);
+      setSavedSettings(loaded);
     };
     void hydrate();
     return () => {
@@ -63,23 +74,40 @@ export default function SettingsScreen({ navigation }: Props) {
     };
   }, []);
 
-  const persist = React.useCallback(async (next: UserAppSettings) => {
+  const persist = React.useCallback(async () => {
     setSaving(true);
-    setSettings(next);
     try {
-      await saveUserSettings(next);
+      await saveUserSettings(settings);
+      setSavedSettings(settings);
+      setSaveNotice('已儲存');
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [settings]);
+
+  React.useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(''), 1800);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
 
   const updateSettings = React.useCallback(
     (updater: (prev: UserAppSettings) => UserAppSettings) => {
       const next = updater(settings);
-      void persist(next);
+      setSettings(next);
     },
-    [persist, settings]
+    [settings]
   );
+
+  const hasUnsavedChanges = React.useMemo(
+    () => JSON.stringify(settings) !== JSON.stringify(savedSettings),
+    [savedSettings, settings]
+  );
+
+  const levelOptions = React.useMemo(() => {
+    const standard = settings.personalization.proficiencyStandardPreset;
+    return PROFICIENCY_LEVEL_OPTIONS[standard] ?? [];
+  }, [settings.personalization.proficiencyStandardPreset]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -88,10 +116,12 @@ export default function SettingsScreen({ navigation }: Props) {
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <Text style={styles.savingText}>{saving ? '儲存中...' : ''}</Text>
+        <Text style={[styles.savingText, saveNotice ? styles.savedNotice : null]}>
+          {saving ? '儲存中...' : saveNotice || (hasUnsavedChanges ? '未儲存' : '')}
+        </Text>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Clipboard 模式</Text>
           <View style={styles.row}>
@@ -177,32 +207,97 @@ export default function SettingsScreen({ navigation }: Props) {
             />
           )}
 
-          <Text style={styles.label}>CEFR 等級</Text>
+          <Text style={styles.label}>英語能力標準</Text>
           <View style={styles.optionRow}>
-            {(['a2', 'b1', 'b2', 'c1', 'custom'] as const).map((value) => (
+            {(
+              ['cefr', 'ielts', 'toefl', 'toeic', 'gept', 'custom'] as const
+            ).map((value) => (
               <OptionChip
                 key={value}
                 label={value.toUpperCase()}
                 value={value}
-                selectedValue={settings.personalization.cefrPreset}
+                selectedValue={settings.personalization.proficiencyStandardPreset}
                 onSelect={(selected) =>
                   updateSettings((prev) => ({
                     ...prev,
-                    personalization: { ...prev.personalization, cefrPreset: selected },
+                    personalization: {
+                      ...prev.personalization,
+                      proficiencyStandardPreset: selected,
+                      proficiencyLevelPreset:
+                        PROFICIENCY_LEVEL_OPTIONS[selected]?.[0] ?? 'custom',
+                    },
                   }))
                 }
               />
             ))}
           </View>
-          {settings.personalization.cefrPreset === 'custom' && (
+          {settings.personalization.proficiencyStandardPreset === 'custom' && (
             <TextInput
               style={styles.input}
-              placeholder="其他等級描述"
-              value={settings.personalization.cefrCustom}
+              placeholder="輸入自訂標準（例如：Cambridge）"
+              value={settings.personalization.proficiencyStandardCustom}
               onChangeText={(text) =>
                 updateSettings((prev) => ({
                   ...prev,
-                  personalization: { ...prev.personalization, cefrCustom: text },
+                  personalization: {
+                    ...prev.personalization,
+                    proficiencyStandardCustom: text,
+                  },
+                }))
+              }
+            />
+          )}
+
+          <Text style={styles.label}>能力值區間</Text>
+          {settings.personalization.proficiencyStandardPreset !== 'custom' && (
+            <View style={styles.optionRow}>
+              {levelOptions.map((value) => (
+                <OptionChip
+                  key={value}
+                  label={value}
+                  value={value}
+                  selectedValue={settings.personalization.proficiencyLevelPreset}
+                  onSelect={(selected) =>
+                    updateSettings((prev) => ({
+                      ...prev,
+                      personalization: {
+                        ...prev.personalization,
+                        proficiencyLevelPreset: selected,
+                        proficiencyLevelCustom: '',
+                      },
+                    }))
+                  }
+                />
+              ))}
+              <OptionChip
+                label="Other"
+                value="custom"
+                selectedValue={settings.personalization.proficiencyLevelPreset}
+                onSelect={(selected) =>
+                  updateSettings((prev) => ({
+                    ...prev,
+                    personalization: {
+                      ...prev.personalization,
+                      proficiencyLevelPreset: selected,
+                    },
+                  }))
+                }
+              />
+            </View>
+          )}
+          {(settings.personalization.proficiencyStandardPreset === 'custom' ||
+            settings.personalization.proficiencyLevelPreset === 'custom') && (
+            <TextInput
+              style={styles.input}
+              placeholder="輸入你的能力範圍（例如：IELTS 6.5-7.0）"
+              value={settings.personalization.proficiencyLevelCustom}
+              onChangeText={(text) =>
+                updateSettings((prev) => ({
+                  ...prev,
+                  personalization: {
+                    ...prev.personalization,
+                    proficiencyLevelCustom: text,
+                  },
                 }))
               }
             />
@@ -320,6 +415,17 @@ export default function SettingsScreen({ navigation }: Props) {
           )}
         </View>
       </ScrollView>
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.saveButton, (!hasUnsavedChanges || saving) && styles.saveButtonDisabled]}
+          onPress={() => {
+            void persist();
+          }}
+          disabled={!hasUnsavedChanges || saving}
+        >
+          <Text style={styles.saveButtonText}>{saving ? '儲存中...' : '儲存設定'}</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -358,8 +464,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#777',
   },
+  savedNotice: {
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
   content: {
     flex: 1,
+  },
+  contentContainer: {
+    paddingBottom: 24,
   },
   section: {
     backgroundColor: '#fff',
@@ -434,5 +547,26 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 14,
     color: '#2f3b4a',
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e5e5',
+  },
+  saveButton: {
+    backgroundColor: '#2e7d32',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#9e9e9e',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

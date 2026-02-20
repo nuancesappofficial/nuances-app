@@ -24,18 +24,31 @@ type AnalyzeTextPayload = {
   text: string;
   userKeywords?: string;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
+  proficiencyStandard?: string;
+  proficiencyLevel?: string;
+  domain?: string;
+  tone?: string;
 };
 
 type GenerateCardPayload = {
   targetWord: string;
   originalSentence: string;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
+  proficiencyStandard?: string;
+  proficiencyLevel?: string;
+  domain?: string;
+  tone?: string;
 };
 
 type AnalyzeContextPayload = {
   targetText: string;
   originalSentence: string;
   contextText?: string;
+  learningGoal?: 'ielts' | 'casual' | 'professional' | string;
+  proficiencyStandard?: string;
+  proficiencyLevel?: string;
+  domain?: string;
+  tone?: string;
 };
 
 type UsageSummaryPayload = {
@@ -150,6 +163,28 @@ const GOAL_INSTRUCTIONS: Record<string, string> = {
     'Focus on business and workplace terminology with practical professional usage.',
 };
 
+function buildPersonalizationInstruction(options: {
+  proficiencyStandard?: string;
+  proficiencyLevel?: string;
+  domain?: string;
+  tone?: string;
+}): string {
+  const parts: string[] = [];
+  if (options.proficiencyStandard) {
+    parts.push(`English proficiency standard: ${options.proficiencyStandard}`);
+  }
+  if (options.proficiencyLevel) {
+    parts.push(`English proficiency target range: ${options.proficiencyLevel}`);
+  }
+  if (options.domain) {
+    parts.push(`Domain focus: ${options.domain}`);
+  }
+  if (options.tone) {
+    parts.push(`Explanation tone: ${options.tone}`);
+  }
+  return parts.length > 0 ? parts.join('\n') : '';
+}
+
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -263,6 +298,24 @@ function validateAnalyzeTextPayload(payload: unknown): string[] {
   ) {
     errors.push('payload.learningGoal must be a string when provided');
   }
+  if (
+    payload.proficiencyStandard !== undefined &&
+    typeof payload.proficiencyStandard !== 'string'
+  ) {
+    errors.push('payload.proficiencyStandard must be a string when provided');
+  }
+  if (
+    payload.proficiencyLevel !== undefined &&
+    typeof payload.proficiencyLevel !== 'string'
+  ) {
+    errors.push('payload.proficiencyLevel must be a string when provided');
+  }
+  if (payload.domain !== undefined && typeof payload.domain !== 'string') {
+    errors.push('payload.domain must be a string when provided');
+  }
+  if (payload.tone !== undefined && typeof payload.tone !== 'string') {
+    errors.push('payload.tone must be a string when provided');
+  }
   return errors;
 }
 
@@ -286,6 +339,24 @@ function validateGenerateCardPayload(payload: unknown): string[] {
   ) {
     errors.push('payload.learningGoal must be a string when provided');
   }
+  if (
+    payload.proficiencyStandard !== undefined &&
+    typeof payload.proficiencyStandard !== 'string'
+  ) {
+    errors.push('payload.proficiencyStandard must be a string when provided');
+  }
+  if (
+    payload.proficiencyLevel !== undefined &&
+    typeof payload.proficiencyLevel !== 'string'
+  ) {
+    errors.push('payload.proficiencyLevel must be a string when provided');
+  }
+  if (payload.domain !== undefined && typeof payload.domain !== 'string') {
+    errors.push('payload.domain must be a string when provided');
+  }
+  if (payload.tone !== undefined && typeof payload.tone !== 'string') {
+    errors.push('payload.tone must be a string when provided');
+  }
   return errors;
 }
 
@@ -305,6 +376,30 @@ function validateAnalyzeContextPayload(payload: unknown): string[] {
   }
   if (payload.contextText !== undefined && typeof payload.contextText !== 'string') {
     errors.push('payload.contextText must be a string when provided');
+  }
+  if (
+    payload.learningGoal !== undefined &&
+    typeof payload.learningGoal !== 'string'
+  ) {
+    errors.push('payload.learningGoal must be a string when provided');
+  }
+  if (
+    payload.proficiencyStandard !== undefined &&
+    typeof payload.proficiencyStandard !== 'string'
+  ) {
+    errors.push('payload.proficiencyStandard must be a string when provided');
+  }
+  if (
+    payload.proficiencyLevel !== undefined &&
+    typeof payload.proficiencyLevel !== 'string'
+  ) {
+    errors.push('payload.proficiencyLevel must be a string when provided');
+  }
+  if (payload.domain !== undefined && typeof payload.domain !== 'string') {
+    errors.push('payload.domain must be a string when provided');
+  }
+  if (payload.tone !== undefined && typeof payload.tone !== 'string') {
+    errors.push('payload.tone must be a string when provided');
   }
   return errors;
 }
@@ -645,16 +740,27 @@ async function handleAnalyzeText(payload: AnalyzeTextPayload): Promise<Response>
   const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
   const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
   const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
+  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
+  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
+  const domain = sanitizeText(payload.domain, 40);
+  const tone = sanitizeText(payload.tone, 40);
 
   if (!text) {
     return jsonResponse({ error: 'text is required' }, 400);
   }
 
   const goalInstruction = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
+  const personalizationInstruction = buildPersonalizationInstruction({
+    proficiencyStandard,
+    proficiencyLevel,
+    domain,
+    tone,
+  });
 
   const prompt = `Analyze the following English text and extract 3-5 key vocabulary words that a language learner should focus on.
 
 ${goalInstruction}
+${personalizationInstruction ? `${personalizationInstruction}\n` : ''}
 ${userKeywords ? `User has expressed interest in: "${userKeywords}". Prioritize these if they appear in the text.` : ''}
 
 Text: "${text}"
@@ -698,6 +804,10 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
   const targetWord = sanitizeText(payload.targetWord, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
   const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
+  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
+  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
+  const domain = sanitizeText(payload.domain, 40);
+  const tone = sanitizeText(payload.tone, 40);
 
   if (!targetWord || !originalSentence) {
     return jsonResponse(
@@ -707,16 +817,25 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
   }
 
   const contextHint = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
+  const personalizationInstruction = buildPersonalizationInstruction({
+    proficiencyStandard,
+    proficiencyLevel,
+    domain,
+    tone,
+  });
   const prompt = `Create a vocabulary learning card for "${targetWord}" in:
 "${originalSentence}"
 
 Learning context:
 ${contextHint}
+${personalizationInstruction ? `\n${personalizationInstruction}` : ''}
 
 Return JSON only:
 {
-  "definition":"Traditional Chinese definition plus short English explanation in parentheses",
-  "contextualExplanation":"2-3 Traditional Chinese sentences about usage in this sentence",
+  "part of speech":"What part of speech this word is.",
+  "definition":"Traditional Chinese definition.",
+  "contextualExplanation":"Explaination mainly in traditional chinese about why this word is used in this context or as this collocation.",
+  "Frequent collocations":"The most frequent form or phrase that contains this word.",
   "phoneticTranscription":"IPA string or null",
   "tags":["IELTS","Academic"]
 }`;
@@ -736,16 +855,28 @@ Return JSON only:
   });
 
   const parsed = parseJson<{
+    partOfSpeech?: string;
+    ['part of speech']?: string;
     definition?: string;
     contextualExplanation?: string;
+    frequentCollocations?: string;
+    ['Frequent collocations']?: string;
     phoneticTranscription?: string | null;
     tags?: string[];
   }>(content);
 
   return jsonResponse({
     result: {
+      partOfSpeech: sanitizeText(
+        parsed.partOfSpeech || parsed['part of speech'],
+        80
+      ),
       definition: sanitizeText(parsed.definition, 2000),
       contextualExplanation: sanitizeText(parsed.contextualExplanation, 2000),
+      frequentCollocations: sanitizeText(
+        parsed.frequentCollocations || parsed['Frequent collocations'],
+        500
+      ),
       phoneticTranscription:
         typeof parsed.phoneticTranscription === 'string'
           ? sanitizeText(parsed.phoneticTranscription, 120)
@@ -765,6 +896,11 @@ async function handleAnalyzeContext(payload: AnalyzeContextPayload): Promise<Res
   const targetText = sanitizeText(payload.targetText, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
   const contextText = sanitizeText(payload.contextText, MAX_SENTENCE_CHARS);
+  const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
+  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
+  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
+  const domain = sanitizeText(payload.domain, 40);
+  const tone = sanitizeText(payload.tone, 40);
 
   if (!targetText || !originalSentence) {
     return jsonResponse(
@@ -773,17 +909,30 @@ async function handleAnalyzeContext(payload: AnalyzeContextPayload): Promise<Res
     );
   }
 
+  const goalInstruction = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
+  const personalizationInstruction = buildPersonalizationInstruction({
+    proficiencyStandard,
+    proficiencyLevel,
+    domain,
+    tone,
+  });
   const prompt = `For language learning, analyze "${targetText}" in sentence:
 "${originalSentence}"
 
 Context around target:
 "${contextText}"
 
+Learning context:
+${goalInstruction}
+${personalizationInstruction ? `${personalizationInstruction}\n` : ''}
+
 Return JSON only:
 {
   "keyword":"target word",
+  "part of speech":"What part of speech this word is.",
   "definition":"Traditional Chinese explanation",
   "example":"short example sentence",
+  "Frequent collocations":"The most frequent form or phrase that contains this word.",
   "tags":["Vocabulary"],
   "pronunciation":"IPA or null"
 }`;
@@ -804,8 +953,12 @@ Return JSON only:
 
   const parsed = parseJson<{
     keyword?: string;
+    partOfSpeech?: string;
+    ['part of speech']?: string;
     definition?: string;
     example?: string;
+    frequentCollocations?: string;
+    ['Frequent collocations']?: string;
     tags?: string[];
     pronunciation?: string | null;
   }>(content);
@@ -813,8 +966,16 @@ Return JSON only:
   return jsonResponse({
     result: {
       keyword: sanitizeText(parsed.keyword || targetText, MAX_WORD_CHARS),
+      partOfSpeech: sanitizeText(
+        parsed.partOfSpeech || parsed['part of speech'],
+        80
+      ),
       definition: sanitizeText(parsed.definition, 2000),
       example: sanitizeText(parsed.example || originalSentence, 1200),
+      frequentCollocations: sanitizeText(
+        parsed.frequentCollocations || parsed['Frequent collocations'],
+        500
+      ),
       tags: Array.isArray(parsed.tags)
         ? parsed.tags
           .filter((item) => typeof item === 'string')

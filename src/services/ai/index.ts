@@ -5,12 +5,17 @@ import {
   generateCardContent as openaiGenerateCardContent,
 } from './openaiService';
 import { analyzeCachedItem as mockAnalyze } from './mockAnalyzer';
+import type { AIPersonalizationOptions } from './types';
+
+export type { AIPersonalizationOptions } from './types';
 
 export interface AnalysisResult {
   keywords: string[];
   suggestedWord: string | null;
   definition: string;
+  partOfSpeech: string;
   contextualExplanation: string;
+  frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
 }
@@ -23,7 +28,7 @@ export interface AnalysisResult {
 export async function analyzeText(
   text: string,
   userKeywords?: string,
-  learningGoal?: 'ielts' | 'casual' | 'professional'
+  personalization?: AIPersonalizationOptions
 ): Promise<AnalysisResult> {
   const useRealAPI = isOpenAIConfigured();
 
@@ -31,7 +36,7 @@ export async function analyzeText(
 
   try {
     if (useRealAPI) {
-      const result = await openaiAnalyze(text, userKeywords, learningGoal);
+      const result = await openaiAnalyze(text, userKeywords, personalization);
       console.log('✅ OpenAI analysis completed');
       return result;
     } else {
@@ -41,7 +46,9 @@ export async function analyzeText(
         keywords: mockResult.keywords,
         suggestedWord: mockResult.suggestedWord,
         definition: mockResult.definition,
+        partOfSpeech: '',
         contextualExplanation: mockResult.explanation,
+        frequentCollocations: '',
         phoneticTranscription: mockResult.phonetic,
         tags: mockResult.tags,
       };
@@ -56,7 +63,9 @@ export async function analyzeText(
         keywords: mockResult.keywords,
         suggestedWord: mockResult.suggestedWord,
         definition: mockResult.definition,
+        partOfSpeech: '',
         contextualExplanation: mockResult.explanation,
+        frequentCollocations: '',
         phoneticTranscription: mockResult.phonetic,
         tags: mockResult.tags,
       };
@@ -79,13 +88,13 @@ export function isUsingRealAPI(): boolean {
 export async function generateContentForWord(
   word: string,
   originalText: string,
-  learningGoal?: 'ielts' | 'casual' | 'professional'
+  personalization?: AIPersonalizationOptions
 ): Promise<Omit<AnalysisResult, 'keywords' | 'suggestedWord'>> {
   const useRealAPI = isOpenAIConfigured();
 
   try {
     if (useRealAPI) {
-      const result = await openaiGenerateCardContent(word, originalText, learningGoal);
+      const result = await openaiGenerateCardContent(word, originalText, personalization);
       return result;
     } else {
       const {
@@ -96,7 +105,9 @@ export async function generateContentForWord(
 
       return {
         definition: generateMockDefinition(word),
+        partOfSpeech: '',
         contextualExplanation: generateMockExplanation(word, originalText),
+        frequentCollocations: '',
         phoneticTranscription: null,
         tags: generateMockTags(word),
       };

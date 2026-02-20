@@ -72,8 +72,10 @@ CREATE TABLE public.cards (
     target_phrase TEXT, -- Full phrase containing the word
     original_sentence TEXT NOT NULL, -- Context from cached item
     definition TEXT NOT NULL,
+    part_of_speech TEXT, -- e.g. noun/verb/adjective
     contextual_explanation TEXT, -- AI-generated explanation
-    
+    frequent_collocations TEXT, -- frequent collocation or common phrase
+
     -- Pronunciation
     phonetic_transcription TEXT,
     reference_audio_url TEXT, -- Supabase Storage or TTS generated
