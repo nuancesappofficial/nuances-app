@@ -134,7 +134,8 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [4, 3],
       quality: 1, // 高品質以利 OCR
     });
 
@@ -162,6 +163,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     // Launch camera
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
+      aspect: [4, 3],
       quality: 0.8,
     });
 
@@ -230,6 +232,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
     try {
       const userId = await requireCurrentAuthUserId();
+      let createdItem: CachedItem | null = null;
       await database.write(async () => {
         if (isEditMode && editingItem) {
           // 編輯模式：更新現有項目
@@ -239,7 +242,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
         } else {
           // 新增模式：建立新項目
           const collection = database.get<CachedItem>('cached_items');
-          await collection.create((item) => {
+          createdItem = await collection.create((item) => {
             item.userId = userId;
             item.sourceApp = 'Manual Entry';
             item.convertedToCard = false;
@@ -252,7 +255,12 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
         }
       });
 
-      Alert.alert('成功', isEditMode ? '已更新快取！' : '已保存到快取！', [
+      if (!isEditMode && createdItem) {
+        navigation.replace('CreateCard', { cachedItem: createdItem });
+        return;
+      }
+
+      Alert.alert('成功', '已更新快取！', [
         {
           text: '確定',
           onPress: () => navigation.goBack(),
