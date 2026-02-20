@@ -102,6 +102,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [saving, setSaving] = React.useState(false);
   const [usingRealAPI, setUsingRealAPI] = React.useState(false);
   const [showAnalysisChoice, setShowAnalysisChoice] = React.useState(true);
+  const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
   const restoringDraftRef = React.useRef(false);
   const authRedirectingRef = React.useRef(false);
@@ -207,6 +208,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     hasPersistedDraft,
     persistDraft,
   ]);
+
+  React.useEffect(() => {
+    if (targetPhrase || contextualExplanation || phoneticTranscription || tags) {
+      setShowAdvancedFields(true);
+    }
+  }, [targetPhrase, contextualExplanation, phoneticTranscription, tags]);
 
   const performAnalysis = async () => {
     setAnalyzing(true);
@@ -598,16 +605,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           autoCapitalize="none"
         />
 
-        {/* 目標短語 */}
-        <Text style={styles.label}>Target Phrase (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="例如：ephemeral beauty"
-          value={targetPhrase}
-          onChangeText={setTargetPhrase}
-          autoCapitalize="none"
-        />
-
         {/* 定義 */}
         <Text style={styles.label}>Definition *</Text>
         <TextInput
@@ -620,36 +617,62 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           textAlignVertical="top"
         />
 
-        {/* 情境解釋 */}
-        <Text style={styles.label}>Contextual Explanation (Optional)</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="用來描述持續時間很短、很快就會消失的事物..."
-          value={contextualExplanation}
-          onChangeText={setContextualExplanation}
-          multiline
-          numberOfLines={3}
-          textAlignVertical="top"
-        />
+        <TouchableOpacity
+          style={styles.advancedToggle}
+          onPress={() => setShowAdvancedFields((prev) => !prev)}
+        >
+          <Text style={styles.advancedToggleText}>
+            {showAdvancedFields ? '收起進階欄位' : '展開進階欄位'}
+          </Text>
+          <Text style={styles.advancedToggleHint}>
+            {showAdvancedFields ? '▲' : '▼'}
+          </Text>
+        </TouchableOpacity>
 
-        {/* 音標 */}
-        <Text style={styles.label}>Phonetic Transcription (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="/ɪˈfem.ər.əl/"
-          value={phoneticTranscription}
-          onChangeText={setPhoneticTranscription}
-        />
+        {showAdvancedFields && (
+          <>
+            {/* 目標短語 */}
+            <Text style={styles.label}>Target Phrase (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="例如：ephemeral beauty"
+              value={targetPhrase}
+              onChangeText={setTargetPhrase}
+              autoCapitalize="none"
+            />
 
-        {/* 標籤 */}
-        <Text style={styles.label}>Tags (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="IELTS, Advanced, Literature (用逗號分隔)"
-          value={tags}
-          onChangeText={setTags}
-        />
-        <Text style={styles.hint}>用逗號分隔多個標籤</Text>
+            {/* 情境解釋 */}
+            <Text style={styles.label}>Contextual Explanation (Optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="用來描述持續時間很短、很快就會消失的事物..."
+              value={contextualExplanation}
+              onChangeText={setContextualExplanation}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+
+            {/* 音標 */}
+            <Text style={styles.label}>Phonetic Transcription (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="/ɪˈfem.ər.əl/"
+              value={phoneticTranscription}
+              onChangeText={setPhoneticTranscription}
+            />
+
+            {/* 標籤 */}
+            <Text style={styles.label}>Tags (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="IELTS, Advanced, Literature (用逗號分隔)"
+              value={tags}
+              onChangeText={setTags}
+            />
+            <Text style={styles.hint}>用逗號分隔多個標籤</Text>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -813,6 +836,28 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  advancedToggle: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#dfe4ea',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8f9fb',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  advancedToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#495057',
+  },
+  advancedToggleHint: {
+    fontSize: 12,
+    color: '#6c757d',
+    fontWeight: '600',
   },
   choiceContainer: {
     backgroundColor: '#f8f9fa',
