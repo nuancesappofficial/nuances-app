@@ -19,6 +19,8 @@ import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { analyzeText, isUsingRealAPI } from '../services/ai';
 import { extractTextFromImage, isOCRAvailable, buildContextPayload, analyzeTextWithAI } from '../services/ocr';
+import { AIAuthError } from '../services/ai/edgeAiClient';
+import { supabase } from '../services/supabase/client';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): { text?: string }[] {
@@ -52,6 +54,9 @@ type CreateCardDraft = {
 
 function readableAIErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '');
+  if (error instanceof AIAuthError) {
+    return '你目前尚未登入，請先登入再使用 AI 分析。';
+  }
   if (message.includes('401') || message.toLowerCase().includes('unauthorized')) {
     return 'AI 服務需要登入授權，請重新登入後再試。';
   }
@@ -65,6 +70,17 @@ function readableAIErrorMessage(error: unknown): string {
     return 'AI 服務暫時異常，請稍後重試。';
   }
   return '無法分析文本，請稍後重試或改用手動輸入。';
+}
+
+async function redirectToLogin() {
+  await supabase.auth.signOut();
+}
+
+async function hasLocalSession(): Promise<boolean> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return Boolean(session?.access_token);
 }
 
 export default function CreateCardScreen({ navigation, route }: Props) {
@@ -87,6 +103,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [showAnalysisChoice, setShowAnalysisChoice] = React.useState(true);
   const [hasPersistedDraft, setHasPersistedDraft] = React.useState(false);
   const restoringDraftRef = React.useRef(false);
+  const authRedirectingRef = React.useRef(false);
 
   const persistDraft = React.useCallback(
     async (draft: CreateCardDraft) => {
@@ -296,6 +313,36 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       }
     } catch (error) {
       console.error('Analysis error:', error);
+      if (error instanceof AIAuthError) {
+        if (authRedirectingRef.current) {
+          return;
+        }
+        const loggedIn = await hasLocalSession();
+        if (!loggedIn) {
+          authRedirectingRef.current = true;
+          await redirectToLogin();
+          return;
+        }
+
+        Alert.alert(
+          '登入狀態異常',
+          '目前登入憑證無法通過伺服器驗證，請點「重新登入」以修復。',
+          [
+            {
+              text: '取消',
+              style: 'cancel',
+            },
+            {
+              text: '重新登入',
+              onPress: () => {
+                authRedirectingRef.current = true;
+                void redirectToLogin();
+              },
+            },
+          ]
+        );
+        return;
+      }
       Alert.alert(
         '分析失敗',
         readableAIErrorMessage(error),

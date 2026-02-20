@@ -6,7 +6,7 @@
 import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from 'expo-file-system/legacy';
 import { isOpenAIConfigured } from '../ai/openaiService';
-import { callAIAction } from '../ai/edgeAiClient';
+import { AIAuthError, callAIAction } from '../ai/edgeAiClient';
 
 // ============================================================
 // Interfaces
@@ -222,6 +222,9 @@ export async function analyzeTextWithAI(payload: ContextPayload): Promise<AIAnal
     return result;
   } catch (error) {
     console.error('[OCR] ❌ AI analysis error:', error);
+    if (error instanceof AIAuthError) {
+      throw error;
+    }
 
     // 返回基礎分析結果
     return {
