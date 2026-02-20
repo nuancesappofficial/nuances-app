@@ -24,6 +24,10 @@ const MAX_TEXT_LENGTH = 2000;
 const SHARED_IMAGES_SUBDIR = 'SharedImages';
 const SHARE_INGEST_EVENTS_KEY = 'share_extension_ingest_events';
 const MAX_SHARE_INGEST_EVENTS = 120;
+const SHARE_INGEST_SIGNATURES_KEY = 'share_extension_ingest_signatures';
+const SHARE_INGEST_SIGNATURE_TTL_MS = 24 * 60 * 60 * 1000;
+
+let currentIngestPromise: Promise<number> | null = null;
 
 export type ShareIngestEventLevel = 'info' | 'warn' | 'error';
 
@@ -34,6 +38,74 @@ export interface ShareIngestEvent {
   stage: string;
   message: string;
   meta?: Record<string, unknown>;
+}
+
+function hashString(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function normalizeTextForSignature(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function buildItemSignature(item: SharedContentItem): string {
+  if (item.type === 'text') {
+    const normalized = normalizeTextForSignature(item.content || '');
+    return `text:${hashString(normalized)}`;
+  }
+
+  const normalizedImages = (item.images || [])
+    .map((path) => path.trim())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+  return `image:${hashString(normalizedImages)}`;
+}
+
+async function loadSignatureMap(): Promise<Record<string, number>> {
+  try {
+    const raw = await AsyncStorage.getItem(SHARE_INGEST_SIGNATURES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveSignatureMap(map: Record<string, number>): Promise<void> {
+  await AsyncStorage.setItem(SHARE_INGEST_SIGNATURES_KEY, JSON.stringify(map));
+}
+
+function pruneSignatureMap(
+  map: Record<string, number>,
+  nowMs: number
+): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const [signature, ts] of Object.entries(map)) {
+    if (typeof ts === 'number' && nowMs - ts <= SHARE_INGEST_SIGNATURE_TTL_MS) {
+      next[signature] = ts;
+    }
+  }
+  return next;
+}
+
+async function isRecentlyProcessed(signature: string): Promise<boolean> {
+  const nowMs = Date.now();
+  const pruned = pruneSignatureMap(await loadSignatureMap(), nowMs);
+  await saveSignatureMap(pruned);
+  return Boolean(pruned[signature]);
+}
+
+async function markAsProcessed(signature: string): Promise<void> {
+  const nowMs = Date.now();
+  const map = pruneSignatureMap(await loadSignatureMap(), nowMs);
+  map[signature] = nowMs;
+  await saveSignatureMap(map);
 }
 
 async function appendShareIngestEvent(
@@ -112,83 +184,115 @@ export interface SharedContent {
  * @returns 成功入庫的卡片數量（0 表示無新內容或失敗）
  */
 export async function checkAndProcessSharedContent(userId: string): Promise<number> {
-  try {
+  if (currentIngestPromise) {
     await appendShareIngestEvent({
-      level: 'info',
-      stage: 'check_start',
-      message: 'Start checking App Group shared content',
+      level: 'warn',
+      stage: 'check_concurrent',
+      message: 'Skipped duplicate share ingest trigger while another run is active',
       meta: { userId },
     });
-    const items: SharedContentItem[] | null = await getAppGroupSharedContent();
+    return currentIngestPromise;
+  }
 
-    if (!items || items.length === 0) {
+  currentIngestPromise = (async () => {
+    try {
       await appendShareIngestEvent({
         level: 'info',
-        stage: 'check_empty',
-        message: 'No pending shared content',
+        stage: 'check_start',
+        message: 'Start checking App Group shared content',
         meta: { userId },
+      });
+      const items: SharedContentItem[] | null = await getAppGroupSharedContent();
+
+      if (!items || items.length === 0) {
+        await appendShareIngestEvent({
+          level: 'info',
+          stage: 'check_empty',
+          message: 'No pending shared content',
+          meta: { userId },
+        });
+        return 0;
+      }
+
+      await appendShareIngestEvent({
+        level: 'info',
+        stage: 'check_found',
+        message: 'Found pending shared content items',
+        meta: { userId, itemCount: items.length },
+      });
+
+      let totalCount = 0;
+
+      for (const item of items) {
+        const signature = buildItemSignature(item);
+        const duplicate = await isRecentlyProcessed(signature);
+        if (duplicate) {
+          await appendShareIngestEvent({
+            level: 'warn',
+            stage: 'ingest_item_duplicate',
+            message: 'Skipped duplicate shared item (already processed recently)',
+            meta: { userId, signature, itemType: item.type },
+          });
+          continue;
+        }
+
+        if (item.type === 'text' && item.content) {
+          await saveTextToCache(userId, item.content);
+          await markAsProcessed(signature);
+          totalCount += 1;
+          await appendShareIngestEvent({
+            level: 'info',
+            stage: 'ingest_text_ok',
+            message: 'Saved shared text item to cache',
+            meta: { userId, textLength: item.content.length },
+          });
+        } else if (item.type === 'image' && item.images && item.images.length > 0) {
+          await saveImagesToCache(userId, item.images);
+          await markAsProcessed(signature);
+          totalCount += item.images.length;
+          await appendShareIngestEvent({
+            level: 'info',
+            stage: 'ingest_image_ok',
+            message: 'Saved shared image items to cache',
+            meta: { userId, imageCount: item.images.length },
+          });
+        } else {
+          await appendShareIngestEvent({
+            level: 'warn',
+            stage: 'ingest_item_skipped',
+            message: 'Skipped unsupported or empty shared item',
+            meta: { userId, itemType: item?.type ?? 'unknown' },
+          });
+        }
+      }
+
+      await clearAppGroupSharedContent();
+      await appendShareIngestEvent({
+        level: 'info',
+        stage: 'check_complete',
+        message: 'Finished processing shared content and cleared App Group queue',
+        meta: { userId, totalCount },
+      });
+      return totalCount;
+    } catch (error) {
+      console.error('Error processing shared content:', error);
+      await appendShareIngestEvent({
+        level: 'error',
+        stage: 'check_error',
+        message: 'Processing shared content failed',
+        meta: {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        },
       });
       return 0;
     }
+  })();
 
-    await appendShareIngestEvent({
-      level: 'info',
-      stage: 'check_found',
-      message: 'Found pending shared content items',
-      meta: { userId, itemCount: items.length },
-    });
-
-    let totalCount = 0;
-
-    for (const item of items) {
-      if (item.type === 'text' && item.content) {
-        await saveTextToCache(userId, item.content);
-        totalCount += 1;
-        await appendShareIngestEvent({
-          level: 'info',
-          stage: 'ingest_text_ok',
-          message: 'Saved shared text item to cache',
-          meta: { userId, textLength: item.content.length },
-        });
-      } else if (item.type === 'image' && item.images && item.images.length > 0) {
-        await saveImagesToCache(userId, item.images);
-        totalCount += item.images.length;
-        await appendShareIngestEvent({
-          level: 'info',
-          stage: 'ingest_image_ok',
-          message: 'Saved shared image items to cache',
-          meta: { userId, imageCount: item.images.length },
-        });
-      } else {
-        await appendShareIngestEvent({
-          level: 'warn',
-          stage: 'ingest_item_skipped',
-          message: 'Skipped unsupported or empty shared item',
-          meta: { userId, itemType: item?.type ?? 'unknown' },
-        });
-      }
-    }
-
-    await clearAppGroupSharedContent();
-    await appendShareIngestEvent({
-      level: 'info',
-      stage: 'check_complete',
-      message: 'Finished processing shared content and cleared App Group queue',
-      meta: { userId, totalCount },
-    });
-    return totalCount;
-  } catch (error) {
-    console.error('Error processing shared content:', error);
-    await appendShareIngestEvent({
-      level: 'error',
-      stage: 'check_error',
-      message: 'Processing shared content failed',
-      meta: {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    });
-    return 0;
+  try {
+    return await currentIngestPromise;
+  } finally {
+    currentIngestPromise = null;
   }
 }
 
