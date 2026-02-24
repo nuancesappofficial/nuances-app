@@ -93,7 +93,7 @@ export async function analyzeText(
   keywords: string[];
   suggestedWord: string | null;
 }> {
-  const prompt = `Extract 3-5 key vocabulary words from the following text:
+  const prompt = `Extract 1 key vocabulary word from the following text:
 
 Text: "${text.substring(0, 500)}${text.length > 500 ? '...' : ''}"
 
@@ -107,7 +107,7 @@ CRITICAL INSTRUCTIONS:
 
 Return this exact JSON structure:
 {
-  "keywords": ["word1", "word2", "word3"],
+  "keywords": ["word1"],
   "suggestedWord": "word1"
 }
 
@@ -170,7 +170,7 @@ The "suggestedWord" should be the most important/difficult word from the keyword
       }
       
       return {
-        keywords: result.keywords || [],
+        keywords: (result.keywords || []).slice(0, 1),
         suggestedWord: result.suggestedWord ?? null,
       };
     } catch (error) {

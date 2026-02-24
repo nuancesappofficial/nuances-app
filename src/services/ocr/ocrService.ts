@@ -1,13 +1,15 @@
 // src/services/ocr/ocrService.ts
 // OCR Service - Tech Stack v1.5.0: Pure Text Strategy
-// Uses Google ML Kit for 100% local text extraction
+// Uses Apple Vision for 100% local text extraction on iOS
 // NO images are uploaded to AI servers
 
-import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
+import { Image } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { isOpenAIConfigured } from '../ai/openaiService';
-import { AIAuthError, callAIAction } from '../ai/edgeAiClient';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { isVisionOCRAvailable, recognizeTextWithVision } from '../../native/VisionOCRModule';
+import { callAIAction } from '../ai/edgeAiClient';
 import type { AIPersonalizationOptions } from '../ai/types';
+import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 
 // ============================================================
 // Interfaces
@@ -42,8 +44,11 @@ export interface OCRResult {
  */
 export interface ContextPayload {
   target_text: string;      // 用戶選擇的文字
-  context_text: string;     // 前後文字
-  original_sentence: string; // 完整句子
+  context_text: string;     // 局部上下文（不含 target）
+  original_sentence: string; // 目標句子
+  focus_sentence?: string;   // 與 original_sentence 相同，提供後端語意明確欄位
+  full_context?: string;     // 整段上下文（僅在需要時提供）
+  use_paragraph_mode?: boolean; // 是否啟用段落模式
 }
 
 /**
@@ -53,10 +58,13 @@ export interface AIAnalysisResult {
   keyword: string;
   partOfSpeech?: string;
   definition: string;
+  contextualExplanation?: string;
   example: string;
   frequentCollocations?: string;
   tags: string[];
   pronunciation?: string;
+  confidence?: number;
+  alternatives?: string[];
 }
 
 // ============================================================
@@ -64,14 +72,14 @@ export interface AIAnalysisResult {
 // ============================================================
 
 /**
- * 使用 Google ML Kit 進行本地 OCR
+ * 使用 Apple Vision 進行本地 OCR（iOS）
  * ⚠️ 重要：此函數 100% 在本地執行，不需要網路連接
  * 
  * @param imageUri - 圖片的本地 URI
  * @returns OCR 識別結果（包含文字塊和座標）
  */
 export async function extractTextFromImage(imageUri: string): Promise<OCRResult> {
-  console.log('[OCR] Starting ML Kit text recognition (LOCAL)...');
+  console.log('[OCR] Starting Apple Vision text recognition (LOCAL)...');
   const startTime = Date.now();
   
   try {
@@ -84,59 +92,81 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     if (!fileInfo.exists) {
       throw new Error(`OCR failed: image file not found (${imageUri})`);
     }
-    
-    // 調用 Google ML Kit（完全本地處理）
-    // 使用 CHINESE 腳本以支援繁體中文、簡體中文識別
-    const result = await TextRecognition.recognize(imageUri, TextRecognitionScript.CHINESE);
-    
-    console.log('[OCR] ML Kit raw result (Chinese script):', {
-      blockCount: result.blocks?.length || 0,
-      hasText: !!result.text,
-    });
-    
-    // 以「單字 (word / element)」為單位收集（ML Kit: blocks → lines → elements）
-    const blocks: OCRBlock[] = [];
-    let globalIndex = 0;
-    (result.blocks || []).forEach((block: any) => {
-      (block.lines || []).forEach((line: any) => {
-        (line.elements || []).forEach((element: any) => {
-          const frame = element.frame || element.boundingBox || {};
-          // ML Kit Frame 使用 left, top, width, height
-          const left = frame.left ?? frame.x ?? 0;
-          const top = frame.top ?? frame.y ?? 0;
-          const width = frame.width ?? (frame.right != null && frame.left != null ? frame.right - frame.left : 0);
-          const height = frame.height ?? (frame.bottom != null && frame.top != null ? frame.bottom - frame.top : 0);
-          blocks.push({
-            id: `word_${globalIndex}_${Date.now()}`,
-            text: element.text ?? '',
-            frame: { x: left, y: top, width, height },
-            confidence: (element as any).confidence ?? 0.95,
-          });
-          globalIndex += 1;
-        });
-      });
+
+    if (!isOCRAvailable()) {
+      throw new Error('Apple Vision OCR is not available on this device');
+    }
+
+    const visionResult = await recognizeTextWithVision(imageUri, {
+      // 提示語言順序會影響辨識偏好：英文內容優先時先放 en-US
+      languages: ['en-US', 'zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR'],
+      usesLanguageCorrection: true,
     });
 
-    const fullText = blocks.map(b => b.text).join(' ');
+    const blocks: OCRBlock[] = (visionResult.blocks || [])
+      .map((block, index) => {
+        const text = (block?.text || '').trim();
+        const frame = block?.frame;
+        if (!text || !frame) return null;
+        return {
+          id: `word_${index}`,
+          text,
+          frame: {
+            x: Number(frame.x) || 0,
+            y: Number(frame.y) || 0,
+            width: Math.max(0, Number(frame.width) || 0),
+            height: Math.max(0, Number(frame.height) || 0),
+          },
+          confidence: typeof block.confidence === 'number' ? block.confidence : undefined,
+        } as OCRBlock;
+      })
+      .filter((block): block is OCRBlock => Boolean(block));
+
+    const fullText = normalizeFullText(visionResult.fullText, blocks);
     const processingTime = Date.now() - startTime;
     
-    console.log(`[OCR] ✅ Success: Found ${blocks.length} words in ${processingTime}ms`);
+    console.log('[OCR] Vision raw result:', {
+      blockCount: blocks.length,
+      hasText: !!fullText,
+      imageWidth: visionResult.imageWidth,
+      imageHeight: visionResult.imageHeight,
+    });
+    console.log(`[OCR] ✅ Success: Found ${blocks.length} blocks in ${processingTime}ms`);
     console.log(`[OCR] Full text preview: "${fullText.substring(0, 100)}..."`);
     
     return { blocks, fullText, processingTime };
     
   } catch (error) {
-    console.error('[OCR] ❌ Error during ML Kit recognition:', error);
+    console.error('[OCR] ❌ Error during Vision recognition:', error);
     throw new Error(`OCR failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): string {
+  const trimmedRaw = (rawText || '').trim();
+  if (trimmedRaw) {
+    return trimmedRaw;
+  }
+
+  const tokens = blocks.map((block) => block.text.trim()).filter(Boolean);
+  if (tokens.length === 0) return '';
+
+  const hasLatin = tokens.some((token) => /[A-Za-z0-9]/.test(token));
+  const hasCJK = tokens.some((token) => /[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(token));
+  if (hasCJK && !hasLatin) {
+    return tokens.join('');
+  }
+
+  return tokens.join(' ');
 }
 
 /**
  * 構建智能上下文（7 個單字：前 3 + 關鍵字 + 後 3）
  * 
  * 規則：
- * 1. 總共 7 個單字（前 3 + target + 後 3）
- * 2. 遇到標點符號（. , ! ? ; :）就停止
+ * 1. 目標視窗為「前 3 + target + 後 3」
+ * 2. 遇到標點符號（. , ! ? ; :）該側提前停止
+ * 3. 若一側提前停止，剩餘配額會轉給另一側（另一側也遇標點則停止）
  * 
  * @param blocks - 所有 OCR 文字塊
  * @param selectedIndex - 用戶選擇的文字塊索引
@@ -150,39 +180,125 @@ export function buildContextPayload(
     throw new Error(`Invalid block index: ${selectedIndex} (total blocks: ${blocks.length})`);
   }
   
-  const targetText = blocks[selectedIndex].text;
-  const punctuation = /[.,!?;:]/;
-  
-  // 收集前 3 個單字（遇標點就停）
-  const prevWords: string[] = [];
-  for (let i = selectedIndex - 1; i >= 0 && prevWords.length < 3; i--) {
-    const word = blocks[i].text;
-    if (punctuation.test(word)) break;
-    prevWords.unshift(word);
+  const targetRaw = blocks[selectedIndex].text;
+  const boundaryPunctuation = /[.!?;:]/;
+  const trimPunctuation = (word: string) =>
+    word.replace(/^[\s"'“”‘’()[\]{}<>.,!?;:]+|[\s"'“”‘’()[\]{}<>.,!?;:]+$/g, '').trim();
+  const hasLetterOrNumber = (word: string) => /[A-Za-z0-9]/.test(word);
+  const hasTrailingBoundary = (word: string) => /[.!?;:]["'”’)\]}>\s]*$/.test(word);
+  const hasLeadingBoundary = (word: string) => /^[\s"'“”‘’([<{]*[.!?;:]/.test(word);
+  const targetText = trimPunctuation(targetRaw) || targetRaw.trim();
+
+  // 先收集到標點為止的左右候選詞
+  const prevCandidates: string[] = [];
+  for (let i = selectedIndex - 1; i >= 0; i--) {
+    const rawWord = blocks[i].text;
+    const containsBoundary = boundaryPunctuation.test(rawWord);
+    const cleanedWord = trimPunctuation(rawWord);
+
+    // 往左回看時，像 "juice." 代表上一句結尾，應直接停止且不納入
+    if (hasTrailingBoundary(rawWord)) {
+      break;
+    }
+    if (containsBoundary && !hasLetterOrNumber(cleanedWord)) break;
+    if (cleanedWord) {
+      prevCandidates.unshift(cleanedWord);
+    }
+    if (containsBoundary) {
+      break;
+    }
   }
-  
-  // 收集後 3 個單字（遇標點就停）
-  const nextWords: string[] = [];
-  for (let i = selectedIndex + 1; i < blocks.length && nextWords.length < 3; i++) {
-    const word = blocks[i].text;
-    if (punctuation.test(word)) break;
-    nextWords.push(word);
+
+  const nextCandidates: string[] = [];
+  for (let i = selectedIndex + 1; i < blocks.length; i++) {
+    const rawWord = blocks[i].text;
+    const containsBoundary = boundaryPunctuation.test(rawWord);
+    const cleanedWord = trimPunctuation(rawWord);
+
+    if (containsBoundary && !hasLetterOrNumber(cleanedWord)) {
+      break;
+    }
+    // 往右看時，像 "bag." 應保留 "bag" 後停止
+    if (hasLeadingBoundary(rawWord)) break;
+    if (cleanedWord) {
+      nextCandidates.push(cleanedWord);
+    }
+    if (containsBoundary) {
+      break;
+    }
   }
+
+  // 基礎配額：前 3 + 後 3；若一側提前被標點截斷，剩餘配額轉給另一側
+  const baseQuota = 3;
+  let prevTake = Math.min(baseQuota, prevCandidates.length);
+  let nextTake = Math.min(baseQuota, nextCandidates.length);
+
+  const prevShortage = baseQuota - prevTake;
+  if (prevShortage > 0) {
+    const transferable = Math.min(prevShortage, nextCandidates.length - nextTake);
+    nextTake += Math.max(0, transferable);
+  }
+
+  const nextShortage = baseQuota - nextTake;
+  if (nextShortage > 0) {
+    const transferable = Math.min(nextShortage, prevCandidates.length - prevTake);
+    prevTake += Math.max(0, transferable);
+  }
+
+  const prevWords = prevCandidates.slice(-prevTake);
+  const nextWords = nextCandidates.slice(0, nextTake);
   
   const contextText = `${prevWords.join(' ')} ${nextWords.join(' ')}`.trim();
-  const originalSentence = `${prevWords.join(' ')} ${targetText} ${nextWords.join(' ')}`.trim();
+  const focusSentence = `${prevCandidates.join(' ')} ${targetText} ${nextCandidates.join(' ')}`.trim();
+
+  const paragraphText = blocks
+    .map((block) => trimPunctuation(block.text))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const focusWords = focusSentence.split(/\s+/).filter(Boolean);
+  const focusWordCount = focusWords.length;
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const targetPattern = escapeRegExp(targetText);
+  const hasObjectAfterTarget = new RegExp(
+    `\\b${targetPattern}\\b\\s+(?!for\\b|to\\b|in\\b|on\\b|at\\b|with\\b|of\\b|by\\b)\\w+`,
+    'i'
+  ).test(focusSentence);
+  const shortClauseNoObject = focusWordCount <= 4 && !hasObjectAfterTarget;
+  const shortAndAmbiguous = focusWordCount <= 6 && !hasObjectAfterTarget;
+  const pronounHeavyStart = /^(it|they|he|she|we|i)\b/i.test(focusSentence);
+  const businessCue = /(\$\d+|dollars?|fee|charge|cost|invoice|bill)/i.test(
+    `${focusSentence} ${paragraphText}`
+  );
+  const useParagraphMode = shortClauseNoObject || shortAndAmbiguous || pronounHeavyStart || !businessCue;
+  const paragraphModeReason = shortClauseNoObject
+    ? 'short_clause_no_object'
+    : shortAndAmbiguous
+      ? 'short_ambiguous'
+      : pronounHeavyStart
+        ? 'pronoun_start'
+        : !businessCue
+          ? 'no_business_cue'
+          : 'disabled';
   
   console.log('[OCR] Built context (7 words):', {
     target: targetText,
     prev: prevWords.length,
     next: nextWords.length,
-    sentence: originalSentence,
+    sentence: focusSentence,
+    useParagraphMode,
+    paragraphModeReason,
   });
   
   return {
     target_text: targetText,
     context_text: contextText,
-    original_sentence: originalSentence,
+    original_sentence: focusSentence,
+    focus_sentence: focusSentence,
+    full_context: useParagraphMode ? paragraphText : undefined,
+    use_paragraph_mode: useParagraphMode,
   };
 }
 
@@ -195,63 +311,91 @@ export function buildContextPayload(
  */
 export async function analyzeTextWithAI(
   payload: ContextPayload,
-  personalization?: AIPersonalizationOptions
+  _personalization?: AIPersonalizationOptions
 ): Promise<AIAnalysisResult> {
-  console.log('[OCR] Analyzing text with AI (TEXT ONLY, NO IMAGE)...');
-  
-  // 如果未配置 OpenAI，返回 Mock 數據
-  if (!isOpenAIConfigured()) {
-    console.log('[OCR] OpenAI not configured, using mock analysis');
-    return {
-      keyword: payload.target_text,
-      partOfSpeech: '',
-      definition: '(Mock) AI 分析功能需要配置 OpenAI API Key',
-      example: `Example: ${payload.original_sentence}`,
-      frequentCollocations: '',
-      tags: ['mock', 'unconfigured'],
-    };
-  }
-  
   try {
+    const localPronunciation = await getLocalPhoneticTranscription(payload.target_text);
+    console.log(
+      `[Phonetic] analyze_context target="${payload.target_text}" source=${localPronunciation ? 'local' : 'api_fallback'}`
+    );
     const result = await callAIAction<
       {
         targetText: string;
         originalSentence: string;
         contextText: string;
-        learningGoal?: 'ielts' | 'casual' | 'professional';
-        proficiencyStandard?: string;
-        proficiencyLevel?: string;
-        domain?: string;
-        tone?: string;
+        focusSentence?: string;
+        fullContext?: string;
+        useParagraphMode?: boolean;
+        includePronunciation?: boolean;
       },
-      AIAnalysisResult
+      {
+        keyword?: string;
+        partOfSpeech?: string;
+        ['part of speech']?: string;
+        definition?: string;
+        contextualExplanation?: string;
+        example?: string;
+        frequentCollocations?: string;
+        ['Frequent collocations']?: string;
+        tags?: string[];
+        pronunciation?: string | null;
+        phoneticTranscription?: string | null;
+        ipa?: string | null;
+        phonetic?: string | null;
+        confidence?: number;
+        alternatives?: string[];
+      }
     >('analyze_context', {
       targetText: payload.target_text,
       originalSentence: payload.original_sentence,
       contextText: payload.context_text,
-      learningGoal: personalization?.learningGoal,
-      proficiencyStandard: personalization?.proficiencyStandard,
-      proficiencyLevel: personalization?.proficiencyLevel,
-      domain: personalization?.domain,
-      tone: personalization?.tone,
+      focusSentence: payload.focus_sentence,
+      fullContext: payload.full_context,
+      useParagraphMode: payload.use_paragraph_mode,
+      includePronunciation: !localPronunciation,
     });
+    console.log(
+      `[OCR] analyze_context result keyword="${result.keyword || payload.target_text}" collocation="${String(
+        result.frequentCollocations || result['Frequent collocations'] || ''
+      )}"`
+    );
 
-    console.log('[OCR] ✅ AI analysis completed:', result.keyword);
-    return result;
+    return {
+      keyword: (result.keyword || payload.target_text).trim(),
+      partOfSpeech: (result.partOfSpeech || result['part of speech'] || '').trim(),
+      definition: (result.definition || '').trim(),
+      contextualExplanation: (result.contextualExplanation || '').trim(),
+      example: (result.example || payload.original_sentence).trim(),
+      frequentCollocations: (
+        result.frequentCollocations || result['Frequent collocations'] || ''
+      ).trim(),
+      tags: Array.isArray(result.tags) ? result.tags.filter((tag) => typeof tag === 'string') : [],
+      pronunciation: (
+        localPronunciation ||
+        (typeof result.pronunciation === 'string' ? result.pronunciation : null) ||
+        (typeof result.phoneticTranscription === 'string'
+          ? result.phoneticTranscription
+          : null) ||
+        (typeof result.ipa === 'string' ? result.ipa : null) ||
+        (typeof result.phonetic === 'string' ? result.phonetic : null) ||
+        ''
+      ).trim() || undefined,
+      confidence:
+        typeof result.confidence === 'number' ? result.confidence : undefined,
+      alternatives: Array.isArray(result.alternatives)
+        ? result.alternatives.filter((item) => typeof item === 'string')
+        : undefined,
+    };
   } catch (error) {
-    console.error('[OCR] ❌ AI analysis error:', error);
-    if (error instanceof AIAuthError) {
-      throw error;
-    }
-
-    // 返回基礎分析結果
+    console.warn('[OCR] analyze_context failed, fallback to local result:', error);
     return {
       keyword: payload.target_text,
       partOfSpeech: '',
-      definition: '無法生成定義（請檢查 API 配置）',
+      definition: `${payload.target_text}（AI 暫時無法分析，請手動補充定義）`,
+      contextualExplanation: '',
       example: payload.original_sentence,
       frequentCollocations: '',
-      tags: ['error'],
+      tags: ['local-fallback'],
     };
   }
 }
@@ -261,10 +405,29 @@ export async function analyzeTextWithAI(
 // ============================================================
 
 /**
- * 是否可使用 OCR。ML Kit 為本地辨識，無需 API key，視為永遠可用。
+ * 是否可使用 OCR（iOS + Vision Native Module）
  */
 export function isOCRAvailable(): boolean {
-  return true;
+  return isVisionOCRAvailable();
+}
+
+interface Size {
+  width: number;
+  height: number;
+}
+
+function getImageSize(imageUri: string): Promise<Size> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(
+      imageUri,
+      (width, height) => resolve({ width, height }),
+      (error) => reject(error)
+    );
+  });
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 /**
@@ -273,14 +436,75 @@ export function isOCRAvailable(): boolean {
  */
 export async function extractTextFromRegion(
   imageUri: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   boundingBox?: unknown,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   containerSize?: unknown
 ): Promise<string> {
-  console.warn('[OCR] extractTextFromRegion is deprecated. Use extractTextFromImage() instead.');
-  const result = await extractTextFromImage(imageUri);
-  return result.fullText;
+  const box = boundingBox as BoundingBox | undefined;
+  const container = containerSize as Size | undefined;
+
+  if (!box || !container || container.width <= 0 || container.height <= 0) {
+    const result = await extractTextFromImage(imageUri);
+    return result.fullText;
+  }
+
+  const imageSize = await getImageSize(imageUri);
+  const scale = Math.min(container.width / imageSize.width, container.height / imageSize.height);
+  const displayWidth = imageSize.width * scale;
+  const displayHeight = imageSize.height * scale;
+  const offsetX = (container.width - displayWidth) / 2;
+  const offsetY = (container.height - displayHeight) / 2;
+
+  const boxX = box.x * container.width;
+  const boxY = box.y * container.height;
+  const boxWidth = box.width * container.width;
+  const boxHeight = box.height * container.height;
+
+  const cropLeft = clamp(Math.max(boxX, offsetX), offsetX, offsetX + displayWidth);
+  const cropTop = clamp(Math.max(boxY, offsetY), offsetY, offsetY + displayHeight);
+  const cropRight = clamp(
+    Math.min(boxX + boxWidth, offsetX + displayWidth),
+    offsetX,
+    offsetX + displayWidth
+  );
+  const cropBottom = clamp(
+    Math.min(boxY + boxHeight, offsetY + displayHeight),
+    offsetY,
+    offsetY + displayHeight
+  );
+
+  const visibleWidth = cropRight - cropLeft;
+  const visibleHeight = cropBottom - cropTop;
+  if (visibleWidth < 2 || visibleHeight < 2) {
+    const result = await extractTextFromImage(imageUri);
+    return result.fullText;
+  }
+
+  const originX = Math.max(
+    0,
+    Math.round(((cropLeft - offsetX) / displayWidth) * imageSize.width)
+  );
+  const originY = Math.max(
+    0,
+    Math.round(((cropTop - offsetY) / displayHeight) * imageSize.height)
+  );
+  const width = Math.max(1, Math.round((visibleWidth / displayWidth) * imageSize.width));
+  const height = Math.max(1, Math.round((visibleHeight / displayHeight) * imageSize.height));
+
+  const cropped = await ImageManipulator.manipulateAsync(
+    imageUri,
+    [{ crop: { originX, originY, width, height } }],
+    {
+      compress: 1,
+      format: ImageManipulator.SaveFormat.JPEG,
+    }
+  );
+
+  try {
+    const result = await extractTextFromImage(cropped.uri);
+    return result.fullText;
+  } finally {
+    await FileSystem.deleteAsync(cropped.uri, { idempotent: true }).catch(() => undefined);
+  }
 }
 
 /**

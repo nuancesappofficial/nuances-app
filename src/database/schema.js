@@ -1,11 +1,11 @@
 // WatermelonDB Schema
 // ⚠️ 重要：每次修改此文件時，必須增加 version 號！
-// Version: 3 - cards 新增 part_of_speech 與 frequent_collocations 欄位
+// Version: 4 - 新增 user_settings 表，支援訂閱/配額管理
 
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export default appSchema({
-  version: 3,
+  version: 4,
   tables: [
     // ============================================
     // PROFILES TABLE
@@ -33,7 +33,7 @@ export default appSchema({
       name: 'cached_items',
       columns: [
         { name: 'user_id', type: 'string', isIndexed: true },
-        { name: 'content_type', type: 'string' }, // 'text' | 'url' | 'image' | 'video'
+        { name: 'content_type', type: 'string' }, // 'text' | 'image' | 'video'
         { name: 'type', type: 'string', isOptional: true }, // 'text' | 'image' - Share Extension 專用
         { name: 'content_text', type: 'string', isOptional: true },
         { name: 'content_url', type: 'string', isOptional: true },
@@ -112,6 +112,21 @@ export default appSchema({
         { name: 'table_name', type: 'string' },
         { name: 'last_pulled_at', type: 'number' },
         { name: 'last_pushed_at', type: 'number' },
+      ],
+    }),
+
+    // ============================================
+    // USER SETTINGS TABLE
+    // ============================================
+    tableSchema({
+      name: 'user_settings',
+      columns: [
+        { name: 'user_id', type: 'string', isIndexed: true },
+        { name: 'is_premium', type: 'boolean' },
+        { name: 'daily_voice_uses', type: 'number' },
+        { name: 'last_voice_reset_date', type: 'string' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
       ],
     }),
   ],

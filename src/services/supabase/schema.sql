@@ -32,7 +32,7 @@ CREATE TABLE public.cached_items (
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     
     -- Content
-    content_type TEXT NOT NULL CHECK (content_type IN ('text', 'url', 'image', 'video')),
+    content_type TEXT NOT NULL CHECK (content_type IN ('text', 'image', 'video')),
     content_text TEXT,
     content_url TEXT,
     source_app TEXT, -- e.g., 'Safari', 'Instagram', 'Reddit'
@@ -263,21 +263,6 @@ CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_new_user();
-
--- ============================================
--- FUNCTION: Auto-delete expired cached items (for free tier)
--- ============================================
-
-CREATE OR REPLACE FUNCTION delete_expired_cached_items()
-RETURNS void AS $$
-BEGIN
-    UPDATE public.cached_items
-    SET deleted_at = NOW()
-    WHERE expires_at < NOW() AND deleted_at IS NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Schedule this function to run daily using Supabase Edge Functions or pg_cron
 
 -- ============================================
 -- STORAGE BUCKETS (to be created in Supabase Dashboard)

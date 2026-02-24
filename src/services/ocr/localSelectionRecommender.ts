@@ -10,6 +10,13 @@ const COMMON_STOPWORDS = new Set([
   'did', 'have', 'has', 'had', 'not', 'no', 'yes', 'just', 'very', 'more', 'most',
 ]);
 
+const COMMON_PRONOUNS = new Set([
+  'i', 'you', 'he', 'she', 'it', 'we', 'they',
+  'me', 'him', 'her', 'them',
+  'my', 'your', 'his', 'their', 'our',
+  'mine', 'yours', 'hers', 'ours', 'theirs',
+]);
+
 const GOAL_HINTS: Record<string, string[]> = {
   ielts: ['however', 'therefore', 'furthermore', 'significant', 'evidence', 'argument', 'whereas'],
   professional: ['stakeholder', 'timeline', 'roadmap', 'deliverable', 'alignment', 'workflow', 'budget'],
@@ -40,7 +47,9 @@ function scoreBlock(
   const joined = tokens.join(' ');
   const baseLen = Math.min(1.2, text.length / 12);
   const alphaBonus = /[a-z]/i.test(text) ? 0.35 : -0.3;
-  const stopwordPenalty = tokens.every((token) => COMMON_STOPWORDS.has(token)) ? -0.8 : 0;
+  const stopwordPenalty = tokens.every((token) => COMMON_STOPWORDS.has(token)) ? 0.8 : 0;
+  const pronounPenalty = tokens.every((token) => COMMON_PRONOUNS.has(token)) ? 1.2 : 0;
+  const shortTokenPenalty = tokens.every((token) => token.length <= 2) ? 0.4 : 0;
   const uniqueRatio = new Set(tokens).size / tokens.length;
   const uniquenessBonus = uniqueRatio * 0.5;
 
@@ -59,7 +68,17 @@ function scoreBlock(
   ).length;
   const duplicatePenalty = duplicateCount > 1 ? 0.2 : 0;
 
-  return baseLen + alphaBonus + uniquenessBonus + goalBonus + positionBonus - stopwordPenalty - duplicatePenalty;
+  return (
+    baseLen
+    + alphaBonus
+    + uniquenessBonus
+    + goalBonus
+    + positionBonus
+    - stopwordPenalty
+    - pronounPenalty
+    - shortTokenPenalty
+    - duplicatePenalty
+  );
 }
 
 export function recommendBlockIndexes(
@@ -69,7 +88,7 @@ export function recommendBlockIndexes(
     learningGoal?: string;
   }
 ): number[] {
-  const count = Math.max(1, Math.min(options?.count ?? 5, 10));
+  const count = Math.max(1, Math.min(options?.count ?? 1, 10));
 
   const ranked = blocks
     .map((block, index) => ({

@@ -10,11 +10,14 @@ import {
   TouchableOpacity,
   Alert,
   Linking,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
+import { purgeExpiredFreeCacheOnForeground } from './src/database/cacheLifecycle';
 import {
   completeOAuthFromUrl,
   getCurrentUser,
@@ -60,6 +63,7 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
+  const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     initializeApp();
@@ -132,6 +136,21 @@ export default function App() {
       subscription.remove();
     };
   }, [handleOAuthCallback]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const wasBackground = appStateRef.current.match(/inactive|background/);
+      if (wasBackground && nextAppState === 'active' && userId) {
+        void purgeExpiredFreeCacheOnForeground(userId).catch((error) => {
+          console.error('[CacheLifecycle] Foreground cleanup failed:', error);
+        });
+      }
+      appStateRef.current = nextAppState;
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [userId]);
 
   const handleGoogleSignIn = React.useCallback(async () => {
     setAuthLoading(true);

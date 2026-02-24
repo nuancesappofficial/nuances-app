@@ -14,11 +14,16 @@ import {
   Modal,
   AppState,
   type AppStateStatus,
+  Platform,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 // eslint-disable-next-line import/no-unresolved
 import { Audio } from 'expo-av';
 // eslint-disable-next-line import/no-unresolved
 import * as Speech from 'expo-speech';
+import YoutubePlayer from 'react-native-youtube-iframe';
+import * as WebBrowser from 'expo-web-browser';
 import type Card from '@database/models/Card';
 import type CachedItem from '@database/models/CachedItem';
 import type { PronunciationFeedback } from '../types/database.types';
@@ -29,6 +34,39 @@ import {
   buildReferenceWaveform,
   normalizeMeteringToWaveform,
 } from '../services/pronunciation/coach';
+
+const PRONUNCIATION_RECORDING_OPTIONS = {
+  android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+  ios: {
+    extension: '.wav',
+    audioQuality:
+      (Audio as any).RECORDING_OPTION_IOS_AUDIO_QUALITY_MAX ??
+      Audio.RecordingOptionsPresets.HIGH_QUALITY.ios.audioQuality,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 256000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: Audio.RecordingOptionsPresets.HIGH_QUALITY.web,
+  isMeteringEnabled: true,
+} as const;
+
+const MAX_VIDEO_SUGGESTIONS = 3;
+
+type VideoSuggestion = {
+  phrase: string;
+  searchQuery: string;
+  searchUrl: string;
+};
+
+type VideoPlaybackState = {
+  candidateVideoIds: string[];
+  activeIndex: number;
+  isLoading: boolean;
+  error: string | null;
+};
 
 type Props = {
   navigation: any;
@@ -50,6 +88,78 @@ function sanitizePronunciationText(text: string | undefined | null): string {
   if (/^(https?:\/\/|www\.)/i.test(trimmed)) return '';
   if (/^[a-z]+:\/\/\S+/i.test(trimmed)) return '';
   return trimmed;
+}
+
+function parseCollocationPhrases(collocations: string | undefined | null): string[] {
+  if (!collocations) return [];
+  const normalized = collocations
+    .split('\n')
+    .map((line) => line.trim())
+    .join(', ');
+
+  const tokens = normalized
+    .split(/[,;|]/)
+    .map((token) => token.replace(/^[-\d.)\s]+/, '').trim())
+    .filter(Boolean);
+
+  const unique: string[] = [];
+  for (const token of tokens) {
+    if (!unique.includes(token)) unique.push(token);
+    if (unique.length >= MAX_VIDEO_SUGGESTIONS) break;
+  }
+  return unique;
+}
+
+function sanitizeCollocationPhrase(phrase: string): string {
+  return phrase
+    .replace(/（[^）]*）/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildCollocationSearchQuery(anchorText: string, rawPhrase: string): string {
+  const anchor = anchorText.trim();
+  const phrase = sanitizeCollocationPhrase(rawPhrase);
+  if (!anchor) return `${phrase} collocation`;
+  if (!phrase) return `${anchor} collocation`;
+
+  const anchorLower = anchor.toLowerCase();
+  const phraseLower = phrase.toLowerCase();
+  if (phraseLower === anchorLower || phraseLower.startsWith(`${anchorLower} `)) {
+    return `${phrase} collocation`;
+  }
+  return `${anchor} ${phrase} collocation`;
+}
+
+function buildYouTubeSearchUrl(query: string): string {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
+type ResolvedVideoCandidates = {
+  videoIds: string[];
+};
+
+async function resolveYouTubeVideoCandidates(searchQuery: string): Promise<ResolvedVideoCandidates> {
+  try {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}&hl=en&gl=US`;
+    const response = await fetch(searchUrl);
+    if (!response.ok) {
+      return { videoIds: [] };
+    }
+    const html = await response.text();
+    const rendererMatches = Array.from(html.matchAll(/"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})"/g));
+    const uniqueVideoIds: string[] = [];
+    for (const match of rendererMatches) {
+      const id = match[1];
+      if (!id) continue;
+      if (!uniqueVideoIds.includes(id)) uniqueVideoIds.push(id);
+      if (uniqueVideoIds.length >= MAX_VIDEO_SUGGESTIONS) break;
+    }
+    return { videoIds: uniqueVideoIds };
+  } catch {
+    return { videoIds: [] };
+  }
 }
 
 function WaveformStrip({
@@ -98,6 +208,10 @@ export default function CardReviewScreen({ navigation, route }: Props) {
   const [pronunciationScore, setPronunciationScore] = React.useState<number | null>(null);
   const [pronunciationFeedbackLines, setPronunciationFeedbackLines] = React.useState<string[]>([]);
   const [lastRecordingUri, setLastRecordingUri] = React.useState<string | null>(null);
+  const [isVideoSectionExpanded, setIsVideoSectionExpanded] = React.useState(false);
+  const [videoPlaybackByQuery, setVideoPlaybackByQuery] = React.useState<
+    Record<string, VideoPlaybackState>
+  >({});
   const latestFeedbackPayloadRef = React.useRef<PronunciationFeedback | null>(null);
   const recordingRef = React.useRef<any | null>(null);
   const meteringBufferRef = React.useRef<number[]>([]);
@@ -123,10 +237,27 @@ export default function CardReviewScreen({ navigation, route }: Props) {
       ''
     );
   }, [card?.originalSentence, card?.targetPhrase, card?.targetWord]);
+  const collocationPhrases = React.useMemo(
+    () => parseCollocationPhrases(card?.frequentCollocations),
+    [card?.frequentCollocations]
+  );
+  const videoSuggestions = React.useMemo(() => {
+    const anchorText = card?.targetPhrase?.trim() || card?.targetWord?.trim() || '';
+    return collocationPhrases.map((phrase) => {
+      const searchQuery = buildCollocationSearchQuery(anchorText, phrase);
+      return {
+        phrase,
+        searchQuery,
+        searchUrl: buildYouTubeSearchUrl(searchQuery),
+      };
+    });
+  }, [card?.targetPhrase, card?.targetWord, collocationPhrases]);
 
   React.useEffect(() => {
     setIsFlipped(false);
     flipAnimation.setValue(0);
+    setIsVideoSectionExpanded(false);
+    setVideoPlaybackByQuery({});
   }, [currentCardId, flipAnimation]);
 
   React.useEffect(() => {
@@ -262,10 +393,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
 
       const recording = new Audio.Recording();
       meteringBufferRef.current = [];
-      await recording.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      } as any);
+      await recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any);
       recording.setProgressUpdateInterval(120);
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status.isRecording) return;
@@ -295,6 +423,9 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
+      if (Platform.OS === 'ios' && uri && !uri.toLowerCase().endsWith('.wav')) {
+        throw new Error(`錄音格式錯誤，預期 .wav，實際 URI: ${uri}`);
+      }
       recordingRef.current = null;
       setIsRecordingPronunciation(false);
       setLastRecordingUri(uri || null);
@@ -339,6 +470,91 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     setIsSpeakingReference(false);
     setShowPronunciationCoach(false);
   }, [isRecordingPronunciation]);
+
+  const openVideoSuggestionExternally = async (url: string) => {
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
+      });
+    } catch (error) {
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (!supported) {
+          Alert.alert('無法開啟連結', '目前裝置無法開啟 YouTube 搜尋頁面。');
+          return;
+        }
+        await Linking.openURL(url);
+      } catch (innerError) {
+        console.error('[CardReview] open video suggestion failed:', innerError);
+        Alert.alert('開啟失敗', '請稍後再試。');
+      }
+    }
+  };
+
+  const loadVideoForSuggestion = React.useCallback(async (suggestion: VideoSuggestion) => {
+    setVideoPlaybackByQuery((prev) => ({
+      ...prev,
+      [suggestion.searchQuery]: {
+        candidateVideoIds: [],
+        activeIndex: 0,
+        isLoading: true,
+        error: null,
+      },
+    }));
+
+    const candidates = await resolveYouTubeVideoCandidates(suggestion.searchQuery);
+    setVideoPlaybackByQuery((prev) => ({
+      ...prev,
+      [suggestion.searchQuery]: {
+        candidateVideoIds: candidates.videoIds,
+        activeIndex: 0,
+        isLoading: false,
+        error: candidates.videoIds.length > 0 ? null : '找不到可內嵌播放影片，請改用外開。',
+      },
+    }));
+  }, []);
+
+  React.useEffect(() => {
+    if (!isVideoSectionExpanded) return;
+    videoSuggestions.forEach((suggestion) => {
+      const playback = videoPlaybackByQuery[suggestion.searchQuery];
+      if (!playback) {
+        void loadVideoForSuggestion(suggestion);
+      }
+    });
+  }, [isVideoSectionExpanded, videoSuggestions, videoPlaybackByQuery, loadVideoForSuggestion]);
+
+  const handleInlineVideoError = React.useCallback((searchQuery: string, errorCode?: number) => {
+    setVideoPlaybackByQuery((prev) => {
+      const current = prev[searchQuery];
+      if (!current) return prev;
+      const hasNext = current.activeIndex + 1 < current.candidateVideoIds.length;
+      if (hasNext) {
+        return {
+          ...prev,
+          [searchQuery]: {
+            ...current,
+            activeIndex: current.activeIndex + 1,
+            isLoading: true,
+            error: null,
+          },
+        };
+      }
+
+      const reason =
+        errorCode !== undefined
+          ? `站內播放失敗（YouTube 錯誤碼 ${String(errorCode)}），請改用外開。`
+          : '站內播放失敗，請改用外開。';
+      return {
+        ...prev,
+        [searchQuery]: {
+          ...current,
+          isLoading: false,
+          error: reason,
+        },
+      };
+    });
+  }, []);
 
   const handleRating = async (rating: ReviewRating) => {
     if (!card) return;
@@ -509,6 +725,97 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                     {card.frequentCollocations}
                   </Text>
                 </>
+              )}
+
+              {videoSuggestions.length > 0 && (
+                <View style={styles.videoSection}>
+                  <View style={styles.videoSectionHeader}>
+                    <Text style={styles.label}>Collocation Videos</Text>
+                    <TouchableOpacity
+                      style={styles.videoSectionToggleButton}
+                      onPress={() => setIsVideoSectionExpanded((prev) => !prev)}
+                    >
+                      <Text style={styles.videoSectionToggleButtonText}>
+                        {isVideoSectionExpanded ? '收合' : '展開全部'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {isVideoSectionExpanded && (
+                    <View style={styles.inlineVideoList}>
+                      {videoSuggestions.map((suggestion, index) => {
+                        const playback = videoPlaybackByQuery[suggestion.searchQuery];
+                        const activeVideoId =
+                          playback &&
+                          playback.candidateVideoIds.length > 0 &&
+                          playback.activeIndex < playback.candidateVideoIds.length
+                            ? playback.candidateVideoIds[playback.activeIndex]
+                            : null;
+                        return (
+                          <View key={`${suggestion.searchQuery}-${index}`} style={styles.inlineVideoContainer}>
+                            <View style={styles.inlineVideoHeader}>
+                              <Text style={styles.inlineVideoTitle} numberOfLines={1}>
+                                {suggestion.phrase}
+                              </Text>
+                              <TouchableOpacity
+                                style={styles.inlineVideoExternalButton}
+                                onPress={() => {
+                                  void openVideoSuggestionExternally(suggestion.searchUrl);
+                                }}
+                              >
+                                <Text style={styles.inlineVideoExternalButtonText}>外開</Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            {(!playback || playback.isLoading) && (
+                              <View style={styles.inlineVideoLoading}>
+                                <ActivityIndicator size="small" color="#1565c0" />
+                                <Text style={styles.inlineVideoLoadingText}>載入影片中...</Text>
+                              </View>
+                            )}
+
+                            {playback && activeVideoId && !playback.isLoading && (
+                              <YoutubePlayer
+                                key={`${suggestion.searchQuery}-${activeVideoId}`}
+                                height={220}
+                                play={false}
+                                videoId={activeVideoId}
+                                onReady={() => {
+                                  setVideoPlaybackByQuery((prev) => {
+                                    const current = prev[suggestion.searchQuery];
+                                    if (!current) return prev;
+                                    return {
+                                      ...prev,
+                                      [suggestion.searchQuery]: {
+                                        ...current,
+                                        isLoading: false,
+                                        error: null,
+                                      },
+                                    };
+                                  });
+                                }}
+                                onError={(error: unknown) => {
+                                  const parsed = Number(error);
+                                  handleInlineVideoError(
+                                    suggestion.searchQuery,
+                                    Number.isFinite(parsed) ? parsed : undefined
+                                  );
+                                }}
+                                webViewStyle={styles.inlineVideoWebView}
+                              />
+                            )}
+
+                            {playback && !activeVideoId && playback.error && (
+                              <View style={styles.inlineVideoErrorBox}>
+                                <Text style={styles.inlineVideoErrorText}>{playback.error}</Text>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
               )}
 
               {card.phoneticTranscription && (
@@ -938,6 +1245,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#245f8a',
+  },
+  videoSection: {
+    marginTop: 12,
+  },
+  videoSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  videoSectionToggleButton: {
+    marginTop: 12,
+    backgroundColor: '#e8f2fb',
+    borderWidth: 1,
+    borderColor: '#c7dff5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  videoSectionToggleButtonText: {
+    color: '#235279',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inlineVideoList: {
+    marginTop: 8,
+    gap: 10,
+  },
+  inlineVideoContainer: {
+    borderWidth: 1,
+    borderColor: '#d2e3f3',
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#f7fbff',
+  },
+  inlineVideoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#e8f2fb',
+  },
+  inlineVideoTitle: {
+    flex: 1,
+    color: '#1b3f5b',
+    fontSize: 13,
+    fontWeight: '700',
+    marginRight: 10,
+  },
+  inlineVideoExternalButton: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#294861',
+  },
+  inlineVideoExternalButtonText: {
+    color: '#d6ebff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inlineVideoLoading: {
+    height: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+  },
+  inlineVideoLoadingText: {
+    color: '#4b6172',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inlineVideoWebView: {
+    height: 220,
+    backgroundColor: '#000',
+  },
+  inlineVideoErrorBox: {
+    minHeight: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+  },
+  inlineVideoErrorText: {
+    color: '#8a3b2c',
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 18,
   },
   pronunciationButtonsRow: {
     flexDirection: 'row',

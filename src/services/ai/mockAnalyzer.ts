@@ -4,7 +4,7 @@
 /**
  * 提取文本中的關鍵詞
  */
-export function extractKeywords(text: string, maxKeywords: number = 5): string[] {
+export function extractKeywords(text: string, maxKeywords: number = 1): string[] {
   if (!text) return [];
 
   // 移除標點符號並轉小寫

@@ -1,10 +1,10 @@
-// AI Service - 使用 OpenAI gpt-4o-mini
-import {
-  isOpenAIConfigured,
-  analyzeAndGenerateCard as openaiAnalyze,
-  generateCardContent as openaiGenerateCardContent,
-} from './openaiService';
+// AI Service
 import { analyzeCachedItem as mockAnalyze } from './mockAnalyzer';
+import {
+  analyzeAndGenerateCard,
+  generateCardContent,
+  isOpenAIConfigured,
+} from './openaiService';
 import type { AIPersonalizationOptions } from './types';
 
 export type { AIPersonalizationOptions } from './types';
@@ -32,46 +32,35 @@ export async function analyzeText(
 ): Promise<AnalysisResult> {
   const useRealAPI = isOpenAIConfigured();
 
-  console.log(`🤖 Using ${useRealAPI ? 'OpenAI API' : 'Mock AI'} for analysis`);
-
   try {
     if (useRealAPI) {
-      const result = await openaiAnalyze(text, userKeywords, personalization);
-      console.log('✅ OpenAI analysis completed');
-      return result;
-    } else {
-      console.log('⚠️ OpenAI API not configured, using Mock AI');
-      const mockResult = mockAnalyze(text, userKeywords);
-      return {
-        keywords: mockResult.keywords,
-        suggestedWord: mockResult.suggestedWord,
-        definition: mockResult.definition,
-        partOfSpeech: '',
-        contextualExplanation: mockResult.explanation,
-        frequentCollocations: '',
-        phoneticTranscription: mockResult.phonetic,
-        tags: mockResult.tags,
-      };
+      return await analyzeAndGenerateCard(text, userKeywords, personalization);
     }
+
+    const mockResult = mockAnalyze(text, userKeywords);
+    return {
+      keywords: mockResult.keywords,
+      suggestedWord: mockResult.suggestedWord,
+      definition: mockResult.definition,
+      partOfSpeech: '',
+      contextualExplanation: mockResult.explanation,
+      frequentCollocations: '',
+      phoneticTranscription: mockResult.phonetic,
+      tags: mockResult.tags,
+    };
   } catch (error) {
-    console.warn('Analysis error (falling back to Mock AI):', error);
-
-    if (useRealAPI) {
-      console.log('⚠️ OpenAI failed, falling back to Mock AI');
-      const mockResult = mockAnalyze(text, userKeywords);
-      return {
-        keywords: mockResult.keywords,
-        suggestedWord: mockResult.suggestedWord,
-        definition: mockResult.definition,
-        partOfSpeech: '',
-        contextualExplanation: mockResult.explanation,
-        frequentCollocations: '',
-        phoneticTranscription: mockResult.phonetic,
-        tags: mockResult.tags,
-      };
-    }
-
-    throw error;
+    console.warn('Analysis error (fallback to Mock AI):', error);
+    const mockResult = mockAnalyze(text, userKeywords);
+    return {
+      keywords: mockResult.keywords,
+      suggestedWord: mockResult.suggestedWord,
+      definition: mockResult.definition,
+      partOfSpeech: '',
+      contextualExplanation: mockResult.explanation,
+      frequentCollocations: '',
+      phoneticTranscription: mockResult.phonetic,
+      tags: mockResult.tags,
+    };
   }
 }
 
@@ -90,28 +79,33 @@ export async function generateContentForWord(
   originalText: string,
   personalization?: AIPersonalizationOptions
 ): Promise<Omit<AnalysisResult, 'keywords' | 'suggestedWord'>> {
-  const useRealAPI = isOpenAIConfigured();
-
   try {
-    if (useRealAPI) {
-      const result = await openaiGenerateCardContent(word, originalText, personalization);
-      return result;
-    } else {
-      const {
-        generateMockDefinition,
-        generateMockExplanation,
-        generateMockTags,
-      } = await import('./mockAnalyzer');
-
+    if (isOpenAIConfigured()) {
+      const generated = await generateCardContent(word, originalText, personalization);
       return {
-        definition: generateMockDefinition(word),
-        partOfSpeech: '',
-        contextualExplanation: generateMockExplanation(word, originalText),
-        frequentCollocations: '',
-        phoneticTranscription: null,
-        tags: generateMockTags(word),
+        definition: generated.definition,
+        partOfSpeech: generated.partOfSpeech,
+        contextualExplanation: generated.contextualExplanation,
+        frequentCollocations: generated.frequentCollocations,
+        phoneticTranscription: generated.phoneticTranscription,
+        tags: generated.tags,
       };
     }
+
+    const {
+      generateMockDefinition,
+      generateMockExplanation,
+      generateMockTags,
+    } = await import('./mockAnalyzer');
+
+    return {
+      definition: generateMockDefinition(word),
+      partOfSpeech: '',
+      contextualExplanation: generateMockExplanation(word, originalText),
+      frequentCollocations: '',
+      phoneticTranscription: null,
+      tags: generateMockTags(word),
+    };
   } catch (error) {
     console.error('Error generating content for word:', error);
     throw error;

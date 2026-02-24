@@ -4,3 +4,4 @@ export { default as CachedItem } from './CachedItem';
 export { default as Card } from './Card';
 export { default as ReviewHistory } from './ReviewHistory';
 export { default as SyncMetadata } from './SyncMetadata';
+export { default as UserSettings } from './UserSettings';

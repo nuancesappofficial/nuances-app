@@ -1,8 +1,6 @@
 // AI Analysis Service for Nuances App
 // This service handles AI-powered vocabulary analysis and highlighting
 
-import { callAIAction, isAIProxyConfigured } from './edgeAiClient';
-
 export type AnalysisResult = {
   highlightedTerms: string[];
   difficulty: 'beginner' | 'intermediate' | 'advanced';
@@ -19,39 +17,11 @@ export async function analyzeText(
   userKeywords?: string,
   learningGoal?: string
 ): Promise<AnalysisResult> {
+  void userKeywords;
+  void learningGoal;
   try {
-    if (!isAIProxyConfigured()) {
-      console.warn('AI proxy not configured, using mock analysis');
-      return mockAnalysis(text);
-    }
-
-    const normalizedKeywords =
-      typeof userKeywords === 'string' && userKeywords.trim()
-        ? userKeywords.trim()
-        : undefined;
-
-    const actionResult = await callAIAction<
-      {
-        text: string;
-        userKeywords?: string;
-        learningGoal?: string;
-      },
-      {
-        keywords: string[];
-        suggestedWord: string | null;
-      }
-    >('analyze_text', {
-      text,
-      userKeywords: normalizedKeywords,
-      learningGoal,
-    });
-
-    return {
-      highlightedTerms: actionResult.keywords || [],
-      difficulty: 'intermediate',
-      suggestedContext: actionResult.suggestedWord || '',
-      keyPhrases: [],
-    };
+    console.log('[AI] Recommendation feature disabled, using local mock analysis');
+    return mockAnalysis(text);
   } catch (error) {
     console.error('AI analysis error:', error);
     return mockAnalysis(text);
@@ -64,7 +34,7 @@ export async function analyzeText(
 function mockAnalysis(text: string): AnalysisResult {
   // Extract some words from the text as mock highlighted terms
   const words = text.split(/\s+/).filter((w) => w.length > 4);
-  const highlightedTerms = words.slice(0, 5);
+  const highlightedTerms = words.slice(0, 1);
 
   return {
     highlightedTerms,
@@ -75,11 +45,11 @@ function mockAnalysis(text: string): AnalysisResult {
 }
 
 /**
- * Analyze image using OCR (Google ML Kit would be used here)
+ * Analyze image using OCR (Apple Vision would be used here on iOS)
  */
 export async function analyzeImage(imageUri: string): Promise<string> {
-  // TODO: Integrate Google ML Kit for OCR
+  // TODO: Integrate Apple Vision OCR for iOS
   // For now, return placeholder
   console.log('Image analysis not yet implemented for:', imageUri);
-  return 'Image OCR will be implemented with Google ML Kit';
+  return 'Image OCR will be implemented with Apple Vision';
 }

@@ -18,6 +18,7 @@ import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import ImageOCRViewer from '../components/ImageOCRViewer';
+import { recommendBlockIndexes } from '../services/ocr/localSelectionRecommender';
 import ImageCropperModal from '../components/ImageCropperModal';
 import {
   buildKeywordsWithSelectionMarker,
@@ -41,17 +42,15 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const isEditMode = !!editingItem;
   const openCropOnLoad = Boolean(route?.params?.openCropOnLoad);
 
-  const [contentType, setContentType] = React.useState<
-    'text' | 'url' | 'image'
-  >('text');
+  const [contentType, setContentType] = React.useState<'text' | 'image'>('text');
   const [contentText, setContentText] = React.useState('');
-  const [contentUrl, setContentUrl] = React.useState('');
   const [keywords, setKeywords] = React.useState('');
   const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
   
   // Tech Stack v1.5.0: 儲存 OCR blocks 而非手動標註
   const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
   const [selectedBlockIndexes, setSelectedBlockIndexes] = React.useState<number[]>([]);
+  const [recommendedBlockIndexes, setRecommendedBlockIndexes] = React.useState<number[]>([]);
   
   const [showOCRViewer, setShowOCRViewer] = React.useState(false);
   const [showCamera, setShowCamera] = React.useState(false);
@@ -80,9 +79,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   // 編輯模式：預填現有資料
   React.useEffect(() => {
     if (!editingItem) return;
-    setContentType((editingItem.contentType as 'text' | 'url' | 'image') ?? 'text');
-    setContentText(editingItem.contentText ?? '');
-    setContentUrl(editingItem.contentUrl ?? '');
+    const nextContentType = editingItem.contentType === 'image' ? 'image' : 'text';
+    setContentType(nextContentType);
+    setContentText(editingItem.contentText ?? editingItem.contentUrl ?? '');
 
     // 關鍵字：移除 [block:X]/[blocks:X,Y] 標記只顯示純文字
     if (editingItem.userKeywords) {
@@ -94,10 +93,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     const imgPath = editingItem.imageStoragePath ?? editingItem.mediaUri;
     if (imgPath) {
       setSelectedImage(imgPath);
-      // 如果 contentUrl 為空（Share Extension 情況），回填圖片路徑以通過驗證
-      if (!editingItem.contentUrl) {
-        setContentUrl(imgPath);
-      }
     }
 
     // OCR blocks
@@ -127,8 +122,12 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
    */
   const handleOCRComplete = React.useCallback((blocks: OCRBlock[]) => {
     setOCRBlocks(blocks);
-    // 保留於本地，待後續擴充推薦詞功能
-  }, []);
+    const recommended = recommendBlockIndexes(blocks, {
+      count: 4,
+      learningGoal,
+    });
+    setRecommendedBlockIndexes(recommended);
+  }, [learningGoal]);
 
   /**
    * 處理用戶點擊 OCR 文字塊（Tech Stack v1.5.0 第 146-150 行）
@@ -204,7 +203,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     setShowCropper(false);
     setPendingCropImage(null);
     setSelectedImage(croppedUri);
-    setContentUrl(croppedUri);
     setContentType('image');
     setTimeout(() => {
       setShowOCRViewer(true);
@@ -217,8 +215,8 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   }, []);
 
   const handleSave = async () => {
-    if (!contentText && !contentUrl && !selectedImage) {
-      Alert.alert('錯誤', '請輸入內容、URL 或選擇圖片');
+    if (!contentText.trim() && !selectedImage) {
+      Alert.alert('錯誤', '請輸入內容或選擇圖片');
       return;
     }
 
@@ -244,7 +242,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const applyItemFields = (item: CachedItem) => {
     item.contentType = contentType;
     item.contentText = contentText || undefined;
-    item.contentUrl = contentUrl || undefined;
+    item.contentUrl = undefined;
     item.userKeywords = extractKeywordText(keywords) || undefined;
 
     if (ocrBlocks.length > 0) {
@@ -252,7 +250,11 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     }
 
     item.userKeywords = buildKeywordsWithSelectionMarker(keywords, selectedBlockIndexes) || undefined;
-    item.aiHighlightedTerms = selectedBlockIndexes
+    const effectiveRecommendedIndexes =
+      recommendedBlockIndexes.length > 0
+        ? recommendedBlockIndexes
+        : recommendBlockIndexes(ocrBlocks, { count: 4, learningGoal });
+    item.aiHighlightedTerms = effectiveRecommendedIndexes
       .map((index) => ocrBlocks[index]?.text?.trim())
       .filter((text): text is string => Boolean(text));
 
@@ -287,14 +289,14 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
             applyItemFields(item);
 
             const expiresAt = new Date();
-            expiresAt.setHours(expiresAt.getHours() + 24);
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
             item.expiresAt = expiresAt;
           });
         }
       });
 
       // 由 Cache 圖片流程進入（openCropOnLoad）時，保存後直接前往 Create Card
-      if (isEditMode && editingItem && openCropOnLoad) {
+      if (isEditMode && editingItem) {
         navigation.replace('CreateCard', { cachedItem: editingItem });
         return;
       }
@@ -333,7 +335,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           disabled={saving}
         >
           <Text style={styles.saveButtonText}>
-            {saving ? '保存中...' : '保存'}
+            {saving ? '建立中...' : '建立卡片'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -341,7 +343,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
       <ScrollView style={styles.content}>
         <Text style={styles.label}>Content Type</Text>
         <View style={styles.typeSelector}>
-          {(['text', 'url', 'image'] as const).map((type) => (
+          {(['text', 'image'] as const).map((type) => (
             <TouchableOpacity
               key={type}
               style={[
@@ -373,20 +375,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
               multiline
               numberOfLines={6}
               textAlignVertical="top"
-            />
-          </>
-        )}
-
-        {contentType === 'url' && (
-          <>
-            <Text style={styles.label}>URL *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="https://example.com"
-              value={contentUrl}
-              onChangeText={setContentUrl}
-              keyboardType="url"
-              autoCapitalize="none"
             />
           </>
         )}
@@ -440,9 +428,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                     style={styles.removeImageButton}
                     onPress={() => {
                       setSelectedImage(null);
-                      setContentUrl('');
                       setOCRBlocks([]);
                       setSelectedBlockIndexes([]);
+                      setRecommendedBlockIndexes([]);
                       setAIAnalysisResult(null);
                     }}
                   >
@@ -452,15 +440,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            <Text style={styles.label}>或輸入圖片 URL</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="輸入圖片 URL..."
-              value={contentUrl}
-              onChangeText={setContentUrl}
-              keyboardType="url"
-              autoCapitalize="none"
-            />
           </>
         )}
 
@@ -539,7 +518,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                 onSelectionChange={handleSelectionChange}
                 onOCRComplete={handleOCRComplete}
                 initialSelectedIndexes={selectedBlockIndexes}
-                recommendedCount={5}
+                recommendedCount={1}
                 learningGoal={learningGoal}
               />
             ) : (

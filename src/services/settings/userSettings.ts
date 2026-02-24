@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ClipboardMode = 'active' | 'passive';
+export type EntitlementMode = 'premium' | 'guest';
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
 export type ProficiencyStandardPreset =
   | 'cefr'
@@ -27,6 +28,7 @@ export type UserPersonalizationSettings = {
 
 export type UserAppSettings = {
   clipboardMode: ClipboardMode;
+  entitlementMode: EntitlementMode;
   personalization: UserPersonalizationSettings;
 };
 
@@ -42,6 +44,7 @@ const SETTINGS_STORAGE_KEY = 'user_app_settings_v1';
 
 export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   clipboardMode: 'passive',
+  entitlementMode: 'guest',
   personalization: {
     learningGoalPreset: 'ielts',
     learningGoalCustom: '',

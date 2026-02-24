@@ -58,6 +58,9 @@ export async function pasteTextFromClipboard(userId: string): Promise<ClipboardP
         item.sourceApp = 'clipboard';
         item.aiAnalysisCompleted = false;
         item.convertedToCard = false;
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+        item.expiresAt = expiresAt;
       });
     });
 

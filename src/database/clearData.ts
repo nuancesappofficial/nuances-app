@@ -17,6 +17,7 @@ export async function clearAllData() {
         'cards',
         'review_history',
         'sync_metadata',
+        'user_settings',
       ];
 
       for (const tableName of tables) {

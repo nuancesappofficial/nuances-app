@@ -309,7 +309,7 @@ async function pushTableChanges(tableName: string, changes: any, userId: string)
     }
   }
 
-  // Handle deleted records (soft delete)
+  // Handle deleted records (hard delete)
   if (changes.deleted && changes.deleted.length > 0) {
     for (const recordId of changes.deleted) {
       if (!isUuid(recordId)) {
@@ -318,7 +318,7 @@ async function pushTableChanges(tableName: string, changes: any, userId: string)
       }
       const { error } = await supabase
         .from(tableName)
-        .update({ deleted_at: new Date().toISOString() })
+        .delete()
         .eq('id', recordId);
       if (error) throw new Error(`Error deleting ${tableName}: ${error.message}`);
     }

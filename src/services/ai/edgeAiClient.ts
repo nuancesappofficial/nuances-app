@@ -5,7 +5,9 @@ type AIFeatureAction =
   | 'analyze_text'
   | 'generate_card'
   | 'analyze_context'
-  | 'usage_summary';
+  | 'analyze_and_generate_card'
+  | 'usage_summary'
+  | 'get_task_result';
 
 type AIMessage = {
   role: string;
@@ -20,7 +22,15 @@ type AIRequest = {
     temperature?: number;
     maxTokens?: number;
     jsonMode?: boolean;
+    stream?: boolean;
   };
+};
+
+type AsyncActionOptions = {
+  preferAsync?: boolean;
+  asyncThresholdChars?: number;
+  maxPollAttempts?: number;
+  pollIntervalMs?: number;
 };
 
 const AI_EDGE_FUNCTION_NAME =
@@ -96,6 +106,20 @@ function isInvalidJwtError(detail: string): boolean {
     mentionsAuthTokenProblem ||
     (is401 && (lower.includes('missing valid jwt') || lower.includes('invalid jwt')))
   );
+}
+
+function normalizePayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+    if (typeof value === 'string') {
+      const normalized = value.replace(/\s+/g, ' ').trim();
+      result[key] = normalized.length > 2000 ? normalized.slice(0, 2000) : normalized;
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
 }
 
 async function invokeAIEndpoint(
@@ -234,21 +258,66 @@ export async function callAIProxy(request: AIRequest): Promise<string> {
 
 export async function callAIAction<TPayload, TResult>(
   action: AIFeatureAction,
-  payload: TPayload
+  payload: TPayload,
+  options: AsyncActionOptions = {}
 ): Promise<TResult> {
   let authHeaders = await getAuthHeader();
+  const normalizedPayload = normalizePayload(payload);
+  const asyncThresholdChars = options.asyncThresholdChars ?? 700;
+  const shouldAsync =
+    options.preferAsync &&
+    typeof normalizedPayload === 'object' &&
+    normalizedPayload !== null &&
+    'text' in (normalizedPayload as Record<string, unknown>) &&
+    typeof (normalizedPayload as Record<string, unknown>).text === 'string' &&
+    ((normalizedPayload as Record<string, unknown>).text as string).length >= asyncThresholdChars;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const { data, error } = await invokeAIEndpoint(
       {
         action,
-        payload,
+        payload: normalizedPayload,
+        async: shouldAsync,
       },
       authHeaders
     );
 
     if (!error) {
       const obj = (data || {}) as Record<string, unknown>;
+      if (shouldAsync) {
+        const asyncTask = obj.result as
+          | { taskId?: string; status?: string }
+          | undefined;
+        const taskId = asyncTask?.taskId;
+        if (!taskId) {
+          throw new Error(`AI action did not return taskId for async action: ${action}`);
+        }
+        const maxPollAttempts = options.maxPollAttempts ?? 30;
+        const pollIntervalMs = options.pollIntervalMs ?? 1000;
+        for (let pollAttempt = 0; pollAttempt < maxPollAttempts; pollAttempt += 1) {
+          await sleep(pollIntervalMs);
+          const taskResult = await callAIAction<
+            { taskId: string },
+            {
+              taskId: string;
+              status: 'queued' | 'running' | 'done' | 'error';
+              response?: { result?: TResult };
+              error?: string;
+            }
+          >('get_task_result', { taskId });
+          if (taskResult.status === 'done') {
+            const finalResult = taskResult.response?.result;
+            if (finalResult === undefined) {
+              throw new Error(`Async task completed without result: ${taskId}`);
+            }
+            return finalResult;
+          }
+          if (taskResult.status === 'error') {
+            throw new Error(taskResult.error || `Async task failed: ${taskId}`);
+          }
+        }
+        throw new Error(`Async task timeout for action: ${action}`);
+      }
       const result = obj.result as TResult | undefined;
       if (!result) {
         throw new Error(`AI action returned empty result for action: ${action}`);
@@ -275,4 +344,76 @@ export async function callAIAction<TPayload, TResult>(
   }
 
   throw new AIAuthError('Authentication required: please sign in again');
+}
+
+export async function streamOpenAIProxy(
+  request: Omit<AIRequest, 'provider'>,
+  onToken: (delta: string) => void
+): Promise<{ ttfbMs?: number; totalMs?: number; inputTokens?: number; outputTokens?: number }> {
+  const authHeaders = await getAuthHeader();
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase configuration missing for Edge Function');
+  }
+  const endpoint = `${SUPABASE_URL}/functions/v1/${AI_EDGE_FUNCTION_NAME}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeaders.Authorization,
+    },
+    body: JSON.stringify({
+      provider: 'openai',
+      messages: request.messages,
+      options: {
+        ...(request.options || {}),
+        stream: true,
+      },
+    }),
+  });
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+    throw new Error(`AI stream error: ${response.status} ${text}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let donePayload: { ttfbMs?: number; totalMs?: number; inputTokens?: number; outputTokens?: number } = {};
+
+  let shouldRead = true;
+  while (shouldRead) {
+    const { done, value } = await reader.read();
+    if (done) {
+      shouldRead = false;
+      continue;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+    for (const eventChunk of events) {
+      const lines = eventChunk.split('\n');
+      const eventType = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+      const dataLine = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+      if (!eventType || !dataLine) continue;
+      try {
+        const payload = JSON.parse(dataLine) as Record<string, unknown>;
+        if (eventType === 'token' && typeof payload.delta === 'string') {
+          onToken(payload.delta);
+        }
+        if (eventType === 'done') {
+          donePayload = {
+            ttfbMs: typeof payload.ttfbMs === 'number' ? payload.ttfbMs : undefined,
+            totalMs: typeof payload.totalMs === 'number' ? payload.totalMs : undefined,
+            inputTokens: typeof payload.inputTokens === 'number' ? payload.inputTokens : undefined,
+            outputTokens: typeof payload.outputTokens === 'number' ? payload.outputTokens : undefined,
+          };
+        }
+      } catch {
+        // ignore malformed stream chunk
+      }
+    }
+  }
+
+  return donePayload;
 }

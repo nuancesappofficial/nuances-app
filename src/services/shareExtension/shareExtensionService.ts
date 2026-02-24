@@ -315,6 +315,9 @@ async function saveTextToCache(userId: string, text: string): Promise<void> {
         item.sourceApp = 'share_sheet';
         item.aiAnalysisCompleted = false;
         item.convertedToCard = false;
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+        item.expiresAt = expiresAt;
       });
     });
 
@@ -387,6 +390,9 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
           item.sourceApp = 'share_sheet';
           item.aiAnalysisCompleted = false;
           item.convertedToCard = false;
+          const expiresAt = new Date();
+          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+          item.expiresAt = expiresAt;
         });
       });
 

@@ -9,6 +9,7 @@ import {
   Card,
   ReviewHistory,
   SyncMetadata,
+  UserSettings,
 } from './models';
 
 // Create the SQLite adapter
@@ -24,5 +25,5 @@ const adapter = new SQLiteAdapter({
 // Create and export the database instance
 export const database = new Database({
   adapter,
-  modelClasses: [Profile, CachedItem, Card, ReviewHistory, SyncMetadata],
+  modelClasses: [Profile, CachedItem, Card, ReviewHistory, SyncMetadata, UserSettings],
 });

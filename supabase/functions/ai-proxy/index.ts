@@ -7,7 +7,9 @@ type Action =
   | 'analyze_text'
   | 'generate_card'
   | 'analyze_context'
-  | 'usage_summary';
+  | 'analyze_and_generate_card'
+  | 'usage_summary'
+  | 'get_task_result';
 
 type LegacyRequestBody = {
   provider: Provider;
@@ -17,6 +19,7 @@ type LegacyRequestBody = {
     temperature?: number;
     maxTokens?: number;
     jsonMode?: boolean;
+    stream?: boolean;
   };
 };
 
@@ -33,6 +36,7 @@ type AnalyzeTextPayload = {
 type GenerateCardPayload = {
   targetWord: string;
   originalSentence: string;
+  includePronunciation?: boolean;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
   proficiencyStandard?: string;
   proficiencyLevel?: string;
@@ -44,6 +48,10 @@ type AnalyzeContextPayload = {
   targetText: string;
   originalSentence: string;
   contextText?: string;
+  focusSentence?: string;
+  fullContext?: string;
+  useParagraphMode?: boolean;
+  includePronunciation?: boolean;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
   proficiencyStandard?: string;
   proficiencyLevel?: string;
@@ -57,13 +65,25 @@ type UsageSummaryPayload = {
   limit?: number;
 };
 
+type AnalyzeAndGeneratePayload = {
+  text: string;
+  userKeywords?: string;
+};
+
+type GetTaskResultPayload = {
+  taskId: string;
+};
+
 type ActionRequestBody = {
   action: Action;
   payload?:
     | AnalyzeTextPayload
     | GenerateCardPayload
     | AnalyzeContextPayload
-    | UsageSummaryPayload;
+    | AnalyzeAndGeneratePayload
+    | UsageSummaryPayload
+    | GetTaskResultPayload;
+  async?: boolean;
 };
 
 type RequestBody = LegacyRequestBody | ActionRequestBody;
@@ -90,19 +110,24 @@ const MAX_KEYWORDS_CHARS = Number(
 );
 
 const MAX_TOKENS_ANALYZE = Number(
-  Deno.env.get('AI_MAX_TOKENS_ANALYZE') ?? '260'
+  Deno.env.get('AI_MAX_TOKENS_ANALYZE') ?? '180'
 );
 const MAX_TOKENS_GENERATE = Number(
-  Deno.env.get('AI_MAX_TOKENS_GENERATE') ?? '700'
+  Deno.env.get('AI_MAX_TOKENS_GENERATE') ?? '420'
 );
 const MAX_TOKENS_CONTEXT = Number(
-  Deno.env.get('AI_MAX_TOKENS_CONTEXT') ?? '500'
+  Deno.env.get('AI_MAX_TOKENS_CONTEXT') ?? '300'
 );
-const MAX_TOKENS_LEGACY = Number(Deno.env.get('AI_MAX_TOKENS_LEGACY') ?? '900');
+const MAX_TOKENS_LEGACY = Number(Deno.env.get('AI_MAX_TOKENS_LEGACY') ?? '500');
+const AI_OUTPUT_TOKEN_CAP = Number(Deno.env.get('AI_OUTPUT_TOKEN_CAP') ?? '500');
+const AI_MAX_CONTEXT_MESSAGES = Number(Deno.env.get('AI_MAX_CONTEXT_MESSAGES') ?? '8');
+const AI_MAX_MESSAGE_CHARS = Number(Deno.env.get('AI_MAX_MESSAGE_CHARS') ?? '500');
+const AI_MAX_CONTEXT_CHARS = Number(Deno.env.get('AI_MAX_CONTEXT_CHARS') ?? '3200');
 const USAGE_RETENTION_DAYS = Number(Deno.env.get('AI_USAGE_RETENTION_DAYS') ?? '14');
 const USAGE_RECENT_LIMIT_MAX = Number(
   Deno.env.get('AI_USAGE_RECENT_LIMIT_MAX') ?? '50'
 );
+const AI_TASK_TTL_HOURS = Number(Deno.env.get('AI_TASK_TTL_HOURS') ?? '24');
 // Default to fail-open for compatibility because some hosted runtimes
 // do not provide Deno KV for Edge Functions.
 const ALLOW_BILLABLE_WITHOUT_KV = String(
@@ -146,44 +171,16 @@ const SUPPORTED_ACTIONS = new Set<Action>([
   'analyze_text',
   'generate_card',
   'analyze_context',
+  'analyze_and_generate_card',
   'usage_summary',
+  'get_task_result',
 ]);
 const BILLABLE_ACTIONS = new Set<Action>([
   'analyze_text',
   'generate_card',
   'analyze_context',
+  'analyze_and_generate_card',
 ]);
-
-const GOAL_INSTRUCTIONS: Record<string, string> = {
-  ielts:
-    'Focus on academic vocabulary suitable for IELTS exam (band 6-9). Prioritize formal and academic words.',
-  casual:
-    'Focus on conversational vocabulary, idioms, and practical daily expressions.',
-  professional:
-    'Focus on business and workplace terminology with practical professional usage.',
-};
-
-function buildPersonalizationInstruction(options: {
-  proficiencyStandard?: string;
-  proficiencyLevel?: string;
-  domain?: string;
-  tone?: string;
-}): string {
-  const parts: string[] = [];
-  if (options.proficiencyStandard) {
-    parts.push(`English proficiency standard: ${options.proficiencyStandard}`);
-  }
-  if (options.proficiencyLevel) {
-    parts.push(`English proficiency target range: ${options.proficiencyLevel}`);
-  }
-  if (options.domain) {
-    parts.push(`Domain focus: ${options.domain}`);
-  }
-  if (options.tone) {
-    parts.push(`Explanation tone: ${options.tone}`);
-  }
-  return parts.length > 0 ? parts.join('\n') : '';
-}
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -244,9 +241,15 @@ function sanitizeText(input: unknown, maxLen: number): string {
   return input.trim().slice(0, maxLen);
 }
 
+function normalizeTargetToken(input: string): string {
+  return input
+    .replace(/^[\s"'“”‘’()[\]{}<>.,!?;:]+|[\s"'“”‘’()[\]{}<>.,!?;:]+$/g, '')
+    .trim();
+}
+
 function clampTokens(value: unknown, maxAllowed: number): number {
   if (typeof value !== 'number' || Number.isNaN(value)) return maxAllowed;
-  return Math.max(1, Math.min(Math.floor(value), maxAllowed));
+  return Math.max(1, Math.min(Math.floor(value), Math.min(maxAllowed, AI_OUTPUT_TOKEN_CAP)));
 }
 
 function pickModel(
@@ -258,6 +261,89 @@ function pickModel(
     return requested;
   }
   return fallback;
+}
+
+type ModelRoute = {
+  model: string;
+  tier: 'fast' | 'balanced' | 'quality';
+  reason: string;
+};
+
+type AIExecutionMetrics = {
+  provider: 'openai' | 'gemini';
+  model: string;
+  latencyMs: number;
+  ttfbMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
+type AIResponse = {
+  content: string;
+  metrics: AIExecutionMetrics;
+};
+
+function normalizeWhitespace(input: string): string {
+  return input.replace(/\s+/g, ' ').trim();
+}
+
+function compactMessages(messages: LegacyRequestBody['messages']): { role: string; content: string }[] {
+  const normalized = messages
+    .map((msg) => ({
+      role: String(msg.role || 'user'),
+      content: normalizeWhitespace(sanitizeText(msg.content, AI_MAX_MESSAGE_CHARS)),
+    }))
+    .filter((msg) => Boolean(msg.content));
+
+  if (!normalized.length) return [];
+
+  const systemMessages = normalized.filter((msg) => msg.role === 'system');
+  const nonSystem = normalized.filter((msg) => msg.role !== 'system');
+  const lastNonSystem = nonSystem.slice(-Math.max(1, AI_MAX_CONTEXT_MESSAGES - 1));
+  const merged = [
+    ...(systemMessages[0] ? [systemMessages[0]] : []),
+    ...lastNonSystem,
+  ];
+
+  let budget = AI_MAX_CONTEXT_CHARS;
+  const output: { role: string; content: string }[] = [];
+  for (const msg of merged) {
+    if (budget <= 0) break;
+    const clipped = msg.content.slice(0, Math.min(msg.content.length, budget));
+    if (!clipped) continue;
+    output.push({ role: msg.role, content: clipped });
+    budget -= clipped.length;
+  }
+  return output;
+}
+
+function routeOpenAIModelForAction(params: {
+  action: Action | 'legacy_openai';
+  payloadSize: number;
+  requested?: unknown;
+}): ModelRoute {
+  if (typeof params.requested === 'string' && OPENAI_ALLOWED_MODELS.includes(params.requested)) {
+    return {
+      model: params.requested,
+      tier: 'quality',
+      reason: 'explicit_model_override',
+    };
+  }
+
+  const fast = OPENAI_ALLOWED_MODELS[0] ?? 'gpt-4o-mini';
+  const balanced = OPENAI_ALLOWED_MODELS[Math.min(1, OPENAI_ALLOWED_MODELS.length - 1)] ?? fast;
+  const quality = OPENAI_ALLOWED_MODELS[Math.min(2, OPENAI_ALLOWED_MODELS.length - 1)] ?? balanced;
+
+  if (params.action === 'analyze_text') {
+    return { model: fast, tier: 'fast', reason: 'short_keyword_extraction' };
+  }
+  if (params.payloadSize > 1200 || params.action === 'analyze_context') {
+    return { model: quality, tier: 'quality', reason: 'long_or_context_heavy' };
+  }
+  if (params.action === 'generate_card' || params.action === 'analyze_and_generate_card') {
+    return { model: balanced, tier: 'balanced', reason: 'content_generation' };
+  }
+  return { model: fast, tier: 'fast', reason: 'default_low_latency' };
 }
 
 function stripMarkdownFences(raw: string): string {
@@ -334,6 +420,12 @@ function validateGenerateCardPayload(payload: unknown): string[] {
     );
   }
   if (
+    payload.includePronunciation !== undefined &&
+    typeof payload.includePronunciation !== 'boolean'
+  ) {
+    errors.push('payload.includePronunciation must be a boolean when provided');
+  }
+  if (
     payload.learningGoal !== undefined &&
     typeof payload.learningGoal !== 'string'
   ) {
@@ -374,8 +466,26 @@ function validateAnalyzeContextPayload(payload: unknown): string[] {
       'payload.originalSentence is required and must be a non-empty string'
     );
   }
+  if (
+    payload.includePronunciation !== undefined &&
+    typeof payload.includePronunciation !== 'boolean'
+  ) {
+    errors.push('payload.includePronunciation must be a boolean when provided');
+  }
   if (payload.contextText !== undefined && typeof payload.contextText !== 'string') {
     errors.push('payload.contextText must be a string when provided');
+  }
+  if (payload.focusSentence !== undefined && typeof payload.focusSentence !== 'string') {
+    errors.push('payload.focusSentence must be a string when provided');
+  }
+  if (payload.fullContext !== undefined && typeof payload.fullContext !== 'string') {
+    errors.push('payload.fullContext must be a string when provided');
+  }
+  if (
+    payload.useParagraphMode !== undefined &&
+    typeof payload.useParagraphMode !== 'boolean'
+  ) {
+    errors.push('payload.useParagraphMode must be a boolean when provided');
   }
   if (
     payload.learningGoal !== undefined &&
@@ -423,11 +533,39 @@ function validateUsageSummaryPayload(payload: unknown): string[] {
   return errors;
 }
 
+function validateAnalyzeAndGeneratePayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const errors: string[] = [];
+  if (typeof payload.text !== 'string' || !payload.text.trim()) {
+    errors.push('payload.text is required and must be a non-empty string');
+  }
+  if (
+    payload.userKeywords !== undefined &&
+    typeof payload.userKeywords !== 'string'
+  ) {
+    errors.push('payload.userKeywords must be a string when provided');
+  }
+  return errors;
+}
+
+function validateGetTaskResultPayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const taskId = sanitizeText(payload.taskId, 100);
+  if (!taskId) {
+    return ['payload.taskId is required'];
+  }
+  return [];
+}
+
 function validateActionPayload(action: Action, payload: unknown): string[] {
   if (action === 'analyze_text') return validateAnalyzeTextPayload(payload);
   if (action === 'generate_card') return validateGenerateCardPayload(payload);
   if (action === 'analyze_context') return validateAnalyzeContextPayload(payload);
+  if (action === 'analyze_and_generate_card') {
+    return validateAnalyzeAndGeneratePayload(payload);
+  }
   if (action === 'usage_summary') return validateUsageSummaryPayload(payload);
+  if (action === 'get_task_result') return validateGetTaskResultPayload(payload);
   return ['unsupported action'];
 }
 
@@ -536,7 +674,7 @@ async function enforceLimits(userId: string): Promise<Response | null> {
 async function trackUsage(params: {
   userId: string;
   action: string;
-  status: 'success' | 'error' | 'invalid_request' | 'rate_limited';
+  status: 'success' | 'error' | 'invalid_request' | 'rate_limited' | 'queued';
   meta?: Record<string, unknown>;
 }): Promise<void> {
   try {
@@ -604,25 +742,27 @@ async function getUsageSummary(
     'analyze_text',
     'generate_card',
     'analyze_context',
+    'analyze_and_generate_card',
     'legacy_openai',
     'legacy_gemini',
+    'get_task_result',
   ];
-  const statuses = ['success', 'error', 'invalid_request', 'rate_limited'];
+  const statuses = ['success', 'error', 'invalid_request', 'rate_limited', 'queued'];
   const counts: Record<string, Record<string, number>> = {};
 
-  for (const action of actions) {
-    counts[action] = {};
-    for (const status of statuses) {
-      const entry = await kv.get([
-        'ai-usage-count',
-        dayBucket,
-        userId,
-        action,
-        status,
-      ]);
-      counts[action][status] = (entry.value as number | null) ?? 0;
-    }
-  }
+  await Promise.all(
+    actions.map(async (action) => {
+      const statusEntries = await Promise.all(
+        statuses.map((status) =>
+          kv.get(['ai-usage-count', dayBucket, userId, action, status])
+        )
+      );
+      counts[action] = {};
+      statuses.forEach((status, index) => {
+        counts[action][status] = (statusEntries[index].value as number | null) ?? 0;
+      });
+    })
+  );
 
   const recent: Array<Record<string, unknown>> = [];
   if (includeRecent) {
@@ -644,22 +784,19 @@ async function getUsageSummary(
 }
 
 async function callOpenAIChat(params: {
-  model?: string;
+  model: string;
   messages: { role: string; content: string }[];
   temperature?: number;
   maxTokens: number;
   jsonMode?: boolean;
-}): Promise<string> {
+}): Promise<AIResponse> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
     throw new Error('Missing OPENAI_API_KEY in Edge Function secrets');
   }
 
-  const model = pickModel(
-    params.model,
-    OPENAI_ALLOWED_MODELS,
-    OPENAI_ALLOWED_MODELS[0]
-  );
+  const startedAt = Date.now();
+  const model = pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -684,28 +821,38 @@ async function callOpenAIChat(params: {
     );
   }
 
-  return (
-    (data as { choices?: { message?: { content?: string } }[] })
-      ?.choices?.[0]?.message?.content || ''
-  );
+  const usage = (data as {
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  })?.usage;
+
+  return {
+    content:
+      (data as { choices?: { message?: { content?: string } }[] })
+        ?.choices?.[0]?.message?.content || '',
+    metrics: {
+      provider: 'openai',
+      model,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+      outputTokens:
+        typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : undefined,
+    },
+  };
 }
 
 async function callGeminiLegacy(params: {
-  model?: string;
+  model: string;
   messages: LegacyRequestBody['messages'];
   temperature?: number;
   maxTokens: number;
-}): Promise<string> {
+}): Promise<AIResponse> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
     throw new Error('Missing GEMINI_API_KEY in Edge Function secrets');
   }
 
-  const model = pickModel(
-    params.model,
-    GEMINI_ALLOWED_MODELS,
-    GEMINI_ALLOWED_MODELS[0]
-  );
+  const startedAt = Date.now();
+  const model = pickModel(params.model, GEMINI_ALLOWED_MODELS, GEMINI_ALLOWED_MODELS[0]);
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -729,51 +876,156 @@ async function callGeminiLegacy(params: {
     );
   }
 
-  return (
-    (data as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    })?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-  );
+  const usage = (data as {
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  })?.usageMetadata;
+
+  return {
+    content:
+      (data as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      })?.candidates?.[0]?.content?.parts?.[0]?.text || '',
+    metrics: {
+      provider: 'gemini',
+      model,
+      latencyMs: Date.now() - startedAt,
+      inputTokens:
+        typeof usage?.promptTokenCount === 'number' ? usage.promptTokenCount : undefined,
+      outputTokens:
+        typeof usage?.candidatesTokenCount === 'number'
+          ? usage.candidatesTokenCount
+          : undefined,
+    },
+  };
+}
+
+async function buildOpenAIStreamResponse(params: {
+  model: string;
+  messages: { role: string; content: string }[];
+  temperature?: number;
+  maxTokens: number;
+}): Promise<Response> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) {
+    throw new Error('Missing OPENAI_API_KEY in Edge Function secrets');
+  }
+  const startedAt = Date.now();
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]),
+      messages: params.messages,
+      temperature: params.temperature ?? 0.5,
+      max_tokens: params.maxTokens,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+  });
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+    throw new Error(text || `OpenAI stream request failed (${response.status})`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let firstTokenAt = 0;
+  let outputTokens: number | undefined;
+  let inputTokens: number | undefined;
+  let lineBuffer = '';
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode('event: ready\ndata: {"started":true}\n\n'));
+      let shouldRead = true;
+      while (shouldRead) {
+        const { done, value } = await reader.read();
+        if (done) {
+          shouldRead = false;
+          continue;
+        }
+        lineBuffer += decoder.decode(value, { stream: true });
+        const parts = lineBuffer.split('\n');
+        lineBuffer = parts.pop() ?? '';
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          const raw = line.slice(5).trim();
+          if (raw === '[DONE]') continue;
+          let parsed: any;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta.length > 0) {
+            if (!firstTokenAt) firstTokenAt = Date.now();
+            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ delta })}\n\n`));
+          }
+          if (parsed?.usage) {
+            inputTokens = parsed.usage.prompt_tokens;
+            outputTokens = parsed.usage.completion_tokens;
+          }
+        }
+      }
+
+      const donePayload = {
+        ttfbMs: firstTokenAt ? firstTokenAt - startedAt : null,
+        totalMs: Date.now() - startedAt,
+        inputTokens,
+        outputTokens,
+      };
+      controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`));
+      controller.close();
+    },
+    cancel() {
+      reader.cancel().catch(() => undefined);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
 
 async function handleAnalyzeText(payload: AnalyzeTextPayload): Promise<Response> {
   const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
   const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
-  const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
-  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
-  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
-  const domain = sanitizeText(payload.domain, 40);
-  const tone = sanitizeText(payload.tone, 40);
 
   if (!text) {
     return jsonResponse({ error: 'text is required' }, 400);
   }
 
-  const goalInstruction = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
-  const personalizationInstruction = buildPersonalizationInstruction({
-    proficiencyStandard,
-    proficiencyLevel,
-    domain,
-    tone,
-  });
+  const prompt = `Analyze the following English text and extract 1 key vocabulary word that a language learner should focus on.
 
-  const prompt = `Analyze the following English text and extract 3-5 key vocabulary words that a language learner should focus on.
-
-${goalInstruction}
-${personalizationInstruction ? `${personalizationInstruction}\n` : ''}
 ${userKeywords ? `User has expressed interest in: "${userKeywords}". Prioritize these if they appear in the text.` : ''}
 
 Text: "${text}"
 
 Return JSON only:
-{"keywords":["word1","word2","word3"],"suggestedWord":"word1"}`;
+{"keywords":["word1"],"suggestedWord":"word1"}`;
 
-  const content = await callOpenAIChat({
+  const route = routeOpenAIModelForAction({
+    action: 'analyze_text',
+    payloadSize: text.length + userKeywords.length,
+  });
+  const aiResponse = await callOpenAIChat({
+    model: route.model,
     messages: [
       {
         role: 'system',
         content:
-          'You are an English vocabulary coach. Respond with strict JSON only.',
+          'You are an English vocabulary coach. Respond with strict JSON only. Keep output concise.',
       },
       { role: 'user', content: prompt },
     ],
@@ -781,12 +1033,13 @@ Return JSON only:
     temperature: 0.4,
     jsonMode: true,
   });
+  const content = aiResponse.content;
 
   const parsed = parseJson<{ keywords?: string[]; suggestedWord?: string | null }>(
     content
   );
   const keywords = Array.isArray(parsed.keywords)
-    ? parsed.keywords.filter((item) => typeof item === 'string').slice(0, 5)
+    ? parsed.keywords.filter((item) => typeof item === 'string').slice(0, 1)
     : [];
   const suggestedWord = typeof parsed.suggestedWord === 'string'
     ? parsed.suggestedWord
@@ -797,17 +1050,17 @@ Return JSON only:
       keywords,
       suggestedWord,
     },
+    meta: {
+      route,
+      metrics: aiResponse.metrics,
+    },
   });
 }
 
 async function handleGenerateCard(payload: GenerateCardPayload): Promise<Response> {
   const targetWord = sanitizeText(payload.targetWord, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
-  const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
-  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
-  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
-  const domain = sanitizeText(payload.domain, 40);
-  const tone = sanitizeText(payload.tone, 40);
+  const includePronunciation = payload.includePronunciation !== false;
 
   if (!targetWord || !originalSentence) {
     return jsonResponse(
@@ -816,19 +1069,16 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
     );
   }
 
-  const contextHint = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
-  const personalizationInstruction = buildPersonalizationInstruction({
-    proficiencyStandard,
-    proficiencyLevel,
-    domain,
-    tone,
-  });
   const prompt = `Create a vocabulary learning card for "${targetWord}" in:
 "${originalSentence}"
 
-Learning context:
-${contextHint}
-${personalizationInstruction ? `\n${personalizationInstruction}` : ''}
+Critical semantic rules:
+1. Use ONLY the meaning of "${targetWord}" in this specific sentence, not the most common dictionary meaning.
+2. If the sentence implies a fixed phrase/collocation, explain that phrase-level meaning first.
+3. Prefer Traditional Chinese wording used by learners in Taiwan/Hong Kong context.
+4. If multiple senses are possible, choose the single best one for this sentence and mention why in contextualExplanation.
+5. In "Frequent collocations", prioritize high-frequency phrasal-verb collocations for the target word.
+6. Every collocation must include Traditional Chinese translation next to English. Format: English（繁中）.
 
 Return JSON only:
 {
@@ -836,16 +1086,23 @@ Return JSON only:
   "definition":"Traditional Chinese definition.",
   "contextualExplanation":"Explaination mainly in traditional chinese about why this word is used in this context or as this collocation.",
   "Frequent collocations":"The most frequent form or phrase that contains this word.",
-  "phoneticTranscription":"IPA string or null",
+  ${includePronunciation
+    ? '"phoneticTranscription":"IPA string (prefer UK/US common IPA, e.g. /əˈnaɪz/) or null only if truly unavailable",'
+    : ''}
   "tags":["IELTS","Academic"]
 }`;
 
-  const content = await callOpenAIChat({
+  const route = routeOpenAIModelForAction({
+    action: 'generate_card',
+    payloadSize: targetWord.length + originalSentence.length,
+  });
+  const aiResponse = await callOpenAIChat({
+    model: route.model,
     messages: [
       {
         role: 'system',
         content:
-          'You are an expert bilingual English teacher. Return strict JSON only.',
+          'You are an expert bilingual English teacher. Return strict JSON only. Keep each field concise.',
       },
       { role: 'user', content: prompt },
     ],
@@ -853,6 +1110,7 @@ Return JSON only:
     temperature: 0.6,
     jsonMode: true,
   });
+  const content = aiResponse.content;
 
   const parsed = parseJson<{
     partOfSpeech?: string;
@@ -862,45 +1120,71 @@ Return JSON only:
     frequentCollocations?: string;
     ['Frequent collocations']?: string;
     phoneticTranscription?: string | null;
+    pronunciation?: string | null;
+    ipa?: string | null;
+    phonetic?: string | null;
     tags?: string[];
   }>(content);
 
+  const partOfSpeech = sanitizeText(parsed.partOfSpeech || parsed['part of speech'], 80);
+  const definition = sanitizeText(parsed.definition, 2000);
+  const contextualExplanation = sanitizeText(parsed.contextualExplanation, 2000);
+  const frequentCollocations = sanitizeText(
+    parsed.frequentCollocations || parsed['Frequent collocations'],
+    500
+  );
+  const phoneticTranscription =
+    typeof parsed.phoneticTranscription === 'string'
+      ? sanitizeText(parsed.phoneticTranscription, 120)
+      : typeof parsed.pronunciation === 'string'
+        ? sanitizeText(parsed.pronunciation, 120)
+        : typeof parsed.ipa === 'string'
+          ? sanitizeText(parsed.ipa, 120)
+          : typeof parsed.phonetic === 'string'
+            ? sanitizeText(parsed.phonetic, 120)
+      : null;
+  const tags = Array.isArray(parsed.tags)
+    ? parsed.tags
+      .filter((item) => typeof item === 'string')
+      .map((item) => sanitizeText(item, 40))
+      .filter(Boolean)
+      .slice(0, 8)
+    : [];
+
   return jsonResponse({
     result: {
-      partOfSpeech: sanitizeText(
-        parsed.partOfSpeech || parsed['part of speech'],
-        80
-      ),
-      definition: sanitizeText(parsed.definition, 2000),
-      contextualExplanation: sanitizeText(parsed.contextualExplanation, 2000),
-      frequentCollocations: sanitizeText(
-        parsed.frequentCollocations || parsed['Frequent collocations'],
-        500
-      ),
-      phoneticTranscription:
-        typeof parsed.phoneticTranscription === 'string'
-          ? sanitizeText(parsed.phoneticTranscription, 120)
-          : null,
-      tags: Array.isArray(parsed.tags)
-        ? parsed.tags
-          .filter((item) => typeof item === 'string')
-          .map((item) => sanitizeText(item, 40))
-          .filter(Boolean)
-          .slice(0, 8)
-        : [],
+      partOfSpeech,
+      definition,
+      contextualExplanation,
+      frequentCollocations,
+      phoneticTranscription,
+      tags,
+    },
+    meta: {
+      route,
+      metrics: aiResponse.metrics,
     },
   });
 }
 
 async function handleAnalyzeContext(payload: AnalyzeContextPayload): Promise<Response> {
-  const targetText = sanitizeText(payload.targetText, MAX_WORD_CHARS);
+  const targetText = normalizeTargetToken(
+    sanitizeText(payload.targetText, MAX_WORD_CHARS)
+  );
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
   const contextText = sanitizeText(payload.contextText, MAX_SENTENCE_CHARS);
-  const learningGoal = sanitizeText(payload.learningGoal, 32) || 'ielts';
-  const proficiencyStandard = sanitizeText(payload.proficiencyStandard, 24).toUpperCase();
-  const proficiencyLevel = sanitizeText(payload.proficiencyLevel, 32).toUpperCase();
-  const domain = sanitizeText(payload.domain, 40);
-  const tone = sanitizeText(payload.tone, 40);
+  const focusSentence = sanitizeText(payload.focusSentence, MAX_SENTENCE_CHARS) || originalSentence;
+  const fullContext = sanitizeText(payload.fullContext, MAX_TEXT_CHARS);
+  const useParagraphMode = Boolean(payload.useParagraphMode && fullContext);
+  const includePronunciation = payload.includePronunciation !== false;
+  const shortModalPattern =
+    /^(it|they|he|she|we|i|you)\s+(will|would|shall|should|must|can|could|may|might)\s+[a-z]+$/i
+      .test(focusSentence.trim());
+  const hasDirectMoneyCue =
+    /(\$|dollars?|bucks?|fee|fees|bill|payment|pay for|paying for)/i.test(
+      `${focusSentence} ${contextText}`
+    );
+  const mayNeedPragmaticDisambiguation = shortModalPattern && !hasDirectMoneyCue;
 
   if (!targetText || !originalSentence) {
     return jsonResponse(
@@ -908,85 +1192,413 @@ async function handleAnalyzeContext(payload: AnalyzeContextPayload): Promise<Res
       400
     );
   }
-
-  const goalInstruction = GOAL_INSTRUCTIONS[learningGoal] || GOAL_INSTRUCTIONS.ielts;
-  const personalizationInstruction = buildPersonalizationInstruction({
-    proficiencyStandard,
-    proficiencyLevel,
-    domain,
-    tone,
-  });
-  const prompt = `For language learning, analyze "${targetText}" in sentence:
-"${originalSentence}"
+  const prompt = `${useParagraphMode
+    ? `請先讀完整段落，再回答目標句中的詞義。\n\nFull context:\n"${fullContext}"\n\nFocus sentence:\n"${focusSentence}"`
+    : `「${originalSentence}」中的「${targetText}」是什麼意思？`}
 
 Context around target:
 "${contextText}"
 
-Learning context:
-${goalInstruction}
-${personalizationInstruction ? `${personalizationInstruction}\n` : ''}
+Critical semantic rules:
+1. 僅解釋此情境的詞義。
+2. "keyword" 必須等於 "${targetText}"，不可改字、不可擴寫成片語。
+3. 先判斷最小語義單位（片語/搭配），再給 translation。
+4. "definition" 只能是精簡繁中翻譯（2-8字），不能寫解釋句。
+5. 若有片語義，禁止輸出裸字典義。
+6. "contextualExplanation" 才能放完整解釋。
+7. "Frequent collocations" 只列 1-3 個同義域高頻搭配，格式 English（繁中）；不確定就回空字串。
 
 Return JSON only:
 {
   "keyword":"target word",
   "part of speech":"What part of speech this word is.",
-  "definition":"Traditional Chinese explanation",
+  "definition":"Concise Traditional Chinese translation only",
+  "contextualExplanation":"Detailed explanation in Traditional Chinese for this sentence",
   "example":"short example sentence",
   "Frequent collocations":"The most frequent form or phrase that contains this word.",
-  "tags":["Vocabulary"],
-  "pronunciation":"IPA or null"
+  "confidence":0.0,
+  "alternatives":["sense A","sense B"],
+  "tags":["Vocabulary"]${includePronunciation
+    ? ',\n  "pronunciation":"IPA string (prefer UK/US common IPA) or null only if truly unavailable"'
+    : ''}
 }`;
 
-  const content = await callOpenAIChat({
+  console.log(
+    '[ai-proxy][analyze_context][mode]',
+    JSON.stringify(
+      {
+        contextMode: useParagraphMode ? 'paragraph' : 'sentence',
+        secondSegmentModeActivated: useParagraphMode,
+        shortModalPattern,
+        hasDirectMoneyCue,
+        promptLength: prompt.length,
+      },
+      null,
+      2
+    )
+  );
+
+  console.log(
+    '[ai-proxy][analyze_context][input]',
+    JSON.stringify(
+      {
+        targetText,
+        originalSentence,
+        focusSentence,
+        contextText,
+        contextMode: useParagraphMode ? 'paragraph' : 'sentence',
+        secondSegmentModeActivated: useParagraphMode,
+        shortModalPattern,
+        hasDirectMoneyCue,
+        promptLength: prompt.length,
+        useParagraphMode,
+        fullContext,
+        prompt,
+      },
+      null,
+      2
+    )
+  );
+
+  const route = routeOpenAIModelForAction({
+    action: 'analyze_context',
+    payloadSize: targetText.length + originalSentence.length + contextText.length + fullContext.length,
+  });
+  const aiResponse = await callOpenAIChat({
+    model: route.model,
     messages: [
       {
         role: 'system',
         content:
-          'You are a language learning assistant. Return strict JSON only.',
+          'You are a native English speaker with expert level Chinese skills. Return strict JSON only. Keep wording concise.',
       },
       { role: 'user', content: prompt },
     ],
-    maxTokens: MAX_TOKENS_CONTEXT,
-    temperature: 0.5,
+    maxTokens: Math.min(MAX_TOKENS_CONTEXT, 220),
+    temperature: 0.2,
     jsonMode: true,
   });
+  const content = aiResponse.content;
+
+  console.log(
+    '[ai-proxy][analyze_context][openai_raw_output]',
+    typeof content === 'string' ? content : JSON.stringify(content)
+  );
 
   const parsed = parseJson<{
     keyword?: string;
     partOfSpeech?: string;
     ['part of speech']?: string;
     definition?: string;
+    contextualExplanation?: string;
     example?: string;
     frequentCollocations?: string;
     ['Frequent collocations']?: string;
+    confidence?: number;
+    alternatives?: string[];
     tags?: string[];
     pronunciation?: string | null;
+    phoneticTranscription?: string | null;
+    ipa?: string | null;
+    phonetic?: string | null;
   }>(content);
+
+  const firstPass = parsed;
+  const rawDefinition = sanitizeText(firstPass.definition, 2000);
+  const rawExplanation = sanitizeText(firstPass.contextualExplanation, 2000);
+  const looksLikeMonetarySense =
+    /(支付|付款|付費|繳費|付錢|金錢交易|pay for|payment|monetary|financial)/i.test(
+      `${rawDefinition} ${rawExplanation}`
+    );
+
+  let finalized = firstPass;
+  if (mayNeedPragmaticDisambiguation && looksLikeMonetarySense) {
+    const retryPrompt = `${prompt}
+
+Disambiguation check:
+- Focus sentence is short modal/aux + verb pattern and context has no explicit money object.
+- Re-evaluate pragmatic reading first (consequence/result/retaliation etc.) before transaction meaning.
+- Keep all previous JSON schema requirements unchanged.`;
+
+    const retryResponse = await callOpenAIChat({
+      model: route.model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a native English speaker with expert level Chinese skills. Return strict JSON only.',
+        },
+        { role: 'user', content: retryPrompt },
+      ],
+      maxTokens: Math.min(MAX_TOKENS_CONTEXT, 220),
+      temperature: 0.1,
+      jsonMode: true,
+    });
+    const retryContent = retryResponse.content;
+
+    console.log(
+      '[ai-proxy][analyze_context][retry_raw_output]',
+      typeof retryContent === 'string' ? retryContent : JSON.stringify(retryContent)
+    );
+
+    const retryParsed = parseJson<{
+      keyword?: string;
+      partOfSpeech?: string;
+      ['part of speech']?: string;
+      definition?: string;
+      contextualExplanation?: string;
+      example?: string;
+      frequentCollocations?: string;
+      ['Frequent collocations']?: string;
+      confidence?: number;
+      alternatives?: string[];
+      tags?: string[];
+      pronunciation?: string | null;
+      phoneticTranscription?: string | null;
+      ipa?: string | null;
+      phonetic?: string | null;
+    }>(retryContent);
+
+    console.log(
+      '[ai-proxy][analyze_context][retry_parsed_output]',
+      JSON.stringify(retryParsed, null, 2)
+    );
+    finalized = retryParsed;
+  }
+
+  console.log(
+    '[ai-proxy][analyze_context][parsed_output]',
+    JSON.stringify(finalized, null, 2)
+  );
+
+  const lockedKeyword = targetText;
+  const partOfSpeech = sanitizeText(finalized.partOfSpeech || finalized['part of speech'], 80);
+  const definition = sanitizeText(finalized.definition, 2000);
+  const contextualExplanation = sanitizeText(finalized.contextualExplanation, 2000);
+  const example = sanitizeText(finalized.example || originalSentence, 1200);
+  const frequentCollocations = sanitizeText(
+    finalized.frequentCollocations || finalized['Frequent collocations'],
+    500
+  );
+  const confidence = typeof finalized.confidence === 'number'
+    ? Math.max(0, Math.min(1, finalized.confidence))
+    : undefined;
+  const alternatives = Array.isArray(finalized.alternatives)
+    ? finalized.alternatives
+      .filter((item) => typeof item === 'string')
+      .map((item) => sanitizeText(item, 120))
+      .filter(Boolean)
+      .slice(0, 3)
+    : [];
+  const tags = Array.isArray(finalized.tags)
+    ? finalized.tags
+      .filter((item) => typeof item === 'string')
+      .map((item) => sanitizeText(item, 40))
+      .filter(Boolean)
+      .slice(0, 8)
+    : [];
+  const pronunciation =
+    typeof finalized.pronunciation === 'string'
+      ? sanitizeText(finalized.pronunciation, 120)
+      : typeof finalized.phoneticTranscription === 'string'
+        ? sanitizeText(finalized.phoneticTranscription, 120)
+        : typeof finalized.ipa === 'string'
+          ? sanitizeText(finalized.ipa, 120)
+          : typeof finalized.phonetic === 'string'
+            ? sanitizeText(finalized.phonetic, 120)
+      : null;
 
   return jsonResponse({
     result: {
-      keyword: sanitizeText(parsed.keyword || targetText, MAX_WORD_CHARS),
-      partOfSpeech: sanitizeText(
-        parsed.partOfSpeech || parsed['part of speech'],
-        80
-      ),
-      definition: sanitizeText(parsed.definition, 2000),
-      example: sanitizeText(parsed.example || originalSentence, 1200),
-      frequentCollocations: sanitizeText(
-        parsed.frequentCollocations || parsed['Frequent collocations'],
-        500
-      ),
-      tags: Array.isArray(parsed.tags)
-        ? parsed.tags
-          .filter((item) => typeof item === 'string')
-          .map((item) => sanitizeText(item, 40))
-          .filter(Boolean)
-          .slice(0, 8)
-        : [],
-      pronunciation:
-        typeof parsed.pronunciation === 'string'
-          ? sanitizeText(parsed.pronunciation, 120)
-          : null,
+      keyword: lockedKeyword,
+      partOfSpeech,
+      definition,
+      contextualExplanation,
+      example,
+      frequentCollocations,
+      confidence,
+      alternatives,
+      tags,
+      pronunciation,
+    },
+    meta: {
+      route,
+      metrics: aiResponse.metrics,
+    },
+  });
+}
+
+async function handleAnalyzeAndGenerate(
+  payload: AnalyzeAndGeneratePayload
+): Promise<Response> {
+  const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
+  const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
+  if (!text) {
+    return jsonResponse({ error: 'text is required' }, 400);
+  }
+
+  const analyzedResponse = await handleAnalyzeText({
+    text,
+    userKeywords,
+  });
+  const analyzedJson = await analyzedResponse.clone().json() as {
+    result?: { keywords?: string[]; suggestedWord?: string | null };
+  };
+
+  const suggestedWord = analyzedJson?.result?.suggestedWord || analyzedJson?.result?.keywords?.[0] || null;
+  if (!suggestedWord) {
+    return jsonResponse({
+      result: {
+        keywords: analyzedJson?.result?.keywords || [],
+        suggestedWord: null,
+        definition: '',
+        partOfSpeech: '',
+        contextualExplanation: '',
+        frequentCollocations: '',
+        phoneticTranscription: null,
+        tags: [],
+      },
+    });
+  }
+
+  const generatedResponse = await handleGenerateCard({
+    targetWord: suggestedWord,
+    originalSentence: text,
+    includePronunciation: true,
+  });
+  const generatedJson = await generatedResponse.clone().json() as {
+    result?: {
+      definition?: string;
+      partOfSpeech?: string;
+      contextualExplanation?: string;
+      frequentCollocations?: string;
+      phoneticTranscription?: string | null;
+      tags?: string[];
+    };
+  };
+
+  return jsonResponse({
+    result: {
+      keywords: analyzedJson?.result?.keywords || [],
+      suggestedWord,
+      definition: generatedJson?.result?.definition || '',
+      partOfSpeech: generatedJson?.result?.partOfSpeech || '',
+      contextualExplanation: generatedJson?.result?.contextualExplanation || '',
+      frequentCollocations: generatedJson?.result?.frequentCollocations || '',
+      phoneticTranscription: generatedJson?.result?.phoneticTranscription || null,
+      tags: generatedJson?.result?.tags || [],
+    },
+  });
+}
+
+async function executeAction(action: Action, payload: unknown): Promise<Response> {
+  if (action === 'analyze_text') {
+    return await handleAnalyzeText(payload as AnalyzeTextPayload);
+  }
+  if (action === 'generate_card') {
+    return await handleGenerateCard(payload as GenerateCardPayload);
+  }
+  if (action === 'analyze_context') {
+    return await handleAnalyzeContext(payload as AnalyzeContextPayload);
+  }
+  if (action === 'analyze_and_generate_card') {
+    return await handleAnalyzeAndGenerate(payload as AnalyzeAndGeneratePayload);
+  }
+  return jsonResponse({ error: 'Unsupported action' }, 400);
+}
+
+type AsyncTaskRecord = {
+  id: string;
+  userId: string;
+  action: Action;
+  status: 'queued' | 'running' | 'done' | 'error';
+  createdAt: string;
+  updatedAt: string;
+  result?: unknown;
+  error?: string;
+};
+
+async function createTask(userId: string, action: Action): Promise<AsyncTaskRecord | null> {
+  const kv = await getKvClient();
+  if (!kv) return null;
+  const nowIso = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    userId,
+    action,
+    status: 'queued',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+async function saveTask(task: AsyncTaskRecord): Promise<void> {
+  const kv = await getKvClient();
+  if (!kv) return;
+  await kv.set(
+    ['ai-task', task.userId, task.id],
+    task,
+    { expireIn: Math.max(1, AI_TASK_TTL_HOURS) * 60 * 60 * 1000 }
+  );
+}
+
+async function processTask(task: AsyncTaskRecord, payload: unknown): Promise<void> {
+  const runningTask: AsyncTaskRecord = {
+    ...task,
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  await saveTask(runningTask);
+  try {
+    const response = await executeAction(task.action, payload);
+    const json = await response.clone().json();
+    const doneTask: AsyncTaskRecord = {
+      ...runningTask,
+      status: 'done',
+      result: json,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveTask(doneTask);
+  } catch (error) {
+    const failedTask: AsyncTaskRecord = {
+      ...runningTask,
+      status: 'error',
+      error: error instanceof Error ? error.message : 'Unexpected error',
+      updatedAt: new Date().toISOString(),
+    };
+    await saveTask(failedTask);
+  }
+}
+
+async function getTaskResult(userId: string, payload?: GetTaskResultPayload): Promise<Response> {
+  const taskId = sanitizeText(payload?.taskId, 100);
+  if (!taskId) {
+    return jsonResponse({ error: 'taskId is required' }, 400);
+  }
+  const kv = await getKvClient();
+  if (!kv) {
+    return jsonResponse(
+      {
+        error: 'Task store unavailable',
+        reason: 'task_store_unavailable',
+      },
+      503
+    );
+  }
+  const entry = await kv.get(['ai-task', userId, taskId]);
+  if (!entry.value) {
+    return jsonResponse({ error: 'Task not found', taskId }, 404);
+  }
+  const task = entry.value as AsyncTaskRecord;
+  return jsonResponse({
+    result: {
+      taskId: task.id,
+      status: task.status,
+      action: task.action,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      response: task.result,
+      error: task.error,
     },
   });
 }
@@ -1005,14 +1617,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const userId = await getUserIdFromAuthorization(req);
+    const userPromise = getUserIdFromAuthorization(req);
+    const bodyPromise = req.json().catch(() => null);
+    const userId = await userPromise;
     if (!userId) {
       return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
     }
-    let body: RequestBody;
-    try {
-      body = (await req.json()) as RequestBody;
-    } catch {
+    const parsedBody = await bodyPromise;
+    if (!parsedBody) {
       await trackUsage({
         userId,
         action: 'unknown',
@@ -1027,6 +1639,7 @@ Deno.serve(async (req: Request) => {
         400
       );
     }
+    const body = parsedBody as RequestBody;
 
     if (isActionRequest(body)) {
       if (!SUPPORTED_ACTIONS.has(body.action)) {
@@ -1043,6 +1656,13 @@ Deno.serve(async (req: Request) => {
           },
           400
         );
+      }
+
+      if (body.action === 'usage_summary') {
+        return await getUsageSummary(userId, body.payload as UsageSummaryPayload);
+      }
+      if (body.action === 'get_task_result') {
+        return await getTaskResult(userId, body.payload as GetTaskResultPayload);
       }
 
       const validationErrors = validateActionPayload(body.action, body.payload);
@@ -1074,29 +1694,104 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      if (body.action === 'analyze_text') {
-        const response = await handleAnalyzeText(body.payload as AnalyzeTextPayload);
-        await trackUsage({ userId, action: body.action, status: 'success' });
-        return response;
+      if (body.async === true && BILLABLE_ACTIONS.has(body.action)) {
+        const task = await createTask(userId, body.action);
+        if (!task) {
+          return jsonResponse(
+            {
+              error: 'Task queue unavailable',
+              reason: 'task_store_unavailable',
+            },
+            503
+          );
+        }
+        await saveTask(task);
+        const runner = processTask(task, body.payload);
+        const edgeRuntime = (globalThis as any).EdgeRuntime;
+        if (edgeRuntime && typeof edgeRuntime.waitUntil === 'function') {
+          edgeRuntime.waitUntil(runner);
+        } else {
+          runner.catch((err) => console.error('[ai-proxy] async task failed', err));
+        }
+        await trackUsage({
+          userId,
+          action: body.action,
+          status: 'queued',
+          meta: { taskId: task.id },
+        });
+        return jsonResponse({
+          result: {
+            taskId: task.id,
+            status: task.status,
+            action: task.action,
+          },
+        }, 202);
       }
-      if (body.action === 'generate_card') {
-        const response = await handleGenerateCard(
-          body.payload as GenerateCardPayload
-        );
-        await trackUsage({ userId, action: body.action, status: 'success' });
-        return response;
+
+      const response = await executeAction(body.action, body.payload);
+      let debugMeta: Record<string, unknown> | undefined;
+      try {
+        const parsed = await response.clone().json() as {
+          meta?: {
+            route?: ModelRoute;
+            metrics?: AIExecutionMetrics;
+          };
+        };
+        if (parsed.meta) {
+          debugMeta = {
+            ...(debugMeta || {}),
+            modelRoute: parsed.meta.route,
+            metrics: parsed.meta.metrics,
+          };
+        }
+      } catch {
+        // ignore
       }
       if (body.action === 'analyze_context') {
-        const response = await handleAnalyzeContext(
-          body.payload as AnalyzeContextPayload
-        );
-        await trackUsage({ userId, action: body.action, status: 'success' });
-        return response;
+        try {
+          const payload = body.payload as AnalyzeContextPayload;
+          const parsed = await response.clone().json() as {
+            result?: {
+              keyword?: string;
+              definition?: string;
+              contextualExplanation?: string;
+              frequentCollocations?: string;
+              pronunciation?: string | null;
+            };
+            meta?: {
+              metrics?: AIExecutionMetrics;
+              route?: ModelRoute;
+            };
+          };
+          debugMeta = {
+            ...(debugMeta || {}),
+            input: {
+              targetText: sanitizeText(payload.targetText, 120),
+              originalSentence: sanitizeText(payload.originalSentence, 600),
+              contextText: sanitizeText(payload.contextText, 600),
+            },
+            output: {
+              keyword: sanitizeText(parsed?.result?.keyword, 120),
+              definition: sanitizeText(parsed?.result?.definition, 600),
+              contextualExplanation: sanitizeText(parsed?.result?.contextualExplanation, 600),
+              frequentCollocations: sanitizeText(parsed?.result?.frequentCollocations, 600),
+              pronunciation:
+                typeof parsed?.result?.pronunciation === 'string'
+                  ? sanitizeText(parsed.result.pronunciation, 120)
+                  : '',
+            },
+          };
+        } catch {
+          debugMeta = { debug: 'failed_to_capture_analyze_context_result' };
+        }
       }
-      if (body.action === 'usage_summary') {
-        return await getUsageSummary(userId, body.payload as UsageSummaryPayload);
-      }
-      return jsonResponse({ error: 'Unsupported action' }, 400);
+      await trackUsage({
+        userId,
+        action: body.action,
+        status: 'success',
+        meta: debugMeta,
+      });
+      return response;
     }
 
     // Backward-compatible legacy mode (kept for temporary compatibility).
@@ -1126,14 +1821,38 @@ Deno.serve(async (req: Request) => {
 
       const options = body.options || {};
       const maxTokens = clampTokens(options.maxTokens, MAX_TOKENS_LEGACY);
+      const compactedMessages = compactMessages(body.messages);
+      if (!compactedMessages.length) {
+        return jsonResponse(
+          { error: 'Invalid payload: no usable messages after compaction' },
+          400
+        );
+      }
 
       if (body.provider === 'openai') {
-        const content = await callOpenAIChat({
-          model: options.model,
-          messages: body.messages.map((msg) => ({
-            role: String(msg.role),
-            content: sanitizeText(msg.content, MAX_TEXT_CHARS),
-          })),
+        const route = routeOpenAIModelForAction({
+          action: 'legacy_openai',
+          payloadSize: compactedMessages.reduce((sum, item) => sum + item.content.length, 0),
+          requested: options.model,
+        });
+        if (options.stream) {
+          await trackUsage({
+            userId,
+            action: 'legacy_openai',
+            status: 'success',
+            meta: { mode: 'stream', route },
+          });
+          return await buildOpenAIStreamResponse({
+            model: route.model,
+            messages: compactedMessages,
+            temperature:
+              typeof options.temperature === 'number' ? options.temperature : 0.7,
+            maxTokens,
+          });
+        }
+        const result = await callOpenAIChat({
+          model: route.model,
+          messages: compactedMessages,
           temperature:
             typeof options.temperature === 'number' ? options.temperature : 0.7,
           maxTokens,
@@ -1143,17 +1862,19 @@ Deno.serve(async (req: Request) => {
           userId,
           action: 'legacy_openai',
           status: 'success',
+          meta: {
+            route,
+            metrics: result.metrics,
+          },
         });
-        return jsonResponse({ content });
+        return jsonResponse({ content: result.content, meta: { route, metrics: result.metrics } });
       }
 
       if (body.provider === 'gemini') {
-        const content = await callGeminiLegacy({
-          model: options.model,
-          messages: body.messages.map((msg) => ({
-            role: String(msg.role),
-            content: sanitizeText(msg.content, MAX_TEXT_CHARS),
-          })),
+        const model = pickModel(options.model, GEMINI_ALLOWED_MODELS, GEMINI_ALLOWED_MODELS[0]);
+        const result = await callGeminiLegacy({
+          model,
+          messages: compactedMessages,
           temperature:
             typeof options.temperature === 'number' ? options.temperature : 0.7,
           maxTokens,
@@ -1162,8 +1883,18 @@ Deno.serve(async (req: Request) => {
           userId,
           action: 'legacy_gemini',
           status: 'success',
+          meta: {
+            model,
+            metrics: result.metrics,
+          },
         });
-        return jsonResponse({ content });
+        return jsonResponse({
+          content: result.content,
+          meta: {
+            model,
+            metrics: result.metrics,
+          },
+        });
       }
     }
 

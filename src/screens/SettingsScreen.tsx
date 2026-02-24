@@ -144,6 +144,27 @@ export default function SettingsScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>權限模式（測試）</Text>
+          <View style={styles.row}>
+            <View style={styles.rowTextWrap}>
+              <Text style={styles.rowTitle}>模擬訂閱模式</Text>
+              <Text style={styles.rowSubtitle}>
+                開啟=訂閱模式；關閉=訪客模式（會觸發受限提示）。
+              </Text>
+            </View>
+            <Switch
+              value={settings.entitlementMode === 'premium'}
+              onValueChange={(enabled) =>
+                updateSettings((prev) => ({
+                  ...prev,
+                  entitlementMode: enabled ? 'premium' : 'guest',
+                }))
+              }
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Personalization</Text>
 
           <Text style={styles.label}>學習目標</Text>

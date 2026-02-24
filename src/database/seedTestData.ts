@@ -59,8 +59,7 @@ export async function seedTestData() {
 
         await cachedItemsCollection.create((item) => {
           item.userId = profile.userId;
-          item.contentType = 'url';
-          item.contentUrl = 'https://www.bbc.com/news/science-environment';
+          item.contentType = 'text';
           item.contentText = 'Scientists have made a breakthrough in quantum computing...';
           item.sourceApp = 'Chrome';
           item.aiAnalysisCompleted = false;

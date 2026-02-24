@@ -12,6 +12,7 @@ import {
   AppStateStatus,
   Animated,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { database } from '@database/index';
@@ -21,6 +22,7 @@ import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import { getSyncErrorMessage, syncWithRetry } from '@services/sync';
 import { loadUserSettings } from '@services/settings/userSettings';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
@@ -41,10 +43,36 @@ type Props = {
 };
 
 const SNACKBAR_DURATION = 2500;
+const CREATE_CARD_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const FREE_CACHE_ITEM_LIMIT = 10;
+const FREE_CACHE_TTL_MS = 10 * 60 * 1000;
+const PREMIUM_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function getDisplayExpiry(item: CachedItem, isPremiumUser: boolean): number {
+  const expiresAt = item.expiresAt ? new Date(item.expiresAt).getTime() : NaN;
+  if (Number.isFinite(expiresAt)) return expiresAt;
+  const createdAt = new Date(item.createdAt).getTime();
+  const ttl = isPremiumUser ? PREMIUM_CACHE_TTL_MS : FREE_CACHE_TTL_MS;
+  return createdAt + ttl;
+}
+
+function formatRemainingTime(targetTs: number, nowTs: number): string {
+  const diffMs = targetTs - nowTs;
+  if (diffMs <= 0) return '已到期';
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}天 ${hours}小時`;
+  if (hours > 0) return `${hours}小時 ${minutes}分`;
+  return `${minutes}分`;
+}
 
 export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
+  const [isPremiumUser, setIsPremiumUser] = React.useState(false);
+  const [nowTs, setNowTs] = React.useState(Date.now());
   const [snackbarVisible, setSnackbarVisible] = React.useState(false);
   const [clipboardMode, setClipboardMode] = React.useState<'active' | 'passive'>('passive');
   const snackbarOpacity = React.useRef(new Animated.Value(0)).current;
@@ -57,6 +85,56 @@ export default function CacheListScreen({ navigation }: Props) {
   const { consumeShareSnackbar } = useShareExtensionSnackbar();
 
   const [snackbarMessage, setSnackbarMessage] = React.useState('卡片已建立');
+
+  const hasValidCreateCardDraft = React.useCallback(async (item: CachedItem): Promise<boolean> => {
+    try {
+      const key = `create_card_draft:${item.userId}:${item.id}`;
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { updatedAt?: number };
+      if (typeof parsed.updatedAt !== 'number') return false;
+      return Date.now() - parsed.updatedAt <= CREATE_CARD_DRAFT_TTL_MS;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handleOpenCachedItem = React.useCallback(
+    async (item: CachedItem) => {
+      const isExpired = Date.now() > getDisplayExpiry(item, isPremiumUser);
+      if (!isPremiumUser && isExpired) {
+        Alert.alert(
+          '此快取已到期',
+          '升級訂閱即可重新使用已到期快取。',
+          [
+            { text: '稍後', style: 'cancel' },
+            {
+              text: '前往設定',
+              onPress: () => navigation.navigate('Settings'),
+            },
+          ]
+        );
+        return;
+      }
+
+      const hasDraft = await hasValidCreateCardDraft(item);
+      if (hasDraft) {
+        navigation.navigate('CreateCard', { cachedItem: item });
+        return;
+      }
+
+      if (item.contentType === 'image') {
+        navigation.navigate('AddCacheItem', {
+          cachedItem: item,
+          openCropOnLoad: false,
+        });
+        return;
+      }
+
+      navigation.navigate('CreateCard', { cachedItem: item });
+    },
+    [hasValidCreateCardDraft, isPremiumUser, navigation]
+  );
 
   const showSnackbar = React.useCallback((message?: string) => {
     setSnackbarMessage(message ?? '卡片已建立');
@@ -133,8 +211,15 @@ export default function CacheListScreen({ navigation }: Props) {
   }, [showSnackbar]);
 
   const handlePastePress = React.useCallback(() => {
+    if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
+      Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
+        { text: '稍後', style: 'cancel' },
+        { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+      ]);
+      return;
+    }
     void checkClipboard(true);
-  }, [checkClipboard]);
+  }, [cachedItems.length, checkClipboard, isPremiumUser, navigation]);
 
   const tryShowShareSnackbar = React.useCallback(() => {
     const message = consumeShareSnackbar();
@@ -179,6 +264,26 @@ export default function CacheListScreen({ navigation }: Props) {
     setClipboardMode(settings.clipboardMode);
   }, []);
 
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const refreshEntitlement = React.useCallback(async () => {
+    const userId = await getCurrentAuthUserId();
+    if (!userId) {
+      setIsPremiumUser(false);
+      return;
+    }
+    try {
+      const premium = await SubscriptionService.isPremium(userId);
+      setIsPremiumUser(premium);
+    } catch (error) {
+      console.warn('[CacheList] refresh entitlement failed:', error);
+      setIsPremiumUser(false);
+    }
+  }, []);
+
   // 監聽 App 從背景回到前景（當畫面在焦點上時）
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
@@ -214,6 +319,7 @@ export default function CacheListScreen({ navigation }: Props) {
     React.useCallback(() => {
       isScreenFocused.current = true;
       void refreshClipboardMode();
+      void refreshEntitlement();
       void (async () => {
         const settings = await loadUserSettings();
         if (settings.clipboardMode === 'active') {
@@ -228,7 +334,7 @@ export default function CacheListScreen({ navigation }: Props) {
         isScreenFocused.current = false;
         clearTimeout(shareTimer);
       };
-    }, [checkClipboard, consumeShareSnackbar, refreshClipboardMode, showSnackbar])
+    }, [checkClipboard, consumeShareSnackbar, refreshClipboardMode, refreshEntitlement, showSnackbar])
   );
 
   // Query cached items (not deleted, not converted, ordered by creation date)
@@ -286,11 +392,10 @@ export default function CacheListScreen({ navigation }: Props) {
           onPress: async () => {
             try {
               await database.write(async () => {
-                await item.update((record) => {
-                  record.deletedAt = new Date();
-                });
+                await item.markAsDeleted();
               });
               console.log('[CacheList] Item deleted:', item.id);
+              void runSync(false);
             } catch (error) {
               console.error('[CacheList] Error deleting item:', error);
               Alert.alert('錯誤', '刪除失敗，請重試');
@@ -319,12 +424,11 @@ export default function CacheListScreen({ navigation }: Props) {
             try {
               await database.write(async () => {
                 for (const item of cachedItems) {
-                  await item.update((record) => {
-                    record.deletedAt = new Date();
-                  });
+                  await item.markAsDeleted();
                 }
               });
               showSnackbar('已清除全部快取');
+              void runSync(false);
             } catch (error) {
               console.error('[CacheList] clear cache failed:', error);
               Alert.alert('錯誤', '清除快取失敗，請稍後再試。');
@@ -340,18 +444,14 @@ export default function CacheListScreen({ navigation }: Props) {
       style={styles.itemContainer}
       activeOpacity={0.85}
       onPress={() => {
-        if (item.contentType === 'image') {
-          navigation.navigate('AddCacheItem', {
-            cachedItem: item,
-            openCropOnLoad: true,
-          });
-          return;
-        }
-        navigation.navigate('CreateCard', { cachedItem: item });
+        void handleOpenCachedItem(item);
       }}
     >
       <View style={styles.itemHeader}>
         <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
+        <Text style={styles.ttlBadge}>
+          ⏳ {formatRemainingTime(getDisplayExpiry(item, isPremiumUser), nowTs)}
+        </Text>
         {item.sourceApp && (
           <Text style={styles.sourceApp}>{item.sourceApp}</Text>
         )}
@@ -428,6 +528,11 @@ export default function CacheListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
+      <View style={[styles.usageBanner, !isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT && styles.usageBannerWarning]}>
+        <Text style={styles.usageBannerText}>
+          Cache 使用量：{cachedItems.length}/{isPremiumUser ? '∞' : FREE_CACHE_ITEM_LIMIT}
+        </Text>
+      </View>
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>📚 My Cache</Text>
@@ -454,7 +559,16 @@ export default function CacheListScreen({ navigation }: Props) {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.addButton}
-            onPress={() => navigation.navigate('AddCacheItem')}
+            onPress={() => {
+              if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
+                Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
+                  { text: '稍後', style: 'cancel' },
+                  { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+                ]);
+                return;
+              }
+              navigation.navigate('AddCacheItem');
+            }}
           >
             <Text style={styles.addButtonText}>+</Text>
           </TouchableOpacity>
@@ -488,6 +602,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  usageBanner: {
+    backgroundColor: '#e8f5e9',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#c8e6c9',
+  },
+  usageBannerWarning: {
+    backgroundColor: '#ffebee',
+    borderBottomColor: '#ffcdd2',
+  },
+  usageBannerText: {
+    fontSize: 13,
+    color: '#2e7d32',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   header: {
     backgroundColor: '#fff',
@@ -590,6 +721,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
+  },
+  ttlBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1565c0',
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginLeft: 8,
   },
   sourceApp: {
     fontSize: 12,

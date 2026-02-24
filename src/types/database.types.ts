@@ -60,13 +60,24 @@ export type ProfileInsert = Omit<
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>;
 
 // Cached Item Types
-export type ContentType = 'text' | 'url' | 'image' | 'video';
+export type ContentType = 'text' | 'image' | 'video';
 
 export type ImageAnnotation = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  // Legacy rectangle annotation fields
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  // OCR block fields used by current image pipeline
+  id?: string;
+  text?: string;
+  frame?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  confidence?: number;
 };
 
 export type CachedItem = {

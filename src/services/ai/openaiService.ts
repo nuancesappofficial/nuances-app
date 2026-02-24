@@ -3,6 +3,7 @@
 
 import { callAIAction, callAIProxy, isAIProxyConfigured } from './edgeAiClient';
 import type { AIPersonalizationOptions } from './types';
+import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 
 // API 調用限制和重試邏輯
 const MAX_RETRIES = 3;
@@ -34,7 +35,7 @@ export async function callOpenAI(
   const {
     model = 'gpt-4o-mini',
     temperature = 0.7,
-    maxTokens = 1000,
+    maxTokens = 500,
     jsonMode = false,
   } = options;
 
@@ -76,7 +77,7 @@ export async function callOpenAI(
 export async function analyzeText(
   text: string,
   userKeywords?: string,
-  personalization?: AIPersonalizationOptions
+  _personalization?: AIPersonalizationOptions
 ): Promise<{
   keywords: string[];
   suggestedWord: string | null;
@@ -88,11 +89,6 @@ export async function analyzeText(
       {
         text: string;
         userKeywords?: string;
-        learningGoal?: 'ielts' | 'casual' | 'professional';
-        proficiencyStandard?: string;
-        proficiencyLevel?: string;
-        domain?: string;
-        tone?: string;
       },
       {
         keywords: string[];
@@ -101,15 +97,10 @@ export async function analyzeText(
     >('analyze_text', {
       text,
       userKeywords: normalizedKeywords,
-      learningGoal: personalization?.learningGoal,
-      proficiencyStandard: personalization?.proficiencyStandard,
-      proficiencyLevel: personalization?.proficiencyLevel,
-      domain: personalization?.domain,
-      tone: personalization?.tone,
     });
 
     return {
-      keywords: result.keywords || [],
+      keywords: (result.keywords || []).slice(0, 1),
       suggestedWord: result.suggestedWord || null,
     };
   } catch (error) {
@@ -124,7 +115,7 @@ export async function analyzeText(
 export async function generateCardContent(
   targetWord: string,
   originalSentence: string,
-  personalization?: AIPersonalizationOptions
+  _personalization?: AIPersonalizationOptions
 ): Promise<{
   definition: string;
   partOfSpeech: string;
@@ -134,15 +125,15 @@ export async function generateCardContent(
   tags: string[];
 }> {
   try {
+    const localPhonetic = await getLocalPhoneticTranscription(targetWord);
+    console.log(
+      `[Phonetic] generate_card target="${targetWord}" source=${localPhonetic ? 'local' : 'api_fallback'}`
+    );
     const result = await callAIAction<
       {
         targetWord: string;
         originalSentence: string;
-        learningGoal?: 'ielts' | 'casual' | 'professional';
-        proficiencyStandard?: string;
-        proficiencyLevel?: string;
-        domain?: string;
-        tone?: string;
+        includePronunciation?: boolean;
       },
       {
         definition: string;
@@ -152,16 +143,15 @@ export async function generateCardContent(
         frequentCollocations?: string;
         ['Frequent collocations']?: string;
         phoneticTranscription: string | null;
+        pronunciation?: string | null;
+        ipa?: string | null;
+        phonetic?: string | null;
         tags: string[];
       }
     >('generate_card', {
       targetWord,
       originalSentence,
-      learningGoal: personalization?.learningGoal,
-      proficiencyStandard: personalization?.proficiencyStandard,
-      proficiencyLevel: personalization?.proficiencyLevel,
-      domain: personalization?.domain,
-      tone: personalization?.tone,
+      includePronunciation: !localPhonetic,
     });
 
     return {
@@ -171,7 +161,13 @@ export async function generateCardContent(
       contextualExplanation: result.contextualExplanation || '',
       frequentCollocations:
         result.frequentCollocations || result['Frequent collocations'] || '',
-      phoneticTranscription: result.phoneticTranscription || null,
+      phoneticTranscription:
+        localPhonetic ||
+        result.phoneticTranscription ||
+        result.pronunciation ||
+        result.ipa ||
+        result.phonetic ||
+        null,
       tags: result.tags || [],
     };
   } catch (error) {
@@ -197,20 +193,47 @@ export async function analyzeAndGenerateCard(
   phoneticTranscription: string | null;
   tags: string[];
 }> {
-  // 步驟 1: 分析文本提取關鍵詞
-  const { keywords, suggestedWord } = await analyzeText(text, userKeywords, personalization);
+  void personalization;
+  const normalizedKeywords = normalizeOptionalString(userKeywords);
 
-  if (!suggestedWord) {
-    throw new Error('No suitable vocabulary word found in the text');
-  }
-
-  // 步驟 2: 為建議的單字生成詳細內容
-  const cardContent = await generateCardContent(suggestedWord, text, personalization);
+  const result = await callAIAction<
+    {
+      text: string;
+      userKeywords?: string;
+    },
+    {
+      keywords: string[];
+      suggestedWord: string | null;
+      definition: string;
+      partOfSpeech: string;
+      contextualExplanation: string;
+      frequentCollocations: string;
+      phoneticTranscription: string | null;
+      tags: string[];
+    }
+  >(
+    'analyze_and_generate_card',
+    {
+      text,
+      userKeywords: normalizedKeywords,
+    },
+    {
+      preferAsync: true,
+      asyncThresholdChars: 700,
+      maxPollAttempts: 30,
+      pollIntervalMs: 1000,
+    }
+  );
 
   return {
-    keywords,
-    suggestedWord,
-    ...cardContent,
+    keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 1) : [],
+    suggestedWord: result.suggestedWord,
+    definition: result.definition || '',
+    partOfSpeech: result.partOfSpeech || '',
+    contextualExplanation: result.contextualExplanation || '',
+    frequentCollocations: result.frequentCollocations || '',
+    phoneticTranscription: result.phoneticTranscription || null,
+    tags: Array.isArray(result.tags) ? result.tags : [],
   };
 }
 

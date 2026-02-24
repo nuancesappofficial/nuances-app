@@ -15,6 +15,7 @@ import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type CachedItem from '@database/models/CachedItem';
+import { syncWithRetry } from '@services/sync';
 
 type Props = {
   navigation: any;
@@ -284,10 +285,9 @@ export default function CardsListScreen({ navigation }: Props) {
         onPress: async () => {
           try {
             await database.write(async () => {
-              await item.update((record) => {
-                record.deletedAt = new Date();
-              });
+              await item.markAsDeleted();
             });
+            void syncWithRetry(1);
           } catch (error) {
             console.error('[CardsList] delete card failed:', error);
             Alert.alert('錯誤', '刪除失敗，請重試');
@@ -355,12 +355,11 @@ export default function CardsListScreen({ navigation }: Props) {
             await database.write(async () => {
               for (const card of allCards) {
                 if (!selectedCardIds.has(card.id)) continue;
-                await card.update((record) => {
-                  record.deletedAt = new Date();
-                });
+                await card.markAsDeleted();
               }
             });
             clearSelection();
+            void syncWithRetry(1);
           } catch (error) {
             console.error('[CardsList] batch delete failed:', error);
           }

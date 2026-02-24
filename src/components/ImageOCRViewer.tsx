@@ -34,7 +34,7 @@ export default function ImageOCRViewer({
   onSelectionChange,
   onOCRComplete,
   initialSelectedIndexes,
-  recommendedCount = 5,
+  recommendedCount = 1,
   learningGoal,
 }: Props) {
   // State
@@ -190,7 +190,7 @@ export default function ImageOCRViewer({
         {isLoading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#4CAF50" />
-            <Text style={styles.loadingText}>Google ML Kit 正在處理...</Text>
+            <Text style={styles.loadingText}>Apple Vision 正在處理...</Text>
           </View>
         )}
 

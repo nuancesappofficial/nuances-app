@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   SafeAreaView,
+  TextInput,
 } from 'react-native';
 import { clearAllData, clearTestDataOnly } from '../database/clearData';
 import { seedTestData } from '../database/seedTestData';
@@ -294,6 +295,17 @@ export default function DevToolsScreen({ navigation }: Props) {
               <Text style={styles.usageRecent}>
                 recent events: {usageSummary.recent?.length ?? 0}
               </Text>
+              {usageSummary.recent?.[0] && (
+                <>
+                  <Text style={styles.usageRecentTitle}>最新事件（含 input/output）</Text>
+                  <TextInput
+                    style={styles.usageRecentJson}
+                    value={JSON.stringify(usageSummary.recent[0], null, 2)}
+                    multiline
+                    editable={false}
+                  />
+                </>
+              )}
             </View>
           )}
         </View>
@@ -458,5 +470,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     fontStyle: 'italic',
+  },
+  usageRecentTitle: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  usageRecentJson: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 6,
+    padding: 8,
+    minHeight: 130,
+    fontSize: 11,
+    color: '#222',
+    backgroundColor: '#fafafa',
   },
 });
