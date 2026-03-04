@@ -18,7 +18,7 @@ import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import ImageOCRViewer from '../components/ImageOCRViewer';
-import { recommendBlockIndexes } from '../services/ocr/localSelectionRecommender';
+import LocalAiKeywordSuggestions from '../components/LocalAiKeywordSuggestions';
 import ImageCropperModal from '../components/ImageCropperModal';
 import {
   buildKeywordsWithSelectionMarker,
@@ -50,7 +50,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   // Tech Stack v1.5.0: 儲存 OCR blocks 而非手動標註
   const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
   const [selectedBlockIndexes, setSelectedBlockIndexes] = React.useState<number[]>([]);
-  const [recommendedBlockIndexes, setRecommendedBlockIndexes] = React.useState<number[]>([]);
   
   const [showOCRViewer, setShowOCRViewer] = React.useState(false);
   const [showCamera, setShowCamera] = React.useState(false);
@@ -118,16 +117,11 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   }, [isEditMode, openCropOnLoad, editingItem]);
 
   /**
-   * OCR 完成後儲存 blocks（AI 推薦詞彙功能暫時關閉）
+   * OCR 完成後儲存 blocks，不再自動預選任何文字
    */
   const handleOCRComplete = React.useCallback((blocks: OCRBlock[]) => {
     setOCRBlocks(blocks);
-    const recommended = recommendBlockIndexes(blocks, {
-      count: 4,
-      learningGoal,
-    });
-    setRecommendedBlockIndexes(recommended);
-  }, [learningGoal]);
+  }, []);
 
   /**
    * 處理用戶點擊 OCR 文字塊（Tech Stack v1.5.0 第 146-150 行）
@@ -250,13 +244,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     }
 
     item.userKeywords = buildKeywordsWithSelectionMarker(keywords, selectedBlockIndexes) || undefined;
-    const effectiveRecommendedIndexes =
-      recommendedBlockIndexes.length > 0
-        ? recommendedBlockIndexes
-        : recommendBlockIndexes(ocrBlocks, { count: 4, learningGoal });
-    item.aiHighlightedTerms = effectiveRecommendedIndexes
-      .map((index) => ocrBlocks[index]?.text?.trim())
-      .filter((text): text is string => Boolean(text));
+    item.aiHighlightedTerms = undefined;
 
     if (aiAnalysisResult) {
       item.aiAnalysisCompleted = true;
@@ -430,7 +418,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                       setSelectedImage(null);
                       setOCRBlocks([]);
                       setSelectedBlockIndexes([]);
-                      setRecommendedBlockIndexes([]);
                       setAIAnalysisResult(null);
                     }}
                   >
@@ -453,6 +440,13 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
           onChangeText={setKeywords}
           autoCapitalize="none"
         />
+        {contentType === 'text' && (
+          <LocalAiKeywordSuggestions
+            keywords={keywords}
+            sourceText={contentText}
+            onKeywordsChange={setKeywords}
+          />
+        )}
         {selectedBlockIndexes.length > 0 && (
           <Text style={styles.ocrHint}>
             ✨ 已選擇 {selectedBlockIndexes.length} 個區域
@@ -518,8 +512,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                 onSelectionChange={handleSelectionChange}
                 onOCRComplete={handleOCRComplete}
                 initialSelectedIndexes={selectedBlockIndexes}
-                recommendedCount={1}
                 learningGoal={learningGoal}
+                keywords={keywords}
+                onKeywordsChange={setKeywords}
               />
             ) : (
               <View style={styles.errorContainer}>
@@ -826,38 +821,6 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#F44336',
-  },
-  recommendedWordsContainer: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: '#f0f7ff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2196F3',
-  },
-  recommendedWordsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1976D2',
-    marginBottom: 8,
-  },
-  recommendedWordsList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recommendedWordChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#2196F3',
-  },
-  recommendedWordText: {
-    fontSize: 13,
-    color: '#1976D2',
-    fontWeight: '500',
   },
   cameraContainer: {
     flex: 1,

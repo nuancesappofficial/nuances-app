@@ -20,6 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
+import LocalAiKeywordSuggestions from '../components/LocalAiKeywordSuggestions';
 import { generateContentForWord, isUsingRealAPI } from '../services/ai';
 import { extractTextFromImage, isOCRAvailable, buildContextPayload, analyzeTextWithAI } from '../services/ocr';
 import { AIAuthError } from '../services/ai/edgeAiClient';
@@ -45,6 +46,19 @@ function getAnnotationsArray(val: unknown): { text?: string }[] {
     }
   }
   return [];
+}
+
+function getCachedItemSourceText(cachedItem: CachedItem): string {
+  if (cachedItem.contentText?.trim()) return cachedItem.contentText.trim();
+
+  const annotations = getAnnotationsArray(cachedItem.imageAnnotations);
+  const fromAnnotations = annotations
+    .map((ann) => ann.text?.trim() || '')
+    .filter(Boolean)
+    .join(' ');
+  if (fromAnnotations) return fromAnnotations;
+
+  return cachedItem.contentUrl || '';
 }
 
 type Props = {
@@ -445,14 +459,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, []);
 
   const getSourceSentence = React.useCallback((): string => {
-    if (cachedItem.contentText?.trim()) return cachedItem.contentText.trim();
-    const annotations = getAnnotationsArray(cachedItem.imageAnnotations);
-    const fromAnnotations = annotations
-      .map((ann) => ann.text?.trim() || '')
-      .filter(Boolean)
-      .join(' ');
-    if (fromAnnotations) return fromAnnotations;
-    return cachedItem.contentUrl || '';
+    return getCachedItemSourceText(cachedItem);
   }, [cachedItem.contentText, cachedItem.contentUrl, cachedItem.imageAnnotations]);
 
   const performAnalysis = async () => {
@@ -1134,6 +1141,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               setEditableKeywords(text);
             }}
             autoCapitalize="none"
+          />
+          <LocalAiKeywordSuggestions
+            keywords={editableKeywords}
+            sourceText={getCachedItemSourceText(cachedItem)}
+            onKeywordsChange={(nextKeywords) => {
+              keywordEditedRef.current = true;
+              setEditableKeywords(nextKeywords);
+            }}
           />
           <Text style={styles.hint}>用逗號分隔；這裡會決定 AI 分析與批次建立卡片的關鍵字</Text>
         </View>

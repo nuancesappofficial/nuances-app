@@ -12,31 +12,56 @@ import {
   Alert,
   TouchableOpacity,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
+import LocalAiKeywordSuggestions from './LocalAiKeywordSuggestions';
 import { extractTextFromImage, OCRBlock } from '../services/ocr/ocrService';
-import { recommendBlockIndexes } from '../services/ocr/localSelectionRecommender';
 
 interface Props {
   imageUri: string;
   onSelectionChange: (selectedIndexes: number[], blocks: OCRBlock[]) => void;
   onOCRComplete?: (blocks: OCRBlock[]) => void;
   initialSelectedIndexes?: number[];
-  recommendedCount?: number;
   learningGoal?: 'ielts' | 'casual' | 'professional';
+  keywords: string;
+  onKeywordsChange: (nextKeywords: string) => void;
 }
 
 const CONTAINER_WIDTH = Dimensions.get('window').width - 32;
 const CONTAINER_HEIGHT = 400;
+
+function parseKeywordsInput(raw: string): string[] {
+  if (!raw.trim()) return [];
+  return Array.from(
+    new Map(
+      raw
+        .split(/[,\u3001\n]+/)
+        .map((term) => term.trim())
+        .filter(Boolean)
+        .map((term) => [term.toLowerCase(), term])
+    ).values()
+  );
+}
+
+function areEqualIndexes(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 export default function ImageOCRViewer({ 
   imageUri, 
   onSelectionChange,
   onOCRComplete,
   initialSelectedIndexes,
-  recommendedCount = 1,
   learningGoal,
+  keywords,
+  onKeywordsChange,
 }: Props) {
+  void learningGoal;
   // State
   const [ocrBlocks, setOCRBlocks] = React.useState<OCRBlock[]>([]);
   const [selectedIndexes, setSelectedIndexes] = React.useState<number[]>(
@@ -84,10 +109,7 @@ export default function ImageOCRViewer({
             ? (initialSelectedIndexes ?? [])
                 .filter((index) => Number.isInteger(index) && index >= 0 && index < result.blocks.length)
                 .sort((a, b) => a - b)
-            : recommendBlockIndexes(result.blocks, {
-                count: recommendedCount,
-                learningGoal,
-              });
+            : [];
         setSelectedIndexes(initial);
         // 通知父組件 OCR 完成
         onOCRComplete?.(result.blocks);
@@ -125,6 +147,20 @@ export default function ImageOCRViewer({
     onSelectionChange(selectedIndexes, ocrBlocks);
   }, [ocrBlocks, onSelectionChange, selectedIndexes]);
 
+  React.useEffect(() => {
+    if (ocrBlocks.length === 0) return;
+    const keywordSet = new Set(parseKeywordsInput(keywords).map((term) => term.toLowerCase()));
+    const nextIndexes = ocrBlocks
+      .map((block, index) => ({
+        index,
+        normalized: block.text.trim().toLowerCase(),
+      }))
+      .filter((item) => item.normalized && keywordSet.has(item.normalized))
+      .map((item) => item.index);
+
+    setSelectedIndexes((prev) => (areEqualIndexes(prev, nextIndexes) ? prev : nextIndexes));
+  }, [keywords, ocrBlocks]);
+
   /**
    * 渲染 OCR 結果預覽列表
    */
@@ -161,7 +197,11 @@ export default function ImageOCRViewer({
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
       {/* 提示文字 */}
       <Text style={styles.instructions}>
         {isLoading
@@ -230,6 +270,16 @@ export default function ImageOCRViewer({
         )}
       </View>
 
+      {!isLoading && !error && (
+        <View style={styles.suggestionContainer}>
+          <LocalAiKeywordSuggestions
+            keywords={keywords}
+            sourceText={ocrBlocks.map((block) => block.text?.trim() || '').filter(Boolean).join(' ')}
+            onKeywordsChange={onKeywordsChange}
+          />
+        </View>
+      )}
+
       {/* 文字塊預覽列表 */}
       {renderTextBlocksList()}
 
@@ -239,13 +289,16 @@ export default function ImageOCRViewer({
           🔧 Debug: {ocrBlocks.length} words | Selected: {selectedIndexes.join(',') || 'none'}
         </Text>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 16,
+    flex: 1,
+  },
+  contentContainer: {
+    paddingVertical: 16,
   },
   instructions: {
     fontSize: 14,
@@ -284,6 +337,10 @@ const styles = StyleSheet.create({
   },
   blocksList: {
     marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  suggestionContainer: {
+    marginTop: 4,
     paddingHorizontal: 4,
   },
   blocksTitle: {

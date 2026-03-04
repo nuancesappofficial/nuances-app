@@ -34,8 +34,7 @@
     },
     "plugins": [
       "expo-camera",
-      "./plugins/withShareExtension.js",
-      "expo-web-browser"
+      "./plugins/withShareExtension.js"
     ],
     "owner": "jeffenglishlearning",
     "extra": {
