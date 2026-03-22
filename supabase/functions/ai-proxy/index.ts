@@ -8,6 +8,7 @@ type Action =
   | 'generate_card'
   | 'analyze_context'
   | 'analyze_and_generate_card'
+  | 'pronunciation_assess'
   | 'usage_summary'
   | 'get_task_result';
 
@@ -70,6 +71,12 @@ type AnalyzeAndGeneratePayload = {
   userKeywords?: string;
 };
 
+type PronunciationAssessPayload = {
+  referenceText: string;
+  audioBase64: string;
+  locale?: string;
+};
+
 type GetTaskResultPayload = {
   taskId: string;
 };
@@ -81,6 +88,7 @@ type ActionRequestBody = {
     | GenerateCardPayload
     | AnalyzeContextPayload
     | AnalyzeAndGeneratePayload
+    | PronunciationAssessPayload
     | UsageSummaryPayload
     | GetTaskResultPayload;
   async?: boolean;
@@ -123,6 +131,9 @@ const AI_OUTPUT_TOKEN_CAP = Number(Deno.env.get('AI_OUTPUT_TOKEN_CAP') ?? '500')
 const AI_MAX_CONTEXT_MESSAGES = Number(Deno.env.get('AI_MAX_CONTEXT_MESSAGES') ?? '8');
 const AI_MAX_MESSAGE_CHARS = Number(Deno.env.get('AI_MAX_MESSAGE_CHARS') ?? '500');
 const AI_MAX_CONTEXT_CHARS = Number(Deno.env.get('AI_MAX_CONTEXT_CHARS') ?? '3200');
+const MAX_AUDIO_BASE64_CHARS = Number(
+  Deno.env.get('AI_MAX_AUDIO_BASE64_CHARS') ?? '12000000'
+);
 const USAGE_RETENTION_DAYS = Number(Deno.env.get('AI_USAGE_RETENTION_DAYS') ?? '14');
 const USAGE_RECENT_LIMIT_MAX = Number(
   Deno.env.get('AI_USAGE_RECENT_LIMIT_MAX') ?? '50'
@@ -145,6 +156,39 @@ const GEMINI_ALLOWED_MODELS = (Deno.env.get('GEMINI_ALLOWED_MODELS')
   .split(',')
   .map((item: string) => item.trim())
   .filter(Boolean);
+
+const AZURE_SPEECH_KEY = Deno.env.get('AZURE_SPEECH_KEY') ?? '';
+const AZURE_SPEECH_REGION_RAW = Deno.env.get('AZURE_SPEECH_REGION') ?? '';
+const AZURE_REQUEST_TIMEOUT_MS = Number(
+  Deno.env.get('AZURE_REQUEST_TIMEOUT_MS') ?? '12000'
+);
+const AZURE_TOKEN_TIMEOUT_MS = Number(
+  Deno.env.get('AZURE_TOKEN_TIMEOUT_MS') ?? '4000'
+);
+const AZURE_MIN_WAV_BYTES = Number(Deno.env.get('AZURE_MIN_WAV_BYTES') ?? '6000');
+
+function normalizeAzureRegion(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const AZURE_SPEECH_REGION = normalizeAzureRegion(AZURE_SPEECH_REGION_RAW);
+
+async function fetchWithTimeout(
+  input: string | URL | Request,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let kvClient: any | null = null;
 let kvInitAttempted = false;
@@ -172,6 +216,7 @@ const SUPPORTED_ACTIONS = new Set<Action>([
   'generate_card',
   'analyze_context',
   'analyze_and_generate_card',
+  'pronunciation_assess',
   'usage_summary',
   'get_task_result',
 ]);
@@ -180,6 +225,7 @@ const BILLABLE_ACTIONS = new Set<Action>([
   'generate_card',
   'analyze_context',
   'analyze_and_generate_card',
+  'pronunciation_assess',
 ]);
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -548,6 +594,32 @@ function validateAnalyzeAndGeneratePayload(payload: unknown): string[] {
   return errors;
 }
 
+function validatePronunciationAssessPayload(payload: unknown): string[] {
+  if (!isObject(payload)) return ['payload must be an object'];
+  const errors: string[] = [];
+  const referenceText =
+    typeof payload.referenceText === 'string' ? payload.referenceText : '';
+  const audioBase64 =
+    typeof payload.audioBase64 === 'string' ? payload.audioBase64 : '';
+
+  if (!referenceText.trim()) {
+    errors.push('payload.referenceText is required and must be a non-empty string');
+  }
+  if (referenceText.length > MAX_SENTENCE_CHARS) {
+    errors.push(`payload.referenceText must be <= ${MAX_SENTENCE_CHARS} chars`);
+  }
+  if (!audioBase64.trim()) {
+    errors.push('payload.audioBase64 is required and must be a non-empty string');
+  }
+  if (audioBase64.length > MAX_AUDIO_BASE64_CHARS) {
+    errors.push(`payload.audioBase64 must be <= ${MAX_AUDIO_BASE64_CHARS} chars`);
+  }
+  if (payload.locale !== undefined && typeof payload.locale !== 'string') {
+    errors.push('payload.locale must be a string when provided');
+  }
+  return errors;
+}
+
 function validateGetTaskResultPayload(payload: unknown): string[] {
   if (!isObject(payload)) return ['payload must be an object'];
   const taskId = sanitizeText(payload.taskId, 100);
@@ -563,6 +635,9 @@ function validateActionPayload(action: Action, payload: unknown): string[] {
   if (action === 'analyze_context') return validateAnalyzeContextPayload(payload);
   if (action === 'analyze_and_generate_card') {
     return validateAnalyzeAndGeneratePayload(payload);
+  }
+  if (action === 'pronunciation_assess') {
+    return validatePronunciationAssessPayload(payload);
   }
   if (action === 'usage_summary') return validateUsageSummaryPayload(payload);
   if (action === 'get_task_result') return validateGetTaskResultPayload(payload);
@@ -743,6 +818,7 @@ async function getUsageSummary(
     'generate_card',
     'analyze_context',
     'analyze_and_generate_card',
+    'pronunciation_assess',
     'legacy_openai',
     'legacy_gemini',
     'get_task_result',
@@ -1491,6 +1567,479 @@ async function handleAnalyzeAndGenerate(
   });
 }
 
+function toAccuracyLevel(score: number): 'red' | 'yellow' | 'green' {
+  if (score < 60) return 'red';
+  if (score < 80) return 'yellow';
+  return 'green';
+}
+
+function clampPronScore(score: unknown): number | null {
+  const value = typeof score === 'number' ? score : Number(score);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function extractAccuracyScore(source: unknown): number | null {
+  if (!source || typeof source !== 'object') return null;
+  const obj = source as Record<string, unknown>;
+  return (
+    clampPronScore((obj.PronunciationAssessment as Record<string, unknown> | undefined)?.AccuracyScore)
+    ?? clampPronScore(obj.AccuracyScore)
+    ?? clampPronScore(obj.accuracyScore)
+    ?? clampPronScore(obj.Score)
+    ?? clampPronScore(obj.score)
+  );
+}
+
+function sanitizeLocale(locale: unknown): string {
+  const normalized = sanitizeText(locale, 20);
+  if (!normalized) return 'en-US';
+  return /^[a-z]{2,3}-[A-Z]{2}$/.test(normalized) ? normalized : 'en-US';
+}
+
+function normalizeAudioBase64(input: string): string {
+  const trimmed = input.trim();
+  const commaIndex = trimmed.indexOf(',');
+  if (commaIndex >= 0 && trimmed.slice(0, commaIndex).includes('base64')) {
+    return trimmed.slice(commaIndex + 1).trim();
+  }
+  return trimmed;
+}
+
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function readUint16LE(bytes: Uint8Array, offset: number): number | null {
+  if (offset + 2 > bytes.length) return null;
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readUint32LE(bytes: Uint8Array, offset: number): number | null {
+  if (offset + 4 > bytes.length) return null;
+  return (
+    bytes[offset]
+    | (bytes[offset + 1] << 8)
+    | (bytes[offset + 2] << 16)
+    | (bytes[offset + 3] << 24)
+  ) >>> 0;
+}
+
+function isLikelyWav(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  const riff =
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  const wave =
+    bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
+  return riff && wave;
+}
+
+function parseWavFormat(bytes: Uint8Array): {
+  audioFormat: number | null;
+  channels: number | null;
+  sampleRate: number | null;
+  byteRate: number | null;
+  bitsPerSample: number | null;
+} {
+  if (!isLikelyWav(bytes)) {
+    return {
+      audioFormat: null,
+      channels: null,
+      sampleRate: null,
+      byteRate: null,
+      bitsPerSample: null,
+    };
+  }
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const chunkId = String.fromCharCode(
+      bytes[offset],
+      bytes[offset + 1],
+      bytes[offset + 2],
+      bytes[offset + 3]
+    );
+    const chunkSize = readUint32LE(bytes, offset + 4);
+    if (chunkSize === null) break;
+    if (chunkId === 'fmt ') {
+      return {
+        audioFormat: readUint16LE(bytes, offset + 8),
+        channels: readUint16LE(bytes, offset + 10),
+        sampleRate: readUint32LE(bytes, offset + 12),
+        byteRate: readUint32LE(bytes, offset + 16),
+        bitsPerSample: readUint16LE(bytes, offset + 22),
+      };
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return {
+    audioFormat: null,
+    channels: null,
+    sampleRate: null,
+    byteRate: null,
+    bitsPerSample: null,
+  };
+}
+
+function buildArticulationHint(expected: string, spoken: string | null): string {
+  const substitution = spoken && spoken !== expected
+    ? `你目前更接近 ${spoken}，目標要更靠近 ${expected}。`
+    : '';
+  if (expected === 'θ' || expected === 'ð') return `${substitution}舌尖輕放在上下門牙之間，再平穩送氣。`.trim();
+  if (expected === 'r') return `${substitution}R 音舌頭後縮並懸空，不要碰上顎。`.trim();
+  if (expected === 'l') return `${substitution}L 音舌尖要碰齒齦，尾音不要糊掉。`.trim();
+  if (expected === 'i' || expected === 'iː') return `${substitution}長母音要拉長，嘴角更展開。`.trim();
+  return `${substitution}放慢速度重讀此音段，確保子音釋放清楚。`.trim();
+}
+
+function splitWordIntoLetterSegments(word: string, segmentCount: number): string[] {
+  const normalized = sanitizeText(word, 80);
+  if (!normalized) return [];
+  if (!Number.isFinite(segmentCount) || segmentCount <= 1) return [normalized];
+  const total = Math.min(segmentCount, normalized.length);
+  const baseSize = Math.floor(normalized.length / total);
+  const remainder = normalized.length % total;
+  const segments: string[] = [];
+  let offset = 0;
+  for (let i = 0; i < total; i += 1) {
+    const size = baseSize + (i < remainder ? 1 : 0);
+    const next = normalized.slice(offset, offset + size);
+    if (next) segments.push(next);
+    offset += size;
+  }
+  return segments.length > 0 ? segments : [normalized];
+}
+
+async function handlePronunciationAssess(
+  payload: PronunciationAssessPayload
+): Promise<Response> {
+  const referenceText = sanitizeText(payload.referenceText, MAX_SENTENCE_CHARS);
+  const locale = sanitizeLocale(payload.locale);
+  const audioBase64 = normalizeAudioBase64(payload.audioBase64 || '');
+
+  if (!referenceText || !audioBase64) {
+    return jsonResponse({ error: 'referenceText and audioBase64 are required' }, 400);
+  }
+  if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
+    throw new Error('Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION in Edge Function secrets');
+  }
+
+  const tokenEndpoint = `https://${AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/sts/v1.0/issueToken`;
+  const tokenResponse = await fetchWithTimeout(
+    tokenEndpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Length': '0',
+      },
+    },
+    AZURE_TOKEN_TIMEOUT_MS
+  );
+  if (!tokenResponse.ok) {
+    const tokenBody = await tokenResponse.text().catch(() => '');
+    throw new Error(
+      `Azure token endpoint failed (${tokenResponse.status}) body=${tokenBody || '<empty>'}`
+    );
+  }
+
+  const audioBytes = decodeBase64ToBytes(audioBase64);
+  const wavFormat = parseWavFormat(audioBytes);
+  if (!isLikelyWav(audioBytes)) {
+    throw new Error(`Audio payload is not WAV RIFF/WAVE header (bytes=${audioBytes.length})`);
+  }
+  if (audioBytes.length < AZURE_MIN_WAV_BYTES) {
+    return jsonResponse(
+      { error: `Audio too short for cloud assessment (wavBytes=${audioBytes.length}, min=${AZURE_MIN_WAV_BYTES})` },
+      400
+    );
+  }
+
+  const pronunciationHeader = btoa(JSON.stringify({
+    ReferenceText: referenceText,
+    GradingSystem: 'HundredMark',
+    Granularity: 'Phoneme',
+    Dimension: 'Comprehensive',
+    EnableMiscue: true,
+    EnableProsodyAssessment: true,
+    NBestPhonemeCount: 3,
+  }));
+  const endpoint =
+    `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/` +
+    `speech/recognition/conversation/cognitiveservices/v1?language=${encodeURIComponent(locale)}&format=detailed`;
+
+  const audioBuffer = audioBytes.buffer.slice(
+    audioBytes.byteOffset,
+    audioBytes.byteOffset + audioBytes.byteLength
+  ) as ArrayBuffer;
+  const azureResponse = await fetchWithTimeout(
+    endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+        'Content-Type': 'audio/wav',
+        Accept: 'application/json',
+        'Pronunciation-Assessment': pronunciationHeader,
+      },
+      body: audioBuffer,
+    },
+    AZURE_REQUEST_TIMEOUT_MS
+  );
+
+  const rawText = await azureResponse.text().catch(() => '');
+  const raw = rawText ? JSON.parse(rawText) : null;
+  if (!azureResponse.ok) {
+    const detail =
+      (raw as { error?: { message?: string }; RecognitionStatus?: string } | null)?.error?.message
+      || (raw as { RecognitionStatus?: string } | null)?.RecognitionStatus
+      || `Azure Speech request failed (${azureResponse.status})`;
+    throw new Error(`${detail} (wavBytes=${audioBytes.length})`);
+  }
+
+  const rawRecord = (raw || {}) as {
+    RecognitionStatus?: string;
+    DisplayText?: string;
+    PronunciationAssessment?: {
+      PronScore?: number;
+      AccuracyScore?: number;
+      FluencyScore?: number;
+      CompletenessScore?: number;
+      ProsodyScore?: number;
+    };
+    Words?: Array<{
+      Word?: string;
+      PronunciationAssessment?: { AccuracyScore?: number };
+      Syllables?: Array<{
+        Syllable?: string;
+        PronunciationAssessment?: { AccuracyScore?: number };
+      }>;
+      Phonemes?: Array<{
+        Phoneme?: string;
+        PronunciationAssessment?: {
+          AccuracyScore?: number;
+          NBestPhonemes?: Array<{ Phoneme?: string }>;
+        };
+      }>;
+    }>;
+    NBest?: Array<{
+      Display?: string;
+      Lexical?: string;
+      PronunciationAssessment?: {
+        PronScore?: number;
+        AccuracyScore?: number;
+        FluencyScore?: number;
+        CompletenessScore?: number;
+        ProsodyScore?: number;
+      };
+      Words?: Array<{
+        Word?: string;
+        PronunciationAssessment?: { AccuracyScore?: number };
+        Syllables?: Array<{
+          Syllable?: string;
+          PronunciationAssessment?: { AccuracyScore?: number };
+        }>;
+        Phonemes?: Array<{
+          Phoneme?: string;
+          PronunciationAssessment?: {
+            AccuracyScore?: number;
+            NBestPhonemes?: Array<{ Phoneme?: string }>;
+          };
+        }>;
+      }>;
+    }>;
+  };
+  const best = Array.isArray(rawRecord.NBest) ? rawRecord.NBest[0] : undefined;
+  const pa = best?.PronunciationAssessment || rawRecord.PronunciationAssessment;
+  const wordsRaw = Array.isArray(best?.Words)
+    ? best.Words
+    : (Array.isArray(rawRecord.Words) ? rawRecord.Words : []);
+  console.log(
+    '[ai-proxy][pronunciation_assess] azure-shape',
+    JSON.stringify({
+      recognitionStatus: rawRecord.RecognitionStatus ?? null,
+      hasNBest: Array.isArray(rawRecord.NBest) && rawRecord.NBest.length > 0,
+      hasPAInBest: Boolean(best?.PronunciationAssessment),
+      hasPAInRoot: Boolean(rawRecord.PronunciationAssessment),
+      wordsCount: wordsRaw.length,
+      phonemeCountInWords: wordsRaw.reduce(
+        (sum, word) => sum + (Array.isArray(word?.Phonemes) ? word.Phonemes.length : 0),
+        0
+      ),
+      syllableCountInWords: wordsRaw.reduce(
+        (sum, word) => sum + (Array.isArray(word?.Syllables) ? word.Syllables.length : 0),
+        0
+      ),
+    })
+  );
+
+  const phonemeFeedback: Array<{
+    phoneme: string;
+    letters?: string;
+    spokenPhoneme: string | null;
+    accuracy: number;
+    level: 'red' | 'yellow' | 'green';
+    suggestion: string;
+  }> = [];
+  const letterSegments: Array<{
+    text: string;
+    letters: string;
+    phoneme: string;
+    spokenPhoneme: string | null;
+    accuracy: number;
+    level: 'red' | 'yellow' | 'green';
+    suggestion: string;
+  }> = [];
+
+  const wordFeedback = wordsRaw
+    .map((wordItem) => {
+      const word = sanitizeText(wordItem?.Word, 80);
+      if (!word) return null;
+      const phonemesRaw = Array.isArray(wordItem?.Phonemes) ? wordItem.Phonemes : [];
+      const syllablesRaw = Array.isArray(wordItem?.Syllables) ? wordItem.Syllables : [];
+      const perWordPhonemes: Array<{
+        phoneme: string;
+        spokenPhoneme: string | null;
+        accuracy: number;
+        level: 'red' | 'yellow' | 'green';
+        suggestion: string;
+      }> = [];
+      for (const phonemeItem of phonemesRaw) {
+        const phoneme = sanitizeText(phonemeItem?.Phoneme, 20);
+        const accuracy = extractAccuracyScore(phonemeItem);
+        if (!phoneme || accuracy === null) continue;
+        const spokenPhoneme =
+          typeof phonemeItem?.PronunciationAssessment?.NBestPhonemes?.[0]?.Phoneme === 'string'
+            ? sanitizeText(phonemeItem.PronunciationAssessment.NBestPhonemes[0].Phoneme, 20)
+            : '';
+        const item = {
+          phoneme,
+          spokenPhoneme: spokenPhoneme || null,
+          accuracy,
+          level: toAccuracyLevel(accuracy),
+          suggestion: buildArticulationHint(phoneme, spokenPhoneme || null),
+        };
+        perWordPhonemes.push(item);
+        phonemeFeedback.push(item);
+      }
+      const perWordSyllables: Array<{
+        phoneme: string;
+        spokenPhoneme: null;
+        accuracy: number;
+        level: 'red' | 'yellow' | 'green';
+        suggestion: string;
+      }> = [];
+      for (const syllableItem of syllablesRaw) {
+        const syllable = sanitizeText(syllableItem?.Syllable, 40);
+        const accuracy = extractAccuracyScore(syllableItem);
+        if (!syllable || accuracy === null) continue;
+        perWordSyllables.push({
+          phoneme: syllable,
+          spokenPhoneme: null,
+          accuracy,
+          level: toAccuracyLevel(accuracy),
+          suggestion: '放慢語速，將此音節拆開重讀，先求清楚再求連貫。',
+        });
+      }
+      if (perWordPhonemes.length === 0 && perWordSyllables.length > 0) {
+        for (const s of perWordSyllables) {
+          phonemeFeedback.push(s);
+        }
+      }
+      const mappedLettersByPhoneme = splitWordIntoLetterSegments(word, perWordPhonemes.length);
+      for (const [index, p] of perWordPhonemes.entries()) {
+        letterSegments.push({
+          text: word,
+          letters: mappedLettersByPhoneme[index] || p.phoneme || word,
+          phoneme: p.phoneme,
+          spokenPhoneme: p.spokenPhoneme,
+          accuracy: p.accuracy,
+          level: p.level,
+          suggestion: p.suggestion,
+        });
+      }
+      if (perWordPhonemes.length === 0) {
+        for (const s of perWordSyllables) {
+          letterSegments.push({
+            text: word,
+            letters: s.phoneme,
+            phoneme: s.phoneme,
+            spokenPhoneme: null,
+            accuracy: s.accuracy,
+            level: s.level,
+            suggestion: s.suggestion,
+          });
+        }
+      }
+      const accuracy =
+        extractAccuracyScore(wordItem)
+        ?? (perWordPhonemes.length > 0
+          ? Math.round(perWordPhonemes.reduce((sum, item) => sum + item.accuracy, 0) / perWordPhonemes.length)
+          : perWordSyllables.length > 0
+            ? Math.round(perWordSyllables.reduce((sum, item) => sum + item.accuracy, 0) / perWordSyllables.length)
+          : null);
+      if (accuracy === null) return null;
+      return { word, accuracy, level: toAccuracyLevel(accuracy) };
+    })
+    .filter((item): item is { word: string; accuracy: number; level: 'red' | 'yellow' | 'green' } => Boolean(item));
+
+  const wordAvgScore = wordFeedback.length > 0
+    ? Math.round(wordFeedback.reduce((sum, item) => sum + item.accuracy, 0) / wordFeedback.length)
+    : null;
+  const hasTopLevelScores =
+    clampPronScore(pa?.PronScore) !== null
+    || clampPronScore(pa?.AccuracyScore) !== null
+    || clampPronScore(pa?.FluencyScore) !== null
+    || clampPronScore(pa?.CompletenessScore) !== null
+    || clampPronScore(pa?.ProsodyScore) !== null;
+  const hasPronunciationAssessment =
+    hasTopLevelScores || wordFeedback.length > 0 || phonemeFeedback.length > 0;
+  const overallScore =
+    clampPronScore(pa?.PronScore)
+    ?? clampPronScore(pa?.AccuracyScore)
+    ?? clampPronScore(pa?.FluencyScore)
+    ?? clampPronScore(pa?.CompletenessScore)
+    ?? extractAccuracyScore(wordsRaw[0])
+    ?? wordAvgScore
+    ?? 0;
+  console.log(
+    '[ai-proxy][pronunciation_assess] normalized-summary',
+    JSON.stringify({
+      hasPronunciationAssessment,
+      overallScore,
+      wordFeedbackCount: wordFeedback.length,
+      phonemeFeedbackCount: phonemeFeedback.length,
+      letterSegmentCount: letterSegments.length,
+      hasTopLevelScores,
+    })
+  );
+
+  return jsonResponse({
+    result: {
+      overallScore,
+      accuracyScore: clampPronScore(pa?.AccuracyScore) ?? overallScore,
+      fluencyScore: clampPronScore(pa?.FluencyScore) ?? overallScore,
+      completenessScore: clampPronScore(pa?.CompletenessScore) ?? overallScore,
+      prosodyScore: clampPronScore(pa?.ProsodyScore) ?? overallScore,
+      hasPronunciationAssessment,
+      wordFeedback,
+      phonemeFeedback,
+      letterSegments,
+      recognitionStatus: sanitizeText(rawRecord.RecognitionStatus, 40) || 'Unknown',
+      displayText:
+        sanitizeText(best?.Display, 300)
+        || sanitizeText(rawRecord.DisplayText, 300)
+        || sanitizeText(best?.Lexical, 300),
+      wavFormat,
+      raw,
+    },
+  });
+}
+
 async function executeAction(action: Action, payload: unknown): Promise<Response> {
   if (action === 'analyze_text') {
     return await handleAnalyzeText(payload as AnalyzeTextPayload);
@@ -1503,6 +2052,9 @@ async function executeAction(action: Action, payload: unknown): Promise<Response
   }
   if (action === 'analyze_and_generate_card') {
     return await handleAnalyzeAndGenerate(payload as AnalyzeAndGeneratePayload);
+  }
+  if (action === 'pronunciation_assess') {
+    return await handlePronunciationAssess(payload as PronunciationAssessPayload);
   }
   return jsonResponse({ error: 'Unsupported action' }, 400);
 }

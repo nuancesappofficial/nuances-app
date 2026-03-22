@@ -30,10 +30,16 @@ import type { PronunciationFeedback } from '../types/database.types';
 import { calculateNextReview, type ReviewRating } from '../services/srs/scheduler';
 import { database } from '@database/index';
 import {
-  analyzePronunciation,
   buildReferenceWaveform,
   normalizeMeteringToWaveform,
 } from '../services/pronunciation/coach';
+import SubscriptionService from '../services/subscription/SubscriptionService';
+import {
+  assessPronunciationCloud,
+  type CloudLetterSegmentFeedback,
+  type CloudPhonemeFeedback,
+  type CloudWordFeedback,
+} from '../services/pronunciation/cloudCoach';
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
   android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
@@ -54,6 +60,8 @@ const PRONUNCIATION_RECORDING_OPTIONS = {
 } as const;
 
 const MAX_VIDEO_SUGGESTIONS = 3;
+const MAX_PRONUNCIATION_RECORDING_MS = 10_000;
+const MIN_PRONUNCIATION_RECORDING_MS = 350;
 
 type VideoSuggestion = {
   phrase: string;
@@ -73,6 +81,11 @@ type Props = {
   route: any;
 };
 
+type HighlightedToken = {
+  text: string;
+  level: 'red' | 'yellow' | 'green' | null;
+};
+
 /** 判斷字串是否為檔案路徑而非實際文字內容 */
 function isFilePath(text: string | undefined | null): boolean {
   if (!text) return true;
@@ -88,6 +101,41 @@ function sanitizePronunciationText(text: string | undefined | null): string {
   if (/^(https?:\/\/|www\.)/i.test(trimmed)) return '';
   if (/^[a-z]+:\/\/\S+/i.test(trimmed)) return '';
   return trimmed;
+}
+
+function normalizeWordToken(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/^[^a-z']+|[^a-z']+$/g, '')
+    .trim();
+}
+
+function buildHighlightedTokens(
+  sentence: string,
+  feedback: CloudWordFeedback[]
+): HighlightedToken[] {
+  const byWord = new Map<string, CloudWordFeedback[]>();
+  for (const item of feedback) {
+    const key = normalizeWordToken(item.word);
+    if (!key) continue;
+    const queue = byWord.get(key) || [];
+    queue.push(item);
+    byWord.set(key, queue);
+  }
+
+  const usedCount = new Map<string, number>();
+  return sentence.split(/(\s+)/).map((token) => {
+    if (/^\s+$/.test(token)) return { text: token, level: null };
+    const key = normalizeWordToken(token);
+    if (!key) return { text: token, level: null };
+    const matches = byWord.get(key) || [];
+    const index = usedCount.get(key) || 0;
+    usedCount.set(key, index + 1);
+    return {
+      text: token,
+      level: matches[index]?.level ?? null,
+    };
+  });
 }
 
 function parseCollocationPhrases(collocations: string | undefined | null): string[] {
@@ -187,6 +235,8 @@ function WaveformStrip({
   );
 }
 
+const PRONUNCIATION_HINT_THRESHOLD = 90;
+
 export default function CardReviewScreen({ navigation, route }: Props) {
   const params = route.params as {
     card?: Card;
@@ -207,13 +257,19 @@ export default function CardReviewScreen({ navigation, route }: Props) {
   const [userWaveform, setUserWaveform] = React.useState<number[]>([]);
   const [pronunciationScore, setPronunciationScore] = React.useState<number | null>(null);
   const [pronunciationFeedbackLines, setPronunciationFeedbackLines] = React.useState<string[]>([]);
+  const [wordFeedbackState, setWordFeedbackState] = React.useState<CloudWordFeedback[]>([]);
+  const [phonemeFeedbackState, setPhonemeFeedbackState] = React.useState<CloudPhonemeFeedback[]>([]);
+  const [letterSegmentState, setLetterSegmentState] = React.useState<CloudLetterSegmentFeedback[]>([]);
+  const [isAnalyzingPronunciation, setIsAnalyzingPronunciation] = React.useState(false);
   const [lastRecordingUri, setLastRecordingUri] = React.useState<string | null>(null);
+  const [isPlayingUserRecording, setIsPlayingUserRecording] = React.useState(false);
   const [isVideoSectionExpanded, setIsVideoSectionExpanded] = React.useState(false);
   const [videoPlaybackByQuery, setVideoPlaybackByQuery] = React.useState<
     Record<string, VideoPlaybackState>
   >({});
   const latestFeedbackPayloadRef = React.useRef<PronunciationFeedback | null>(null);
   const recordingRef = React.useRef<any | null>(null);
+  const userRecordingSoundRef = React.useRef<any | null>(null);
   const meteringBufferRef = React.useRef<number[]>([]);
   const queueCardIds = React.useMemo(() => {
     if (Array.isArray(params.cardIds) && params.cardIds.length > 0) {
@@ -231,9 +287,9 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     queueCardIds[queueIndex] || params.cardId || params.card?.id || null;
   const pronunciationText = React.useMemo(() => {
     return (
-      sanitizePronunciationText(card?.originalSentence) ||
-      sanitizePronunciationText(card?.targetPhrase) ||
       sanitizePronunciationText(card?.targetWord) ||
+      sanitizePronunciationText(card?.targetPhrase) ||
+      sanitizePronunciationText(card?.originalSentence) ||
       ''
     );
   }, [card?.originalSentence, card?.targetPhrase, card?.targetWord]);
@@ -252,6 +308,14 @@ export default function CardReviewScreen({ navigation, route }: Props) {
       };
     });
   }, [card?.targetPhrase, card?.targetWord, collocationPhrases]);
+  const highlightedPronunciationTokens = React.useMemo(
+    () => buildHighlightedTokens(pronunciationText || card?.targetWord || '', wordFeedbackState),
+    [card?.targetWord, pronunciationText, wordFeedbackState]
+  );
+  const weakPhonemeHints = React.useMemo(
+    () => phonemeFeedbackState.filter((item) => item.accuracy < PRONUNCIATION_HINT_THRESHOLD),
+    [phonemeFeedbackState]
+  );
 
   React.useEffect(() => {
     setIsFlipped(false);
@@ -318,6 +382,10 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     setUserWaveform([]);
     setPronunciationScore(null);
     setPronunciationFeedbackLines([]);
+    setWordFeedbackState([]);
+    setPhonemeFeedbackState([]);
+    setLetterSegmentState([]);
+    setIsAnalyzingPronunciation(false);
     setLastRecordingUri(null);
     latestFeedbackPayloadRef.current = null;
   }, [pronunciationText]);
@@ -338,7 +406,22 @@ export default function CardReviewScreen({ navigation, route }: Props) {
       if (activeRecording) {
         void activeRecording.stopAndUnloadAsync().catch(() => undefined);
       }
+      const previewSound = userRecordingSoundRef.current;
+      userRecordingSoundRef.current = null;
+      if (previewSound) {
+        void previewSound.unloadAsync().catch(() => undefined);
+      }
     };
+  }, []);
+
+  const stopUserRecordingPreview = React.useCallback(async () => {
+    const previewSound = userRecordingSoundRef.current;
+    userRecordingSoundRef.current = null;
+    if (previewSound) {
+      await previewSound.stopAsync().catch(() => undefined);
+      await previewSound.unloadAsync().catch(() => undefined);
+    }
+    setIsPlayingUserRecording(false);
   }, []);
 
   const flipCard = () => {
@@ -372,10 +455,40 @@ export default function CardReviewScreen({ navigation, route }: Props) {
 
   const startPronunciationRecording = async () => {
     try {
+      if (isAnalyzingPronunciation) return;
+      if (!pronunciationText.trim()) {
+        Alert.alert('無可評分句子', '請先選擇有可朗讀句子的卡片再進行發音分析。');
+        return;
+      }
       if (appState !== 'active') {
         Alert.alert('請回到前景再錄音', 'App 在背景時 iOS 無法啟動錄音音訊工作階段。');
         return;
       }
+      if (!card?.userId) {
+        Alert.alert('尚未登入', '請先登入後再使用發音教練。');
+        return;
+      }
+
+      const quota = await SubscriptionService.consumeVoiceQuota(card.userId);
+      if (!quota.allowed) {
+        Alert.alert(
+          '今日免費額度已用完',
+          '升級 Premium 解鎖無限次精準發音糾正。',
+          [
+            { text: '稍後', style: 'cancel' },
+            { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+          ]
+        );
+        return;
+      }
+
+      setPronunciationScore(null);
+      setPronunciationFeedbackLines([]);
+      setWordFeedbackState([]);
+      setPhonemeFeedbackState([]);
+      setLetterSegmentState([]);
+      latestFeedbackPayloadRef.current = null;
+      await stopUserRecordingPreview();
 
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
@@ -400,10 +513,19 @@ export default function CardReviewScreen({ navigation, route }: Props) {
         if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
           meteringBufferRef.current.push(status.metering);
         }
+        if (
+          typeof status.durationMillis === 'number' &&
+          status.durationMillis >= MAX_PRONUNCIATION_RECORDING_MS
+        ) {
+          void stopPronunciationRecording();
+        }
       });
       await recording.startAsync();
       recordingRef.current = recording;
       setIsRecordingPronunciation(true);
+      setWordFeedbackState([]);
+      setPhonemeFeedbackState([]);
+      setLetterSegmentState([]);
     } catch (error) {
       console.error('[Pronunciation] start recording failed:', error);
       setIsRecordingPronunciation(false);
@@ -421,6 +543,11 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     if (!recording) return;
 
     try {
+      const statusBeforeStop = await recording.getStatusAsync();
+      const durationMillis =
+        statusBeforeStop.isLoaded && typeof statusBeforeStop.durationMillis === 'number'
+          ? statusBeforeStop.durationMillis
+          : 0;
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       if (Platform.OS === 'ios' && uri && !uri.toLowerCase().endsWith('.wav')) {
@@ -435,26 +562,77 @@ export default function CardReviewScreen({ navigation, route }: Props) {
         referenceWaveform.length > 0
           ? referenceWaveform
           : buildReferenceWaveform(pronunciationText);
-      const result = analyzePronunciation(pronunciationText, refWave, userWave);
+      setReferenceWaveform(refWave);
+      setUserWaveform(userWave);
 
-      setReferenceWaveform(result.referenceWaveform);
-      setUserWaveform(result.userWaveform);
+      if (!uri) {
+        throw new Error('錄音檔遺失，請重新錄音');
+      }
+      if (durationMillis > 0 && durationMillis < MIN_PRONUNCIATION_RECORDING_MS) {
+        throw new Error('錄音太短，請至少清楚唸出一個完整單字再送出');
+      }
+
+      setIsAnalyzingPronunciation(true);
+      const result = await assessPronunciationCloud({
+        referenceText: pronunciationText,
+        audioUri: uri,
+        locale: 'en-US',
+      });
+
       setPronunciationScore(result.score);
       setPronunciationFeedbackLines(result.feedbackLines);
+      setWordFeedbackState(result.wordFeedback);
+      setPhonemeFeedbackState(result.phonemeFeedback);
+      setLetterSegmentState(result.letterSegments);
       latestFeedbackPayloadRef.current = result.feedbackPayload;
     } catch (error) {
       console.error('[Pronunciation] stop recording failed:', error);
       setIsRecordingPronunciation(false);
-      Alert.alert('分析失敗', '無法完成發音分析，請重試。');
+      const message = error instanceof Error ? error.message : '無法完成發音分析，請稍後再試。';
+      Alert.alert('分析失敗', message);
+    } finally {
+      setIsAnalyzingPronunciation(false);
     }
   };
 
   const togglePronunciationRecording = async () => {
+    if (isAnalyzingPronunciation) return;
     if (isRecordingPronunciation) {
       await stopPronunciationRecording();
       return;
     }
     await startPronunciationRecording();
+  };
+
+  const playLastRecordingPreview = async () => {
+    if (!lastRecordingUri) {
+      Alert.alert('尚無錄音', '請先完成一次錄音後再重播。');
+      return;
+    }
+    if (isRecordingPronunciation || isAnalyzingPronunciation) return;
+    if (isPlayingUserRecording) {
+      await stopUserRecordingPreview();
+      return;
+    }
+    try {
+      await stopUserRecordingPreview();
+      const result = await Audio.Sound.createAsync(
+        { uri: lastRecordingUri },
+        { shouldPlay: true, progressUpdateIntervalMillis: 120 }
+      );
+      userRecordingSoundRef.current = result.sound;
+      setIsPlayingUserRecording(true);
+      result.sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (!status?.isLoaded) return;
+        if (status.didJustFinish) {
+          void stopUserRecordingPreview();
+        }
+      });
+    } catch (error) {
+      console.error('[Pronunciation] preview playback failed:', error);
+      setIsPlayingUserRecording(false);
+      Alert.alert('重播失敗', '無法播放這段錄音，請重新錄音再試。');
+    }
   };
 
   const closePronunciationCoach = React.useCallback(() => {
@@ -468,8 +646,10 @@ export default function CardReviewScreen({ navigation, route }: Props) {
     }
     Speech.stop();
     setIsSpeakingReference(false);
+    setIsAnalyzingPronunciation(false);
+    void stopUserRecordingPreview();
     setShowPronunciationCoach(false);
-  }, [isRecordingPronunciation]);
+  }, [isRecordingPronunciation, stopUserRecordingPreview]);
 
   const openVideoSuggestionExternally = async (url: string) => {
     try {
@@ -983,7 +1163,26 @@ export default function CardReviewScreen({ navigation, route }: Props) {
 
           <ScrollView style={styles.coachModalBody} contentContainerStyle={styles.coachModalBodyContent}>
             <Text style={styles.coachSentenceLabel}>AI Input Sentence</Text>
-            <Text style={styles.coachSentenceText}>{pronunciationText || card.targetWord}</Text>
+            <Text style={styles.coachSentenceText}>
+              {highlightedPronunciationTokens.length > 0
+                ? highlightedPronunciationTokens.map((token, index) => (
+                  <Text
+                    key={`token-${index}`}
+                    style={
+                      token.level === 'red'
+                        ? styles.wordLevelRed
+                        : token.level === 'yellow'
+                          ? styles.wordLevelYellow
+                          : token.level === 'green'
+                            ? styles.wordLevelGreen
+                            : undefined
+                    }
+                  >
+                    {token.text}
+                  </Text>
+                ))
+                : pronunciationText || card.targetWord}
+            </Text>
 
             <View style={styles.pronunciationButtonsRow}>
               <TouchableOpacity
@@ -991,7 +1190,7 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                 onPress={() => {
                   void playReferenceAudio();
                 }}
-                disabled={isSpeakingReference || isRecordingPronunciation}
+                disabled={isSpeakingReference || isRecordingPronunciation || isAnalyzingPronunciation}
               >
                 <Text style={styles.coachButtonText}>
                   {isSpeakingReference ? '播放中...' : '播放參考音'}
@@ -1005,12 +1204,41 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                 onPress={() => {
                   void togglePronunciationRecording();
                 }}
+                disabled={isAnalyzingPronunciation}
               >
                 <Text style={styles.coachButtonText}>
-                  {isRecordingPronunciation ? '停止並分析' : '開始錄音'}
+                  {isAnalyzingPronunciation
+                    ? '分析中...'
+                    : isRecordingPronunciation
+                      ? '停止並分析'
+                      : '開始錄音'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.coachButton,
+                  styles.replayButton,
+                  (!lastRecordingUri || isRecordingPronunciation || isAnalyzingPronunciation)
+                    ? styles.replayButtonDisabled
+                    : null,
+                ]}
+                onPress={() => {
+                  void playLastRecordingPreview();
+                }}
+                disabled={!lastRecordingUri || isRecordingPronunciation || isAnalyzingPronunciation}
+              >
+                <Text style={styles.coachButtonText}>
+                  {isPlayingUserRecording ? '停止重播' : '重播錄音'}
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {isAnalyzingPronunciation && (
+              <View style={styles.analyzingRow}>
+                <ActivityIndicator size="small" color="#1565c0" />
+                <Text style={styles.analyzingText}>AI 正在分析您的聲紋與連音...</Text>
+              </View>
+            )}
 
             <Text style={styles.waveLabel}>Reference Wave</Text>
             <WaveformStrip values={referenceWaveform} color="#4CAF50" />
@@ -1026,6 +1254,54 @@ export default function CardReviewScreen({ navigation, route }: Props) {
                 ? `Pronunciation Score: ${pronunciationScore}/100`
                 : '完成錄音後會顯示分數與口腔動作建議'}
             </Text>
+
+            {letterSegmentState.length > 0 && (
+              <View style={styles.segmentSection}>
+                <Text style={styles.segmentSectionTitle}>字內區段分析（phoneme 映射）</Text>
+                <View style={styles.segmentChipRow}>
+                  {letterSegmentState.map((segment, index) => (
+                    <View
+                      key={`segment-${index}`}
+                      style={[
+                        styles.segmentChip,
+                        segment.level === 'red'
+                          ? styles.segmentChipRed
+                          : segment.level === 'yellow'
+                            ? styles.segmentChipYellow
+                            : styles.segmentChipGreen,
+                      ]}
+                    >
+                      <Text style={styles.segmentChipText}>{segment.letters || segment.text}</Text>
+                      <Text style={styles.segmentChipMeta}>
+                        {segment.accuracy}% / {segment.phoneme}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {weakPhonemeHints.length > 0 && (
+              <View style={styles.segmentSection}>
+                <Text style={styles.segmentSectionTitle}>音素改進建議（{`<${PRONUNCIATION_HINT_THRESHOLD}%`}）</Text>
+                {weakPhonemeHints
+                  .slice(0, 4)
+                  .map((item, index) => (
+                    <View key={`phoneme-hint-${index}`} style={styles.phonemeHintCard}>
+                      <Text style={styles.phonemeHintTitle}>
+                        {(item.letters || item.phoneme)} · {item.accuracy}%
+                      </Text>
+                      <Text style={styles.phonemeHintMeta}>
+                        目標音 {item.phoneme}
+                        {item.spokenPhoneme ? ` / 目前更接近 ${item.spokenPhoneme}` : ''}
+                      </Text>
+                      {item.suggestion ? (
+                        <Text style={styles.phonemeHintBody}>{item.suggestion}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+              </View>
+            )}
 
             {pronunciationFeedbackLines.length > 0 && (
               <View style={styles.feedbackList}>
@@ -1232,6 +1508,18 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontStyle: 'italic',
   },
+  wordLevelRed: {
+    color: '#d32f2f',
+    fontWeight: '700',
+  },
+  wordLevelYellow: {
+    color: '#f9a825',
+    fontWeight: '700',
+  },
+  wordLevelGreen: {
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
   pronunciationCoachCard: {
     marginTop: 14,
     padding: 12,
@@ -1354,10 +1642,27 @@ const styles = StyleSheet.create({
   stopButton: {
     backgroundColor: '#ff7043',
   },
+  replayButton: {
+    backgroundColor: '#607d8b',
+  },
+  replayButtonDisabled: {
+    backgroundColor: '#b0bec5',
+  },
   coachButtonText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '700',
+  },
+  analyzingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  analyzingText: {
+    fontSize: 12,
+    color: '#1565c0',
+    fontWeight: '600',
   },
   waveLabel: {
     fontSize: 11,
@@ -1381,6 +1686,74 @@ const styles = StyleSheet.create({
     color: '#35566f',
     fontWeight: '600',
     marginTop: 4,
+  },
+  segmentSection: {
+    marginTop: 10,
+    gap: 8,
+  },
+  segmentSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#35566f',
+  },
+  segmentChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  segmentChip: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minWidth: 72,
+  },
+  segmentChipRed: {
+    backgroundColor: '#fdecea',
+    borderWidth: 1,
+    borderColor: '#ef9a9a',
+  },
+  segmentChipYellow: {
+    backgroundColor: '#fff8e1',
+    borderWidth: 1,
+    borderColor: '#ffd54f',
+  },
+  segmentChipGreen: {
+    backgroundColor: '#e8f5e9',
+    borderWidth: 1,
+    borderColor: '#81c784',
+  },
+  segmentChipText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#22313f',
+  },
+  segmentChipMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    color: '#4f6170',
+  },
+  phonemeHintCard: {
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d9e2ec',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  phonemeHintTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#22313f',
+  },
+  phonemeHintMeta: {
+    fontSize: 11,
+    color: '#5a6d7d',
+  },
+  phonemeHintBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#314657',
   },
   feedbackList: {
     gap: 2,

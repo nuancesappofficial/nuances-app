@@ -154,10 +154,16 @@ export type PronunciationFeedback = {
   phonemes: {
     phoneme: string;
     accuracy_score: number;
+    letters?: string;
+    level?: 'red' | 'yellow' | 'green';
+    spoken_phoneme?: string | null;
+    suggestion?: string;
   }[];
   words: {
     word: string;
     accuracy_score: number;
+    accuracy?: number;
+    level?: 'red' | 'yellow' | 'green';
     error_type?: string;
   }[];
   feedback_text: string;

@@ -6,6 +6,7 @@ type AIFeatureAction =
   | 'generate_card'
   | 'analyze_context'
   | 'analyze_and_generate_card'
+  | 'pronunciation_assess'
   | 'usage_summary'
   | 'get_task_result';
 
@@ -113,6 +114,10 @@ function normalizePayload(payload: unknown): unknown {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
     if (typeof value === 'string') {
+      if (key === 'audioBase64') {
+        result[key] = value.trim();
+        continue;
+      }
       const normalized = value.replace(/\s+/g, ' ').trim();
       result[key] = normalized.length > 2000 ? normalized.slice(0, 2000) : normalized;
       continue;
