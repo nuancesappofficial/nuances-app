@@ -8,8 +8,12 @@ import CacheListScreen from '../screens/CacheListScreen';
 import CardsListScreen from '../screens/CardsListScreen';
 import AddCacheItemScreen from '../screens/AddCacheItemScreen';
 import CreateCardScreen from '../screens/CreateCardScreen';
-import CardReviewScreen from '../screens/CardReviewScreen';
-import SettingsScreen from '../screens/SettingsScreen';
+import ReviewScreen from '../screens/ReviewScreen';
+import AlbumViewScreen from '../screens/AlbumViewScreen';
+import CardDetailScreen from '../screens/CardDetailScreen';
+import DayViewScreen from '../screens/DayViewScreen';
+import DeckScreen from '../screens/DeckScreen';
+import ProfilesScreen from '../screens/ProfilesScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -37,10 +41,26 @@ function CacheStack() {
 function CardsStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="CardsList" component={CardsListScreen} />
+      <Stack.Screen name="CardsList" component={DeckScreen} />
+      <Stack.Screen name="Deck" component={DeckScreen} options={{ presentation: 'card' }} />
+      <Stack.Screen
+        name="AlbumView"
+        component={AlbumViewScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="CardDetail"
+        component={CardDetailScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="DayView"
+        component={DayViewScreen}
+        options={{ presentation: 'card' }}
+      />
       <Stack.Screen 
         name="CardReview" 
-        component={CardReviewScreen}
+        component={ReviewScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>
@@ -90,11 +110,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 
         <Tab.Screen
           name="Settings"
-          component={SettingsScreen}
+          component={ProfilesScreen}
           options={{
-            tabBarLabel: '設定',
+            tabBarLabel: 'Profile',
             tabBarIcon: ({ color }) => (
-              <TabIcon emoji="⚙️" color={color} />
+              <TabIcon emoji="👤" color={color} />
             ),
           }}
         />

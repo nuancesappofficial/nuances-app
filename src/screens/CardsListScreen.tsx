@@ -31,6 +31,12 @@ type SmartView = {
   level: LevelFilter;
 };
 
+function getTodayDayKey(): string {
+  const day = new Date().getDay();
+  const map = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return map[day] || 'Mon';
+}
+
 const SMART_VIEW_STORAGE_KEY = 'cards_smart_view_1';
 const RECENT_ERROR_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -445,6 +451,34 @@ export default function CardsListScreen({ navigation }: Props) {
           <Text style={styles.headerSubtitle}>{filteredCards.length} / {allCards.length} cards</Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.deckButton}
+            onPress={() => navigation.navigate('Deck')}
+          >
+            <Text style={styles.deckButtonText}>Deck</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.dayButton}
+            onPress={() => navigation.navigate('DayView', { day: getTodayDayKey() })}
+          >
+            <Text style={styles.dayButtonText}>日視圖</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.albumButton}
+            onPress={() =>
+              navigation.navigate('AlbumView', {
+                album: {
+                  id: 'all-cards',
+                  name: 'All Cards',
+                  emoji: '📚',
+                  color: '#EAF1FF',
+                  cardIds: filteredCards.map((card) => card.id),
+                },
+              })
+            }
+          >
+            <Text style={styles.albumButtonText}>相簿</Text>
+          </TouchableOpacity>
           {dueCount > 0 && (
             <TouchableOpacity style={styles.reviewButton} onPress={startReview}>
               <Text style={styles.reviewButtonText}>開始複習</Text>
@@ -601,6 +635,45 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#FF5722',
     borderRadius: 8,
+  },
+  albumButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#EAF1FF',
+    borderWidth: 1,
+    borderColor: '#CBD8FF',
+  },
+  albumButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2456C6',
+  },
+  dayButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#FFF4E7',
+    borderWidth: 1,
+    borderColor: '#FFD9AD',
+  },
+  dayButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#A65B00',
+  },
+  deckButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#E9F9EE',
+    borderWidth: 1,
+    borderColor: '#BFE9C9',
+  },
+  deckButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1C7C3E',
   },
   reviewButtonText: { fontSize: 13, fontWeight: '600', color: '#fff' },
   batchToggleButton: {

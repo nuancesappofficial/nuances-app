@@ -23,20 +23,34 @@ export interface SharedContentQueueDict {
 
 export type SharedContentRaw = SharedContentDict | SharedContentQueueDict;
 
-const { SharedDefaultsModule } = NativeModules;
+function getSharedDefaultsModule():
+  | {
+      getSharedContent: () => Promise<unknown>;
+      clearSharedContent: () => Promise<unknown>;
+    }
+  | null {
+  return (NativeModules.SharedDefaultsModule || null) as
+    | {
+        getSharedContent: () => Promise<unknown>;
+        clearSharedContent: () => Promise<unknown>;
+      }
+    | null;
+}
 
 /** 取得 shared_content 並正規化為 items 陣列（相容舊版單一格式） */
 export async function getAppGroupSharedContent(): Promise<SharedContentItem[] | null> {
-  if (Platform.OS !== 'ios' || !SharedDefaultsModule) {
+  const sharedDefaultsModule = getSharedDefaultsModule();
+  if (Platform.OS !== 'ios' || !sharedDefaultsModule) {
     return null;
   }
   try {
-    const raw = await SharedDefaultsModule.getSharedContent();
+    const raw = await sharedDefaultsModule.getSharedContent();
     if (raw == null || typeof raw !== 'object') return null;
+    const normalizedRaw = raw as SharedContentRaw & Record<string, unknown>;
 
-    if (Array.isArray(raw.items) && raw.items.length > 0) {
+    if (Array.isArray(normalizedRaw.items) && normalizedRaw.items.length > 0) {
       const valid: SharedContentItem[] = [];
-      for (const item of raw.items) {
+      for (const item of normalizedRaw.items) {
         if (item && typeof item === 'object') {
           if (item.type === 'text' && typeof item.content === 'string') {
             valid.push({ type: 'text', content: item.content });
@@ -48,11 +62,11 @@ export async function getAppGroupSharedContent(): Promise<SharedContentItem[] | 
       return valid.length > 0 ? valid : null;
     }
 
-    if (raw.type === 'text' && typeof raw.content === 'string') {
-      return [{ type: 'text', content: raw.content }];
+    if (normalizedRaw.type === 'text' && typeof normalizedRaw.content === 'string') {
+      return [{ type: 'text', content: normalizedRaw.content }];
     }
-    if (raw.type === 'image' && Array.isArray(raw.images) && raw.images.length > 0) {
-      return [{ type: 'image', images: raw.images }];
+    if (normalizedRaw.type === 'image' && Array.isArray(normalizedRaw.images) && normalizedRaw.images.length > 0) {
+      return [{ type: 'image', images: normalizedRaw.images }];
     }
 
     return null;
@@ -62,9 +76,10 @@ export async function getAppGroupSharedContent(): Promise<SharedContentItem[] | 
 }
 
 export async function clearAppGroupSharedContent(): Promise<void> {
-  if (Platform.OS !== 'ios' || !SharedDefaultsModule) return;
+  const sharedDefaultsModule = getSharedDefaultsModule();
+  if (Platform.OS !== 'ios' || !sharedDefaultsModule) return;
   try {
-    await SharedDefaultsModule.clearSharedContent();
+    await sharedDefaultsModule.clearSharedContent();
   } catch {
     // no-op
   }

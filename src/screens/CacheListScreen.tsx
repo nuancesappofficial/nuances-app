@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   RefreshControl,
   Alert,
@@ -11,7 +10,14 @@ import {
   AppState,
   AppStateStatus,
   Animated,
+  ScrollView,
+  TextInput,
+  Modal,
+  Pressable,
+  PanResponder,
+  Vibration,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -47,6 +53,15 @@ const CREATE_CARD_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FREE_CACHE_ITEM_LIMIT = 10;
 const FREE_CACHE_TTL_MS = 10 * 60 * 1000;
 const PREMIUM_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STACK_CARD_HEIGHT = 340;
+const STACK_OFFSETS = [
+  { y: 0, scale: 1, opacity: 1 },
+  { y: 24, scale: 0.96, opacity: 0.72 },
+  { y: 48, scale: 0.92, opacity: 0.45 },
+  { y: 72, scale: 0.88, opacity: 0.25 },
+];
+const MAX_VISIBLE_STACK = 4;
+const SWIPE_THRESHOLD = 92;
 
 function getDisplayExpiry(item: CachedItem, isPremiumUser: boolean): number {
   const expiresAt = item.expiresAt ? new Date(item.expiresAt).getTime() : NaN;
@@ -68,6 +83,73 @@ function formatRemainingTime(targetTs: number, nowTs: number): string {
   return `${minutes}分`;
 }
 
+function formatRelativeTime(input: Date | string): string {
+  const now = Date.now();
+  const ts = new Date(input).getTime();
+  const diff = now - ts;
+  if (diff < 60 * 1000) return '剛剛';
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)} 分鐘前`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)} 小時前`;
+  return `${Math.floor(diff / 86400000)} 天前`;
+}
+
+function toTimestamp(value: Date | string | number | undefined): number {
+  if (value == null) return 0;
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function getPrimaryText(item: CachedItem): string {
+  if (item.contentText?.trim()) return item.contentText.trim();
+  if (item.contentType === 'image') return '圖片內容（可進入編輯與 OCR）';
+  if (item.contentUrl?.trim()) return item.contentUrl.trim();
+  return 'No content';
+}
+
+function getSuggested(item: CachedItem): string {
+  const kw = (item.userKeywords || '').trim();
+  if (kw) return kw.split(/[\n,]/)[0]?.trim() || kw;
+  if (Array.isArray(item.aiHighlightedTerms) && item.aiHighlightedTerms.length > 0) {
+    const first = item.aiHighlightedTerms[0]?.trim();
+    if (first) return first;
+  }
+  return item.contentType === 'image' ? 'image phrase' : 'key phrase';
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function HighlightedText({ text, keyword, style }: { text: string; keyword: string; style?: any }) {
+  if (!keyword.trim()) {
+    return (
+      <Text numberOfLines={5} style={style}>
+        {text}
+      </Text>
+    );
+  }
+
+  const safe = escapeRegExp(keyword.trim());
+  const reg = new RegExp(`(${safe})`, 'ig');
+  const parts = text.split(reg);
+  return (
+    <Text numberOfLines={5} style={style}>
+      {parts.map((part, idx) => {
+        if (part.toLowerCase() === keyword.toLowerCase()) {
+          return (
+            <Text key={`${part}-${idx}`} style={styles.highlightText}>
+              {part}
+            </Text>
+          );
+        }
+        return <Text key={`${part}-${idx}`}>{part}</Text>;
+      })}
+    </Text>
+  );
+}
+
 export default function CacheListScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
@@ -75,6 +157,10 @@ export default function CacheListScreen({ navigation }: Props) {
   const [nowTs, setNowTs] = React.useState(Date.now());
   const [snackbarVisible, setSnackbarVisible] = React.useState(false);
   const [clipboardMode, setClipboardMode] = React.useState<'active' | 'passive'>('passive');
+  const [showAddModal, setShowAddModal] = React.useState(false);
+  const [addTab, setAddTab] = React.useState<'text' | 'image'>('text');
+  const [manualText, setManualText] = React.useState('');
+  const [gridView, setGridView] = React.useState(false);
   const snackbarOpacity = React.useRef(new Animated.Value(0)).current;
   const lastProcessedClipboard = React.useRef<string>('');
   const appState = React.useRef(AppState.currentState);
@@ -82,9 +168,29 @@ export default function CacheListScreen({ navigation }: Props) {
   const isCheckingClipboard = React.useRef(false);
   const lastCheckTime = React.useRef(0);
   const isSyncing = React.useRef(false);
-  const { consumeShareSnackbar } = useShareExtensionSnackbar();
+  const { consumeShareSnackbar, snackbarSignal } = useShareExtensionSnackbar();
 
   const [snackbarMessage, setSnackbarMessage] = React.useState('卡片已建立');
+  const dragX = React.useRef(new Animated.Value(0)).current;
+  const dragY = React.useRef(new Animated.Value(0)).current;
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [swipeDecision, setSwipeDecision] = React.useState<null | 'left' | 'right'>(null);
+  const lastHapticDecision = React.useRef<null | 'left' | 'right'>(null);
+
+  const displayItems = React.useMemo(() => {
+    return [...cachedItems].sort((a, b) => {
+      const bTs = toTimestamp((b as any).updatedAt) || toTimestamp((b as any).createdAt);
+      const aTs = toTimestamp((a as any).updatedAt) || toTimestamp((a as any).createdAt);
+      return bTs - aTs;
+    });
+  }, [cachedItems]);
+
+  const topCard = displayItems[0];
+  const visibleStack = React.useMemo(() => displayItems.slice(0, MAX_VISIBLE_STACK), [displayItems]);
+
+  const triggerHaptic = React.useCallback((ms = 12) => {
+    Vibration.vibrate(ms);
+  }, []);
 
   const hasValidCreateCardDraft = React.useCallback(async (item: CachedItem): Promise<boolean> => {
     try {
@@ -103,17 +209,13 @@ export default function CacheListScreen({ navigation }: Props) {
     async (item: CachedItem) => {
       const isExpired = Date.now() > getDisplayExpiry(item, isPremiumUser);
       if (!isPremiumUser && isExpired) {
-        Alert.alert(
-          '此快取已到期',
-          '升級訂閱即可重新使用已到期快取。',
-          [
-            { text: '稍後', style: 'cancel' },
-            {
-              text: '前往設定',
-              onPress: () => navigation.navigate('Settings'),
-            },
-          ]
-        );
+        Alert.alert('此快取已到期', '升級訂閱即可重新使用已到期快取。', [
+          { text: '稍後', style: 'cancel' },
+          {
+            text: '前往設定',
+            onPress: () => navigation.navigate('Settings'),
+          },
+        ]);
         return;
       }
 
@@ -136,79 +238,82 @@ export default function CacheListScreen({ navigation }: Props) {
     [hasValidCreateCardDraft, isPremiumUser, navigation]
   );
 
-  const showSnackbar = React.useCallback((message?: string) => {
-    setSnackbarMessage(message ?? '卡片已建立');
-    setSnackbarVisible(true);
-    Animated.sequence([
-      Animated.timing(snackbarOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.delay(SNACKBAR_DURATION),
-      Animated.timing(snackbarOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setSnackbarVisible(false));
-  }, [snackbarOpacity]);
+  const showSnackbar = React.useCallback(
+    (message?: string) => {
+      setSnackbarMessage(message ?? '卡片已建立');
+      setSnackbarVisible(true);
+      Animated.sequence([
+        Animated.timing(snackbarOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.delay(SNACKBAR_DURATION),
+        Animated.timing(snackbarOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setSnackbarVisible(false));
+    },
+    [snackbarOpacity]
+  );
 
-  // 僅在用戶手動點擊「貼上」時讀取剪貼簿，避免自動觸發 iOS 貼上權限彈窗。
-  const checkClipboard = React.useCallback(async (interactive = false) => {
-    const now = Date.now();
-    if (isCheckingClipboard.current || now - lastCheckTime.current < 1000) {
-      return;
-    }
-
-    isCheckingClipboard.current = true;
-    lastCheckTime.current = now;
-
-    try {
-      // 直接讀取剪貼簿 → 觸發 iOS「Nuances 想要貼上...」（問題1）
-      const currentText = await Clipboard.getStringAsync();
-
-      if (!currentText || currentText.trim().length === 0) {
-        if (interactive) {
-          Alert.alert('剪貼簿是空的', '目前沒有可貼上的文字內容。');
-        }
+  const checkClipboard = React.useCallback(
+    async (interactive = false) => {
+      const now = Date.now();
+      if (isCheckingClipboard.current || now - lastCheckTime.current < 1000) {
         return;
       }
 
-      if (currentText === lastProcessedClipboard.current) {
-        if (interactive) {
-          Alert.alert('已是最新內容', '這段文字已經貼上過了。');
-        }
-        return;
-      }
+      isCheckingClipboard.current = true;
+      lastCheckTime.current = now;
 
-      // 用戶點允許且為新內容 → 儲存並顯示 Snackbar
-      lastProcessedClipboard.current = currentText;
-      const userId = await getCurrentAuthUserId();
-      if (!userId) {
-        if (interactive) {
-          Alert.alert('需要登入', '請先登入後再使用貼上功能。');
-        }
-        return;
-      }
-      const result = await pasteTextFromClipboard(userId);
+      try {
+        const currentText = await Clipboard.getStringAsync();
 
-      if (result.success) {
-        showSnackbar('已從剪貼簿新增 1 筆快取');
-      } else if (interactive) {
-        Alert.alert('貼上失敗', result.message || '無法將剪貼簿內容加入快取。');
+        if (!currentText || currentText.trim().length === 0) {
+          if (interactive) {
+            Alert.alert('剪貼簿是空的', '目前沒有可貼上的文字內容。');
+          }
+          return;
+        }
+
+        if (currentText === lastProcessedClipboard.current) {
+          if (interactive) {
+            Alert.alert('已是最新內容', '這段文字已經貼上過了。');
+          }
+          return;
+        }
+
+        lastProcessedClipboard.current = currentText;
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (interactive) {
+            Alert.alert('需要登入', '請先登入後再使用貼上功能。');
+          }
+          return;
+        }
+        const result = await pasteTextFromClipboard(userId);
+
+        if (result.success) {
+          showSnackbar('已從剪貼簿新增 1 筆快取');
+        } else if (interactive) {
+          Alert.alert('貼上失敗', result.message || '無法將剪貼簿內容加入快取。');
+        }
+      } catch (error) {
+        console.error('[CacheList] Clipboard error:', error);
+        if (interactive) {
+          Alert.alert('貼上失敗', '剪貼簿讀取失敗，請稍後再試。');
+        }
+      } finally {
+        setTimeout(() => {
+          isCheckingClipboard.current = false;
+        }, 1000);
       }
-    } catch (error) {
-      console.error('[CacheList] Clipboard error:', error);
-      if (interactive) {
-        Alert.alert('貼上失敗', '剪貼簿讀取失敗，請稍後再試。');
-      }
-    } finally {
-      setTimeout(() => {
-        isCheckingClipboard.current = false;
-      }, 1000);
-    }
-  }, [showSnackbar]);
+    },
+    [showSnackbar]
+  );
 
   const handlePastePress = React.useCallback(() => {
     if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
@@ -226,36 +331,39 @@ export default function CacheListScreen({ navigation }: Props) {
     if (message) showSnackbar(message);
   }, [consumeShareSnackbar, showSnackbar]);
 
-  const runSync = React.useCallback(
-    async (interactive: boolean): Promise<boolean> => {
-      if (isSyncing.current) return false;
+  React.useEffect(() => {
+    if (!snackbarSignal) return;
+    const message = consumeShareSnackbar();
+    if (message) showSnackbar(message);
+  }, [consumeShareSnackbar, showSnackbar, snackbarSignal]);
 
-      const userId = await getCurrentAuthUserId();
-      if (!userId) return false;
+  const runSync = React.useCallback(async (interactive: boolean): Promise<boolean> => {
+    if (isSyncing.current) return false;
 
-      isSyncing.current = true;
-      try {
-        const result = await syncWithRetry(2);
-        if (!result.success && interactive) {
-          const readableMessage = getSyncErrorMessage(result.error ?? result.message);
-          Alert.alert('同步失敗', readableMessage, [
-            { text: '稍後', style: 'cancel' },
-            {
-              text: '重試',
-              onPress: () => {
-                void runSync(true);
-              },
+    const userId = await getCurrentAuthUserId();
+    if (!userId) return false;
+
+    isSyncing.current = true;
+    try {
+      const result = await syncWithRetry(2);
+      if (!result.success && interactive) {
+        const readableMessage = getSyncErrorMessage(result.error ?? result.message);
+        Alert.alert('同步失敗', readableMessage, [
+          { text: '稍後', style: 'cancel' },
+          {
+            text: '重試',
+            onPress: () => {
+              void runSync(true);
             },
-          ]);
-          return false;
-        }
-        return result.success;
-      } finally {
-        isSyncing.current = false;
+          },
+        ]);
+        return false;
       }
-    },
-    []
-  );
+      return result.success;
+    } finally {
+      isSyncing.current = false;
+    }
+  }, []);
 
   const shareSnackbarTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -284,7 +392,6 @@ export default function CacheListScreen({ navigation }: Props) {
     }
   }, []);
 
-  // 監聽 App 從背景回到前景（當畫面在焦點上時）
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (
@@ -300,7 +407,6 @@ export default function CacheListScreen({ navigation }: Props) {
             await checkClipboard(false);
           }
         })();
-        // Share Extension 處理為非同步，延遲 1.2s 後再檢查，確保 useShareExtension 已完成入庫
         shareSnackbarTimerRef.current = setTimeout(tryShowShareSnackbar, 1200);
       }
       appState.current = nextAppState;
@@ -314,7 +420,6 @@ export default function CacheListScreen({ navigation }: Props) {
     };
   }, [checkClipboard, clipboardMode, refreshClipboardMode, runSync, tryShowShareSnackbar]);
 
-  // 監聽畫面聚焦（Tab 切換或首次進入），僅處理 focus state 與分享結果提示。
   useFocusEffect(
     React.useCallback(() => {
       isScreenFocused.current = true;
@@ -337,21 +442,14 @@ export default function CacheListScreen({ navigation }: Props) {
     }, [checkClipboard, consumeShareSnackbar, refreshClipboardMode, refreshEntitlement, showSnackbar])
   );
 
-  // Query cached items (not deleted, not converted, ordered by creation date)
   React.useEffect(() => {
     const query = database
       .get<CachedItem>('cached_items')
-      .query(
-        Q.where('deleted_at', null),
-        Q.where('converted_to_card', false), // 只顯示未轉換的項目
-        Q.sortBy('created_at', Q.desc)
-      );
+      .query(Q.where('deleted_at', null), Q.where('converted_to_card', false), Q.sortBy('created_at', Q.desc));
 
-    // Initial fetch
     const fetchInitial = async () => {
       try {
         const data = await query.fetch();
-        console.log('[CacheList] Fetched items (excluding converted):', data.length);
         setCachedItems(data);
       } catch (error) {
         console.error('Error fetching cached items:', error);
@@ -360,13 +458,7 @@ export default function CacheListScreen({ navigation }: Props) {
     };
 
     fetchInitial();
-
-    // Subscribe to changes
-    const subscription = query.observe().subscribe((data) => {
-      console.log('[CacheList] Updated items:', data.length);
-      setCachedItems(data);
-    });
-
+    const subscription = query.observe().subscribe((data) => setCachedItems(data));
     return () => subscription.unsubscribe();
   }, []);
 
@@ -379,32 +471,42 @@ export default function CacheListScreen({ navigation }: Props) {
     }
   }, [runSync]);
 
-  // 刪除快取項目
   const handleDelete = async (item: CachedItem) => {
-    Alert.alert(
-      '刪除快取',
-      '確定要刪除這個快取項目嗎？',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '刪除',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await database.write(async () => {
-                await item.markAsDeleted();
-              });
-              console.log('[CacheList] Item deleted:', item.id);
-              void runSync(false);
-            } catch (error) {
-              console.error('[CacheList] Error deleting item:', error);
-              Alert.alert('錯誤', '刪除失敗，請重試');
-            }
-          },
+    Alert.alert('刪除快取', '確定要刪除這個快取項目嗎？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '刪除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await database.write(async () => {
+              await item.markAsDeleted();
+            });
+            void runSync(false);
+          } catch (error) {
+            console.error('[CacheList] Error deleting item:', error);
+            Alert.alert('錯誤', '刪除失敗，請重試');
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
+
+  const deleteItemSilently = React.useCallback(
+    async (item: CachedItem) => {
+      try {
+        await database.write(async () => {
+          await item.markAsDeleted();
+        });
+        showSnackbar('已刪除 1 筆快取');
+        void runSync(false);
+      } catch (error) {
+        console.error('[CacheList] silent delete failed:', error);
+        Alert.alert('錯誤', '刪除失敗，請重試');
+      }
+    },
+    [runSync, showSnackbar]
+  );
 
   const handleClearCache = async () => {
     if (!cachedItems || cachedItems.length === 0) {
@@ -412,196 +514,435 @@ export default function CacheListScreen({ navigation }: Props) {
       return;
     }
 
-    Alert.alert(
-      '清除全部快取',
-      `確定要清除目前 ${cachedItems.length} 筆快取嗎？此動作無法復原。`,
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '清除',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await database.write(async () => {
-                for (const item of cachedItems) {
-                  await item.markAsDeleted();
-                }
-              });
-              showSnackbar('已清除全部快取');
-              void runSync(false);
-            } catch (error) {
-              console.error('[CacheList] clear cache failed:', error);
-              Alert.alert('錯誤', '清除快取失敗，請稍後再試。');
-            }
-          },
+    Alert.alert('清除全部快取', `確定要清除目前 ${cachedItems.length} 筆快取嗎？此動作無法復原。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '清除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await database.write(async () => {
+              for (const item of cachedItems) {
+                await item.markAsDeleted();
+              }
+            });
+            showSnackbar('已清除全部快取');
+            void runSync(false);
+          } catch (error) {
+            console.error('[CacheList] clear cache failed:', error);
+            Alert.alert('錯誤', '清除快取失敗，請稍後再試。');
+          }
         },
-      ]
+      },
+    ]);
+  };
+
+  const handleQuickAddText = React.useCallback(async () => {
+    const trimmed = manualText.trim();
+    if (!trimmed) return;
+
+    try {
+      await Clipboard.setStringAsync(trimmed);
+      lastProcessedClipboard.current = '';
+      const userId = await getCurrentAuthUserId();
+      if (!userId) {
+        Alert.alert('需要登入', '請先登入後再使用文字新增。');
+        return;
+      }
+      const result = await pasteTextFromClipboard(userId);
+      if (!result.success) {
+        Alert.alert('新增失敗', result.message || '無法新增文字快取。');
+        return;
+      }
+      setManualText('');
+      setShowAddModal(false);
+      showSnackbar('已新增文字快取');
+    } catch (error) {
+      console.error('[CacheList] quick add text failed:', error);
+      Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
+    }
+  }, [manualText, showSnackbar]);
+
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !!topCard,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          !!topCard && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
+        onPanResponderGrant: () => {
+          setIsDragging(true);
+          setSwipeDecision(null);
+          lastHapticDecision.current = null;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          dragX.setValue(gestureState.dx);
+          dragY.setValue(gestureState.dy * 0.25);
+          const decision = gestureState.dx > 30 ? 'right' : gestureState.dx < -30 ? 'left' : null;
+          setSwipeDecision(decision);
+          if (decision && decision !== lastHapticDecision.current) {
+            triggerHaptic(10);
+            lastHapticDecision.current = decision;
+          }
+          if (!decision) {
+            lastHapticDecision.current = null;
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          setIsDragging(false);
+
+          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
+            Animated.spring(dragX, { toValue: 0, useNativeDriver: true }).start();
+            Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+            setSwipeDecision(null);
+            setGridView(true);
+            return;
+          }
+
+          if (gestureState.dx > SWIPE_THRESHOLD && topCard) {
+            setSwipeDecision('right');
+            triggerHaptic(20);
+            Animated.parallel([
+              Animated.timing(dragX, { toValue: 480, duration: 220, useNativeDriver: true }),
+              Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
+            ]).start(() => {
+              dragX.setValue(0);
+              dragY.setValue(0);
+              setSwipeDecision(null);
+              void handleOpenCachedItem(topCard);
+            });
+            return;
+          }
+
+          if (gestureState.dx < -SWIPE_THRESHOLD && topCard) {
+            setSwipeDecision('left');
+            triggerHaptic(20);
+            Animated.parallel([
+              Animated.timing(dragX, { toValue: -480, duration: 220, useNativeDriver: true }),
+              Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
+            ]).start(() => {
+              dragX.setValue(0);
+              dragY.setValue(0);
+              setSwipeDecision(null);
+              void deleteItemSilently(topCard);
+            });
+            return;
+          }
+
+          Animated.parallel([
+            Animated.spring(dragX, { toValue: 0, useNativeDriver: true }),
+            Animated.spring(dragY, { toValue: 0, useNativeDriver: true }),
+          ]).start(() => setSwipeDecision(null));
+        },
+        onPanResponderTerminate: () => {
+          setIsDragging(false);
+          setSwipeDecision(null);
+          lastHapticDecision.current = null;
+          Animated.spring(dragX, { toValue: 0, useNativeDriver: true }).start();
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [deleteItemSilently, dragX, dragY, handleOpenCachedItem, topCard, triggerHaptic]
+  );
+
+  const rotation = dragX.interpolate({
+    inputRange: [-220, 0, 220],
+    outputRange: ['-11deg', '0deg', '11deg'],
+    extrapolate: 'clamp',
+  });
+
+  const renderGridCard = (item: CachedItem) => {
+    const text = getPrimaryText(item);
+    const suggested = getSuggested(item);
+
+    return (
+      <View key={item.id} style={styles.gridCard}>
+        <View style={styles.gridCardTop}>
+          <Text style={styles.gridSource} numberOfLines={1}>
+            {item.sourceApp || item.contentType.toUpperCase()}
+          </Text>
+          <TouchableOpacity onPress={() => handleDelete(item)} style={styles.gridDeleteBtn}>
+            <Text style={styles.gridDeleteTxt}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        {item.contentType === 'image' && item.imageStoragePath ? (
+          <Image source={{ uri: item.imageStoragePath }} style={styles.gridImage} resizeMode="cover" />
+        ) : null}
+
+        <HighlightedText text={text} keyword={suggested} style={styles.gridText} />
+
+        <Text style={styles.gridSuggested} numberOfLines={1}>
+          AI: "{suggested}"
+        </Text>
+
+        <TouchableOpacity
+          style={styles.gridCreateBtn}
+          onPress={() => {
+            setGridView(false);
+            void handleOpenCachedItem(item);
+          }}
+        >
+          <Text style={styles.gridCreateText}>Create</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
-  const renderItem = ({ item }: { item: CachedItem }) => (
-    <TouchableOpacity
-      style={styles.itemContainer}
-      activeOpacity={0.85}
-      onPress={() => {
-        void handleOpenCachedItem(item);
-      }}
-    >
-      <View style={styles.itemHeader}>
-        <Text style={styles.contentType}>{item.contentType.toUpperCase()}</Text>
-        <Text style={styles.ttlBadge}>
-          ⏳ {formatRemainingTime(getDisplayExpiry(item, isPremiumUser), nowTs)}
-        </Text>
-        {item.sourceApp && (
-          <Text style={styles.sourceApp}>{item.sourceApp}</Text>
-        )}
-        {/* 刪除按鈕 */}
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDelete(item)}
-        >
-          <Text style={styles.deleteButtonText}>🗑️</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 圖片預覽 */}
-      {item.contentType === 'image' && item.imageStoragePath && (
-        <View style={styles.imagePreviewContainer}>
-          <Image
-            source={{ uri: item.imageStoragePath }}
-            style={styles.previewImage}
-            resizeMode="cover"
-          />
-          {getAnnotationsArray(item.imageAnnotations).length > 0 && (
-            <View style={styles.annotationBadge}>
-              <Text style={styles.annotationBadgeText}>
-                ✏️ {getAnnotationsArray(item.imageAnnotations).length} 個單字
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      <Text style={styles.contentText} numberOfLines={3}>
-        {item.contentText || (item.contentType === 'image' ? '圖片內容' : item.contentUrl) || 'No content'}
-      </Text>
-
-      {item.userKeywords && (
-        <Text style={styles.keywords}>🔑 {item.userKeywords}</Text>
-      )}
-
-      <View style={styles.itemFooter}>
-        <View style={styles.itemFooterLeft}>
-          <Text style={styles.timestamp}>
-            {new Date(item.createdAt).toLocaleDateString()}
-          </Text>
-          {item.aiAnalysisCompleted && (
-            <Text style={styles.badge}>✓ AI Analyzed</Text>
-          )}
-          {item.convertedToCard && (
-            <Text style={styles.badge}>📇 Card Created</Text>
-          )}
-        </View>
-        
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => navigation.navigate('AddCacheItem', { cachedItem: item })}
-        >
-          <Text style={styles.editButtonText}>✏️ 編輯</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 點擊提示 */}
-      <Text style={styles.editHint}>點擊卡片可直接建立卡片</Text>
-    </TouchableOpacity>
-  );
-
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📦</Text>
-      <Text style={styles.emptyTitle}>No cached items yet</Text>
-      <Text style={styles.emptyText}>
-        Share content from other apps to start building your vocabulary!
-      </Text>
-    </View>
-  );
-
   return (
-    <View style={styles.container}>
-      <View style={[styles.usageBanner, !isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT && styles.usageBannerWarning]}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View
+        style={[
+          styles.usageBanner,
+          !isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT && styles.usageBannerWarning,
+        ]}
+      >
         <Text style={styles.usageBannerText}>
           Cache 使用量：{cachedItems.length}/{isPremiumUser ? '∞' : FREE_CACHE_ITEM_LIMIT}
         </Text>
       </View>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>📚 My Cache</Text>
-          <Text style={styles.headerSubtitle}>
-            {cachedItems?.length || 0} items
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          {clipboardMode === 'passive' && (
-            <TouchableOpacity
-              style={styles.pasteButton}
-              onPress={handlePastePress}
-            >
-              <Text style={styles.pasteButtonText}>貼上</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.clearCacheButton}
-            onPress={() => {
-              void handleClearCache();
-            }}
-          >
-            <Text style={styles.clearCacheButtonText}>Clear</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => {
-              if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
-                Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
-                  { text: '稍後', style: 'cancel' },
-                  { text: '前往設定', onPress: () => navigation.navigate('Settings') },
-                ]);
-                return;
-              }
-              navigation.navigate('AddCacheItem');
-            }}
-          >
-            <Text style={styles.addButtonText}>+</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <FlatList
-        data={cachedItems}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={renderEmpty}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      />
+      {!gridView ? (
+        <>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.headerTitle}>Cache</Text>
+              <Text style={styles.headerSubtitle}>{displayItems.length} items waiting</Text>
+            </View>
+            <View style={styles.headerActions}>
+              {clipboardMode === 'passive' && (
+                <TouchableOpacity style={styles.pasteButton} onPress={handlePastePress}>
+                  <Text style={styles.pasteButtonText}>貼上</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.clearCacheButton} onPress={() => void handleClearCache()}>
+                <Text style={styles.clearCacheButtonText}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => {
+                  if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
+                    Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
+                      { text: '稍後', style: 'cancel' },
+                      { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+                    ]);
+                    return;
+                  }
+                  setShowAddModal(true);
+                }}
+              >
+                <Text style={styles.addButtonText}>＋</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView
+            scrollEnabled={displayItems.length === 0 && !isDragging}
+            contentContainerStyle={styles.stackScrollContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
+            {displayItems.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyIcon}>📦</Text>
+                <Text style={styles.emptyTitle}>Cache is empty</Text>
+                <Text style={styles.emptyText}>從其他 App 分享或使用右上角新增，開始建立詞彙卡片。</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.swipeHints}>
+                  <View style={[styles.swipeBadge, styles.swipeBadgeLeft, swipeDecision === 'left' && styles.swipeBadgeActive]}>
+                    <Text style={styles.swipeBadgeTextLeft}>Skip</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.swipeBadge,
+                      styles.swipeBadgeRight,
+                      swipeDecision === 'right' && styles.swipeBadgeActive,
+                    ]}
+                  >
+                    <Text style={styles.swipeBadgeTextRight}>Create</Text>
+                  </View>
+                </View>
+
+                <View style={styles.stackArea}>
+                  {visibleStack
+                    .slice(1)
+                    .reverse()
+                    .map((item, revIdx) => {
+                      const idx = visibleStack.slice(1).length - 1 - revIdx + 1;
+                      const offset = STACK_OFFSETS[Math.min(idx, STACK_OFFSETS.length - 1)];
+                      return (
+                        <View
+                          key={item.id}
+                          style={[
+                            styles.backCard,
+                            {
+                              top: offset.y,
+                              transform: [{ scale: offset.scale }],
+                              opacity: offset.opacity,
+                              zIndex: visibleStack.length - idx,
+                            },
+                          ]}
+                        />
+                      );
+                    })}
+
+                  {displayItems.length > 1 && (
+                    <View style={styles.stackCountBadgeWrap} pointerEvents="none">
+                      <View style={styles.stackCountBadge}>
+                        <Text style={styles.stackCountText}>{displayItems.length} cards</Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {topCard && (
+                    <Animated.View
+                      {...panResponder.panHandlers}
+                      style={[
+                        styles.topCard,
+                        {
+                          transform: [{ translateX: dragX }, { translateY: dragY }, { rotate: rotation }],
+                          shadowOpacity: isDragging ? 0.22 : 0.1,
+                        },
+                      ]}
+                    >
+                      <View style={styles.topCardHeader}>
+                        <Text style={styles.topCardSource}>{topCard.sourceApp || topCard.contentType.toUpperCase()}</Text>
+                        <Text style={styles.topCardTime}>{formatRelativeTime(topCard.createdAt)}</Text>
+                      </View>
+
+                      {topCard.contentType === 'image' && topCard.imageStoragePath ? (
+                        <Image source={{ uri: topCard.imageStoragePath }} style={styles.topCardImage} resizeMode="cover" />
+                      ) : null}
+
+                      <View style={styles.topCardBody}>
+                        <HighlightedText
+                          text={getPrimaryText(topCard)}
+                          keyword={getSuggested(topCard)}
+                          style={styles.topCardText}
+                        />
+                      </View>
+
+                      <View style={styles.topCardFooter}>
+                        <Text style={styles.topCardSuggestion}>AI suggests: "{getSuggested(topCard)}"</Text>
+                        <Text style={styles.topCardExpiry}>
+                          ⏳ {formatRemainingTime(getDisplayExpiry(topCard, isPremiumUser), nowTs)}
+                        </Text>
+                      </View>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <TouchableOpacity style={styles.allCacheBtn} onPress={() => setGridView(true)}>
+                  <Text style={styles.allCacheBtnText}>View All Cache</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
+        </>
+      ) : (
+        <View style={styles.gridViewContainer}>
+          <View style={styles.gridHeader}>
+            <TouchableOpacity style={styles.gridBackBtn} onPress={() => setGridView(false)}>
+              <Text style={styles.gridBackText}>‹</Text>
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.gridTitle}>All Cache</Text>
+              <Text style={styles.gridSubtitle}>{displayItems.length} items</Text>
+            </View>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.gridContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
+            {displayItems.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyIcon}>📭</Text>
+                <Text style={styles.emptyTitle}>Cache is empty</Text>
+              </View>
+            ) : (
+              <View style={styles.gridWrap}>{displayItems.map((item) => renderGridCard(item))}</View>
+            )}
+          </ScrollView>
+        </View>
+      )}
+
+      <Modal visible={showAddModal} animationType="slide" transparent onRequestClose={() => setShowAddModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowAddModal(false)} />
+        <View style={styles.modalSheet}>
+          <View style={styles.sheetHandle} />
+
+          <View style={styles.tabRow}>
+            <TouchableOpacity
+              style={[styles.tabBtn, addTab === 'text' && styles.tabBtnActive]}
+              onPress={() => setAddTab('text')}
+            >
+              <Text style={[styles.tabText, addTab === 'text' && styles.tabTextActive]}>Text</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabBtn, addTab === 'image' && styles.tabBtnActive]}
+              onPress={() => setAddTab('image')}
+            >
+              <Text style={[styles.tabText, addTab === 'image' && styles.tabTextActive]}>Image</Text>
+            </TouchableOpacity>
+          </View>
+
+          {addTab === 'text' ? (
+            <>
+              <Text style={styles.inputLabel}>Paste or type text</Text>
+              <TextInput
+                value={manualText}
+                onChangeText={setManualText}
+                multiline
+                style={styles.textInput}
+                placeholder="Paste a sentence containing slang, idioms, or expressions..."
+                placeholderTextColor="#9CA3AF"
+              />
+              <TouchableOpacity
+                style={[styles.primaryAction, !manualText.trim() && styles.primaryActionDisabled]}
+                disabled={!manualText.trim()}
+                onPress={() => void handleQuickAddText()}
+              >
+                <Text style={styles.primaryActionText}>Add Card</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.inputLabel}>Capture or edit image</Text>
+              <View style={styles.imagePlaceholder}>
+                <Text style={styles.imagePlaceholderText}>導向圖片新增與裁切流程</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.primaryAction, styles.imageAction]}
+                onPress={() => {
+                  setShowAddModal(false);
+                  navigation.navigate('AddCacheItem');
+                }}
+              >
+                <Text style={styles.primaryActionText}>Open Image Flow</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAddModal(false)}>
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
 
       {snackbarVisible && (
-        <Animated.View
-          style={[styles.snackbar, { opacity: snackbarOpacity }]}
-          pointerEvents="none"
-        >
+        <Animated.View style={[styles.snackbar, { opacity: snackbarOpacity }]} pointerEvents="none">
           <Text style={styles.snackbarText}>✅ {snackbarMessage}</Text>
         </Animated.View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F7F7F9',
   },
   usageBanner: {
     backgroundColor: '#e8f5e9',
@@ -615,48 +956,30 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ffcdd2',
   },
   usageBannerText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#2e7d32',
     fontWeight: '600',
-    textAlign: 'center',
   },
   header: {
     backgroundColor: '#fff',
-    padding: 20,
-    paddingTop: 60,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#ECECF0',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0D0D0D',
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#4CAF50',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  addButtonText: {
-    fontSize: 28,
-    color: '#fff',
-    fontWeight: '300',
+    marginTop: 2,
+    fontSize: 13,
+    color: '#9A9AAA',
   },
   headerActions: {
     flexDirection: 'row',
@@ -664,207 +987,461 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pasteButton: {
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#F2F2F5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   pasteButtonText: {
-    fontSize: 14,
+    fontSize: 13,
+    color: '#202020',
     fontWeight: '600',
-    color: '#2E7D32',
   },
   clearCacheButton: {
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#ef9a9a',
-    backgroundColor: '#ffebee',
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#F2F2F5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   clearCacheButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#c62828',
-  },
-  listContent: {
-    padding: 16,
-  },
-  itemContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  contentType: {
-    fontSize: 12,
+    fontSize: 13,
+    color: '#202020',
     fontWeight: '600',
-    color: '#4CAF50',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
   },
-  ttlBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1565c0',
-    backgroundColor: '#e3f2fd',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginLeft: 8,
-  },
-  sourceApp: {
-    fontSize: 12,
-    color: '#999',
-    flex: 1,
-    marginLeft: 8,
-  },
-  deleteButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  deleteButtonText: {
-    fontSize: 18,
-  },
-  imagePreviewContainer: {
-    marginBottom: 12,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  previewImage: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#f0f0f0',
-  },
-  annotationBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  annotationBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  contentText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 22,
-    marginBottom: 8,
-  },
-  keywords: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
-    marginBottom: 8,
-  },
-  itemFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  itemFooterLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    flexWrap: 'wrap',
-  },
-  timestamp: {
-    fontSize: 12,
-    color: '#999',
-  },
-  badge: {
-    fontSize: 11,
-    color: '#2196F3',
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginLeft: 4,
-  },
-  editButton: {
-    backgroundColor: '#f1f3f5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  editButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-  },
-  emptyContainer: {
+  addButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0D0D0D',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 80,
-    paddingHorizontal: 40,
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyTitle: {
+  addButtonText: {
+    color: '#fff',
     fontSize: 20,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    marginTop: -1,
+  },
+  stackScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 30,
+    paddingBottom: 40,
+    flexGrow: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 120,
+    paddingHorizontal: 28,
+  },
+  emptyIcon: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#202020',
+    marginBottom: 6,
   },
   emptyText: {
     fontSize: 14,
-    color: '#666',
+    color: '#8F8FA0',
     textAlign: 'center',
     lineHeight: 20,
   },
-  snackbar: {
+  swipeHints: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  swipeBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    opacity: 0.4,
+  },
+  swipeBadgeLeft: {
+    backgroundColor: '#FFEEEE',
+  },
+  swipeBadgeRight: {
+    backgroundColor: '#E7FAEF',
+  },
+  swipeBadgeActive: {
+    opacity: 1,
+  },
+  swipeBadgeTextLeft: {
+    color: '#CC3333',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  swipeBadgeTextRight: {
+    color: '#17823A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stackArea: {
+    height: STACK_CARD_HEIGHT + STACK_OFFSETS[STACK_OFFSETS.length - 1].y + 60,
+    position: 'relative',
+  },
+  backCard: {
     position: 'absolute',
-    bottom: 80,
-    left: 20,
-    right: 20,
-    backgroundColor: '#323232',
-    paddingVertical: 14,
+    left: 0,
+    right: 0,
+    height: STACK_CARD_HEIGHT,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  stackCountBadgeWrap: {
+    position: 'absolute',
+    bottom: 8,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 8,
+  },
+  stackCountBadge: {
+    backgroundColor: '#0D0D0D',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  stackCountText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  topCard: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: STACK_CARD_HEIGHT,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    zIndex: 20,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 22,
+    elevation: 8,
+  },
+  topCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  topCardSource: {
+    fontSize: 11,
+    color: '#85859A',
+    backgroundColor: '#F2F2F5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: '600',
+    maxWidth: '65%',
+  },
+  topCardTime: {
+    fontSize: 11,
+    color: '#B0B0BE',
+  },
+  topCardImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  topCardBody: {
+    flex: 1,
+  },
+  topCardText: {
+    fontSize: 17,
+    lineHeight: 27,
+    color: '#0D0D0D',
+  },
+  highlightText: {
+    backgroundColor: '#E8F4FD',
+    color: '#1A6FC4',
+    fontWeight: '700',
+    borderRadius: 4,
+  },
+  topCardFooter: {
+    borderTopWidth: 1,
+    borderTopColor: '#F2F2F5',
+    paddingTop: 12,
+    marginTop: 10,
+    gap: 4,
+  },
+  topCardSuggestion: {
+    color: '#9A7FCC',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  topCardExpiry: {
+    color: '#9A9AAA',
+    fontSize: 12,
+  },
+  allCacheBtn: {
+    marginTop: 12,
+    alignSelf: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E7E7EE',
+    borderRadius: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: 10,
+  },
+  allCacheBtnText: {
+    color: '#3A3A45',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  gridViewContainer: {
+    flex: 1,
+  },
+  gridHeader: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECF0',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  gridBackBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F5',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  snackbarText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#fff',
+  gridBackText: {
+    color: '#0D0D0D',
+    fontSize: 22,
+    marginTop: -3,
   },
-  editHint: {
+  gridTitle: {
+    fontSize: 21,
+    fontWeight: '700',
+    color: '#0D0D0D',
+  },
+  gridSubtitle: {
+    color: '#9A9AAA',
+    fontSize: 12,
+  },
+  gridContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  gridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 10,
+  },
+  gridCard: {
+    width: '48.5%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 10,
+    minHeight: 210,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  gridCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  gridSource: {
+    fontSize: 10,
+    color: '#8A8A9A',
+    backgroundColor: '#F0F0F4',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    maxWidth: '75%',
+    overflow: 'hidden',
+  },
+  gridDeleteBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#F0F0F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridDeleteTxt: {
+    fontSize: 10,
+    color: '#9A9AAA',
+  },
+  gridImage: {
+    width: '100%',
+    height: 72,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  gridText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#0D0D0D',
+    minHeight: 72,
+  },
+  gridSuggested: {
+    marginTop: 8,
+    color: '#9A7FCC',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  gridCreateBtn: {
+    marginTop: 8,
+    backgroundColor: '#0D0D0D',
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  gridCreateText: {
+    color: '#fff',
     fontSize: 11,
-    color: '#bbb',
-    textAlign: 'right',
-    marginTop: 6,
-    fontStyle: 'italic',
+    fontWeight: '700',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+    minHeight: 420,
+  },
+  sheetHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#C8C8CD',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  tabRow: {
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    padding: 4,
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  tabBtn: {
+    flex: 1,
+    borderRadius: 9,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: '#fff',
+  },
+  tabText: {
+    color: '#8E8E93',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  tabTextActive: {
+    color: '#101010',
+  },
+  inputLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+  },
+  textInput: {
+    minHeight: 140,
+    borderRadius: 12,
+    backgroundColor: '#F2F2F7',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#111',
+    textAlignVertical: 'top',
+    marginBottom: 14,
+  },
+  primaryAction: {
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: 13,
+  },
+  primaryActionDisabled: {
+    opacity: 0.5,
+  },
+  primaryActionText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  imagePlaceholder: {
+    minHeight: 150,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    paddingHorizontal: 18,
+  },
+  imagePlaceholderText: {
+    color: '#8E8E93',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  imageAction: {
+    backgroundColor: '#FF9500',
+  },
+  cancelBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: 13,
+  },
+  cancelBtnText: {
+    color: '#007AFF',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  snackbar: {
+    position: 'absolute',
+    bottom: 24,
+    left: 20,
+    right: 20,
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  snackbarText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
