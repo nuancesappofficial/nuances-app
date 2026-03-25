@@ -17,19 +17,19 @@ import * as ImagePicker from 'expo-image-picker';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
-import ImageOCRViewer from '../components/ImageOCRViewer';
-import LocalAiKeywordSuggestions from '../components/LocalAiKeywordSuggestions';
-import ImageCropperModal from '../components/ImageCropperModal';
+import ImageOCRViewer from '../../../components/ImageOCRViewer';
+import LocalAiKeywordSuggestions from '../../../components/LocalAiKeywordSuggestions';
+import ImageCropperModal from '../../../components/ImageCropperModal';
 import {
   buildKeywordsWithSelectionMarker,
   extractKeywordText,
   parseSelectedBlockIndexes,
-} from '../services/ocr/selectionMarkers';
+} from '../../../services/ocr/selectionMarkers';
 import {
   getEffectiveLearningGoal,
   loadUserSettings,
-} from '../services/settings/userSettings';
-import { type OCRBlock } from '../services/ocr/ocrService';
+} from '../../../services/settings/userSettings';
+import { type OCRBlock } from '../../../services/ocr/ocrService';
 import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
 
 type Props = {

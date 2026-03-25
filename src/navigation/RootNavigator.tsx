@@ -9,15 +9,15 @@ import PagerView, {
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiquidTabBar as NativeLiquidTabBar } from 'liquid-tab-bar';
-import CacheListScreen from '../screens/CacheListScreen';
-import AddCacheItemScreen from '../screens/AddCacheItemScreen';
-import CreateCardScreen from '../screens/CreateCardScreen';
-import ReviewScreen from '../screens/ReviewScreen';
-import AlbumViewScreen from '../screens/AlbumViewScreen';
-import CardDetailScreen from '../screens/CardDetailScreen';
-import DayViewScreen from '../screens/DayViewScreen';
-import DeckScreen from '../screens/DeckScreen';
-import ProfilesScreen from '../screens/ProfilesScreen';
+import CacheScreenFlow from '../screens/flow/CacheScreenFlow';
+import AddCacheItemFlow from '../screens/flow/CacheScreenFlow/AddCacheItemFlow';
+import CreateCardFlow from '../screens/flow/CacheScreenFlow/CreateCardFlow';
+import ReviewFlow from '../screens/flow/DeckScreenFlow/ReviewFlow';
+import AlbumViewFlow from '../screens/flow/DeckScreenFlow/AlbumViewFlow';
+import CardDetailFlow from '../screens/flow/DeckScreenFlow/CardDetailFlow';
+import DayViewFlow from '../screens/flow/DeckScreenFlow/DayViewFlow';
+import DeckMainFlow from '../screens/flow/DeckScreenFlow/DeckMainFlow';
+import ProfileMainFlow from '../screens/flow/ProfileScreenFlow/ProfileMainFlow';
 import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
 
 const CacheStackNav = createNativeStackNavigator();
@@ -44,10 +44,10 @@ function CacheStack() {
     <NavigationIndependentTree>
       <NavigationContainer theme={APP_DARK_THEME}>
         <CacheStackNav.Navigator screenOptions={{ headerShown: false }}>
-          <CacheStackNav.Screen name="CacheList" component={CacheListScreen} />
+          <CacheStackNav.Screen name="CacheList" component={CacheScreenFlow} />
           <CacheStackNav.Screen
             name="AddCacheItem"
-            component={AddCacheItemScreen}
+            component={AddCacheItemFlow}
             options={({ route }) => {
               const quickFlow = Boolean(
                 (route as any)?.params?.autoOpenCropper ||
@@ -68,7 +68,7 @@ function CacheStack() {
           />
           <CacheStackNav.Screen
             name="CreateCard"
-            component={CreateCardScreen}
+            component={CreateCardFlow}
             options={{ presentation: 'modal' }}
           />
         </CacheStackNav.Navigator>
@@ -82,12 +82,12 @@ function CardsStack() {
     <NavigationIndependentTree>
       <NavigationContainer theme={APP_DARK_THEME}>
         <CardsStackNav.Navigator screenOptions={{ headerShown: false }}>
-          <CardsStackNav.Screen name="CardsList" component={DeckScreen} />
-          <CardsStackNav.Screen name="Deck" component={DeckScreen} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="AlbumView" component={AlbumViewScreen} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="CardDetail" component={CardDetailScreen} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="DayView" component={DayViewScreen} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="CardReview" component={ReviewScreen} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
+          <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="AlbumView" component={AlbumViewFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="CardDetail" component={CardDetailFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="DayView" component={DayViewFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="CardReview" component={ReviewFlow} options={{ presentation: 'card' }} />
         </CardsStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>
@@ -99,7 +99,7 @@ function ProfileStack() {
     <NavigationIndependentTree>
       <NavigationContainer theme={APP_DARK_THEME}>
         <ProfileStackNav.Navigator screenOptions={{ headerShown: false }}>
-          <ProfileStackNav.Screen name="ProfileHome" component={ProfilesScreen} />
+          <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
         </ProfileStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>

@@ -26,7 +26,7 @@ import {
   assessPronunciationCloud,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
-import { TabSwipeContext } from '../contexts/TabSwipeContext';
+import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 
 type Props = {
   navigation: any;
