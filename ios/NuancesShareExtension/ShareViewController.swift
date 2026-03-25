@@ -9,7 +9,8 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private let maxQueuedItems = 50
-    private let resultQueue = DispatchQueue(label: "com.jeffenglishlearning.nuances.shareextension.result")
+    private let resultLock = NSLock()
+    private let finishLock = NSLock()
     private var didFinish = false
 
     override func viewDidLoad() {
@@ -41,10 +42,11 @@ class ShareViewController: UIViewController {
             $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
         }
 
-        if !textAttachments.isEmpty {
-            handleTextShare(textAttachments)
-        } else if !imageAttachments.isEmpty {
+        // 某些來源會同時附帶 plainText，圖片必須優先處理避免被吃掉
+        if !imageAttachments.isEmpty {
             handleImageShare(imageAttachments)
+        } else if !textAttachments.isEmpty {
+            handleTextShare(textAttachments)
         } else {
             closeExtension()
         }
@@ -78,14 +80,14 @@ class ShareViewController: UIViewController {
 
                 let normalized = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !normalized.isEmpty {
-                    self.resultQueue.sync {
-                        processedTexts.append(normalized)
-                    }
+                    self.resultLock.lock()
+                    processedTexts.append(normalized)
+                    self.resultLock.unlock()
                 }
             }
         }
 
-        dispatchGroup.notify(queue: resultQueue) { [weak self] in
+        dispatchGroup.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
             if processedTexts.isEmpty {
                 self.closeExtension()
@@ -106,21 +108,12 @@ class ShareViewController: UIViewController {
 
         for attachment in limitedAttachments {
             dispatchGroup.enter()
-            attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] (data, error) in
+            loadImageData(from: attachment) { [weak self] (imageData, error) in
                 defer { dispatchGroup.leave() }
                 guard let self = self else { return }
                 if let error = error {
                     print("Error loading image: \(error)")
                     return
-                }
-
-                var imageData: Data?
-                if let url = data as? URL {
-                    imageData = try? Data(contentsOf: url)
-                } else if let image = data as? UIImage {
-                    imageData = image.jpegData(compressionQuality: 0.8)
-                } else if let dataObj = data as? Data {
-                    imageData = dataObj
                 }
 
                 guard let originalData = imageData,
@@ -131,14 +124,14 @@ class ShareViewController: UIViewController {
                 if let compressedImage = self.compressAndResizeImage(image),
                    let jpegData = compressedImage.jpegData(compressionQuality: 0.85),
                    let savedPath = self.saveImageToSharedContainer(jpegData) {
-                    self.resultQueue.sync {
-                        processedImages.append(savedPath)
-                    }
+                    self.resultLock.lock()
+                    processedImages.append(savedPath)
+                    self.resultLock.unlock()
                 }
             }
         }
 
-        dispatchGroup.notify(queue: resultQueue) { [weak self] in
+        dispatchGroup.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
             if !processedImages.isEmpty {
                 self.saveImagesToSharedStorage(processedImages)
@@ -147,6 +140,55 @@ class ShareViewController: UIViewController {
             } else {
                 self.closeExtension()
             }
+        }
+    }
+
+    private func loadImageData(from provider: NSItemProvider, completion: @escaping (Data?, Error?) -> Void) {
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { object, error in
+                if let image = object as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
+                    completion(data, nil)
+                    return
+                }
+                if let error = error {
+                    completion(nil, error)
+                } else {
+                    completion(nil, NSError(domain: "ShareExtension", code: -2, userInfo: [NSLocalizedDescriptionKey: "Unable to load UIImage"]))
+                }
+            }
+            return
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
+                guard let url = url else {
+                    completion(nil, error ?? NSError(domain: "ShareExtension", code: -3, userInfo: [NSLocalizedDescriptionKey: "Missing file URL"]))
+                    return
+                }
+                do {
+                    let data = try Data(contentsOf: url)
+                    completion(data, nil)
+                } catch {
+                    completion(nil, error)
+                }
+            }
+            return
+        }
+
+        provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, error in
+            if let url = item as? URL, let data = try? Data(contentsOf: url) {
+                completion(data, nil)
+                return
+            }
+            if let image = item as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
+                completion(data, nil)
+                return
+            }
+            if let data = item as? Data {
+                completion(data, nil)
+                return
+            }
+            completion(nil, error ?? NSError(domain: "ShareExtension", code: -4, userInfo: [NSLocalizedDescriptionKey: "Unsupported image payload"]))
         }
     }
 
@@ -238,10 +280,13 @@ class ShareViewController: UIViewController {
     }
 
     private func closeExtension() {
-        resultQueue.sync {
-            if didFinish { return }
-            didFinish = true
+        finishLock.lock()
+        if didFinish {
+            finishLock.unlock()
+            return
         }
+        didFinish = true
+        finishLock.unlock()
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
