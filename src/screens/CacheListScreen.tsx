@@ -15,8 +15,9 @@ import {
   Modal,
   Pressable,
   PanResponder,
+  Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -34,6 +35,7 @@ import SubscriptionService from '@services/subscription/SubscriptionService';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
 import { TabSwipeContext } from '../contexts/TabSwipeContext';
 import ImageCropperModal from '../components/ImageCropperModal';
+import Card from '../components/Card';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): unknown[] {
@@ -57,7 +59,6 @@ const CREATE_CARD_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FREE_CACHE_ITEM_LIMIT = 10;
 const FREE_CACHE_TTL_MS = 10 * 60 * 1000;
 const PREMIUM_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const STACK_CARD_HEIGHT = 340;
 const STACK_OFFSETS = [
   { y: 0, scale: 1, opacity: 1 },
   { y: 24, scale: 0.96, opacity: 0.72 },
@@ -65,7 +66,8 @@ const STACK_OFFSETS = [
   { y: 72, scale: 0.88, opacity: 0.25 },
 ];
 const MAX_VISIBLE_STACK = 4;
-const SWIPE_THRESHOLD = 92;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH - 32;
 
 function getDisplayExpiry(item: CachedItem, isPremiumUser: boolean): number {
   const expiresAt = item.expiresAt ? new Date(item.expiresAt).getTime() : NaN;
@@ -155,6 +157,7 @@ function HighlightedText({ text, keyword, style }: { text: string; keyword: stri
 }
 
 export default function CacheListScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
@@ -191,6 +194,13 @@ export default function CacheListScreen({ navigation }: Props) {
   const stackAreaRef = React.useRef<View | null>(null);
   const quickCameraRef = React.useRef<CameraView | null>(null);
   const [quickCameraPermission, requestQuickCameraPermission] = useCameraPermissions();
+  const CONDENSED_HEADER_HEIGHT = 100;
+  const TABBAR_HEIGHT = 64;
+  const CARD_BOTTOM_OFFSET = TABBAR_HEIGHT + Math.max(insets.bottom, 8) + 20;
+  const CARD_HEIGHT = Math.max(280, SCREEN_HEIGHT - CONDENSED_HEADER_HEIGHT - TABBAR_HEIGHT - insets.bottom - 40);
+  const SWIPE_THRESHOLD = Math.max(92, CARD_WIDTH * 0.24);
+  const CARD_EXIT_X = CARD_WIDTH + 120;
+  const ROTATION_RANGE = Math.min(260, CARD_WIDTH * 0.55);
 
   const displayItems = React.useMemo(() => {
     return [...cachedItems].sort((a, b) => {
@@ -202,6 +212,7 @@ export default function CacheListScreen({ navigation }: Props) {
 
   const topCard = displayItems[0];
   const visibleStack = React.useMemo(() => displayItems.slice(0, MAX_VISIBLE_STACK), [displayItems]);
+  const usageText = `${cachedItems.length}/${isPremiumUser ? '∞' : FREE_CACHE_ITEM_LIMIT}`;
 
   const triggerLightHaptic = React.useCallback(() => {
     void Haptics.selectionAsync();
@@ -332,26 +343,6 @@ export default function CacheListScreen({ navigation }: Props) {
     },
     [showSnackbar]
   );
-
-  const handlePastePress = React.useCallback(() => {
-    if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
-      Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
-        { text: '稍後', style: 'cancel' },
-        {
-          text: '前往設定',
-          onPress: () => {
-            if (tabSwipeContext) {
-              tabSwipeContext.goToTab(2);
-              return;
-            }
-            navigation.navigate('Profile');
-          },
-        },
-      ]);
-      return;
-    }
-    void checkClipboard(true);
-  }, [cachedItems.length, checkClipboard, isPremiumUser, navigation, tabSwipeContext]);
 
   const openAddModal = React.useCallback(() => {
     if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
@@ -563,35 +554,6 @@ export default function CacheListScreen({ navigation }: Props) {
     [runSync, showSnackbar]
   );
 
-  const handleClearCache = async () => {
-    if (!cachedItems || cachedItems.length === 0) {
-      Alert.alert('沒有可清除的快取', '目前快取列表是空的。');
-      return;
-    }
-
-    Alert.alert('清除全部快取', `確定要清除目前 ${cachedItems.length} 筆快取嗎？此動作無法復原。`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '清除',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await database.write(async () => {
-              for (const item of cachedItems) {
-                await item.markAsDeleted();
-              }
-            });
-            showSnackbar('已清除全部快取');
-            void runSync(false);
-          } catch (error) {
-            console.error('[CacheList] clear cache failed:', error);
-            Alert.alert('錯誤', '清除快取失敗，請稍後再試。');
-          }
-        },
-      },
-    ]);
-  };
-
   const handleQuickAddText = React.useCallback(async () => {
     const trimmed = manualText.trim();
     if (!trimmed) return;
@@ -715,6 +677,39 @@ export default function CacheListScreen({ navigation }: Props) {
     }
   }, [navigation]);
 
+  const runTopCardAction = React.useCallback(
+    (item: CachedItem, direction: 'left' | 'right') => {
+      setSwipeDecision(direction);
+      triggerLightHaptic();
+      const exitX = direction === 'right' ? CARD_EXIT_X : -CARD_EXIT_X;
+
+      Animated.parallel([
+        Animated.timing(dragX, { toValue: exitX, duration: 220, useNativeDriver: true }),
+        Animated.timing(dragY, { toValue: 0, duration: 220, useNativeDriver: true }),
+      ]).start(() => {
+        dragX.setValue(0);
+        dragY.setValue(0);
+        setSwipeDecision(null);
+        if (direction === 'right') {
+          void handleOpenCachedItem(item);
+          return;
+        }
+        void deleteItemSilently(item);
+      });
+    },
+    [CARD_EXIT_X, deleteItemSilently, dragX, dragY, handleOpenCachedItem, triggerLightHaptic]
+  );
+
+  const handleSkipTopCard = React.useCallback(() => {
+    if (!topCard) return;
+    runTopCardAction(topCard, 'left');
+  }, [runTopCardAction, topCard]);
+
+  const handleCreateTopCard = React.useCallback(() => {
+    if (!topCard) return;
+    runTopCardAction(topCard, 'right');
+  }, [runTopCardAction, topCard]);
+
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -756,32 +751,12 @@ export default function CacheListScreen({ navigation }: Props) {
           }
 
           if (gestureState.dx > SWIPE_THRESHOLD && topCard) {
-            setSwipeDecision('right');
-            triggerLightHaptic();
-            Animated.parallel([
-              Animated.timing(dragX, { toValue: 480, duration: 220, useNativeDriver: true }),
-              Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
-            ]).start(() => {
-              dragX.setValue(0);
-              dragY.setValue(0);
-              setSwipeDecision(null);
-              void handleOpenCachedItem(topCard);
-            });
+            runTopCardAction(topCard, 'right');
             return;
           }
 
           if (gestureState.dx < -SWIPE_THRESHOLD && topCard) {
-            setSwipeDecision('left');
-            triggerLightHaptic();
-            Animated.parallel([
-              Animated.timing(dragX, { toValue: -480, duration: 220, useNativeDriver: true }),
-              Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
-            ]).start(() => {
-              dragX.setValue(0);
-              dragY.setValue(0);
-              setSwipeDecision(null);
-              void deleteItemSilently(topCard);
-            });
+            runTopCardAction(topCard, 'left');
             return;
           }
 
@@ -802,7 +777,7 @@ export default function CacheListScreen({ navigation }: Props) {
           Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
         },
       }),
-    [deleteItemSilently, dragX, dragY, handleOpenCachedItem, tabSwipeContext, topCard, triggerLightHaptic]
+    [dragX, dragY, runTopCardAction, SWIPE_THRESHOLD, tabSwipeContext, topCard]
   );
 
   React.useEffect(
@@ -817,7 +792,7 @@ export default function CacheListScreen({ navigation }: Props) {
   );
 
   const rotation = dragX.interpolate({
-    inputRange: [-220, 0, 220],
+    inputRange: [-ROTATION_RANGE, 0, ROTATION_RANGE],
     outputRange: ['-11deg', '0deg', '11deg'],
     extrapolate: 'clamp',
   });
@@ -891,145 +866,87 @@ export default function CacheListScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View
-        style={[
-          styles.usageBanner,
-          !isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT && styles.usageBannerWarning,
-        ]}
-      >
-        <Text style={styles.usageBannerText}>
-          Cache 使用量：{cachedItems.length}/{isPremiumUser ? '∞' : FREE_CACHE_ITEM_LIMIT}
-        </Text>
-      </View>
-
       {!gridView ? (
-        <>
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>Cache</Text>
-              <Text style={styles.headerSubtitle}>{displayItems.length} items waiting</Text>
-            </View>
-            <View style={styles.headerActions}>
-              {clipboardMode === 'passive' && (
-                <TouchableOpacity style={styles.pasteButton} onPress={handlePastePress}>
-                  <Text style={styles.pasteButtonText}>貼上</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity style={styles.clearCacheButton} onPress={() => void handleClearCache()}>
-                <Text style={styles.clearCacheButtonText}>Clear</Text>
-              </TouchableOpacity>
+        <View style={styles.stackScreen}>
+          <View style={styles.minimalHeader}>
+            <Text style={styles.minimalHeaderTitle}>Cache</Text>
+            <View style={styles.minimalHeaderPill}>
+              <Text style={styles.minimalHeaderPillText}>{usageText}</Text>
             </View>
           </View>
+          {displayItems.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>📦</Text>
+              <Text style={styles.emptyTitle}>Cache is empty</Text>
+              <Text style={styles.emptyText}>從其他 App 分享或使用右上角新增，開始建立詞彙卡片。</Text>
+            </View>
+          ) : (
+            <View style={styles.stackCenterContainer}>
+              <View
+                ref={stackAreaRef}
+                style={[
+                  styles.stackArea,
+                  { width: CARD_WIDTH, height: CARD_HEIGHT, alignSelf: 'center', bottom: CARD_BOTTOM_OFFSET },
+                ]}
+                onLayout={() => {
+                  requestAnimationFrame(updateSwipeExclusionRange);
+                }}
+              >
+                {visibleStack
+                  .slice(1)
+                  .reverse()
+                  .map((item, revIdx) => {
+                    const idx = visibleStack.slice(1).length - 1 - revIdx + 1;
+                    const offset = STACK_OFFSETS[Math.min(idx, STACK_OFFSETS.length - 1)];
+                    return (
+                      <View
+                        key={item.id}
+                        style={[
+                          styles.backCard,
+                          {
+                            top: offset.y,
+                            transform: [{ scale: offset.scale }],
+                            opacity: offset.opacity,
+                            zIndex: visibleStack.length - idx,
+                            width: CARD_WIDTH,
+                            height: CARD_HEIGHT,
+                          },
+                        ]}
+                      />
+                    );
+                  })}
 
-          <ScrollView
-            scrollEnabled={displayItems.length === 0 && !isDragging}
-            contentContainerStyle={styles.stackScrollContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          >
-            {displayItems.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyIcon}>📦</Text>
-                <Text style={styles.emptyTitle}>Cache is empty</Text>
-                <Text style={styles.emptyText}>從其他 App 分享或使用右上角新增，開始建立詞彙卡片。</Text>
+                {topCard && (
+                  <Card
+                    panHandlers={panResponder.panHandlers}
+                    width={CARD_WIDTH}
+                    height={CARD_HEIGHT}
+                    swipeDecision={swipeDecision}
+                    sourceText={topCard.sourceApp || topCard.contentType.toUpperCase()}
+                    timeText={formatRelativeTime(topCard.createdAt)}
+                    suggestedText={getSuggested(topCard)}
+                    expiryText={`⏳ ${formatRemainingTime(getDisplayExpiry(topCard, isPremiumUser), nowTs)}`}
+                    isExpired={Date.now() > getDisplayExpiry(topCard, isPremiumUser)}
+                    imageUri={topCard.contentType === 'image' ? topCard.imageStoragePath : null}
+                    onSkipPress={handleSkipTopCard}
+                    onCreatePress={handleCreateTopCard}
+                    animatedStyle={{
+                      transform: [{ translateX: dragX }, { translateY: dragY }, { rotate: rotation }],
+                      shadowOpacity: isDragging ? 0.22 : 0.1,
+                    }}
+                    content={
+                      <HighlightedText
+                        text={getPrimaryText(topCard)}
+                        keyword={getSuggested(topCard)}
+                        style={styles.topCardText}
+                      />
+                    }
+                  />
+                )}
               </View>
-            ) : (
-              <>
-                <View style={styles.swipeHints}>
-                  <View style={[styles.swipeBadge, styles.swipeBadgeLeft, swipeDecision === 'left' && styles.swipeBadgeActive]}>
-                    <Text style={styles.swipeBadgeTextLeft}>Skip</Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.swipeBadge,
-                      styles.swipeBadgeRight,
-                      swipeDecision === 'right' && styles.swipeBadgeActive,
-                    ]}
-                  >
-                    <Text style={styles.swipeBadgeTextRight}>Create</Text>
-                  </View>
-                </View>
-
-                <View
-                  ref={stackAreaRef}
-                  style={styles.stackArea}
-                  onLayout={() => {
-                    requestAnimationFrame(updateSwipeExclusionRange);
-                  }}
-                >
-                  {visibleStack
-                    .slice(1)
-                    .reverse()
-                    .map((item, revIdx) => {
-                      const idx = visibleStack.slice(1).length - 1 - revIdx + 1;
-                      const offset = STACK_OFFSETS[Math.min(idx, STACK_OFFSETS.length - 1)];
-                      return (
-                        <View
-                          key={item.id}
-                          style={[
-                            styles.backCard,
-                            {
-                              top: offset.y,
-                              transform: [{ scale: offset.scale }],
-                              opacity: offset.opacity,
-                              zIndex: visibleStack.length - idx,
-                            },
-                          ]}
-                        />
-                      );
-                    })}
-
-                  {displayItems.length > 1 && (
-                    <View style={styles.stackCountBadgeWrap} pointerEvents="none">
-                      <View style={styles.stackCountBadge}>
-                        <Text style={styles.stackCountText}>{displayItems.length} cards</Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {topCard && (
-                    <Animated.View
-                      {...panResponder.panHandlers}
-                      style={[
-                        styles.topCard,
-                        {
-                          transform: [{ translateX: dragX }, { translateY: dragY }, { rotate: rotation }],
-                          shadowOpacity: isDragging ? 0.22 : 0.1,
-                        },
-                      ]}
-                    >
-                      <View style={styles.topCardHeader}>
-                        <Text style={styles.topCardSource}>{topCard.sourceApp || topCard.contentType.toUpperCase()}</Text>
-                        <Text style={styles.topCardTime}>{formatRelativeTime(topCard.createdAt)}</Text>
-                      </View>
-
-                      {topCard.contentType === 'image' && topCard.imageStoragePath ? (
-                        <Image source={{ uri: topCard.imageStoragePath }} style={styles.topCardImage} resizeMode="cover" />
-                      ) : null}
-
-                      <View style={styles.topCardBody}>
-                        <HighlightedText
-                          text={getPrimaryText(topCard)}
-                          keyword={getSuggested(topCard)}
-                          style={styles.topCardText}
-                        />
-                      </View>
-
-                      <View style={styles.topCardFooter}>
-                        <Text style={styles.topCardSuggestion}>AI suggests: "{getSuggested(topCard)}"</Text>
-                        <Text style={styles.topCardExpiry}>
-                          ⏳ {formatRemainingTime(getDisplayExpiry(topCard, isPremiumUser), nowTs)}
-                        </Text>
-                      </View>
-                    </Animated.View>
-                  )}
-                </View>
-                <TouchableOpacity style={styles.allCacheBtn} onPress={() => setGridView(true)}>
-                  <Text style={styles.allCacheBtnText}>View All Cache</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </ScrollView>
-        </>
+            </View>
+          )}
+        </View>
       ) : (
         <View style={styles.gridViewContainer}>
           <View style={styles.gridHeader}>
@@ -1206,96 +1123,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F7F9',
   },
-  usageBanner: {
-    backgroundColor: '#e8f5e9',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#c8e6c9',
+  stackScreen: {
+    flex: 1,
   },
-  usageBannerWarning: {
-    backgroundColor: '#ffebee',
-    borderBottomColor: '#ffcdd2',
-  },
-  usageBannerText: {
-    fontSize: 12,
-    color: '#2e7d32',
-    fontWeight: '600',
-  },
-  header: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECF0',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
+  minimalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 40,
   },
-  headerTitle: {
-    fontSize: 24,
+  minimalHeaderTitle: {
+    fontSize: 18,
     fontWeight: '700',
-    color: '#0D0D0D',
+    color: '#111111',
   },
-  headerSubtitle: {
-    marginTop: 2,
-    fontSize: 13,
-    color: '#9A9AAA',
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  pasteButton: {
-    backgroundColor: '#F2F2F5',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  pasteButtonText: {
-    fontSize: 13,
-    color: '#202020',
-    fontWeight: '600',
-  },
-  clearCacheButton: {
-    backgroundColor: '#F2F2F5',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  clearCacheButtonText: {
-    fontSize: 13,
-    color: '#202020',
-    fontWeight: '600',
-  },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#0D0D0D',
+  minimalHeaderPill: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '600',
-    marginTop: -1,
+  minimalHeaderPillText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  stackScrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 30,
-    paddingBottom: 40,
-    flexGrow: 1,
+  stackCenterContainer: {
+    flex: 1,
+    alignItems: 'center',
   },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 120,
     paddingHorizontal: 28,
+    paddingBottom: 110,
   },
   emptyIcon: {
     fontSize: 40,
@@ -1313,113 +1178,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  swipeHints: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    paddingHorizontal: 4,
-  },
-  swipeBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    opacity: 0.4,
-  },
-  swipeBadgeLeft: {
-    backgroundColor: '#FFEEEE',
-  },
-  swipeBadgeRight: {
-    backgroundColor: '#E7FAEF',
-  },
-  swipeBadgeActive: {
-    opacity: 1,
-  },
-  swipeBadgeTextLeft: {
-    color: '#CC3333',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  swipeBadgeTextRight: {
-    color: '#17823A',
-    fontSize: 12,
-    fontWeight: '700',
-  },
   stackArea: {
-    height: STACK_CARD_HEIGHT + STACK_OFFSETS[STACK_OFFSETS.length - 1].y + 60,
-    position: 'relative',
+    position: 'absolute',
   },
   backCard: {
     position: 'absolute',
     left: 0,
-    right: 0,
-    height: STACK_CARD_HEIGHT,
     borderRadius: 24,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
-  },
-  stackCountBadgeWrap: {
-    position: 'absolute',
-    bottom: 8,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 8,
-  },
-  stackCountBadge: {
-    backgroundColor: '#0D0D0D',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  stackCountText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  topCard: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: STACK_CARD_HEIGHT,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    zIndex: 20,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 22,
-    elevation: 8,
-  },
-  topCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  topCardSource: {
-    fontSize: 11,
-    color: '#85859A',
-    backgroundColor: '#F2F2F5',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontWeight: '600',
-    maxWidth: '65%',
-  },
-  topCardTime: {
-    fontSize: 11,
-    color: '#B0B0BE',
-  },
-  topCardImage: {
-    width: '100%',
-    height: 120,
-    borderRadius: 14,
-    marginBottom: 12,
-  },
-  topCardBody: {
-    flex: 1,
   },
   topCardText: {
     fontSize: 17,
@@ -1431,37 +1199,6 @@ const styles = StyleSheet.create({
     color: '#1A6FC4',
     fontWeight: '700',
     borderRadius: 4,
-  },
-  topCardFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#F2F2F5',
-    paddingTop: 12,
-    marginTop: 10,
-    gap: 4,
-  },
-  topCardSuggestion: {
-    color: '#9A7FCC',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  topCardExpiry: {
-    color: '#9A9AAA',
-    fontSize: 12,
-  },
-  allCacheBtn: {
-    marginTop: 12,
-    alignSelf: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E7E7EE',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  allCacheBtnText: {
-    color: '#3A3A45',
-    fontSize: 13,
-    fontWeight: '600',
   },
   gridViewContainer: {
     flex: 1,
