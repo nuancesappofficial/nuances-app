@@ -92,8 +92,9 @@ const styles = StyleSheet.create({
     padding: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
     shadowRadius: 22,
-    elevation: 8,
+    elevation: 10,
   },
   actionRow: {
     flexDirection: 'row',
