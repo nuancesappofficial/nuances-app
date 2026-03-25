@@ -48,6 +48,11 @@ yarn-error.*
 *.swo
 *~
 
+# Local agent / tooling artifacts
+.codex/
+__pycache__/
+*.pyc
+
 # Logs
 logs/
 *.log
