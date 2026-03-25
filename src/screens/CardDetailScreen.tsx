@@ -26,6 +26,7 @@ import {
   assessPronunciationCloud,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
+import { TabSwipeContext } from '../contexts/TabSwipeContext';
 
 type Props = {
   navigation: any;
@@ -93,6 +94,7 @@ function buildPronunciation(word: string): string {
 }
 
 export default function CardDetailScreen({ navigation, route }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
   const cardId = route.params?.cardId;
   const [card, setCard] = React.useState<Card | null>(null);
   const [cachedItem, setCachedItem] = React.useState<CachedItem | null>(null);
@@ -251,7 +253,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       if (!quota.allowed) {
         Alert.alert('今日免費額度已用完', '升級 Premium 解鎖無限次精準發音糾正。', [
           { text: '稍後', style: 'cancel' },
-          { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+          {
+            text: '前往設定',
+            onPress: () => {
+              if (tabSwipeContext) {
+                tabSwipeContext.goToTab(2);
+                return;
+              }
+              navigation.navigate('Profile');
+            },
+          },
         ]);
         return;
       }

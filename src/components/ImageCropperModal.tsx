@@ -31,6 +31,8 @@ type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 type Props = {
   visible: boolean;
   imageUri: string | null;
+  initialImageSize?: Size | null;
+  modalAnimationType?: 'none' | 'slide' | 'fade';
   onCancel: () => void;
   onConfirm: (croppedUri: string) => void;
 };
@@ -39,10 +41,13 @@ const MIN_EDGE = 60;
 const HANDLE_SIZE = 24;
 const HANDLE_HITBOX_SIZE = 44;
 const EDGE_HITBOX_SIZE = 28;
+const MOVE_HITBOX_INSET = 20;
 
 export default function ImageCropperModal({
   visible,
   imageUri,
+  initialImageSize,
+  modalAnimationType = 'slide',
   onCancel,
   onConfirm,
 }: Props) {
@@ -63,6 +68,10 @@ export default function ImageCropperModal({
 
   React.useEffect(() => {
     if (!visible || !imageUri) return;
+    if (initialImageSize && initialImageSize.width > 0 && initialImageSize.height > 0) {
+      setImageSize(initialImageSize);
+      return;
+    }
 
     Image.getSize(
       imageUri,
@@ -72,7 +81,7 @@ export default function ImageCropperModal({
         onCancel();
       }
     );
-  }, [visible, imageUri, onCancel]);
+  }, [visible, imageUri, initialImageSize, onCancel]);
 
   const displayMetrics = React.useMemo(() => {
     if (!imageSize || !containerSize.width || !containerSize.height) return null;
@@ -285,6 +294,40 @@ export default function ImageCropperModal({
   const bottomEdgeResponder = React.useRef(createEdgeResponder('bottom')).current;
   const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
 
+  const moveRectResponder = React.useRef(
+    (() => {
+      let startRect: Rect | null = null;
+      return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderGrant: () => {
+          showGrid();
+          startRect = cropRectRef.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          showGrid();
+          const metrics = displayMetricsRef.current;
+          if (!metrics || !startRect) return;
+
+          const maxX = Math.max(0, metrics.width - startRect.width);
+          const maxY = Math.max(0, metrics.height - startRect.height);
+          const x = clamp(startRect.x + gestureState.dx, 0, maxX);
+          const y = clamp(startRect.y + gestureState.dy, 0, maxY);
+          setCropRect({
+            x,
+            y,
+            width: startRect.width,
+            height: startRect.height,
+          });
+        },
+        onPanResponderRelease: scheduleGridFade,
+        onPanResponderTerminate: scheduleGridFade,
+      });
+    })()
+  ).current;
+
   const handleConfirm = React.useCallback(async () => {
     if (!imageUri || !cropRect || !imageSize || !displayMetrics) return;
 
@@ -311,7 +354,12 @@ export default function ImageCropperModal({
   }, [cropRect, displayMetrics, imageSize, imageUri, onConfirm]);
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      animationType={modalAnimationType}
+      presentationStyle="overFullScreen"
+      onRequestClose={onCancel}
+    >
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onCancel} style={styles.headerButton} disabled={processing}>
@@ -399,6 +447,18 @@ export default function ImageCropperModal({
                     height: cropRect.height,
                   },
                 ]}
+              />
+              <View
+                style={[
+                  styles.moveHitbox,
+                  {
+                    left: displayMetrics.left + cropRect.x + MOVE_HITBOX_INSET,
+                    top: displayMetrics.top + cropRect.y + MOVE_HITBOX_INSET,
+                    width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
+                    height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
+                  },
+                ]}
+                {...moveRectResponder.panHandlers}
               />
               <Animated.View
                 pointerEvents="none"
@@ -620,6 +680,11 @@ const styles = StyleSheet.create({
     width: EDGE_HITBOX_SIZE,
     zIndex: 15,
     elevation: 15,
+  },
+  moveHitbox: {
+    position: 'absolute',
+    zIndex: 12,
+    elevation: 12,
   },
   loadingContainer: {
     flex: 1,

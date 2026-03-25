@@ -40,6 +40,7 @@ import {
   type CloudPhonemeFeedback,
   type CloudWordFeedback,
 } from '../services/pronunciation/cloudCoach';
+import { TabSwipeContext } from '../contexts/TabSwipeContext';
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
   android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
@@ -238,6 +239,7 @@ function WaveformStrip({
 const PRONUNCIATION_HINT_THRESHOLD = 90;
 
 export default function CardReviewScreen({ navigation, route }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
   const params = route.params as {
     card?: Card;
     cardId?: string;
@@ -476,7 +478,16 @@ export default function CardReviewScreen({ navigation, route }: Props) {
           '升級 Premium 解鎖無限次精準發音糾正。',
           [
             { text: '稍後', style: 'cancel' },
-            { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+            {
+              text: '前往設定',
+              onPress: () => {
+                if (tabSwipeContext) {
+                  tabSwipeContext.goToTab(2);
+                  return;
+                }
+                navigation.navigate('Profile');
+              },
+            },
           ]
         );
         return;

@@ -15,12 +15,14 @@ import {
   Modal,
   Pressable,
   PanResponder,
-  Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { Q } from '@nozbe/watermelondb';
@@ -30,6 +32,8 @@ import { getSyncErrorMessage, syncWithRetry } from '@services/sync';
 import { loadUserSettings } from '@services/settings/userSettings';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
+import { TabSwipeContext } from '../contexts/TabSwipeContext';
+import ImageCropperModal from '../components/ImageCropperModal';
 
 /** WatermelonDB @json 讀出時可能已是陣列，避免對陣列做 JSON.parse 導致閃退 */
 function getAnnotationsArray(val: unknown): unknown[] {
@@ -151,6 +155,7 @@ function HighlightedText({ text, keyword, style }: { text: string; keyword: stri
 }
 
 export default function CacheListScreen({ navigation }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
   const [refreshing, setRefreshing] = React.useState(false);
   const [cachedItems, setCachedItems] = React.useState<CachedItem[]>([]);
   const [isPremiumUser, setIsPremiumUser] = React.useState(false);
@@ -160,6 +165,14 @@ export default function CacheListScreen({ navigation }: Props) {
   const [showAddModal, setShowAddModal] = React.useState(false);
   const [addTab, setAddTab] = React.useState<'text' | 'image'>('text');
   const [manualText, setManualText] = React.useState('');
+  const [creatingImage, setCreatingImage] = React.useState(false);
+  const [showQuickCamera, setShowQuickCamera] = React.useState(false);
+  const [quickCameraFacing, setQuickCameraFacing] = React.useState<CameraType>('back');
+  const [showUploadCropper, setShowUploadCropper] = React.useState(false);
+  const [pendingOriginalImageUri, setPendingOriginalImageUri] = React.useState<string | null>(null);
+  const [pendingOriginalImageSize, setPendingOriginalImageSize] = React.useState<{ width: number; height: number } | null>(null);
+  const [pendingOpenCropperAfterAddDismiss, setPendingOpenCropperAfterAddDismiss] = React.useState(false);
+  const [suppressAddModalAnimation, setSuppressAddModalAnimation] = React.useState(false);
   const [gridView, setGridView] = React.useState(false);
   const snackbarOpacity = React.useRef(new Animated.Value(0)).current;
   const lastProcessedClipboard = React.useRef<string>('');
@@ -175,7 +188,9 @@ export default function CacheListScreen({ navigation }: Props) {
   const dragY = React.useRef(new Animated.Value(0)).current;
   const [isDragging, setIsDragging] = React.useState(false);
   const [swipeDecision, setSwipeDecision] = React.useState<null | 'left' | 'right'>(null);
-  const lastHapticDecision = React.useRef<null | 'left' | 'right'>(null);
+  const stackAreaRef = React.useRef<View | null>(null);
+  const quickCameraRef = React.useRef<CameraView | null>(null);
+  const [quickCameraPermission, requestQuickCameraPermission] = useCameraPermissions();
 
   const displayItems = React.useMemo(() => {
     return [...cachedItems].sort((a, b) => {
@@ -188,8 +203,8 @@ export default function CacheListScreen({ navigation }: Props) {
   const topCard = displayItems[0];
   const visibleStack = React.useMemo(() => displayItems.slice(0, MAX_VISIBLE_STACK), [displayItems]);
 
-  const triggerHaptic = React.useCallback((ms = 12) => {
-    Vibration.vibrate(ms);
+  const triggerLightHaptic = React.useCallback(() => {
+    void Haptics.selectionAsync();
   }, []);
 
   const hasValidCreateCardDraft = React.useCallback(async (item: CachedItem): Promise<boolean> => {
@@ -213,7 +228,13 @@ export default function CacheListScreen({ navigation }: Props) {
           { text: '稍後', style: 'cancel' },
           {
             text: '前往設定',
-            onPress: () => navigation.navigate('Settings'),
+            onPress: () => {
+              if (tabSwipeContext) {
+                tabSwipeContext.goToTab(2);
+                return;
+              }
+              navigation.navigate('Profile');
+            },
           },
         ]);
         return;
@@ -226,10 +247,7 @@ export default function CacheListScreen({ navigation }: Props) {
       }
 
       if (item.contentType === 'image') {
-        navigation.navigate('AddCacheItem', {
-          cachedItem: item,
-          openCropOnLoad: false,
-        });
+        navigation.navigate('CreateCard', { cachedItem: item });
         return;
       }
 
@@ -319,12 +337,41 @@ export default function CacheListScreen({ navigation }: Props) {
     if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
       Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
         { text: '稍後', style: 'cancel' },
-        { text: '前往設定', onPress: () => navigation.navigate('Settings') },
+        {
+          text: '前往設定',
+          onPress: () => {
+            if (tabSwipeContext) {
+              tabSwipeContext.goToTab(2);
+              return;
+            }
+            navigation.navigate('Profile');
+          },
+        },
       ]);
       return;
     }
     void checkClipboard(true);
-  }, [cachedItems.length, checkClipboard, isPremiumUser, navigation]);
+  }, [cachedItems.length, checkClipboard, isPremiumUser, navigation, tabSwipeContext]);
+
+  const openAddModal = React.useCallback(() => {
+    if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
+      Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
+        { text: '稍後', style: 'cancel' },
+        {
+          text: '前往設定',
+          onPress: () => {
+            if (tabSwipeContext) {
+              tabSwipeContext.goToTab(2);
+              return;
+            }
+            navigation.navigate('Profile');
+          },
+        },
+      ]);
+      return;
+    }
+    setShowAddModal(true);
+  }, [cachedItems.length, isPremiumUser, navigation, tabSwipeContext]);
 
   const tryShowShareSnackbar = React.useCallback(() => {
     const message = consumeShareSnackbar();
@@ -336,6 +383,14 @@ export default function CacheListScreen({ navigation }: Props) {
     const message = consumeShareSnackbar();
     if (message) showSnackbar(message);
   }, [consumeShareSnackbar, showSnackbar, snackbarSignal]);
+
+  React.useEffect(() => {
+    if (!tabSwipeContext) return;
+    tabSwipeContext.setCacheAddActionHandler(openAddModal);
+    return () => {
+      tabSwipeContext.setCacheAddActionHandler(null);
+    };
+  }, [openAddModal, tabSwipeContext]);
 
   const runSync = React.useCallback(async (interactive: boolean): Promise<boolean> => {
     if (isSyncing.current) return false;
@@ -563,31 +618,133 @@ export default function CacheListScreen({ navigation }: Props) {
     }
   }, [manualText, showSnackbar]);
 
+  const handleUploadImageDirect = React.useCallback(async () => {
+    try {
+      setCreatingImage(true);
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('需要相簿權限', '請允許相簿權限後再上傳圖片。');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const picked = result.assets[0];
+      setPendingOriginalImageUri(picked.uri);
+      setPendingOriginalImageSize(
+        typeof picked.width === 'number' && typeof picked.height === 'number'
+          ? { width: picked.width, height: picked.height }
+          : null
+      );
+      setPendingOpenCropperAfterAddDismiss(true);
+      setSuppressAddModalAnimation(true);
+      setShowAddModal(false);
+    } catch (error) {
+      console.error('[CacheList] upload picker failed:', error);
+      Alert.alert('圖片選擇失敗', '無法開啟相簿，請稍後再試。');
+    } finally {
+      setCreatingImage(false);
+    }
+  }, [navigation]);
+
+  const handleUploadCropCancel = React.useCallback(() => {
+    setShowUploadCropper(false);
+    setPendingOriginalImageUri(null);
+    setPendingOriginalImageSize(null);
+    setAddTab('image');
+    setShowAddModal(true);
+  }, []);
+
+  const handleUploadCropConfirm = React.useCallback(
+    (croppedUri: string) => {
+      const originalUri = pendingOriginalImageUri;
+      setShowUploadCropper(false);
+      setPendingOriginalImageUri(null);
+      setPendingOriginalImageSize(null);
+      navigation.navigate('AddCacheItem', {
+        startMode: 'library',
+        initialImageUri: croppedUri,
+        originalImageUri: originalUri,
+        openOcrOnLoad: true,
+      });
+    },
+    [navigation, pendingOriginalImageUri]
+  );
+
+  const handleCaptureImage = React.useCallback(async () => {
+    if (!quickCameraPermission?.granted) {
+      const permission = await requestQuickCameraPermission();
+      if (!permission.granted) {
+        Alert.alert('需要相機權限', '請允許相機權限後再拍照。');
+        return;
+      }
+    }
+    setShowQuickCamera(true);
+  }, [quickCameraPermission?.granted, requestQuickCameraPermission]);
+
+  const closeQuickCamera = React.useCallback(() => {
+    setShowQuickCamera(false);
+  }, []);
+
+  const toggleQuickCameraFacing = React.useCallback(() => {
+    setQuickCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+  }, []);
+
+  const captureQuickPhoto = React.useCallback(async () => {
+    try {
+      const photo = await quickCameraRef.current?.takePictureAsync({ quality: 0.9 });
+      if (!photo?.uri) {
+        Alert.alert('拍照失敗', '請再試一次');
+        return;
+      }
+      setShowQuickCamera(false);
+      setShowAddModal(false);
+      navigation.navigate('AddCacheItem', {
+        startMode: 'library',
+        initialImageUri: photo.uri,
+        originalImageUri: photo.uri,
+        autoOpenCropper: true,
+      });
+    } catch (error) {
+      console.error('[CacheList] quick camera capture failed:', error);
+      Alert.alert('拍照失敗', '請再試一次');
+    }
+  }, [navigation]);
+
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => !!topCard,
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          !!topCard && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
+        onStartShouldSetPanResponder: () => {
+          return Boolean(topCard);
+        },
+        onMoveShouldSetPanResponder: () => {
+          return Boolean(topCard);
+        },
         onPanResponderGrant: () => {
+          if (tabSwipeContext) {
+            tabSwipeContext.swipeLockRef.current = true;
+            tabSwipeContext.setPaginationEnabled(false);
+            tabSwipeContext.setPagerScrollEnabled(false);
+          }
           setIsDragging(true);
           setSwipeDecision(null);
-          lastHapticDecision.current = null;
         },
         onPanResponderMove: (_, gestureState) => {
           dragX.setValue(gestureState.dx);
           dragY.setValue(gestureState.dy * 0.25);
           const decision = gestureState.dx > 30 ? 'right' : gestureState.dx < -30 ? 'left' : null;
           setSwipeDecision(decision);
-          if (decision && decision !== lastHapticDecision.current) {
-            triggerHaptic(10);
-            lastHapticDecision.current = decision;
-          }
-          if (!decision) {
-            lastHapticDecision.current = null;
-          }
         },
         onPanResponderRelease: (_, gestureState) => {
+          if (tabSwipeContext) {
+            tabSwipeContext.swipeLockRef.current = false;
+            tabSwipeContext.setPaginationEnabled(true);
+            tabSwipeContext.setPagerScrollEnabled(true);
+          }
           setIsDragging(false);
 
           if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
@@ -600,7 +757,7 @@ export default function CacheListScreen({ navigation }: Props) {
 
           if (gestureState.dx > SWIPE_THRESHOLD && topCard) {
             setSwipeDecision('right');
-            triggerHaptic(20);
+            triggerLightHaptic();
             Animated.parallel([
               Animated.timing(dragX, { toValue: 480, duration: 220, useNativeDriver: true }),
               Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
@@ -615,7 +772,7 @@ export default function CacheListScreen({ navigation }: Props) {
 
           if (gestureState.dx < -SWIPE_THRESHOLD && topCard) {
             setSwipeDecision('left');
-            triggerHaptic(20);
+            triggerLightHaptic();
             Animated.parallel([
               Animated.timing(dragX, { toValue: -480, duration: 220, useNativeDriver: true }),
               Animated.timing(dragY, { toValue: gestureState.dy * 0.25, duration: 220, useNativeDriver: true }),
@@ -634,14 +791,29 @@ export default function CacheListScreen({ navigation }: Props) {
           ]).start(() => setSwipeDecision(null));
         },
         onPanResponderTerminate: () => {
+          if (tabSwipeContext) {
+            tabSwipeContext.swipeLockRef.current = false;
+            tabSwipeContext.setPaginationEnabled(true);
+            tabSwipeContext.setPagerScrollEnabled(true);
+          }
           setIsDragging(false);
           setSwipeDecision(null);
-          lastHapticDecision.current = null;
           Animated.spring(dragX, { toValue: 0, useNativeDriver: true }).start();
           Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
         },
       }),
-    [deleteItemSilently, dragX, dragY, handleOpenCachedItem, topCard, triggerHaptic]
+    [deleteItemSilently, dragX, dragY, handleOpenCachedItem, tabSwipeContext, topCard, triggerLightHaptic]
+  );
+
+  React.useEffect(
+    () => () => {
+      if (tabSwipeContext) {
+        tabSwipeContext.swipeLockRef.current = false;
+        tabSwipeContext.setPaginationEnabled(true);
+        tabSwipeContext.setPagerScrollEnabled(true);
+      }
+    },
+    [tabSwipeContext]
   );
 
   const rotation = dragX.interpolate({
@@ -688,6 +860,35 @@ export default function CacheListScreen({ navigation }: Props) {
     );
   };
 
+  const updateSwipeExclusionRange = React.useCallback(() => {
+    if (!tabSwipeContext) return;
+    if (gridView || displayItems.length === 0 || !stackAreaRef.current) {
+      tabSwipeContext.setCacheSwipeExclusionRange(null);
+      return;
+    }
+
+    stackAreaRef.current.measureInWindow((_x, y, _width, height) => {
+      if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) {
+        tabSwipeContext.setCacheSwipeExclusionRange(null);
+        return;
+      }
+
+      // 只有 stack 卡片區交給 cache process；其他區域保留 tab 翻頁手勢。
+      tabSwipeContext.setCacheSwipeExclusionRange({ top: y, bottom: y + height });
+    });
+  }, [displayItems.length, gridView, tabSwipeContext]);
+
+  React.useEffect(() => {
+    updateSwipeExclusionRange();
+  }, [updateSwipeExclusionRange]);
+
+  React.useEffect(
+    () => () => {
+      tabSwipeContext?.setCacheSwipeExclusionRange(null);
+    },
+    [tabSwipeContext]
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View
@@ -716,21 +917,6 @@ export default function CacheListScreen({ navigation }: Props) {
               )}
               <TouchableOpacity style={styles.clearCacheButton} onPress={() => void handleClearCache()}>
                 <Text style={styles.clearCacheButtonText}>Clear</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => {
-                  if (!isPremiumUser && cachedItems.length >= FREE_CACHE_ITEM_LIMIT) {
-                    Alert.alert('訪客方案已達上限', '升級訂閱即可新增更多快取。', [
-                      { text: '稍後', style: 'cancel' },
-                      { text: '前往設定', onPress: () => navigation.navigate('Settings') },
-                    ]);
-                    return;
-                  }
-                  setShowAddModal(true);
-                }}
-              >
-                <Text style={styles.addButtonText}>＋</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -763,7 +949,13 @@ export default function CacheListScreen({ navigation }: Props) {
                   </View>
                 </View>
 
-                <View style={styles.stackArea}>
+                <View
+                  ref={stackAreaRef}
+                  style={styles.stackArea}
+                  onLayout={() => {
+                    requestAnimationFrame(updateSwipeExclusionRange);
+                  }}
+                >
                   {visibleStack
                     .slice(1)
                     .reverse()
@@ -831,7 +1023,6 @@ export default function CacheListScreen({ navigation }: Props) {
                     </Animated.View>
                   )}
                 </View>
-
                 <TouchableOpacity style={styles.allCacheBtn} onPress={() => setGridView(true)}>
                   <Text style={styles.allCacheBtnText}>View All Cache</Text>
                 </TouchableOpacity>
@@ -867,7 +1058,21 @@ export default function CacheListScreen({ navigation }: Props) {
         </View>
       )}
 
-      <Modal visible={showAddModal} animationType="slide" transparent onRequestClose={() => setShowAddModal(false)}>
+      <Modal
+        visible={showAddModal}
+        animationType={suppressAddModalAnimation ? 'none' : 'slide'}
+        transparent
+        onRequestClose={() => setShowAddModal(false)}
+        onDismiss={() => {
+          if (pendingOpenCropperAfterAddDismiss && pendingOriginalImageUri) {
+            setShowUploadCropper(true);
+            setPendingOpenCropperAfterAddDismiss(false);
+          }
+          if (suppressAddModalAnimation) {
+            setSuppressAddModalAnimation(false);
+          }
+        }}
+      >
         <Pressable style={styles.modalBackdrop} onPress={() => setShowAddModal(false)} />
         <View style={styles.modalSheet}>
           <View style={styles.sheetHandle} />
@@ -908,18 +1113,26 @@ export default function CacheListScreen({ navigation }: Props) {
             </>
           ) : (
             <>
-              <Text style={styles.inputLabel}>Capture or edit image</Text>
-              <View style={styles.imagePlaceholder}>
-                <Text style={styles.imagePlaceholderText}>導向圖片新增與裁切流程</Text>
-              </View>
+              <Text style={styles.inputLabel}>Capture or upload image</Text>
+              <TouchableOpacity
+                style={styles.imageUploadPanel}
+                activeOpacity={0.9}
+                onPress={() => void handleUploadImageDirect()}
+                disabled={creatingImage}
+              >
+                <View style={styles.imageUploadIconWrap}>
+                  <Text style={styles.imageUploadIcon}>🖼️</Text>
+                </View>
+                <Text style={styles.imageUploadText}>
+                  {creatingImage ? 'processing image...' : 'upload image'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.primaryAction, styles.imageAction]}
-                onPress={() => {
-                  setShowAddModal(false);
-                  navigation.navigate('AddCacheItem');
-                }}
+                onPress={handleCaptureImage}
+                disabled={creatingImage}
               >
-                <Text style={styles.primaryActionText}>Open Image Flow</Text>
+                <Text style={styles.primaryActionText}>Capture Image</Text>
               </TouchableOpacity>
             </>
           )}
@@ -927,6 +1140,55 @@ export default function CacheListScreen({ navigation }: Props) {
           <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAddModal(false)}>
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      <ImageCropperModal
+        visible={showUploadCropper}
+        imageUri={pendingOriginalImageUri}
+        initialImageSize={pendingOriginalImageSize}
+        modalAnimationType="slide"
+        onCancel={handleUploadCropCancel}
+        onConfirm={handleUploadCropConfirm}
+      />
+
+      <Modal
+        visible={showQuickCamera}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={closeQuickCamera}
+      >
+        <View style={styles.cameraContainer}>
+          {quickCameraPermission?.granted ? (
+            <CameraView
+              ref={quickCameraRef}
+              style={StyleSheet.absoluteFill}
+              facing={quickCameraFacing}
+            />
+          ) : (
+            <View style={styles.cameraPermissionFallback}>
+              <Text style={styles.cameraPermissionText}>需要相機權限才能拍照</Text>
+            </View>
+          )}
+
+          <View style={styles.cameraTopBar}>
+            <TouchableOpacity style={styles.cameraTopButton} onPress={closeQuickCamera}>
+              <Text style={styles.cameraTopButtonText}>✕</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cameraTopButton} onPress={toggleQuickCameraFacing}>
+              <Text style={styles.cameraTopButtonText}>↺</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.cameraBottomBar}>
+            <TouchableOpacity
+              style={styles.shutterOuter}
+              onPress={captureQuickPhoto}
+              disabled={!quickCameraPermission?.granted}
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -1407,6 +1669,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  imageUploadPanel: {
+    minHeight: 210,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  imageUploadIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#FF9500',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  imageUploadIcon: {
+    fontSize: 34,
+    color: '#fff',
+  },
+  imageUploadText: {
+    color: '#8E8E93',
+    fontSize: 19,
+    textAlign: 'center',
+  },
   imageAction: {
     backgroundColor: '#FF9500',
   },
@@ -1422,6 +1710,66 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '700',
     fontSize: 16,
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  cameraPermissionFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111',
+  },
+  cameraPermissionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cameraTopBar: {
+    position: 'absolute',
+    top: 56,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  cameraTopButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraTopButtonText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  cameraBottomBar: {
+    position: 'absolute',
+    bottom: 42,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  shutterOuter: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    borderWidth: 4,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  shutterInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff',
   },
   snackbar: {
     position: 'absolute',

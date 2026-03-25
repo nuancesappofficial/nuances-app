@@ -14,6 +14,7 @@ import {
   type AppStateStatus,
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
@@ -187,16 +188,18 @@ export default function App() {
   }
 
   return (
-    <ShareExtensionProvider>
-      <ShareExtensionSync userId={userId}>
-        {userId ? (
-          <RootNavigator isExpoGo={isExpoGo} />
-        ) : (
-          <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
-        )}
-      </ShareExtensionSync>
-      <StatusBar style="auto" />
-    </ShareExtensionProvider>
+    <SafeAreaProvider>
+      <ShareExtensionProvider>
+        <ShareExtensionSync userId={userId}>
+          {userId ? (
+            <RootNavigator isExpoGo={isExpoGo} />
+          ) : (
+            <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
+          )}
+        </ShareExtensionSync>
+        <StatusBar style="auto" />
+      </ShareExtensionProvider>
+    </SafeAreaProvider>
   );
 }
 

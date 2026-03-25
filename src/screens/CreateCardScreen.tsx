@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -102,7 +103,19 @@ function collocationsFromText(raw: string): CollocationItem[] {
 export default function CreateCardScreen({ navigation, route }: Props) {
   const { cachedItem } = route.params as { cachedItem: CachedItem };
 
+  const goToCacheHome = React.useCallback(() => {
+    if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('CacheList');
+  }, [navigation]);
+
   const sourceText = React.useMemo(() => getCachedItemSourceText(cachedItem), [cachedItem]);
+  const originalImageUri = React.useMemo(
+    () => cachedItem.mediaUri || cachedItem.imageStoragePath || null,
+    [cachedItem.imageStoragePath, cachedItem.mediaUri]
+  );
   const sourceTokens = React.useMemo(() => {
     const fromText = sourceText.trim() ? sourceText.trim().split(/\s+/) : [];
     if (fromText.length > 0) return fromText;
@@ -296,7 +309,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       Alert.alert('完成', `已建立 ${cardsToSave.length} 張卡片`, [
         {
           text: '確定',
-          onPress: () => navigation.goBack(),
+          onPress: goToCacheHome,
         },
       ]);
     } catch (error) {
@@ -311,7 +324,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity onPress={goToCacheHome} style={styles.backButton}>
           <Text style={styles.backButtonText}>‹</Text>
         </TouchableOpacity>
         <View>
@@ -321,6 +334,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {originalImageUri ? (
+          <View style={styles.block}>
+            <Text style={styles.blockTitle}>Original Image</Text>
+            <Image source={{ uri: originalImageUri }} style={styles.originalImage} resizeMode="cover" />
+          </View>
+        ) : null}
+
         <View style={styles.block}>
           <Text style={styles.blockTitle}>Original Context</Text>
           <View style={styles.wordsWrap}>
@@ -533,6 +553,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 14,
+  },
+  originalImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 12,
+    backgroundColor: '#F2F2F5',
   },
   blockTitle: {
     fontSize: 11,

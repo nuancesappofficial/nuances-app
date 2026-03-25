@@ -41,8 +41,17 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const editingItem: CachedItem | undefined = route?.params?.cachedItem;
   const isEditMode = !!editingItem;
   const openCropOnLoad = Boolean(route?.params?.openCropOnLoad);
+  const startMode = route?.params?.startMode as 'camera' | 'library' | undefined;
+  const initialImageUri = route?.params?.initialImageUri as string | undefined;
+  const originalImageUri = route?.params?.originalImageUri as string | undefined;
+  const autoOpenCropper = Boolean(route?.params?.autoOpenCropper);
+  const openOcrOnLoad = Boolean(route?.params?.openOcrOnLoad);
+  const isQuickImageFlow = !isEditMode && (startMode === 'camera' || startMode === 'library');
+  const isNoShellQuickFlow = true;
 
-  const [contentType, setContentType] = React.useState<'text' | 'image'>('text');
+  const [contentType, setContentType] = React.useState<'text' | 'image'>(
+    isQuickImageFlow ? 'image' : 'text'
+  );
   const [contentText, setContentText] = React.useState('');
   const [keywords, setKeywords] = React.useState('');
   const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
@@ -54,13 +63,21 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const [showOCRViewer, setShowOCRViewer] = React.useState(false);
   const [showCamera, setShowCamera] = React.useState(false);
   const [cameraFacing, setCameraFacing] = React.useState<CameraType>('back');
-  const [showCropper, setShowCropper] = React.useState(false);
-  const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(null);
+  const [showCropper, setShowCropper] = React.useState(Boolean(initialImageUri && autoOpenCropper));
+  const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(initialImageUri ?? null);
   const [saving, setSaving] = React.useState(false);
   const [aiAnalysisResult, setAIAnalysisResult] = React.useState<any>(null);
   const [learningGoal, setLearningGoal] = React.useState<'ielts' | 'casual' | 'professional'>('ielts');
   const cameraRef = React.useRef<CameraView | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const goToCacheHome = React.useCallback(() => {
+    if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('CacheList');
+  }, [navigation]);
 
   React.useEffect(() => {
     let active = true;
@@ -116,6 +133,32 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     setShowCropper(true);
   }, [isEditMode, openCropOnLoad, editingItem]);
 
+  React.useEffect(() => {
+    if (isEditMode) return;
+    if (isQuickImageFlow) {
+      setContentType('image');
+    }
+    if (initialImageUri && openOcrOnLoad) {
+      setSelectedImage(initialImageUri);
+      setShowOCRViewer(true);
+      return;
+    }
+    if (initialImageUri && autoOpenCropper) {
+      setPendingCropImage(initialImageUri);
+      setShowOCRViewer(false);
+      setShowCropper(true);
+      return;
+    }
+    if (startMode === 'camera') {
+      void takePhoto();
+      return;
+    }
+    if (startMode === 'library') {
+      void pickImage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenCropper, initialImageUri, isEditMode, isQuickImageFlow, openOcrOnLoad, startMode]);
+
   /**
    * OCR 完成後儲存 blocks，不再自動預選任何文字
    */
@@ -153,6 +196,11 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     if (!result.canceled && result.assets[0]) {
       setPendingCropImage(result.assets[0].uri);
       setShowCropper(true);
+      return;
+    }
+
+    if (isNoShellQuickFlow && !selectedImage) {
+      goToCacheHome();
     }
   };
 
@@ -160,7 +208,16 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
-        Alert.alert('權限需求', '需要相機權限才能拍照');
+        Alert.alert('權限需求', '需要相機權限才能拍照', [
+          {
+            text: '確定',
+            onPress: () => {
+              if (isNoShellQuickFlow) {
+                goToCacheHome();
+              }
+            },
+          },
+        ]);
         return;
       }
     }
@@ -170,7 +227,10 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
   const closeCamera = React.useCallback(() => {
     setShowCamera(false);
-  }, []);
+    if (isNoShellQuickFlow && startMode === 'camera' && !selectedImage) {
+      goToCacheHome();
+    }
+  }, [goToCacheHome, isNoShellQuickFlow, selectedImage, startMode]);
 
   const toggleCameraFacing = React.useCallback(() => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
@@ -206,7 +266,10 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const handleCropCancel = React.useCallback(() => {
     setShowCropper(false);
     setPendingCropImage(null);
-  }, []);
+    if (isNoShellQuickFlow && !selectedImage) {
+      goToCacheHome();
+    }
+  }, [goToCacheHome, isNoShellQuickFlow, selectedImage]);
 
   const handleSave = async () => {
     if (!contentText.trim() && !selectedImage) {
@@ -252,6 +315,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
     if (selectedImage) {
       item.imageStoragePath = selectedImage;
+      if (originalImageUri) {
+        item.mediaUri = originalImageUri;
+      }
     }
   };
 
@@ -297,7 +363,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
       Alert.alert('成功', '已更新快取！', [
         {
           text: '確定',
-          onPress: () => navigation.goBack(),
+          onPress: goToCacheHome,
         },
       ]);
     } catch (error) {
@@ -309,183 +375,16 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, isNoShellQuickFlow && styles.quickFlowContainer]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
-          <Text style={styles.closeButtonText}>✕</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditMode ? '編輯快取' : 'Add to Cache'}</Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          style={styles.saveButton}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? '建立中...' : '建立卡片'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
-        <Text style={styles.label}>Content Type</Text>
-        <View style={styles.typeSelector}>
-          {(['text', 'image'] as const).map((type) => (
-            <TouchableOpacity
-              key={type}
-              style={[
-                styles.typeButton,
-                contentType === type && styles.typeButtonActive,
-              ]}
-              onPress={() => setContentType(type)}
-            >
-              <Text
-                style={[
-                  styles.typeButtonText,
-                  contentType === type && styles.typeButtonTextActive,
-                ]}
-              >
-                {type.toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {contentType === 'text' && (
-          <>
-            <Text style={styles.label}>Content *</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="輸入文字內容..."
-              value={contentText}
-              onChangeText={setContentText}
-              multiline
-              numberOfLines={6}
-              textAlignVertical="top"
-            />
-          </>
-        )}
-
-        {contentType === 'image' && (
-          <>
-            <Text style={styles.label}>選擇圖片</Text>
-            
-            <View style={styles.imageButtonRow}>
-              <TouchableOpacity
-                style={styles.imageButton}
-                onPress={pickImage}
-              >
-                <Text style={styles.imageButtonText}>📷 從相簿選擇</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.imageButton}
-                onPress={takePhoto}
-              >
-                <Text style={styles.imageButtonText}>📸 拍照</Text>
-              </TouchableOpacity>
-            </View>
-
-            {selectedImage && (
-              <View style={styles.imagePreview}>
-                <RNImage
-                  source={{ uri: selectedImage }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.imageActions}>
-                  <TouchableOpacity
-                    style={styles.annotateButton}
-                    onPress={() => setShowOCRViewer(true)}
-                  >
-                    <Text style={styles.annotateButtonText}>
-                      🔍 識別文字 {ocrBlocks.length > 0 && `(${ocrBlocks.length} 個區域)`}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.cropButton}
-                    onPress={() => {
-                      setPendingCropImage(selectedImage);
-                      setShowCropper(true);
-                    }}
-                  >
-                    <Text style={styles.cropButtonText}>✂️ 重新裁切</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.removeImageButton}
-                    onPress={() => {
-                      setSelectedImage(null);
-                      setOCRBlocks([]);
-                      setSelectedBlockIndexes([]);
-                      setAIAnalysisResult(null);
-                    }}
-                  >
-                    <Text style={styles.removeImageText}>✕ 移除</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-          </>
-        )}
-
-        <Text style={styles.label}>
-          Keywords (Optional)
-        </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="例如：explain grammar, IELTS context"
-          value={keywords}
-          onChangeText={setKeywords}
-          autoCapitalize="none"
-        />
-        {contentType === 'text' && (
-          <LocalAiKeywordSuggestions
-            keywords={keywords}
-            sourceText={contentText}
-            onKeywordsChange={setKeywords}
-          />
-        )}
-        {selectedBlockIndexes.length > 0 && (
-          <Text style={styles.ocrHint}>
-            ✨ 已選擇 {selectedBlockIndexes.length} 個區域
-          </Text>
-        )}
-        {/* [AI 推薦詞彙功能暫時停用] analyzing 指示和推薦詞彙 UI 隱藏中
-        {analyzing && (
-          <View style={styles.analyzingContainer}>
-            <ActivityIndicator size="small" color="#4CAF50" />
-            <Text style={styles.analyzingText}>AI 正在推薦詞彙...</Text>
-          </View>
-        )}
-        {recommendedWords.length > 0 && (
-          <View style={styles.recommendedWordsContainer}>
-            <Text style={styles.recommendedWordsTitle}>💡 AI 推薦詞彙：</Text>
-            <View style={styles.recommendedWordsList}>
-              {recommendedWords.map((word, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.recommendedWordChip}
-                  onPress={() => setKeywords(word)}
-                >
-                  <Text style={styles.recommendedWordText}>{word}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-        */}
-        <Text style={styles.hint}>
-          添加關鍵字來指導 AI 分析這段內容
-        </Text>
-      </ScrollView>
+      <View style={styles.quickFlowBackdrop} pointerEvents="none" />
 
       {/* OCR Viewer Modal（Tech Stack v1.5.0）*/}
       {showOCRViewer && (
         <Modal
           visible={showOCRViewer}
-          animationType="slide"
+          animationType={isNoShellQuickFlow ? 'none' : 'slide'}
           onRequestClose={() => setShowOCRViewer(false)}
           presentationStyle="fullScreen"
         >
@@ -495,6 +394,9 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
                 onPress={() => {
                   console.log('[AddCache] Closing OCR viewer, blocks:', ocrBlocks.length);
                   setShowOCRViewer(false);
+                  if (isNoShellQuickFlow) {
+                    void handleSave();
+                  }
                 }}
                 style={styles.modalCloseButton}
               >
@@ -568,6 +470,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
       <ImageCropperModal
         visible={showCropper}
         imageUri={pendingCropImage}
+        modalAnimationType="slide"
         onCancel={handleCropCancel}
         onConfirm={handleCropConfirm}
       />
@@ -579,6 +482,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  quickFlowContainer: {
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: 'row',
@@ -619,6 +525,10 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 16,
+  },
+  quickFlowBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   label: {
     fontSize: 16,

@@ -1,9 +1,15 @@
 import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import {
+  loadUserSettings,
+  saveUserSettings,
+  type EntitlementMode,
+} from '@services/settings/userSettings';
 
 type Props = {
   navigation: any;
@@ -96,6 +102,8 @@ function buildWeeks(cards: Card[]): WeekData[] {
 
 export default function ProfilesScreen({ navigation }: Props) {
   const [cards, setCards] = React.useState<Card[]>([]);
+  const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
+  const [savingEntitlement, setSavingEntitlement] = React.useState(false);
 
   React.useEffect(() => {
     const queryCards = database
@@ -116,6 +124,45 @@ export default function ProfilesScreen({ navigation }: Props) {
     const sub = queryCards.observe().subscribe((data) => setCards(data));
     return () => sub.unsubscribe();
   }, []);
+
+  const refreshEntitlementMode = React.useCallback(async () => {
+    try {
+      const settings = await loadUserSettings();
+      setEntitlementMode(settings.entitlementMode);
+    } catch (error) {
+      console.error('[Profiles] load entitlement mode failed:', error);
+    }
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshEntitlementMode();
+    }, [refreshEntitlementMode])
+  );
+
+  const handleToggleEntitlementMode = React.useCallback(async () => {
+    if (savingEntitlement) return;
+    setSavingEntitlement(true);
+    try {
+      const settings = await loadUserSettings();
+      const nextMode: EntitlementMode =
+        settings.entitlementMode === 'premium' ? 'guest' : 'premium';
+      await saveUserSettings({
+        ...settings,
+        entitlementMode: nextMode,
+      });
+      setEntitlementMode(nextMode);
+      Alert.alert(
+        '已切換權限模式',
+        nextMode === 'premium' ? '目前為 Premium 模式。' : '目前為 Guest 模式。'
+      );
+    } catch (error) {
+      console.error('[Profiles] toggle entitlement failed:', error);
+      Alert.alert('切換失敗', '請稍後再試。');
+    } finally {
+      setSavingEntitlement(false);
+    }
+  }, [savingEntitlement]);
 
   const weeks = React.useMemo(() => buildWeeks(cards), [cards]);
 
@@ -153,10 +200,21 @@ export default function ProfilesScreen({ navigation }: Props) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => Alert.alert('Settings', '設定頁可再拆出獨立 route。')}
+              onPress={handleToggleEntitlementMode}
             >
-              <Text style={styles.actionButtonText}>Settings</Text>
+              <Text style={styles.actionButtonText}>
+                {savingEntitlement
+                  ? '切換中...'
+                  : entitlementMode === 'premium'
+                    ? '切換為 Guest'
+                    : '切換為 Premium'}
+              </Text>
             </TouchableOpacity>
+          </View>
+          <View style={styles.entitlementBadge}>
+            <Text style={styles.entitlementBadgeText}>
+              目前權限：{entitlementMode === 'premium' ? 'Premium' : 'Guest'}
+            </Text>
           </View>
         </View>
 
@@ -251,6 +309,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   actionButtonText: { fontSize: 15, fontWeight: '600', color: '#000' },
+  entitlementBadge: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    backgroundColor: '#F2F2F7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  entitlementBadgeText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '600',
+  },
   weeksSection: { paddingHorizontal: 20, paddingBottom: 24, gap: 20 },
   weekBlock: {},
   weekHeader: {
