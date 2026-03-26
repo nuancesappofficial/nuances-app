@@ -1,6 +1,7 @@
 import React from 'react';
 import {
-  Alert,
+  FlatList,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Q } from '@nozbe/watermelondb';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 
@@ -22,6 +25,13 @@ type Album = {
   emoji: string;
   color: string;
   cardIds: string[];
+  wordCount: number;
+  latestCards: AlbumPreviewCard[];
+};
+
+type AlbumPreviewCard = {
+  imageUrl?: string;
+  cardTypeText: string;
 };
 
 function getWeekNumber(date: Date): number {
@@ -72,8 +82,18 @@ function getTagsArray(tags: unknown): string[] {
   return [];
 }
 
+function withAlpha(color: string, alphaHex: string): string {
+  if (/^#[0-9a-f]{6}$/i.test(color)) return `${color}${alphaHex}`;
+  if (/^#[0-9a-f]{3}$/i.test(color)) {
+    const expanded = `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+    return `${expanded}${alphaHex}`;
+  }
+  return 'rgba(255,255,255,0.1)';
+}
+
 export default function DeckScreen({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const selectedColor = '#00ffff';
 
   React.useEffect(() => {
     const queryCards = database
@@ -126,9 +146,9 @@ export default function DeckScreen({ navigation }: Props) {
   }, [dayMap]);
 
   const albums = React.useMemo<Album[]>(() => {
-    const slangIds: string[] = [];
-    const cultureIds: string[] = [];
-    const workIds: string[] = [];
+    const slangCards: Card[] = [];
+    const cultureCards: Card[] = [];
+    const workCards: Card[] = [];
 
     allCards.forEach((card) => {
       const tags = getTagsArray(card.tags).map((t) => t.toLowerCase());
@@ -136,20 +156,50 @@ export default function DeckScreen({ navigation }: Props) {
       const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
 
       if (tags.some((t) => ['slang', 'internet', 'social'].includes(t)) || /slang|internet|meme/.test(text)) {
-        slangIds.push(card.id);
+        slangCards.push(card);
       }
       if (tags.some((t) => ['culture', 'pop', 'movie'].includes(t)) || /culture|movie|music|pop/.test(text)) {
-        cultureIds.push(card.id);
+        cultureCards.push(card);
       }
       if (tags.some((t) => ['work', 'business', 'office'].includes(t)) || /work|business|office/.test(text) || source.includes('slack')) {
-        workIds.push(card.id);
+        workCards.push(card);
       }
     });
 
+    const buildPreviewCards = (cards: Card[]): AlbumPreviewCard[] =>
+      cards.slice(0, 3).map((card) => ({
+        imageUrl: undefined,
+        cardTypeText: card.partOfSpeech || 'word',
+      }));
+
     return [
-      { id: 'slang', name: 'Internet Slang', emoji: '💬', color: '#FFE5E5', cardIds: Array.from(new Set(slangIds)) },
-      { id: 'culture', name: 'Pop Culture', emoji: '🎬', color: '#E5F4FF', cardIds: Array.from(new Set(cultureIds)) },
-      { id: 'work', name: 'Work Phrases', emoji: '💼', color: '#FFF4E5', cardIds: Array.from(new Set(workIds)) },
+      {
+        id: 'slang',
+        name: 'Internet Slang',
+        emoji: '💬',
+        color: '#FFE5E5',
+        cardIds: Array.from(new Set(slangCards.map((card) => card.id))),
+        wordCount: slangCards.length,
+        latestCards: buildPreviewCards(slangCards),
+      },
+      {
+        id: 'culture',
+        name: 'Pop Culture',
+        emoji: '🎬',
+        color: '#E5F4FF',
+        cardIds: Array.from(new Set(cultureCards.map((card) => card.id))),
+        wordCount: cultureCards.length,
+        latestCards: buildPreviewCards(cultureCards),
+      },
+      {
+        id: 'work',
+        name: 'Work Phrases',
+        emoji: '💼',
+        color: '#FFF4E5',
+        cardIds: Array.from(new Set(workCards.map((card) => card.id))),
+        wordCount: workCards.length,
+        latestCards: buildPreviewCards(workCards),
+      },
     ];
   }, [allCards]);
 
@@ -210,37 +260,79 @@ export default function DeckScreen({ navigation }: Props) {
         <View style={styles.albumsSection}>
           <View style={styles.albumsHeader}>
             <Text style={styles.albumsTitle}>My Albums</Text>
-            <TouchableOpacity
-              style={styles.addAlbumBtn}
-              onPress={() => Alert.alert('尚未開放', '建立相簿功能下一步接上資料庫。')}
-            >
-              <Text style={styles.addAlbumBtnText}>＋</Text>
-            </TouchableOpacity>
           </View>
 
           <View style={styles.albumList}>
-            {albums.map((album) => (
-              <TouchableOpacity
-                key={album.id}
-                style={styles.albumRow}
-                activeOpacity={0.9}
-                onPress={() => navigation.navigate('AlbumView', { album })}
-              >
-                <View style={styles.albumCoverWrap}>
-                  <View style={[styles.albumCoverShadow, { backgroundColor: album.color }]} />
-                  <View style={[styles.albumCoverMain, { backgroundColor: album.color }]}>
-                    <Text style={styles.albumCoverEmoji}>{album.emoji}</Text>
-                  </View>
-                </View>
+            <FlatList
+              data={albums}
+              numColumns={2}
+              scrollEnabled={false}
+              keyExtractor={(item) => item.id}
+              columnWrapperStyle={styles.albumColumn}
+              contentContainerStyle={styles.albumGridContent}
+              renderItem={({ item }) => {
+                const tintOverlayColor = withAlpha(selectedColor, '1A');
 
-                <View style={styles.albumMeta}>
-                  <Text style={styles.albumName}>{album.name}</Text>
-                  <Text style={styles.albumCount}>{album.cardIds.length} words</Text>
-                </View>
+                return (
+                  <TouchableOpacity
+                    style={styles.albumGridItem}
+                    activeOpacity={0.9}
+                    onPress={() => navigation.navigate('AlbumView', { album: item })}
+                  >
+                    <View style={[styles.neonFolderContainer, { shadowColor: selectedColor }]}>
+                      <View style={styles.folderBackPanel}>
+                        <LinearGradient
+                          colors={['#333333', '#111111']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.backPanelGradient}
+                        />
+                        <View style={styles.titleContainer}>
+                          <Text style={[styles.neonAlbumTitle, { color: selectedColor }]} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                        </View>
+                      </View>
 
-                <Text style={styles.albumArrow}>›</Text>
-              </TouchableOpacity>
-            ))}
+                      <View style={styles.cardStackContainer}>
+                        {item.latestCards.slice(0, 3).map((card, index) => (
+                          <View
+                            key={`${item.id}-stack-${index}`}
+                            style={[
+                              styles.stackedCard,
+                              index === 0 ? styles.stackedCard0 : index === 1 ? styles.stackedCard1 : styles.stackedCard2,
+                              { borderColor: selectedColor, shadowColor: selectedColor },
+                            ]}
+                          >
+                            {card.imageUrl ? (
+                              <Image source={{ uri: card.imageUrl }} style={styles.cardThumbnail} />
+                            ) : (
+                              <View style={styles.cardThumbnailPlaceholder} />
+                            )}
+                            <Text style={styles.cardTypeText} numberOfLines={1}>
+                              {card.cardTypeText}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <BlurView
+                        style={styles.folderFrontCover}
+                        intensity={70}
+                        tint="dark"
+                      >
+                        <View style={[styles.coverOverlay, { backgroundColor: tintOverlayColor }]} />
+                      </BlurView>
+                    </View>
+
+                    <Text style={[styles.albumBottomTitle, { color: selectedColor }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.wordCount}>{`${item.wordCount} words`}</Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
           </View>
         </View>
 
@@ -371,52 +463,133 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   albumsTitle: { fontSize: 20, fontWeight: '600', color: '#000' },
-  addAlbumBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#007AFF',
+  albumList: {
+    marginTop: 8,
+  },
+  albumColumn: {
+    justifyContent: 'space-between',
+  },
+  albumGridContent: {
+    paddingBottom: 4,
+  },
+  albumGridItem: {
+    width: '48%',
+    marginBottom: 20,
     alignItems: 'center',
+  },
+  neonFolderContainer: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: 160 / 190,
     justifyContent: 'center',
-  },
-  addAlbumBtnText: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: -1 },
-  albumList: { gap: 8 },
-  albumRow: {
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    padding: 12,
-    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.75,
+    shadowRadius: 18,
+    elevation: 6,
   },
-  albumCoverWrap: {
-    width: 64,
-    height: 64,
-    marginRight: 12,
-  },
-  albumCoverShadow: {
+  folderBackPanel: {
     position: 'absolute',
-    inset: 0 as any,
-    borderRadius: 12,
-    transform: [{ rotate: '-3deg' }],
-    opacity: 0.6,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#444',
+    overflow: 'hidden',
+    zIndex: 0,
   },
-  albumCoverMain: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    alignItems: 'center',
+  backPanelGradient: {
+    flex: 1,
+  },
+  titleContainer: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+    right: 15,
     justifyContent: 'center',
+    alignItems: 'flex-start',
+    zIndex: 1,
   },
-  albumCoverEmoji: { fontSize: 30 },
-  albumMeta: { flex: 1 },
-  albumName: { fontSize: 17, color: '#000', fontWeight: '600' },
-  albumCount: { marginTop: 2, fontSize: 13, color: '#8E8E93' },
-  albumArrow: { fontSize: 22, color: '#C7C7CC' },
+  neonAlbumTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'left',
+    textShadowColor: 'rgba(255, 255, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  cardStackContainer: {
+    position: 'absolute',
+    top: '15%',
+    left: '10%',
+    right: '10%',
+    bottom: '30%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  stackedCard: {
+    position: 'absolute',
+    width: 100,
+    height: 120,
+    borderRadius: 15,
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1.5,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  stackedCard0: { zIndex: 3, transform: [{ translateY: 0 }, { scale: 1 }] },
+  stackedCard1: { zIndex: 2, transform: [{ translateY: 15 }, { scale: 0.95 }] },
+  stackedCard2: { zIndex: 1, transform: [{ translateY: 30 }, { scale: 0.9 }] },
+  cardThumbnail: {
+    width: '100%',
+    height: 70,
+    borderRadius: 10,
+  },
+  cardThumbnailPlaceholder: {
+    width: '100%',
+    height: 70,
+    borderRadius: 10,
+    backgroundColor: '#2C2C2C',
+  },
+  cardTypeText: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#CFEFFF',
+    textTransform: 'uppercase',
+  },
+  folderFrontCover: {
+    position: 'absolute',
+    width: '100%',
+    height: '85%',
+    bottom: 0,
+    borderTopRightRadius: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  coverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  albumBottomTitle: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  wordCount: {
+    marginTop: 4,
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+  },
   quickSection: {
     marginTop: 14,
     paddingHorizontal: 20,
