@@ -76,7 +76,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     borderRadius: 12,
     alignItems: 'center',
-    paddingVertical: 13,
+    height: 52,
+    justifyContent: 'center',
   },
   imageAction: {
     backgroundColor: '#FF9500',

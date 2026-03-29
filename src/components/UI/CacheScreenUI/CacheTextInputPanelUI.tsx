@@ -44,8 +44,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   textInput: {
-    minHeight: 140,
-    borderRadius: 12,
+    minHeight: 210,
+    borderRadius: 16,
     backgroundColor: '#F2F2F7',
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -57,7 +57,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     borderRadius: 12,
     alignItems: 'center',
-    paddingVertical: 13,
+    height: 52,
+    justifyContent: 'center',
   },
   primaryActionDisabled: {
     opacity: 0.5,

@@ -1,7 +1,6 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Linking } from 'react-native';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -110,17 +109,14 @@ export const signInWithGoogle = async () => {
     };
   }
 
-  const canOpen = await Linking.canOpenURL(authUrl);
-  if (!canOpen) {
-    return {
-      data,
-      error: new Error(`Cannot open OAuth URL: ${authUrl}`),
-    };
-  }
-
-  await Linking.openURL(authUrl);
-
-  return { data, error: null };
+  return {
+    data: {
+      ...data,
+      url: authUrl,
+    },
+    redirectTo,
+    error: null,
+  };
 };
 
 export const completeOAuthFromUrl = async (url: string) => {

@@ -2,6 +2,7 @@
 // This version works in Expo Go by using mock data instead of WatermelonDB
 
 import { StatusBar } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
 import {
   StyleSheet,
   View,
@@ -29,6 +30,7 @@ import {
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
+WebBrowser.maybeCompleteAuthSession();
 
 function ShareExtensionSync({
   userId,
@@ -156,12 +158,26 @@ export default function App() {
   const handleGoogleSignIn = React.useCallback(async () => {
     setAuthLoading(true);
     try {
-      const { error } = await signInWithGoogle();
+      const { data, redirectTo, error } = await signInWithGoogle();
       if (error) {
         Alert.alert(
           '登入失敗',
           `Google OAuth 問題：${error.message}\n\n請檢查 Supabase Google Provider 與 Google Cloud OAuth 設定。`
         );
+        return;
+      }
+
+      const authUrl = data?.url?.trim();
+      if (!authUrl) {
+        Alert.alert('登入失敗', 'Google OAuth URL 取得失敗');
+        return;
+      }
+
+      const authResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
+      if (authResult.type === 'success' && authResult.url) {
+        await handleOAuthCallback(authResult.url);
+      } else if (authResult.type !== 'cancel' && authResult.type !== 'dismiss') {
+        Alert.alert('登入失敗', `Google OAuth 未完成（${authResult.type}）`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知錯誤';
@@ -169,7 +185,7 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  }, []);
+  }, [handleOAuthCallback]);
 
   if (!isReady) {
     return (

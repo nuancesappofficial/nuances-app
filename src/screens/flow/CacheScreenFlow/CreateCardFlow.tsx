@@ -17,6 +17,7 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { generateContentForWord } from '@services/ai';
+import { extractTextFromImage } from '@services/ocr/ocrService';
 
 type Props = {
   navigation: any;
@@ -101,7 +102,17 @@ function collocationsFromText(raw: string): CollocationItem[] {
 }
 
 export default function CreateCardScreen({ navigation, route }: Props) {
-  const { cachedItem } = route.params as { cachedItem: CachedItem };
+  const {
+    cachedItem,
+    croppedImageUri,
+    originalImageUri: routeOriginalImageUri,
+    runOcrOnLoad,
+  } = route.params as {
+    cachedItem: CachedItem;
+    croppedImageUri?: string;
+    originalImageUri?: string;
+    runOcrOnLoad?: boolean;
+  };
 
   const goToCacheHome = React.useCallback(() => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
@@ -111,10 +122,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     navigation.navigate('CacheList');
   }, [navigation]);
 
-  const sourceText = React.useMemo(() => getCachedItemSourceText(cachedItem), [cachedItem]);
+  const baseSourceText = React.useMemo(() => getCachedItemSourceText(cachedItem), [cachedItem]);
   const originalImageUri = React.useMemo(
-    () => cachedItem.mediaUri || cachedItem.imageStoragePath || null,
-    [cachedItem.imageStoragePath, cachedItem.mediaUri]
+    () => croppedImageUri || routeOriginalImageUri || cachedItem.mediaUri || cachedItem.imageStoragePath || null,
+    [cachedItem.imageStoragePath, cachedItem.mediaUri, croppedImageUri, routeOriginalImageUri]
+  );
+  const [ocrSourceText, setOcrSourceText] = React.useState('');
+  const [isOcrRunning, setIsOcrRunning] = React.useState(false);
+  const [ocrError, setOcrError] = React.useState<string | null>(null);
+  const sourceText = React.useMemo(
+    () => (ocrSourceText.trim() ? ocrSourceText : baseSourceText),
+    [baseSourceText, ocrSourceText]
   );
   const sourceTokens = React.useMemo(() => {
     const fromText = sourceText.trim() ? sourceText.trim().split(/\s+/) : [];
@@ -146,12 +164,39 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, []);
 
   React.useEffect(() => {
-    if (!sourceText.trim()) return;
-    const auto = extractWords(sourceText).slice(0, 4);
-    if (auto.length > 0) {
-      setSelectedWords((prev) => (prev.length > 0 ? prev : auto));
-    }
-  }, [sourceText]);
+    let active = true;
+    const runOCR = async () => {
+      if (!runOcrOnLoad || !originalImageUri) return;
+      setIsOcrRunning(true);
+      setOcrError(null);
+      try {
+        const result = await extractTextFromImage(originalImageUri);
+        if (!active) return;
+        const textFromBlocks = result.blocks
+          .map((block) => block.text?.trim() || '')
+          .filter(Boolean)
+          .join(' ');
+        const nextText = (result.fullText || '').trim() || textFromBlocks;
+        if (nextText) {
+          setOcrSourceText(nextText);
+        } else {
+          setOcrError('OCR 沒有辨識到可用文字');
+        }
+      } catch (error) {
+        if (!active) return;
+        console.error('[CreateCard] OCR failed:', error);
+        setOcrError('OCR 失敗，已使用原始內容');
+      } finally {
+        if (active) {
+          setIsOcrRunning(false);
+        }
+      }
+    };
+    void runOCR();
+    return () => {
+      active = false;
+    };
+  }, [originalImageUri, runOcrOnLoad]);
 
   const toggleWord = (word: string) => {
     const cleanWord = normalizeWord(word);
@@ -169,7 +214,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           if (card.word !== word || card.completed) return card;
           return {
             ...card,
-            progress: Math.min(92, card.progress + Math.random() * 18),
+            progress: Math.min(92, card.progress + Math.random() * 6),
           };
         })
       );
@@ -303,6 +348,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
         await cachedItem.update((item) => {
           item.convertedToCard = true;
+          item.deletedAt = new Date();
         });
       });
 
@@ -327,7 +373,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={goToCacheHome} style={styles.backButton}>
           <Text style={styles.backButtonText}>‹</Text>
         </TouchableOpacity>
-        <View>
+        <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Create Card</Text>
           <Text style={styles.headerSubTitle}>Select words to learn</Text>
         </View>
@@ -337,7 +383,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         {originalImageUri ? (
           <View style={styles.block}>
             <Text style={styles.blockTitle}>Original Image</Text>
-            <Image source={{ uri: originalImageUri }} style={styles.originalImage} resizeMode="cover" />
+            <Image source={{ uri: originalImageUri }} style={styles.originalImage} resizeMode="contain" />
+            {isOcrRunning ? <Text style={styles.ocrStatus}>OCR 辨識中...</Text> : null}
+            {ocrError ? <Text style={styles.ocrErrorText}>{ocrError}</Text> : null}
           </View>
         ) : null}
 
@@ -518,6 +566,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  headerTitleWrap: {
+    flex: 1,
+  },
   backButton: {
     width: 32,
     height: 32,
@@ -559,6 +610,18 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 12,
     backgroundColor: '#F2F2F5',
+  },
+  ocrStatus: {
+    marginTop: 8,
+    color: '#5B4BD6',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  ocrErrorText: {
+    marginTop: 8,
+    color: '#C0392B',
+    fontSize: 12,
+    fontWeight: '500',
   },
   blockTitle: {
     fontSize: 11,

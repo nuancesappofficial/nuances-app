@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   FlatList,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,8 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Q } from '@nozbe/watermelondb';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
+import { FolderIcon } from '../../../components/UI/DeckScreenUI/FolderIcon';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 
@@ -82,15 +80,6 @@ function getTagsArray(tags: unknown): string[] {
   return [];
 }
 
-function withAlpha(color: string, alphaHex: string): string {
-  if (/^#[0-9a-f]{6}$/i.test(color)) return `${color}${alphaHex}`;
-  if (/^#[0-9a-f]{3}$/i.test(color)) {
-    const expanded = `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
-    return `${expanded}${alphaHex}`;
-  }
-  return 'rgba(255,255,255,0.1)';
-}
-
 export default function DeckScreen({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const selectedColor = '#00ffff';
@@ -152,16 +141,32 @@ export default function DeckScreen({ navigation }: Props) {
 
     allCards.forEach((card) => {
       const tags = getTagsArray(card.tags).map((t) => t.toLowerCase());
+      const albumTagIds = tags
+        .filter((tag) => tag.startsWith('album:'))
+        .map((tag) => tag.slice('album:'.length).trim());
       const source = (card.sourceApp || '').toLowerCase();
       const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
 
-      if (tags.some((t) => ['slang', 'internet', 'social'].includes(t)) || /slang|internet|meme/.test(text)) {
+      if (
+        tags.some((t) => ['slang', 'internet', 'social'].includes(t)) ||
+        albumTagIds.includes('slang') ||
+        /slang|internet|meme/.test(text)
+      ) {
         slangCards.push(card);
       }
-      if (tags.some((t) => ['culture', 'pop', 'movie'].includes(t)) || /culture|movie|music|pop/.test(text)) {
+      if (
+        tags.some((t) => ['culture', 'pop', 'movie'].includes(t)) ||
+        albumTagIds.includes('culture') ||
+        /culture|movie|music|pop/.test(text)
+      ) {
         cultureCards.push(card);
       }
-      if (tags.some((t) => ['work', 'business', 'office'].includes(t)) || /work|business|office/.test(text) || source.includes('slack')) {
+      if (
+        tags.some((t) => ['work', 'business', 'office'].includes(t)) ||
+        albumTagIds.includes('work') ||
+        /work|business|office/.test(text) ||
+        source.includes('slack')
+      ) {
         workCards.push(card);
       }
     });
@@ -271,64 +276,19 @@ export default function DeckScreen({ navigation }: Props) {
               columnWrapperStyle={styles.albumColumn}
               contentContainerStyle={styles.albumGridContent}
               renderItem={({ item }) => {
-                const tintOverlayColor = withAlpha(selectedColor, '1A');
-
                 return (
                   <TouchableOpacity
                     style={styles.albumGridItem}
                     activeOpacity={0.9}
                     onPress={() => navigation.navigate('AlbumView', { album: item })}
                   >
-                    <View style={[styles.neonFolderContainer, { shadowColor: selectedColor }]}>
-                      <View style={styles.folderBackPanel}>
-                        <LinearGradient
-                          colors={['#333333', '#111111']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.backPanelGradient}
-                        />
-                        <View style={styles.titleContainer}>
-                          <Text style={[styles.neonAlbumTitle, { color: selectedColor }]} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.cardStackContainer}>
-                        {item.latestCards.slice(0, 3).map((card, index) => (
-                          <View
-                            key={`${item.id}-stack-${index}`}
-                            style={[
-                              styles.stackedCard,
-                              index === 0 ? styles.stackedCard0 : index === 1 ? styles.stackedCard1 : styles.stackedCard2,
-                              { borderColor: selectedColor, shadowColor: selectedColor },
-                            ]}
-                          >
-                            {card.imageUrl ? (
-                              <Image source={{ uri: card.imageUrl }} style={styles.cardThumbnail} />
-                            ) : (
-                              <View style={styles.cardThumbnailPlaceholder} />
-                            )}
-                            <Text style={styles.cardTypeText} numberOfLines={1}>
-                              {card.cardTypeText}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-
-                      <BlurView
-                        style={styles.folderFrontCover}
-                        intensity={70}
-                        tint="dark"
-                      >
-                        <View style={[styles.coverOverlay, { backgroundColor: tintOverlayColor }]} />
-                      </BlurView>
-                    </View>
-
-                    <Text style={[styles.albumBottomTitle, { color: selectedColor }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.wordCount}>{`${item.wordCount} words`}</Text>
+                    <FolderIcon
+                      style={styles.folderIconWrapper}
+                      title={item.name}
+                      wordCount={item.wordCount}
+                      accentColor={selectedColor}
+                      cardLabels={item.latestCards.map((card) => card.cardTypeText)}
+                    />
                   </TouchableOpacity>
                 );
               }}
@@ -363,7 +323,7 @@ export default function DeckScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#91c9f9' },
   scroll: { flex: 1 },
   scrollContent: { paddingTop: 24, paddingBottom: 120 },
   weekHeader: {
@@ -476,6 +436,10 @@ const styles = StyleSheet.create({
     width: '48%',
     marginBottom: 20,
     alignItems: 'center',
+  },
+  folderIconWrapper: {
+    width: '100%',
+    height: 260,
   },
   neonFolderContainer: {
     position: 'relative',

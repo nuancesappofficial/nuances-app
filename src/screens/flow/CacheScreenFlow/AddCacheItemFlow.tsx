@@ -1,25 +1,18 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
-  TouchableOpacity,
-  TextInput,
   Alert,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Modal,
-  Image as RNImage,
-  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
-import ImageOCRViewer from '../../../components/ImageOCRViewer';
-import LocalAiKeywordSuggestions from '../../../components/LocalAiKeywordSuggestions';
 import ImageCropperModal from '../../../components/ImageCropperModal';
+import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
+import OCRViewerModalUI from '../../../components/UI/CacheScreenUI/OCRViewerModalUI';
 import {
   buildKeywordsWithSelectionMarker,
   extractKeywordText,
@@ -380,92 +373,36 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     >
       <View style={styles.quickFlowBackdrop} pointerEvents="none" />
 
-      {/* OCR Viewer Modal（Tech Stack v1.5.0）*/}
-      {showOCRViewer && (
-        <Modal
-          visible={showOCRViewer}
-          animationType={isNoShellQuickFlow ? 'none' : 'slide'}
-          onRequestClose={() => setShowOCRViewer(false)}
-          presentationStyle="fullScreen"
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity
-                onPress={() => {
-                  console.log('[AddCache] Closing OCR viewer, blocks:', ocrBlocks.length);
-                  setShowOCRViewer(false);
-                  if (isNoShellQuickFlow) {
-                    void handleSave();
-                  }
-                }}
-                style={styles.modalCloseButton}
-              >
-                <Text style={styles.modalCloseText}>✓ 完成</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>選擇要學習的文字</Text>
-              <Text style={styles.modalCloseText}>
-                {selectedBlockIndexes.length > 0 ? `已選 ${selectedBlockIndexes.length}` : `${ocrBlocks.length} 個`}
-              </Text>
-            </View>
+      <OCRViewerModalUI
+        visible={showOCRViewer}
+        noShellQuickFlow={isNoShellQuickFlow}
+        selectedImage={selectedImage}
+        ocrBlocks={ocrBlocks}
+        selectedBlockIndexes={selectedBlockIndexes}
+        learningGoal={learningGoal}
+        keywords={keywords}
+        onCloseRequest={() => setShowOCRViewer(false)}
+        onDonePress={() => {
+          console.log('[AddCache] Closing OCR viewer, blocks:', ocrBlocks.length);
+          setShowOCRViewer(false);
+          if (isNoShellQuickFlow) {
+            void handleSave();
+          }
+        }}
+        onSelectionChange={handleSelectionChange}
+        onOCRComplete={handleOCRComplete}
+        onKeywordsChange={setKeywords}
+      />
 
-            {selectedImage ? (
-              <ImageOCRViewer
-                imageUri={selectedImage}
-                onSelectionChange={handleSelectionChange}
-                onOCRComplete={handleOCRComplete}
-                initialSelectedIndexes={selectedBlockIndexes}
-                learningGoal={learningGoal}
-                keywords={keywords}
-                onKeywordsChange={setKeywords}
-              />
-            ) : (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>⚠️ 圖片載入失敗</Text>
-              </View>
-            )}
-          </View>
-        </Modal>
-      )}
-
-      <Modal
+      <CameraModalUI
         visible={showCamera}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={closeCamera}
-      >
-        <View style={styles.cameraContainer}>
-          {cameraPermission?.granted ? (
-            <CameraView
-              ref={cameraRef}
-              style={StyleSheet.absoluteFill}
-              facing={cameraFacing}
-            />
-          ) : (
-            <View style={styles.cameraPermissionFallback}>
-              <Text style={styles.cameraPermissionText}>需要相機權限才能拍照</Text>
-            </View>
-          )}
-
-          <View style={styles.cameraTopBar}>
-            <TouchableOpacity style={styles.cameraTopButton} onPress={closeCamera}>
-              <Text style={styles.cameraTopButtonText}>✕</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cameraTopButton} onPress={toggleCameraFacing}>
-              <Text style={styles.cameraTopButtonText}>↺</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.cameraBottomBar}>
-            <TouchableOpacity
-              style={styles.shutterOuter}
-              onPress={capturePhoto}
-              disabled={!cameraPermission?.granted}
-            >
-              <View style={styles.shutterInner} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        hasPermission={Boolean(cameraPermission?.granted)}
+        cameraRef={cameraRef}
+        facing={cameraFacing}
+        onClose={closeCamera}
+        onToggleFacing={toggleCameraFacing}
+        onCapture={capturePhoto}
+      />
 
       <ImageCropperModal
         visible={showCropper}
@@ -486,310 +423,8 @@ const styles = StyleSheet.create({
   quickFlowContainer: {
     backgroundColor: 'transparent',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 24,
-    color: '#666',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#4CAF50',
-    borderRadius: 8,
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
   quickFlowBackdrop: {
     flex: 1,
     backgroundColor: 'transparent',
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  typeSelector: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-  },
-  typeButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-  },
-  typeButtonActive: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
-  },
-  typeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  typeButtonTextActive: {
-    color: '#fff',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#fff',
-  },
-  textArea: {
-    minHeight: 150,
-  },
-  hint: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  imageButtonRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  imageButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    borderRadius: 8,
-    backgroundColor: '#E8F5E9',
-  },
-  imageButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  imagePreview: {
-    marginBottom: 16,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  previewImage: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#f0f0f0',
-  },
-  ocrHint: {
-    fontSize: 12,
-    color: '#2196F3',
-    backgroundColor: '#E3F2FD',
-    padding: 8,
-    borderRadius: 4,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  analyzingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  analyzingText: {
-    marginLeft: 8,
-    fontSize: 13,
-    color: '#4CAF50',
-    fontWeight: '500',
-  },
-  aiResultContainer: {
-    backgroundColor: '#f1f8e9',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#4CAF50',
-  },
-  aiResultTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#33691e',
-    marginBottom: 4,
-  },
-  aiResultText: {
-    fontSize: 12,
-    color: '#558b2f',
-    lineHeight: 18,
-  },
-  imageActions: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'column',
-    gap: 8,
-  },
-  annotateButton: {
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  annotateButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  cropButton: {
-    backgroundColor: 'rgba(33, 150, 243, 0.92)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 6,
-  },
-  cropButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  removeImageButton: {
-    backgroundColor: 'rgba(244, 67, 54, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  removeImageText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  modalCloseButton: {
-    paddingVertical: 8,
-  },
-  modalCloseText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#F44336',
-  },
-  cameraContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  cameraPermissionFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111',
-  },
-  cameraPermissionText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cameraTopBar: {
-    position: 'absolute',
-    top: 56,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  cameraTopButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cameraTopButtonText: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  cameraBottomBar: {
-    position: 'absolute',
-    bottom: 42,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  shutterOuter: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    borderWidth: 4,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  shutterInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#fff',
   },
 });

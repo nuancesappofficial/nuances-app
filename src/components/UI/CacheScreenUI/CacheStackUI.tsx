@@ -11,10 +11,11 @@ type CacheStackItem = {
 type Props = {
   cards: CacheStackItem[];
   animationSeed: number;
+  restoreSeed: number;
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
 };
 
-export default function CacheStackUI({ cards, animationSeed, onCardSwipe }: Props) {
+export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCardSwipe }: Props) {
   return (
     <View style={styles.stackContainer}>
       {cards.map((item, index) => (
@@ -24,6 +25,7 @@ export default function CacheStackUI({ cards, animationSeed, onCardSwipe }: Prop
           imageUri={item.imageUri}
           text={item.text}
           index={index}
+          restoreSeed={restoreSeed}
           onSwipe={onCardSwipe}
           animationSeed={animationSeed}
         />

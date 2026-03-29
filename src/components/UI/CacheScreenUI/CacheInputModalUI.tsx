@@ -1,5 +1,16 @@
 import React from 'react';
-import { Modal, Pressable, View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Text,
+  Animated,
+  PanResponder,
+  type LayoutChangeEvent,
+} from 'react-native';
+import * as Haptics from 'expo-haptics';
 import CacheTextInputPanelUI from './CacheTextInputPanelUI';
 import CacheImageInputPanelUI from './CacheImageInputPanelUI';
 
@@ -32,6 +43,86 @@ export default function CacheInputModalUI({
   onUploadImage,
   onCaptureImage,
 }: Props) {
+  const [panelWidth, setPanelWidth] = React.useState(0);
+  const slideX = React.useRef(new Animated.Value(0)).current;
+  const currentOffsetRef = React.useRef(0);
+
+  React.useEffect(() => {
+    if (panelWidth <= 0) return;
+    const toValue = addTab === 'text' ? 0 : -panelWidth;
+    currentOffsetRef.current = toValue;
+    Animated.spring(slideX, {
+      toValue,
+      useNativeDriver: true,
+      damping: 24,
+      stiffness: 220,
+      mass: 0.9,
+    }).start();
+  }, [addTab, panelWidth, slideX]);
+
+  const handlePanelLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const width = event.nativeEvent.layout.width;
+    if (width <= 0) return;
+    setPanelWidth(width);
+  }, []);
+
+  const handleTabPress = React.useCallback(
+    (nextTab: 'text' | 'image') => {
+      if (nextTab === addTab) return;
+      void Haptics.selectionAsync();
+      onTabChange(nextTab);
+    },
+    [addTab, onTabChange]
+  );
+
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          const { dx, dy } = gestureState;
+          return Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy);
+        },
+        onPanResponderMove: (_evt, gestureState) => {
+          if (panelWidth <= 0) return;
+          const minX = -panelWidth;
+          const maxX = 0;
+          const nextX = Math.max(minX, Math.min(maxX, currentOffsetRef.current + gestureState.dx));
+          slideX.setValue(nextX);
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          if (panelWidth <= 0) return;
+          const threshold = panelWidth * 0.2;
+          if (gestureState.dx < -threshold && addTab === 'text') {
+            void Haptics.selectionAsync();
+            onTabChange('image');
+            return;
+          }
+          if (gestureState.dx > threshold && addTab === 'image') {
+            void Haptics.selectionAsync();
+            onTabChange('text');
+            return;
+          }
+          Animated.spring(slideX, {
+            toValue: currentOffsetRef.current,
+            useNativeDriver: true,
+            damping: 24,
+            stiffness: 220,
+            mass: 0.9,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(slideX, {
+            toValue: currentOffsetRef.current,
+            useNativeDriver: true,
+            damping: 24,
+            stiffness: 220,
+            mass: 0.9,
+          }).start();
+        },
+      }),
+    [addTab, onTabChange, panelWidth, slideX]
+  );
+
   return (
     <Modal
       visible={visible}
@@ -47,31 +138,40 @@ export default function CacheInputModalUI({
         <View style={styles.tabRow}>
           <TouchableOpacity
             style={[styles.tabBtn, addTab === 'text' && styles.tabBtnActive]}
-            onPress={() => onTabChange('text')}
+            onPress={() => handleTabPress('text')}
           >
             <Text style={[styles.tabText, addTab === 'text' && styles.tabTextActive]}>Text</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, addTab === 'image' && styles.tabBtnActive]}
-            onPress={() => onTabChange('image')}
+            onPress={() => handleTabPress('image')}
           >
             <Text style={[styles.tabText, addTab === 'image' && styles.tabTextActive]}>Image</Text>
           </TouchableOpacity>
         </View>
 
-        {addTab === 'text' ? (
-          <CacheTextInputPanelUI
-            manualText={manualText}
-            onChangeManualText={onManualTextChange}
-            onSubmit={onSubmitText}
-          />
-        ) : (
-          <CacheImageInputPanelUI
-            creatingImage={creatingImage}
-            onUploadImage={onUploadImage}
-            onCaptureImage={onCaptureImage}
-          />
-        )}
+        <View
+          style={styles.panelViewport}
+          onLayout={handlePanelLayout}
+          {...panResponder.panHandlers}
+        >
+          <Animated.View style={[styles.panelTrack, { transform: [{ translateX: slideX }] }]}>
+            <View style={styles.panelPage}>
+              <CacheTextInputPanelUI
+                manualText={manualText}
+                onChangeManualText={onManualTextChange}
+                onSubmit={onSubmitText}
+              />
+            </View>
+            <View style={styles.panelPage}>
+              <CacheImageInputPanelUI
+                creatingImage={creatingImage}
+                onUploadImage={onUploadImage}
+                onCaptureImage={onCaptureImage}
+              />
+            </View>
+          </Animated.View>
+        </View>
 
         <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
           <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -126,6 +226,16 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: '#101010',
+  },
+  panelViewport: {
+    overflow: 'hidden',
+  },
+  panelTrack: {
+    width: '200%',
+    flexDirection: 'row',
+  },
+  panelPage: {
+    width: '50%',
   },
   cancelBtn: {
     marginTop: 10,

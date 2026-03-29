@@ -71,6 +71,12 @@ const defaultAlbums: LocalAlbum[] = [
 
 const availableEmojis = ['📚', '💬', '🎬', '💼', '✈️', '🗣️', '🎯', '🎨', '🎵', '🏆', '🌟', '🔥'];
 const availableColors = ['#FFE5E5', '#E5F4FF', '#FFF4E5', '#E5FFE5', '#FFE5F5', '#E5E5FF', '#FFE5CC', '#E5FFF5'];
+const ALBUM_TAG_PREFIX = 'album:';
+const albumIdToCategoryTag: Record<string, string> = {
+  slang: 'slang',
+  culture: 'culture',
+  work: 'work',
+};
 
 function isFilePath(text: string | undefined | null): boolean {
   if (!text) return true;
@@ -91,6 +97,51 @@ function buildPronunciation(word: string): string {
   const cleaned = word.trim().toLowerCase();
   if (!cleaned) return '/-/';
   return `/${cleaned.replace(/\s+/g, '-')}/`;
+}
+
+function parseTags(tags: unknown): string[] {
+  if (Array.isArray(tags)) {
+    return tags
+      .filter((tag): tag is string => typeof tag === 'string')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof tags === 'string') {
+    const trimmed = tags.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((tag): tag is string => typeof tag === 'string')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      return trimmed
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function deriveSelectedAlbums(tags: string[]): string[] {
+  const result = new Set<string>();
+  tags.forEach((tag) => {
+    const lower = tag.toLowerCase();
+    if (lower.startsWith(ALBUM_TAG_PREFIX)) {
+      const albumId = lower.slice(ALBUM_TAG_PREFIX.length).trim();
+      if (albumId) result.add(albumId);
+    }
+    if (lower === 'slang') result.add('slang');
+    if (lower === 'culture') result.add('culture');
+    if (lower === 'work') result.add('work');
+  });
+  return Array.from(result);
 }
 
 export default function CardDetailScreen({ navigation, route }: Props) {
@@ -179,6 +230,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Speech.stop();
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!card) return;
+    const tags = parseTags(card.tags).map((tag) => tag.toLowerCase());
+    setSelectedAlbums(deriveSelectedAlbums(tags));
+  }, [card]);
 
   const allAlbums = React.useMemo(() => [...defaultAlbums, ...customAlbums], [customAlbums]);
 
@@ -438,6 +495,34 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setSelectedColor('#E5E5FF');
   };
 
+  const saveAlbumSelection = async () => {
+    if (!card) return;
+    try {
+      const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
+      const reservedCategoryTags = new Set(Object.values(albumIdToCategoryTag));
+      const preserved = currentTags.filter(
+        (tag) => !tag.startsWith(ALBUM_TAG_PREFIX) && !reservedCategoryTags.has(tag)
+      );
+
+      const albumTags = selectedAlbums.map((id) => `${ALBUM_TAG_PREFIX}${id}`);
+      const categoryTags = selectedAlbums
+        .map((id) => albumIdToCategoryTag[id])
+        .filter((tag): tag is string => Boolean(tag));
+      const nextTags = Array.from(new Set([...preserved, ...albumTags, ...categoryTags]));
+
+      await database.write(async () => {
+        await card.update((record) => {
+          record.tags = nextTags;
+        });
+      });
+
+      setShowAlbumSheet(false);
+    } catch (error) {
+      console.error('[CardDetail] save albums failed:', error);
+      Alert.alert('儲存失敗', '更新資料夾關聯時發生問題，請再試一次。');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
@@ -650,7 +735,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Add to Album</Text>
-            <TouchableOpacity onPress={() => setShowAlbumSheet(false)}>
+            <TouchableOpacity onPress={() => void saveAlbumSelection()}>
               <Text style={styles.sheetDone}>Done</Text>
             </TouchableOpacity>
           </View>

@@ -19,7 +19,7 @@ export default function CacheTextCardFace({ text }: Props) {
 const styles = StyleSheet.create({
   textCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F5', // 調整為淺灰色
     paddingHorizontal: 20,
     paddingVertical: 24,
     justifyContent: 'center',

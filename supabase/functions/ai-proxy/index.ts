@@ -392,6 +392,35 @@ function routeOpenAIModelForAction(params: {
   return { model: fast, tier: 'fast', reason: 'default_low_latency' };
 }
 
+function routeGeminiModelForAction(params: {
+  action: Action | 'legacy_gemini';
+  payloadSize: number;
+  requested?: unknown;
+}): ModelRoute {
+  if (typeof params.requested === 'string' && GEMINI_ALLOWED_MODELS.includes(params.requested)) {
+    return {
+      model: params.requested,
+      tier: 'quality',
+      reason: 'explicit_model_override',
+    };
+  }
+
+  const fast = GEMINI_ALLOWED_MODELS[0] ?? 'gemini-2.0-flash-lite';
+  const balanced = GEMINI_ALLOWED_MODELS[Math.min(1, GEMINI_ALLOWED_MODELS.length - 1)] ?? fast;
+  const quality = GEMINI_ALLOWED_MODELS[Math.min(2, GEMINI_ALLOWED_MODELS.length - 1)] ?? balanced;
+
+  if (params.action === 'analyze_text') {
+    return { model: fast, tier: 'fast', reason: 'short_keyword_extraction' };
+  }
+  if (params.payloadSize > 1200 || params.action === 'analyze_context') {
+    return { model: quality, tier: 'quality', reason: 'long_or_context_heavy' };
+  }
+  if (params.action === 'generate_card' || params.action === 'analyze_and_generate_card') {
+    return { model: balanced, tier: 'balanced', reason: 'content_generation' };
+  }
+  return { model: fast, tier: 'fast', reason: 'default_low_latency' };
+}
+
 function stripMarkdownFences(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed.startsWith('```')) return trimmed;
@@ -921,6 +950,7 @@ async function callGeminiLegacy(params: {
   messages: LegacyRequestBody['messages'];
   temperature?: number;
   maxTokens: number;
+  jsonMode?: boolean;
 }): Promise<AIResponse> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
@@ -939,6 +969,7 @@ async function callGeminiLegacy(params: {
         generationConfig: {
           temperature: params.temperature ?? 0.7,
           maxOutputTokens: params.maxTokens,
+          ...(params.jsonMode ? { responseMimeType: 'application/json' } : {}),
         },
       }),
     }
@@ -1091,11 +1122,11 @@ Text: "${text}"
 Return JSON only:
 {"keywords":["word1"],"suggestedWord":"word1"}`;
 
-  const route = routeOpenAIModelForAction({
+  const route = routeGeminiModelForAction({
     action: 'analyze_text',
     payloadSize: text.length + userKeywords.length,
   });
-  const aiResponse = await callOpenAIChat({
+  const aiResponse = await callGeminiLegacy({
     model: route.model,
     messages: [
       {
@@ -1168,11 +1199,11 @@ Return JSON only:
   "tags":["IELTS","Academic"]
 }`;
 
-  const route = routeOpenAIModelForAction({
+  const route = routeGeminiModelForAction({
     action: 'generate_card',
     payloadSize: targetWord.length + originalSentence.length,
   });
-  const aiResponse = await callOpenAIChat({
+  const aiResponse = await callGeminiLegacy({
     model: route.model,
     messages: [
       {
@@ -1336,11 +1367,11 @@ Return JSON only:
     )
   );
 
-  const route = routeOpenAIModelForAction({
+  const route = routeGeminiModelForAction({
     action: 'analyze_context',
     payloadSize: targetText.length + originalSentence.length + contextText.length + fullContext.length,
   });
-  const aiResponse = await callOpenAIChat({
+  const aiResponse = await callGeminiLegacy({
     model: route.model,
     messages: [
       {
@@ -1357,7 +1388,7 @@ Return JSON only:
   const content = aiResponse.content;
 
   console.log(
-    '[ai-proxy][analyze_context][openai_raw_output]',
+    '[ai-proxy][analyze_context][ai_raw_output]',
     typeof content === 'string' ? content : JSON.stringify(content)
   );
 
@@ -1396,7 +1427,7 @@ Disambiguation check:
 - Re-evaluate pragmatic reading first (consequence/result/retaliation etc.) before transaction meaning.
 - Keep all previous JSON schema requirements unchanged.`;
 
-    const retryResponse = await callOpenAIChat({
+    const retryResponse = await callGeminiLegacy({
       model: route.model,
       messages: [
         {

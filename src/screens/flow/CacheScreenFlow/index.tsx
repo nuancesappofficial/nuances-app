@@ -5,9 +5,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFocusEffect } from '@react-navigation/native';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { syncWithRetry } from '@services/sync';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
@@ -26,10 +28,13 @@ type CacheCardRecord = {
   cachedItem: CachedItem;
 };
 
+type CropperFlowTarget = 'quick-add' | 'swipe-image';
+
 export default function CacheScreenFlow({ navigation }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
   const [animationSeed, setAnimationSeed] = useState(0);
+  const [restoreSeed, setRestoreSeed] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addTab, setAddTab] = useState<'text' | 'image'>('text');
   const [manualText, setManualText] = useState('');
@@ -37,14 +42,17 @@ export default function CacheScreenFlow({ navigation }: Props) {
   const [showQuickCamera, setShowQuickCamera] = useState(false);
   const [quickCameraFacing, setQuickCameraFacing] = useState<CameraType>('back');
   const [showUploadCropper, setShowUploadCropper] = useState(false);
+  const [cropperFlowTarget, setCropperFlowTarget] = useState<CropperFlowTarget>('quick-add');
   const [pendingOriginalImageUri, setPendingOriginalImageUri] = useState<string | null>(null);
   const [pendingOriginalImageSize, setPendingOriginalImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [pendingSwipeImageItem, setPendingSwipeImageItem] = useState<CachedItem | null>(null);
   const [pendingOpenCropperAfterAddDismiss, setPendingOpenCropperAfterAddDismiss] = useState(false);
   const [suppressAddModalAnimation, setSuppressAddModalAnimation] = useState(false);
   const quickCameraRef = React.useRef<CameraView | null>(null);
   const [quickCameraPermission, requestQuickCameraPermission] = useCameraPermissions();
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
   const deletingItemIdsRef = React.useRef(new Set<string>());
+  const hasFocusedOnceRef = React.useRef(false);
 
   const openAddModal = React.useCallback(() => {
     setShowAddModal(true);
@@ -77,6 +85,16 @@ export default function CacheScreenFlow({ navigation }: Props) {
     const sub = query.observe().subscribe((data) => setCacheItems(data));
     return () => sub.unsubscribe();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (hasFocusedOnceRef.current) {
+        setRestoreSeed((prev) => prev + 1);
+      } else {
+        hasFocusedOnceRef.current = true;
+      }
+    }, [])
+  );
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -159,6 +177,8 @@ export default function CacheScreenFlow({ navigation }: Props) {
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
       const picked = result.assets[0];
+      setCropperFlowTarget('quick-add');
+      setPendingSwipeImageItem(null);
       setPendingOriginalImageUri(picked.uri);
       setPendingOriginalImageSize(
         typeof picked.width === 'number' && typeof picked.height === 'number'
@@ -184,6 +204,10 @@ export default function CacheScreenFlow({ navigation }: Props) {
         return;
       }
     }
+    setCropperFlowTarget('quick-add');
+    setPendingSwipeImageItem(null);
+    setPendingOpenCropperAfterAddDismiss(false);
+    setShowAddModal(false);
     setShowQuickCamera(true);
   }, [quickCameraPermission?.granted, requestQuickCameraPermission]);
 
@@ -204,40 +228,109 @@ export default function CacheScreenFlow({ navigation }: Props) {
       }
       setShowQuickCamera(false);
       setShowAddModal(false);
-      navigation.navigate('AddCacheItem', {
-        startMode: 'library',
-        initialImageUri: photo.uri,
-        originalImageUri: photo.uri,
-        autoOpenCropper: true,
-      });
+      setCropperFlowTarget('quick-add');
+      setPendingSwipeImageItem(null);
+      setPendingOriginalImageUri(photo.uri);
+      setPendingOriginalImageSize(
+        typeof photo.width === 'number' && typeof photo.height === 'number'
+          ? { width: photo.width, height: photo.height }
+          : null
+      );
+      setPendingOpenCropperAfterAddDismiss(false);
+      setShowUploadCropper(true);
     } catch (error) {
       console.error('[CacheList] quick camera capture failed:', error);
       Alert.alert('拍照失敗', '請再試一次');
     }
-  }, [navigation]);
+  }, []);
+
+  const createQuickImageCachedItem = React.useCallback(
+    async (croppedUri: string, originalUri?: string | null): Promise<CachedItem | null> => {
+      const userId = await getCurrentAuthUserId();
+      if (!userId) {
+        Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
+        return null;
+      }
+
+      let createdItem: CachedItem | null = null;
+      await database.write(async () => {
+        const collection = database.get<CachedItem>('cached_items');
+        createdItem = await collection.create((item) => {
+          item.userId = userId;
+          item.contentType = 'image';
+          item.type = 'image';
+          item.contentText = undefined;
+          item.contentUrl = undefined;
+          item.mediaUri = originalUri || undefined;
+          item.imageStoragePath = croppedUri;
+          item.sourceApp = 'Quick Add';
+          item.userKeywords = undefined;
+          item.aiAnalysisCompleted = false;
+          item.convertedToCard = false;
+
+          const expiresAt = new Date();
+          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+          item.expiresAt = expiresAt;
+        });
+      });
+      return createdItem;
+    },
+    []
+  );
 
   const handleUploadCropCancel = React.useCallback(() => {
+    const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);
+    setPendingSwipeImageItem(null);
+    setCropperFlowTarget('quick-add');
     setAddTab('image');
-    setShowAddModal(true);
-  }, []);
+    if (shouldReopenAddModal) {
+      setShowAddModal(true);
+    }
+  }, [cropperFlowTarget]);
 
   const handleUploadCropConfirm = React.useCallback(
-    (croppedUri: string) => {
+    async (croppedUri: string) => {
       const originalUri = pendingOriginalImageUri;
       setShowUploadCropper(false);
       setPendingOriginalImageUri(null);
       setPendingOriginalImageSize(null);
-      navigation.navigate('AddCacheItem', {
-        startMode: 'library',
-        initialImageUri: croppedUri,
-        originalImageUri: originalUri,
-        openOcrOnLoad: true,
-      });
+      setPendingOpenCropperAfterAddDismiss(false);
+      if (cropperFlowTarget === 'swipe-image' && pendingSwipeImageItem) {
+        navigation.navigate('CreateCard', {
+          cachedItem: pendingSwipeImageItem,
+          croppedImageUri: croppedUri,
+          originalImageUri: originalUri,
+          runOcrOnLoad: true,
+        });
+      } else {
+        try {
+          const quickItem = await createQuickImageCachedItem(croppedUri, originalUri);
+          if (!quickItem) return;
+          navigation.navigate('CreateCard', {
+            cachedItem: quickItem,
+            croppedImageUri: croppedUri,
+            originalImageUri: originalUri,
+            runOcrOnLoad: true,
+          });
+        } catch (error) {
+          console.error('[CacheList] create quick image item failed:', error);
+          Alert.alert('建立失敗', '無法建立圖片卡片，請稍後再試。');
+          return;
+        }
+      }
+      setPendingSwipeImageItem(null);
+      setCropperFlowTarget('quick-add');
     },
-    [navigation, pendingOriginalImageUri]
+    [
+      createQuickImageCachedItem,
+      cropperFlowTarget,
+      navigation,
+      pendingOriginalImageUri,
+      pendingSwipeImageItem,
+    ]
   );
 
   const handleInputModalDismiss = React.useCallback(() => {
@@ -250,15 +343,17 @@ export default function CacheScreenFlow({ navigation }: Props) {
     }
   }, [pendingOpenCropperAfterAddDismiss, pendingOriginalImageUri, suppressAddModalAnimation]);
 
-  const softDeleteCacheItem = React.useCallback(async (item: CachedItem) => {
+  const deleteCacheItemPermanently = React.useCallback(async (item: CachedItem) => {
     if (deletingItemIdsRef.current.has(item.id)) return;
     deletingItemIdsRef.current.add(item.id);
     try {
       await database.write(async () => {
-        await item.update((record) => {
-          record.deletedAt = new Date();
-        });
+        await item.markAsDeleted();
       });
+      const syncResult = await syncWithRetry(2);
+      if (!syncResult.success) {
+        console.error('[CacheList] delete sync failed:', syncResult.message || syncResult.error);
+      }
     } catch (error) {
       console.error('[CacheList] delete cache item failed:', error);
     } finally {
@@ -272,12 +367,36 @@ export default function CacheScreenFlow({ navigation }: Props) {
       if (!target) return;
 
       if (direction === 'right') {
+        const isImageCard =
+          target.cachedItem.contentType === 'image' ||
+          Boolean(target.cachedItem.mediaUri || target.cachedItem.imageStoragePath);
+
+        if (isImageCard) {
+          const imageUri =
+            target.cachedItem.imageStoragePath ||
+            target.cachedItem.mediaUri ||
+            target.cachedItem.contentUrl ||
+            target.imageUri ||
+            null;
+          if (!imageUri) {
+            Alert.alert('找不到圖片', '這張圖片卡沒有可裁切的圖片來源。');
+            return;
+          }
+          setCropperFlowTarget('swipe-image');
+          setPendingSwipeImageItem(target.cachedItem);
+          setPendingOriginalImageUri(imageUri);
+          setPendingOriginalImageSize(null);
+          setShowUploadCropper(true);
+          return;
+        }
+
         navigation.navigate('CreateCard', { cachedItem: target.cachedItem });
+        return;
       }
 
-      void softDeleteCacheItem(target.cachedItem);
+      void deleteCacheItemPermanently(target.cachedItem);
     },
-    [cards, navigation, softDeleteCacheItem]
+    [cards, deleteCacheItemPermanently, navigation]
   );
 
   return (
@@ -285,6 +404,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
       <CacheStackUI
         cards={stackCards}
         animationSeed={animationSeed}
+        restoreSeed={restoreSeed}
         onCardSwipe={handleCardSwipe}
       />
 

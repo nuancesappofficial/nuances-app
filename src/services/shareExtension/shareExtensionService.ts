@@ -24,8 +24,6 @@ const MAX_TEXT_LENGTH = 2000;
 const SHARED_IMAGES_SUBDIR = 'SharedImages';
 const SHARE_INGEST_EVENTS_KEY = 'share_extension_ingest_events';
 const MAX_SHARE_INGEST_EVENTS = 120;
-const SHARE_INGEST_SIGNATURES_KEY = 'share_extension_ingest_signatures';
-const SHARE_INGEST_SIGNATURE_TTL_MS = 24 * 60 * 60 * 1000;
 
 let currentIngestPromise: Promise<number> | null = null;
 
@@ -40,73 +38,6 @@ export interface ShareIngestEvent {
   meta?: Record<string, unknown>;
 }
 
-function hashString(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(16);
-}
-
-function normalizeTextForSignature(text: string): string {
-  return text.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-function buildItemSignature(item: SharedContentItem): string {
-  if (item.type === 'text') {
-    const normalized = normalizeTextForSignature(item.content || '');
-    return `text:${hashString(normalized)}`;
-  }
-
-  const normalizedImages = (item.images || [])
-    .map((path) => path.trim())
-    .filter(Boolean)
-    .sort()
-    .join('|');
-  return `image:${hashString(normalizedImages)}`;
-}
-
-async function loadSignatureMap(): Promise<Record<string, number>> {
-  try {
-    const raw = await AsyncStorage.getItem(SHARE_INGEST_SIGNATURES_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, number>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-async function saveSignatureMap(map: Record<string, number>): Promise<void> {
-  await AsyncStorage.setItem(SHARE_INGEST_SIGNATURES_KEY, JSON.stringify(map));
-}
-
-function pruneSignatureMap(
-  map: Record<string, number>,
-  nowMs: number
-): Record<string, number> {
-  const next: Record<string, number> = {};
-  for (const [signature, ts] of Object.entries(map)) {
-    if (typeof ts === 'number' && nowMs - ts <= SHARE_INGEST_SIGNATURE_TTL_MS) {
-      next[signature] = ts;
-    }
-  }
-  return next;
-}
-
-async function isRecentlyProcessed(signature: string): Promise<boolean> {
-  const nowMs = Date.now();
-  const pruned = pruneSignatureMap(await loadSignatureMap(), nowMs);
-  await saveSignatureMap(pruned);
-  return Boolean(pruned[signature]);
-}
-
-async function markAsProcessed(signature: string): Promise<void> {
-  const nowMs = Date.now();
-  const map = pruneSignatureMap(await loadSignatureMap(), nowMs);
-  map[signature] = nowMs;
-  await saveSignatureMap(map);
-}
 
 async function appendShareIngestEvent(
   event: Omit<ShareIngestEvent, 'id' | 'timestamp'>
@@ -224,21 +155,8 @@ export async function checkAndProcessSharedContent(userId: string): Promise<numb
       let totalCount = 0;
 
       for (const item of items) {
-        const signature = buildItemSignature(item);
-        const duplicate = await isRecentlyProcessed(signature);
-        if (duplicate) {
-          await appendShareIngestEvent({
-            level: 'warn',
-            stage: 'ingest_item_duplicate',
-            message: 'Skipped duplicate shared item (already processed recently)',
-            meta: { userId, signature, itemType: item.type },
-          });
-          continue;
-        }
-
         if (item.type === 'text' && item.content) {
           await saveTextToCache(userId, item.content);
-          await markAsProcessed(signature);
           totalCount += 1;
           await appendShareIngestEvent({
             level: 'info',
@@ -248,7 +166,6 @@ export async function checkAndProcessSharedContent(userId: string): Promise<numb
           });
         } else if (item.type === 'image' && item.images && item.images.length > 0) {
           await saveImagesToCache(userId, item.images);
-          await markAsProcessed(signature);
           totalCount += item.images.length;
           await appendShareIngestEvent({
             level: 'info',

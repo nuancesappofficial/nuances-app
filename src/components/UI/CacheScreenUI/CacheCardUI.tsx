@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Dimensions } from 'react-native';
+import { StyleSheet, Dimensions, TextInput, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -28,6 +28,7 @@ type Props = {
   imageUri?: string;
   text: string;
   index: number;
+  restoreSeed: number;
   onSwipe: (itemId: string, direction: 'left' | 'right') => void;
   animationSeed: number;
 };
@@ -37,6 +38,7 @@ export default function CacheCardUI({
   imageUri,
   text,
   index,
+  restoreSeed,
   onSwipe,
   animationSeed,
 }: Props) {
@@ -52,6 +54,7 @@ export default function CacheCardUI({
   const scale = useSharedValue(1);
   const rot = useSharedValue(0);
   const isPressed = useSharedValue(false);
+  const hasRestoreInitialized = React.useRef(false);
 
   React.useEffect(() => {
     isPressed.value = false;
@@ -70,6 +73,18 @@ export default function CacheCardUI({
     }
     rot.value = withDelay(delay, withSpring(targetRot, ELEGANT_SPRING));
   }, [animationSeed, delay, isDropMode, isPressed, rot, scale, side, targetRot, toY, x, y]);
+
+  React.useEffect(() => {
+    if (!hasRestoreInitialized.current) {
+      hasRestoreInitialized.current = true;
+      return;
+    }
+    isPressed.value = false;
+    x.value = 0;
+    y.value = toY;
+    scale.value = 1;
+    rot.value = targetRot;
+  }, [restoreSeed, isPressed, rot, scale, targetRot, toY, x, y]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -129,32 +144,64 @@ export default function CacheCardUI({
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.card, animatedStyle]}>
-        {imageUri ? <CacheImageCardFace imageUri={imageUri} /> : <CacheTextCardFace text={text} />}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
+      <Animated.View style={[styles.shadowWrapper, animatedStyle]}>
+        <View style={styles.cardContent}>
+          
+          {/* 上半部：圖片或文字區域 */}
+          <View style={styles.mediaContainer}>
+            {imageUri ? <CacheImageCardFace imageUri={imageUri} /> : <CacheTextCardFace text={text} />}
+            <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
 
-        <Animated.View style={[styles.stampContainer, styles.likeStamp, likeOpacity]}>
-          <Ionicons name="checkmark-outline" color="#4CAF50" size={60} />
-        </Animated.View>
+            <Animated.View style={[styles.stampContainer, styles.likeStamp, likeOpacity]}>
+              <Ionicons name="checkmark-outline" color="#4CAF50" size={60} />
+            </Animated.View>
 
-        <Animated.View style={[styles.stampContainer, styles.nopeStamp, nopeOpacity]}>
-          <Ionicons name="close-outline" color="#F44336" size={60} />
-        </Animated.View>
+            <Animated.View style={[styles.stampContainer, styles.nopeStamp, nopeOpacity]}>
+              <Ionicons name="close-outline" color="#F44336" size={60} />
+            </Animated.View>
+          </View>
+
+          {/* 下半部：左右文字輸入筐 */}
+          <View style={styles.bottomContainer}>
+            <TextInput 
+              style={styles.leftInput} 
+              placeholder="輸入文字..." 
+              placeholderTextColor="#8E8E93"
+            />
+            <TextInput 
+              style={styles.rightInput} 
+              placeholder="+ Add member" 
+              placeholderTextColor="#FFFFFF"
+            />
+          </View>
+
+        </View>
       </Animated.View>
     </GestureDetector>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    overflow: 'hidden',
+  shadowWrapper: {
+    borderRadius: 32,
+    backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.15,
-    shadowRadius: 15,
-    elevation: 5,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  cardContent: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 32,
+    padding: 16, // 產生白色外框
+  },
+  mediaContainer: {
+    flex: 1,
+    borderRadius: 24, // 內部圖片/文字圓角
+    overflow: 'hidden',
+    backgroundColor: '#EBEBEB',
   },
   overlay: {
     zIndex: 1,
@@ -169,13 +216,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.8)',
   },
   likeStamp: {
-    left: 30,
+    left: 20,
     borderColor: '#4CAF50',
     transform: [{ rotate: '-15deg' }],
   },
   nopeStamp: {
-    right: 30,
+    right: 20,
     borderColor: '#F44336',
     transform: [{ rotate: '15deg' }],
+  },
+  bottomContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    height: 48,
+  },
+  leftInput: {
+    flex: 1,
+    height: '100%',
+    marginRight: 8,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    color: '#101010',
+    fontSize: 14,
+  },
+  rightInput: {
+    flex: 1,
+    height: '100%',
+    marginLeft: 8,
+    backgroundColor: '#1E1E1E', // 深色背景以符合附圖右下角風格
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    color: '#FFFFFF',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
