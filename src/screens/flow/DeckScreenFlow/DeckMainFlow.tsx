@@ -23,6 +23,7 @@ type AlbumPreviewCard = {
   imageUrl?: string;
   cardTypeText: string;
   previewText?: string;
+  createdAtMs: number;
 };
 
 type Album = {
@@ -74,6 +75,7 @@ function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>):
       ...(imageUrl ? { imageUrl } : {}),
       cardTypeText: card.partOfSpeech || 'word',
       previewText: (card.targetWord || card.definition || 'card').trim(),
+      createdAtMs: new Date(card.createdAt).getTime(),
     };
   });
 }
@@ -81,7 +83,8 @@ function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>):
 export default function DeckScreen({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
-  const [searchText, setSearchText] = React.useState('');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [sortOrder, setSortOrder] = React.useState<'desc' | 'asc'>('desc');
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -218,20 +221,30 @@ export default function DeckScreen({ navigation }: Props) {
     ];
   }, [allCards, cardImageMap]);
 
-  const filteredAlbums = React.useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    if (!keyword) return albums;
+  const processedAlbums = React.useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    let result = [...albums];
 
-    return albums.filter((album) => {
-      const inName = album.name.toLowerCase().includes(keyword);
-      const inCards = album.latestCards.some(
-        (card) =>
-          card.previewText?.toLowerCase().includes(keyword) ||
-          card.cardTypeText.toLowerCase().includes(keyword)
-      );
-      return inName || inCards;
+    if (keyword) {
+      result = result.filter((album) => {
+        const inName = album.name.toLowerCase().includes(keyword);
+        const inCards = album.latestCards.some(
+          (card) =>
+            card.previewText?.toLowerCase().includes(keyword) ||
+            card.cardTypeText.toLowerCase().includes(keyword)
+        );
+        return inName || inCards;
+      });
+    }
+
+    result.sort((a, b) => {
+      const aLatest = a.latestCards[0]?.createdAtMs ?? 0;
+      const bLatest = b.latestCards[0]?.createdAtMs ?? 0;
+      return sortOrder === 'desc' ? bLatest - aLatest : aLatest - bLatest;
     });
-  }, [albums, searchText]);
+
+    return result;
+  }, [albums, searchQuery, sortOrder]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -239,19 +252,32 @@ export default function DeckScreen({ navigation }: Props) {
         <View style={styles.searchInputWrap}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput
-            value={searchText}
-            onChangeText={setSearchText}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
             placeholder="搜尋卡片關鍵字"
             placeholderTextColor="#8E8E93"
             style={styles.searchInput}
             returnKeyType="search"
           />
+          <TouchableOpacity
+            style={styles.clearSearchButton}
+            activeOpacity={0.8}
+            onPress={() => setSearchQuery('')}
+          >
+            <Text style={styles.clearSearchButtonText}>×</Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity
           style={styles.addAlbumButton}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('AlbumView', { mode: 'create' })}
+          onPress={() => {
+            try {
+              navigation.navigate('CreateAlbum');
+            } catch {
+              navigation.navigate('AlbumView', { mode: 'create' });
+            }
+          }}
         >
           <Text style={styles.addAlbumText}>＋</Text>
         </TouchableOpacity>
@@ -262,9 +288,13 @@ export default function DeckScreen({ navigation }: Props) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterRow}
       >
-        <TouchableOpacity style={styles.sortPill} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.sortPill}
+          activeOpacity={0.85}
+          onPress={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+        >
           <Text style={styles.sortPillText}>↕︎</Text>
-          <Text style={styles.sortPillChevron}>⌄</Text>
+          <Text style={styles.sortPillChevron}>{sortOrder === 'desc' ? '新→舊' : '舊→新'}</Text>
         </TouchableOpacity>
 
         {filterPills.map((pill) => (
@@ -275,7 +305,7 @@ export default function DeckScreen({ navigation }: Props) {
       </ScrollView>
 
       <FlatList
-        data={filteredAlbums}
+        data={processedAlbums}
         numColumns={2}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
@@ -333,6 +363,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     paddingVertical: 0,
+  },
+  clearSearchButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  clearSearchButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 14,
   },
   addAlbumButton: {
     width: 42,
