@@ -112,10 +112,12 @@ type RootNavigatorProps = {
 
 function LiquidTabBar({
   selectedTabIndex,
+  showsAddButton,
   onSelectTab,
   onAddPress,
 }: {
   selectedTabIndex: number;
+  showsAddButton: boolean;
   onSelectTab: (index: number) => void;
   onAddPress: () => void;
 }) {
@@ -126,6 +128,7 @@ function LiquidTabBar({
       <NativeLiquidTabBar
         style={[styles.nativeLiquidBar, { height: 64 + Math.max(insets.bottom, 8) }]}
         selectedTabIndex={selectedTabIndex}
+        showsAddButton={showsAddButton}
         onTabSelect={(index) => onSelectTab(index)}
         onAddPress={onAddPress}
       />
@@ -228,18 +231,13 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   }, []);
 
   const handleAddPress = React.useCallback(() => {
+    if (selectedTabIndex !== 0) return;
     triggerTabHaptic();
     const invoke = () => {
       cacheAddActionHandlerRef.current?.();
     };
-
-    if (selectedTabIndex !== 0) {
-      goToTab(0);
-      setTimeout(invoke, 260);
-      return;
-    }
     invoke();
-  }, [goToTab, selectedTabIndex, triggerTabHaptic]);
+  }, [selectedTabIndex, triggerTabHaptic]);
 
   React.useEffect(() => {
     currentIndexRef.current = selectedTabIndex;
@@ -290,6 +288,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 
         <LiquidTabBar
           selectedTabIndex={selectedTabIndex}
+          showsAddButton={selectedTabIndex === 0}
           onSelectTab={handleTabSelect}
           onAddPress={handleAddPress}
         />

@@ -149,7 +149,7 @@ export default function CacheCardUI({
           
           {/* 上半部：圖片或文字區域 */}
           <View style={styles.mediaContainer}>
-            {imageUri ? <CacheImageCardFace imageUri={imageUri} /> : <CacheTextCardFace text={text} />}
+          {imageUri ? <CacheImageCardFace imageUri={imageUri} fallbackText={text} /> : <CacheTextCardFace text={text} />}
             <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
 
             <Animated.View style={[styles.stampContainer, styles.likeStamp, likeOpacity]}>

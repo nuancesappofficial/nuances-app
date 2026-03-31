@@ -146,7 +146,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#000000' },
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,

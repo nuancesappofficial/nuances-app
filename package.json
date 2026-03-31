@@ -39,6 +39,7 @@
     "expo-linear-gradient": "^55.0.9",
     "expo-speech": "~14.0.8",
     "expo-status-bar": "~3.0.9",
+    "expo-symbols": "~1.0.8",
     "expo-web-browser": "~15.0.10",
     "liquid-tab-bar": "file:modules/liquid-tab-bar",
     "lucide-react-native": "^1.6.0",

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
@@ -204,18 +205,20 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <ShareExtensionProvider>
-        <ShareExtensionSync userId={userId}>
-          {userId ? (
-            <RootNavigator isExpoGo={isExpoGo} />
-          ) : (
-            <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
-          )}
-        </ShareExtensionSync>
-        <StatusBar style="auto" />
-      </ShareExtensionProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ShareExtensionProvider>
+          <ShareExtensionSync userId={userId}>
+            {userId ? (
+              <RootNavigator isExpoGo={isExpoGo} />
+            ) : (
+              <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
+            )}
+          </ShareExtensionSync>
+          <StatusBar style="auto" />
+        </ShareExtensionProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

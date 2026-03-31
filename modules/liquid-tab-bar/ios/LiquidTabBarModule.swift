@@ -3,6 +3,7 @@ import SwiftUI
 
 final class LiquidTabBarState: ObservableObject {
   @Published var selectedTabIndex: Int = 0
+  @Published var showsAddButton: Bool = true
 }
 
 private struct LiquidTabBarRootView: View {
@@ -17,7 +18,8 @@ private struct LiquidTabBarRootView: View {
         set: { state.selectedTabIndex = min(2, max(0, $0)) }
       ),
       onTabSelect: onTabSelect,
-      onAddPress: onAddPress
+      onAddPress: onAddPress,
+      showsAddButton: state.showsAddButton
     )
   }
 }
@@ -76,6 +78,14 @@ public final class LiquidTabBarNativeView: ExpoView {
     }
   }
 
+  func setShowsAddButton(_ shows: Bool) {
+    DispatchQueue.main.async {
+      if self.state.showsAddButton != shows {
+        self.state.showsAddButton = shows
+      }
+    }
+  }
+
   private static func clampIndex(_ index: Int) -> Int {
     min(2, max(0, index))
   }
@@ -90,6 +100,10 @@ public class LiquidTabBarModule: Module {
 
       Prop("selectedTabIndex") { (view: LiquidTabBarNativeView, selectedTabIndex: Int) in
         view.setSelectedTabIndex(selectedTabIndex)
+      }
+
+      Prop("showsAddButton") { (view: LiquidTabBarNativeView, showsAddButton: Bool) in
+        view.setShowsAddButton(showsAddButton)
       }
     }
   }

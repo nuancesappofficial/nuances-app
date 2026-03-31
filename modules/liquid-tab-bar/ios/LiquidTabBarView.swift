@@ -10,6 +10,7 @@ public struct LiquidTabBarView: View {
   @Binding var selectedTabIndex: Int
   let onTabSelect: (Int) -> Void
   let onAddPress: () -> Void
+  let showsAddButton: Bool
 
   @State private var isExpanded: Bool = true
   @State private var collapseTask: Task<Void, Never>?
@@ -26,31 +27,38 @@ public struct LiquidTabBarView: View {
   public init(
     selectedTabIndex: Binding<Int>,
     onTabSelect: @escaping (Int) -> Void,
-    onAddPress: @escaping () -> Void
+    onAddPress: @escaping () -> Void,
+    showsAddButton: Bool = true
   ) {
     _selectedTabIndex = selectedTabIndex
     self.onTabSelect = onTabSelect
     self.onAddPress = onAddPress
+    self.showsAddButton = showsAddButton
   }
 
   public var body: some View {
     GeometryReader { proxy in
       let totalWidth = max(proxy.size.width, tabButtonSize * 4)
       let expandedSlotWidth = totalWidth / 4
-      let leftWidth = isExpanded ? expandedSlotWidth * 3 : tabButtonSize
+      let leftClusterExpandedWidth = showsAddButton ? expandedSlotWidth * 3 : totalWidth
+      let leftWidth = showsAddButton
+        ? (isExpanded ? expandedSlotWidth * 3 : tabButtonSize)
+        : (isExpanded ? totalWidth : tabButtonSize)
       let addSlotWidth = isExpanded ? expandedSlotWidth : tabButtonSize
       let horizontalGap: CGFloat = isExpanded ? 0 : 16
 
       HStack(alignment: .bottom, spacing: horizontalGap) {
-        leftCluster(expandedWidth: expandedSlotWidth * 3)
+        leftCluster(expandedWidth: leftClusterExpandedWidth)
           .frame(width: leftWidth, height: tabButtonSize, alignment: .leading)
 
-        if !isExpanded {
+        if showsAddButton && !isExpanded {
           Spacer(minLength: 0)
         }
 
-        addButton
-          .frame(width: addSlotWidth, height: tabButtonSize, alignment: .center)
+        if showsAddButton {
+          addButton
+            .frame(width: addSlotWidth, height: tabButtonSize, alignment: .center)
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }

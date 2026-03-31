@@ -272,7 +272,7 @@ export default function ProfilesScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#000000' },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 120 },
   headerSection: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12 },

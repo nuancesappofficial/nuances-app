@@ -108,25 +108,32 @@ export default function CacheScreenFlow({ navigation }: Props) {
   }, []);
 
   const cards = useMemo<CacheCardRecord[]>(() => {
-    return [...cacheItems].reverse().map((item) => {
-      const text = (
-        item.contentText?.trim() ||
-        item.userKeywords?.trim() ||
-        item.contentUrl?.trim() ||
-        'No content'
-      );
-      const imageUri =
-        item.imageStoragePath ||
-        item.mediaUri ||
-        (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
+    return [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
+        const text = (
+          item.contentText?.trim() ||
+          item.userKeywords?.trim() ||
+          item.contentUrl?.trim() ||
+          ''
+        );
+        const imageUri =
+          item.imageStoragePath ||
+          item.mediaUri ||
+          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
 
-      return {
-        id: item.id,
-        imageUri,
-        text,
-        cachedItem: item,
-      };
-    });
+        const hasText = text.length > 0;
+        const hasImageSource = Boolean(imageUri);
+        if (!hasText && !hasImageSource) {
+          return acc;
+        }
+
+        acc.push({
+          id: item.id,
+          imageUri,
+          text: hasText ? text : 'Image unavailable',
+          cachedItem: item,
+        });
+        return acc;
+      }, []);
   }, [cacheItems]);
 
   const stackCards = useMemo(() => {
@@ -511,6 +518,6 @@ export default function CacheScreenFlow({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#91c9f9',
+    backgroundColor: '#000000',
   },
 });

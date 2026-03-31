@@ -1,6 +1,9 @@
 import React from 'react';
 import {
+  Alert,
+  Dimensions,
   FlatList,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +13,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Q } from '@nozbe/watermelondb';
+import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
+import { SymbolView } from 'expo-symbols';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, {
+  measure,
+  runOnJS,
+  type SharedValue,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { FolderIcon } from '../../../components/UI/DeckScreenUI/FolderIcon';
+import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type CachedItem from '@database/models/CachedItem';
@@ -36,6 +54,247 @@ type Album = {
   latestCards: AlbumPreviewCard[];
   isDefault?: boolean;
 };
+
+type AlbumGridItemProps = {
+  item: Album;
+  onPress: (album: Album) => void;
+  isMenuVisible: SharedValue<boolean>;
+  startX: SharedValue<number>;
+  startY: SharedValue<number>;
+  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
+  activeAlbumId: string | null;
+  onMenuStart: (album: Album, layout: { x: number; y: number; width: number; height: number }) => void;
+  onMenuFinish: () => void;
+  onActionEnd: (album: Album, action: 'none' | 'edit' | 'delete') => void;
+};
+
+const ELEGANT_SPRING = { damping: 30, stiffness: 80, mass: 1 } as const;
+
+function triggerSelectionHaptic() {
+  void Haptics.selectionAsync();
+}
+
+function canUseSFSymbolsOnDevice() {
+  if (Platform.OS !== 'ios') return false;
+  const version =
+    typeof Platform.Version === 'string'
+      ? parseInt(Platform.Version.split('.')[0] || '0', 10)
+      : Platform.Version;
+  return Number.isFinite(version) && version >= 17;
+}
+
+function MenuSymbol({
+  name,
+  color,
+  fallback,
+}: {
+  name: 'square.and.pencil' | 'trash.fill';
+  color: string;
+  fallback: string;
+}) {
+  if (!canUseSFSymbolsOnDevice()) {
+    return <Text style={{ fontSize: 22 }}>{fallback}</Text>;
+  }
+
+  return (
+    <SymbolView
+      name={name}
+      size={22}
+      tintColor={color}
+      type="hierarchical"
+      style={{ width: 22, height: 22 }}
+      fallback={<Text style={{ fontSize: 22 }}>{fallback}</Text>}
+    />
+  );
+}
+
+function AlbumGridItem({
+  item,
+  onPress,
+  isMenuVisible,
+  startX,
+  startY,
+  hoveredAction,
+  activeAlbumId,
+  onMenuStart,
+  onMenuFinish,
+  onActionEnd,
+}: AlbumGridItemProps) {
+  const cardRef = useAnimatedRef<Reanimated.View>();
+  const isActive = useSharedValue(0);
+  const liftScale = useSharedValue(1);
+
+  const albumContainerStyle = useAnimatedStyle(() => ({
+    zIndex: isActive.value ? 50 : 1,
+    transform: [{ scale: withSpring(isActive.value ? 1.05 : 1, ELEGANT_SPRING) }, { scale: liftScale.value }],
+  }));
+
+  const gesture = Gesture.Pan()
+    .activateAfterLongPress(250)
+    .onStart((e) => {
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
+      isActive.value = 1;
+      liftScale.value = withSpring(1.02, ELEGANT_SPRING);
+      isMenuVisible.value = true;
+      startX.value = e.absoluteX;
+      startY.value = e.absoluteY;
+      hoveredAction.value = 'none';
+
+      const measured = measure(cardRef);
+      if (measured) {
+        runOnJS(onMenuStart)(item, {
+          x: measured.pageX,
+          y: measured.pageY,
+          width: measured.width,
+          height: measured.height,
+        });
+      }
+    })
+    .onUpdate((e) => {
+      const editX = startX.value - 45;
+      const editY = startY.value - 60;
+      const deleteX = startX.value + 45;
+      const deleteY = startY.value - 60;
+      const radius = 40;
+
+      const editDistance = Math.hypot(e.absoluteX - editX, e.absoluteY - editY);
+      const deleteDistance = Math.hypot(e.absoluteX - deleteX, e.absoluteY - deleteY);
+
+      let nextAction: 'none' | 'edit' | 'delete' = 'none';
+      if (editDistance <= radius) nextAction = 'edit';
+      if (deleteDistance <= radius) nextAction = 'delete';
+
+      if (nextAction !== hoveredAction.value) {
+        hoveredAction.value = nextAction;
+        if (nextAction === 'edit' || nextAction === 'delete') {
+          runOnJS(triggerSelectionHaptic)();
+        }
+      }
+    })
+    .onEnd(() => {
+      const action = hoveredAction.value;
+      isMenuVisible.value = false;
+      hoveredAction.value = 'none';
+      isActive.value = 0;
+      liftScale.value = withSpring(1, ELEGANT_SPRING);
+      runOnJS(onMenuFinish)();
+      runOnJS(onActionEnd)(item, action);
+    })
+    .onFinalize(() => {
+      isMenuVisible.value = false;
+      hoveredAction.value = 'none';
+      isActive.value = 0;
+      liftScale.value = withSpring(1, ELEGANT_SPRING);
+      runOnJS(onMenuFinish)();
+    });
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Reanimated.View
+        ref={cardRef}
+        style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
+      >
+        <TouchableOpacity style={styles.albumPressArea} activeOpacity={0.92} onPress={() => onPress(item)}>
+          <FolderIcon
+            title={item.name}
+            wordCount={item.wordCount}
+            latestCards={item.latestCards}
+            style={styles.folderIcon}
+          />
+        </TouchableOpacity>
+      </Reanimated.View>
+    </GestureDetector>
+  );
+}
+
+function ActionMenuOverlay({
+  isMenuVisible,
+  startX,
+  startY,
+  hoveredAction,
+  activeAlbum,
+  activeLayout,
+}: {
+  isMenuVisible: SharedValue<boolean>;
+  startX: SharedValue<number>;
+  startY: SharedValue<number>;
+  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
+  activeAlbum: Album | null;
+  activeLayout: { x: number; y: number; width: number; height: number } | null;
+}) {
+  const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
+  const AnimatedBlurView = React.useMemo(() => Reanimated.createAnimatedComponent(BlurView), []);
+
+  const blurStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: -windowHeight,
+    bottom: -windowHeight,
+    left: -windowWidth,
+    right: -windowWidth,
+    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 160 }),
+  }));
+
+  const editButtonStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
+    transform: [{ scale: withSpring(hoveredAction.value === 'edit' ? 1.5 : 1, ELEGANT_SPRING) }],
+    left: startX.value - 45 - 25,
+    top: startY.value - 60 - 25,
+  }));
+
+  const deleteButtonStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
+    transform: [{ scale: withSpring(hoveredAction.value === 'delete' ? 1.5 : 1, ELEGANT_SPRING) }],
+    left: startX.value + 45 - 25,
+    top: startY.value - 60 - 25,
+  }));
+
+  const cloneStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
+    transform: [{ scale: withSpring(isMenuVisible.value ? 1.06 : 1, ELEGANT_SPRING) }],
+  }));
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <AnimatedBlurView
+        tint="dark"
+        intensity={65}
+        pointerEvents="none"
+        style={[styles.menuBlurLayer, blurStyle]}
+      />
+      <Reanimated.View style={[styles.menuDimLayer, blurStyle]} />
+
+      {activeAlbum && activeLayout ? (
+        <Reanimated.View
+          style={[
+            styles.activeAlbumClone,
+            cloneStyle,
+            {
+              top: activeLayout.y,
+              left: activeLayout.x,
+              width: activeLayout.width,
+              height: activeLayout.height,
+            },
+          ]}
+        >
+          <FolderIcon
+            title={activeAlbum.name}
+            wordCount={activeAlbum.wordCount}
+            latestCards={activeAlbum.latestCards}
+            style={styles.activeAlbumCloneInner}
+          />
+        </Reanimated.View>
+      ) : null}
+
+      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
+        <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
+      </Reanimated.View>
+
+      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, deleteButtonStyle]}>
+        <MenuSymbol name="trash.fill" color="#FF3B30" fallback="🗑️" />
+      </Reanimated.View>
+    </View>
+  );
+}
 
 function getTagsArray(tags: unknown): string[] {
   if (Array.isArray(tags)) {
@@ -85,6 +344,17 @@ export default function DeckScreen({ navigation }: Props) {
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortOrder, setSortOrder] = React.useState<'desc' | 'asc'>('desc');
+  const [isModalVisible, setIsModalVisible] = React.useState(false);
+  const [newAlbumName, setNewAlbumName] = React.useState('');
+  const [customAlbums, setCustomAlbums] = React.useState<Album[]>([]);
+  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
+  const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
+  const [activeAlbum, setActiveAlbum] = React.useState<Album | null>(null);
+  const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const isMenuVisible = useSharedValue(false);
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
+  const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -221,9 +491,18 @@ export default function DeckScreen({ navigation }: Props) {
     ];
   }, [allCards, cardImageMap]);
 
+  const mergedAlbums = React.useMemo(() => {
+    const allMerged = [...albums, ...customAlbums].map((album) => ({
+      ...album,
+      name: albumNameOverrides[album.id] || album.name,
+    }));
+
+    return allMerged.filter((album) => !deletedAlbumIds.includes(album.id));
+  }, [albums, customAlbums, albumNameOverrides, deletedAlbumIds]);
+
   const processedAlbums = React.useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
-    let result = [...albums];
+    let result = [...mergedAlbums];
 
     if (keyword) {
       result = result.filter((album) => {
@@ -244,7 +523,115 @@ export default function DeckScreen({ navigation }: Props) {
     });
 
     return result;
-  }, [albums, searchQuery, sortOrder]);
+  }, [mergedAlbums, searchQuery, sortOrder]);
+
+  const handleAddAlbum = React.useCallback(() => {
+    const trimmedName = newAlbumName.trim();
+    if (!trimmedName) return;
+
+    const newAlbum: Album = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: trimmedName,
+      emoji: '📁',
+      color: '#E5E5EA',
+      cardIds: [],
+      wordCount: 0,
+      latestCards: [],
+    };
+
+    setCustomAlbums((prev) => [newAlbum, ...prev]);
+    setIsModalVisible(false);
+    setNewAlbumName('');
+  }, [newAlbumName]);
+
+  const handleAlbumPress = React.useCallback(
+    (album: Album) => {
+      navigation.navigate('AlbumView', { album, isDefault: album.isDefault });
+    },
+    [navigation]
+  );
+
+  const handleRenameAlbum = React.useCallback((album: Album) => {
+    Alert.prompt(
+      '重命名相簿',
+      '請輸入新名稱',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '確認',
+          onPress: (name?: string) => {
+            const nextName = (name || '').trim();
+            if (!nextName) return;
+
+            if (album.isDefault) {
+              Alert.alert('無法重命名', '預設相簿不可重命名。');
+              return;
+            }
+
+            const isCustomAlbum = customAlbums.some((it) => it.id === album.id);
+            if (isCustomAlbum) {
+              setCustomAlbums((prev) =>
+                prev.map((it) => (it.id === album.id ? { ...it, name: nextName } : it))
+              );
+            } else {
+              setAlbumNameOverrides((prev) => ({ ...prev, [album.id]: nextName }));
+            }
+          },
+        },
+      ],
+      'plain-text',
+      album.name
+    );
+  }, [customAlbums]);
+
+  const handleDeleteAlbum = React.useCallback((album: Album) => {
+    if (album.isDefault) {
+      Alert.alert('無法刪除', 'All cards 是預設相簿，不能刪除。');
+      return;
+    }
+
+    Alert.alert('刪除相簿', `確定要刪除「${album.name}」嗎？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '刪除',
+        style: 'destructive',
+        onPress: () => {
+          const isCustomAlbum = customAlbums.some((it) => it.id === album.id);
+          if (isCustomAlbum) {
+            setCustomAlbums((prev) => prev.filter((it) => it.id !== album.id));
+          } else {
+            setDeletedAlbumIds((prev) => (prev.includes(album.id) ? prev : [...prev, album.id]));
+          }
+        },
+      },
+    ]);
+  }, [customAlbums]);
+
+  const handleActionEnd = React.useCallback(
+    (album: Album, action: 'none' | 'edit' | 'delete') => {
+      if (action === 'edit') {
+        handleRenameAlbum(album);
+        return;
+      }
+      if (action === 'delete') {
+        handleDeleteAlbum(album);
+      }
+    },
+    [handleDeleteAlbum, handleRenameAlbum]
+  );
+
+  const handleMenuStart = React.useCallback(
+    (album: Album, layout: { x: number; y: number; width: number; height: number }) => {
+      setActiveAlbum(album);
+      setActiveLayout(layout);
+    },
+    []
+  );
+
+  const handleMenuFinish = React.useCallback(() => {
+    setActiveAlbum(null);
+    setActiveLayout(null);
+  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -271,13 +658,7 @@ export default function DeckScreen({ navigation }: Props) {
         <TouchableOpacity
           style={styles.addAlbumButton}
           activeOpacity={0.85}
-          onPress={() => {
-            try {
-              navigation.navigate('CreateAlbum');
-            } catch {
-              navigation.navigate('AlbumView', { mode: 'create' });
-            }
-          }}
+          onPress={() => setIsModalVisible(true)}
         >
           <Text style={styles.addAlbumText}>＋</Text>
         </TouchableOpacity>
@@ -312,19 +693,39 @@ export default function DeckScreen({ navigation }: Props) {
         contentContainerStyle={styles.albumGridContent}
         columnWrapperStyle={styles.albumRow}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.albumItem}
-            activeOpacity={0.92}
-            onPress={() => navigation.navigate('AlbumView', { album: item, isDefault: item.isDefault })}
-          >
-            <FolderIcon
-              title={item.name}
-              wordCount={item.wordCount}
-              latestCards={item.latestCards}
-              style={styles.folderIcon}
-            />
-          </TouchableOpacity>
+          <AlbumGridItem
+            item={item}
+            onPress={handleAlbumPress}
+            isMenuVisible={isMenuVisible}
+            startX={startX}
+            startY={startY}
+            hoveredAction={hoveredAction}
+            activeAlbumId={activeAlbum?.id || null}
+            onMenuStart={handleMenuStart}
+            onMenuFinish={handleMenuFinish}
+            onActionEnd={handleActionEnd}
+          />
         )}
+      />
+
+      <CreateAlbumModalUI
+        visible={isModalVisible}
+        albumName={newAlbumName}
+        onChangeAlbumName={setNewAlbumName}
+        onCancel={() => {
+          setIsModalVisible(false);
+          setNewAlbumName('');
+        }}
+        onConfirm={handleAddAlbum}
+      />
+
+      <ActionMenuOverlay
+        isMenuVisible={isMenuVisible}
+        startX={startX}
+        startY={startY}
+        hoveredAction={hoveredAction}
+        activeAlbum={activeAlbum}
+        activeLayout={activeLayout}
       />
     </SafeAreaView>
   );
@@ -447,8 +848,50 @@ const styles = StyleSheet.create({
   },
   albumItem: {
     width: '48.3%',
+    overflow: 'visible',
+  },
+  albumPressArea: {
+    width: '100%',
+    overflow: 'visible',
   },
   folderIcon: {
     width: '100%',
+  },
+  activeAlbumHidden: {
+    opacity: 0,
+  },
+  menuBlurLayer: {
+    zIndex: 10,
+  },
+  menuDimLayer: {
+    zIndex: 11,
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  menuButtonLayer: {
+    zIndex: 100,
+  },
+  activeAlbumClone: {
+    position: 'absolute',
+    zIndex: 60,
+    overflow: 'visible',
+  },
+  activeAlbumCloneInner: {
+    width: '100%',
+    height: '100%',
+  },
+  floatingActionButton: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 10,
   },
 });

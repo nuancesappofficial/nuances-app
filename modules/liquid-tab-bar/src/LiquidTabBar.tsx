@@ -10,6 +10,7 @@ type NativeTabSelectEvent = {
 
 type NativeLiquidTabBarProps = {
   selectedTabIndex: number;
+  showsAddButton?: boolean;
   onTabSelect?: (event: NativeTabSelectEvent) => void;
   onAddPress?: () => void;
   style?: any;
@@ -19,12 +20,19 @@ const NativeLiquidTabBar = requireNativeViewManager<NativeLiquidTabBarProps>('Li
 
 export type LiquidTabBarProps = {
   selectedTabIndex: number;
+  showsAddButton?: boolean;
   onTabSelect?: (index: number) => void;
   onAddPress?: () => void;
   style?: any;
 };
 
-export function LiquidTabBar({ selectedTabIndex, onTabSelect, onAddPress, style }: LiquidTabBarProps) {
+export function LiquidTabBar({
+  selectedTabIndex,
+  showsAddButton = true,
+  onTabSelect,
+  onAddPress,
+  style,
+}: LiquidTabBarProps) {
   if (Platform.OS !== 'ios') {
     return (
       <View style={[styles.fallback, style]}>
@@ -37,6 +45,7 @@ export function LiquidTabBar({ selectedTabIndex, onTabSelect, onAddPress, style 
     <NativeLiquidTabBar
       style={[styles.nativeBar, style]}
       selectedTabIndex={selectedTabIndex}
+      showsAddButton={showsAddButton}
       onTabSelect={(e) => onTabSelect?.(e.nativeEvent.selectedTabIndex)}
       onAddPress={onAddPress}
     />
