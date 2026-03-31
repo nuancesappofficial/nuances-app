@@ -129,11 +129,7 @@ public struct LiquidTabBarView: View {
               if !isActive {
                 select(item.id)
               }
-              withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-                isExpanded = false
-              }
-              collapseTask?.cancel()
-              collapseTask = nil
+              resetIdleTimer()
             }) {
               VStack(spacing: 4) {
                 Image(systemName: item.symbol)

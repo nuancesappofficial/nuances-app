@@ -139,6 +139,10 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const swipeLockRef = React.useRef(false);
   const currentIndexRef = React.useRef(0);
+  const isProgrammaticScrollRef = React.useRef(false);
+  const targetIndexRef = React.useRef<number | null>(null);
+  const clickLockRef = React.useRef(false);
+  const clickUnlockTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHapticAtRef = React.useRef(0);
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
@@ -162,15 +166,28 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 
   const handleTabSelect = React.useCallback((index: number) => {
     const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
-    if (nextIndex === currentIndexRef.current) return;
+    if (nextIndex === selectedTabIndex) return;
+    if (clickLockRef.current) return;
+
+    clickLockRef.current = true;
+    if (clickUnlockTimeoutRef.current) {
+      clearTimeout(clickUnlockTimeoutRef.current);
+    }
+    clickUnlockTimeoutRef.current = setTimeout(() => {
+      clickLockRef.current = false;
+      clickUnlockTimeoutRef.current = null;
+    }, 350);
+
+    isProgrammaticScrollRef.current = true;
+    targetIndexRef.current = nextIndex;
     currentIndexRef.current = nextIndex;
-    triggerTabHaptic();
-    pagerRef.current?.setPage(nextIndex);
     setSelectedTabIndex(nextIndex);
-  }, [triggerTabHaptic]);
+    pagerRef.current?.setPage(nextIndex);
+  }, [selectedTabIndex]);
 
   const handlePageScroll = React.useCallback(
     (event: PagerViewOnPageScrollEvent) => {
+      if (isProgrammaticScrollRef.current) return;
       const { position, offset } = event.nativeEvent;
       const eagerIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, Math.round(position + offset)));
       if (eagerIndex === currentIndexRef.current) return;
@@ -183,6 +200,10 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 
   const handlePageSelected = React.useCallback((event: PagerViewOnPageSelectedEvent) => {
     const settledIndex = event.nativeEvent.position;
+    if (targetIndexRef.current === null || targetIndexRef.current === settledIndex) {
+      isProgrammaticScrollRef.current = false;
+      targetIndexRef.current = null;
+    }
     if (settledIndex === currentIndexRef.current && settledIndex === selectedTabIndex) return;
     currentIndexRef.current = settledIndex;
     setSelectedTabIndex(settledIndex);
@@ -190,13 +211,13 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 
   const goToTab = React.useCallback((index: number) => {
     const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
-    if (nextIndex !== currentIndexRef.current) {
-      triggerTabHaptic();
-    }
+    if (nextIndex === selectedTabIndex) return;
+    isProgrammaticScrollRef.current = true;
+    targetIndexRef.current = nextIndex;
     currentIndexRef.current = nextIndex;
-    pagerRef.current?.setPage(nextIndex);
     setSelectedTabIndex(nextIndex);
-  }, [triggerTabHaptic]);
+    pagerRef.current?.setPage(nextIndex);
+  }, [selectedTabIndex]);
 
   const setPagerScrollEnabled = React.useCallback((enabled: boolean) => {
     setPaginationEnabled(enabled);
@@ -223,6 +244,17 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   React.useEffect(() => {
     currentIndexRef.current = selectedTabIndex;
   }, [selectedTabIndex]);
+
+  React.useEffect(
+    () => () => {
+      if (clickUnlockTimeoutRef.current) {
+        clearTimeout(clickUnlockTimeoutRef.current);
+        clickUnlockTimeoutRef.current = null;
+      }
+      clickLockRef.current = false;
+    },
+    []
+  );
 
   return (
     <TabSwipeContext.Provider

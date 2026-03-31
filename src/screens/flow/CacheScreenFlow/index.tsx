@@ -161,6 +161,45 @@ export default function CacheScreenFlow({ navigation }: Props) {
     }
   }, [manualText]);
 
+  const createQuickImageCachedItems = React.useCallback(
+    async (imageUris: string[]): Promise<number> => {
+      const userId = await getCurrentAuthUserId();
+      if (!userId) {
+        Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
+        return 0;
+      }
+
+      const validUris = imageUris.filter(Boolean);
+      if (validUris.length === 0) return 0;
+
+      await database.write(async () => {
+        const collection = database.get<CachedItem>('cached_items');
+        for (const uri of validUris) {
+          await collection.create((item) => {
+            item.userId = userId;
+            item.contentType = 'image';
+            item.type = 'image';
+            item.contentText = undefined;
+            item.contentUrl = undefined;
+            item.mediaUri = uri;
+            item.imageStoragePath = uri;
+            item.sourceApp = 'Quick Add';
+            item.userKeywords = undefined;
+            item.aiAnalysisCompleted = false;
+            item.convertedToCard = false;
+
+            const expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+            item.expiresAt = expiresAt;
+          });
+        }
+      });
+
+      return validUris.length;
+    },
+    []
+  );
+
   const handleUploadImageDirect = React.useCallback(async () => {
     try {
       setCreatingImage(true);
@@ -173,10 +212,34 @@ export default function CacheScreenFlow({ navigation }: Props) {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 20,
         quality: 1,
       });
-      if (result.canceled || !result.assets?.[0]?.uri) return;
-      const picked = result.assets[0];
+      if (result.canceled || !result.assets?.length) return;
+
+      const pickedAssets = result.assets.filter((asset) => Boolean(asset.uri));
+      if (pickedAssets.length === 0) return;
+
+      if (pickedAssets.length > 1) {
+        try {
+          const createdCount = await createQuickImageCachedItems(
+            pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
+          );
+          if (createdCount > 0) {
+            setShowAddModal(false);
+            Alert.alert('成功', `已新增 ${createdCount} 張圖片快取`);
+          } else {
+            Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
+          }
+        } catch (error) {
+          console.error('[CacheList] batch image create failed:', error);
+          Alert.alert('新增失敗', '批次新增圖片快取失敗，請稍後再試。');
+        }
+        return;
+      }
+
+      const picked = pickedAssets[0];
       setCropperFlowTarget('quick-add');
       setPendingSwipeImageItem(null);
       setPendingOriginalImageUri(picked.uri);
@@ -194,7 +257,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
     } finally {
       setCreatingImage(false);
     }
-  }, []);
+  }, [createQuickImageCachedItems]);
 
   const handleCaptureImage = React.useCallback(async () => {
     if (!quickCameraPermission?.granted) {
