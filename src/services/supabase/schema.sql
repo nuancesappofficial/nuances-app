@@ -84,6 +84,7 @@ CREATE TABLE public.cards (
     difficulty_level INTEGER CHECK (difficulty_level BETWEEN 1 AND 5),
     tags TEXT[], -- e.g., ['slang', 'business', 'ielts']
     source_app TEXT,
+    image_url TEXT, -- card cover image url/path stored in backend
     
     -- SRS Data
     ease_factor REAL DEFAULT 2.5,

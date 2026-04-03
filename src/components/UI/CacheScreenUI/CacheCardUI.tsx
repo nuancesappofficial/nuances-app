@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Dimensions, TextInput, View } from 'react-native';
+import { StyleSheet, Dimensions, Text, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
   interpolate,
   Extrapolate,
   useDerivedValue,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,12 +23,22 @@ const ELEGANT_SPRING = {
   stiffness: 80,
   mass: 1,
 };
+const SWIPE_COMMIT_DELAY_MS = 180;
 
 type Props = {
   itemId: string;
   imageUri?: string;
   text: string;
+  sourceLabel: string;
+  importedAtLabel: string;
   index: number;
+  isTopCard: boolean;
+  topCardDragX: SharedValue<number>;
+  swipeTrigger: {
+    seq: number;
+    itemId: string;
+    direction: 'left' | 'right';
+  } | null;
   restoreSeed: number;
   onSwipe: (itemId: string, direction: 'left' | 'right') => void;
   animationSeed: number;
@@ -37,7 +48,12 @@ export default function CacheCardUI({
   itemId,
   imageUri,
   text,
+  sourceLabel,
+  importedAtLabel,
   index,
+  isTopCard,
+  topCardDragX,
+  swipeTrigger,
   restoreSeed,
   onSwipe,
   animationSeed,
@@ -55,6 +71,16 @@ export default function CacheCardUI({
   const rot = useSharedValue(0);
   const isPressed = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
+  const lastSwipeTriggerSeq = React.useRef<number | null>(null);
+
+  const commitSwipe = React.useCallback(
+    (direction: 'left' | 'right') => {
+      setTimeout(() => {
+        onSwipe(itemId, direction);
+      }, SWIPE_COMMIT_DELAY_MS);
+    },
+    [itemId, onSwipe]
+  );
 
   React.useEffect(() => {
     isPressed.value = false;
@@ -81,10 +107,27 @@ export default function CacheCardUI({
     }
     isPressed.value = false;
     x.value = 0;
+    if (isTopCard) {
+      topCardDragX.value = 0;
+    }
     y.value = toY;
     scale.value = 1;
     rot.value = targetRot;
-  }, [restoreSeed, isPressed, rot, scale, targetRot, toY, x, y]);
+  }, [isTopCard, restoreSeed, isPressed, rot, scale, targetRot, toY, topCardDragX, x, y]);
+
+  React.useEffect(() => {
+    if (!isTopCard || !swipeTrigger) return;
+    if (swipeTrigger.itemId !== itemId) return;
+    if (lastSwipeTriggerSeq.current === swipeTrigger.seq) return;
+    lastSwipeTriggerSeq.current = swipeTrigger.seq;
+
+    const dir = swipeTrigger.direction === 'right' ? 1 : -1;
+    const flyTo = width * 2 * dir;
+    isPressed.value = true;
+    x.value = withSpring(flyTo, ELEGANT_SPRING);
+    topCardDragX.value = flyTo;
+    runOnJS(commitSwipe)(swipeTrigger.direction);
+  }, [commitSwipe, isTopCard, itemId, isPressed, swipeTrigger, topCardDragX, x]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -92,6 +135,9 @@ export default function CacheCardUI({
     })
     .onUpdate((e) => {
       x.value = e.translationX;
+      if (isTopCard) {
+        topCardDragX.value = e.translationX;
+      }
       y.value = toY + e.translationY;
       rot.value = targetRot + e.translationX / 20;
     })
@@ -100,10 +146,16 @@ export default function CacheCardUI({
       if (trigger) {
         const dir = e.translationX > 0 ? 1 : -1;
         x.value = withSpring(width * 2 * dir, { velocity: e.velocityX });
-        runOnJS(onSwipe)(itemId, dir > 0 ? 'right' : 'left');
+        if (isTopCard) {
+          topCardDragX.value = width * 2 * dir;
+        }
+        runOnJS(commitSwipe)(dir > 0 ? 'right' : 'left');
       } else {
         isPressed.value = false;
         x.value = withSpring(0, ELEGANT_SPRING);
+        if (isTopCard) {
+          topCardDragX.value = 0;
+        }
         y.value = withSpring(toY, ELEGANT_SPRING);
         rot.value = withSpring(targetRot, ELEGANT_SPRING);
       }
@@ -123,18 +175,10 @@ export default function CacheCardUI({
 
   const activeOpacity = useDerivedValue(() => (isPressed.value ? 1 : 0));
 
-  const likeOpacity = useAnimatedStyle(() => ({
-    opacity: activeOpacity.value * interpolate(x.value, [0, width * 0.2], [0, 1], Extrapolate.CLAMP),
-  }));
-
-  const nopeOpacity = useAnimatedStyle(() => ({
-    opacity: activeOpacity.value * interpolate(x.value, [-width * 0.2, 0], [1, 0], Extrapolate.CLAMP),
-  }));
-
   const overlayStyle = useAnimatedStyle(() => {
     const alpha = activeOpacity.value;
-    const green = interpolate(x.value, [0, width * 0.4], [0, 0.3], Extrapolate.CLAMP);
-    const red = interpolate(x.value, [-width * 0.4, 0], [0.3, 0], Extrapolate.CLAMP);
+    const green = interpolate(x.value, [0, width * 0.4], [0, 0.16], Extrapolate.CLAMP);
+    const red = interpolate(x.value, [-width * 0.4, 0], [0.16, 0], Extrapolate.CLAMP);
     return {
       backgroundColor: x.value > 0
         ? `rgba(76, 175, 80, ${alpha * green})`
@@ -146,35 +190,25 @@ export default function CacheCardUI({
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.shadowWrapper, animatedStyle]}>
         <View style={styles.cardContent}>
-          
-          {/* 上半部：圖片或文字區域 */}
-          <View style={styles.mediaContainer}>
-          {imageUri ? <CacheImageCardFace imageUri={imageUri} fallbackText={text} /> : <CacheTextCardFace text={text} />}
+          <View style={styles.headerRow}>
+            <View style={styles.sourcePill}>
+              <Text style={styles.sourcePillText}>{sourceLabel}</Text>
+            </View>
+            <Text style={styles.relativeTimeText}>{importedAtLabel}</Text>
+          </View>
+
+          <View style={styles.mainContentContainer}>
+            {imageUri ? <CacheImageCardFace imageUri={imageUri} fallbackText={text} /> : <CacheTextCardFace text={text} />}
             <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
-
-            <Animated.View style={[styles.stampContainer, styles.likeStamp, likeOpacity]}>
-              <Ionicons name="checkmark-outline" color="#4CAF50" size={60} />
-            </Animated.View>
-
-            <Animated.View style={[styles.stampContainer, styles.nopeStamp, nopeOpacity]}>
-              <Ionicons name="close-outline" color="#F44336" size={60} />
-            </Animated.View>
           </View>
 
-          {/* 下半部：左右文字輸入筐 */}
-          <View style={styles.bottomContainer}>
-            <TextInput 
-              style={styles.leftInput} 
-              placeholder="輸入文字..." 
-              placeholderTextColor="#8E8E93"
-            />
-            <TextInput 
-              style={styles.rightInput} 
-              placeholder="+ Add member" 
-              placeholderTextColor="#FFFFFF"
-            />
+          <View style={styles.footerContainer}>
+            <View style={styles.footerDivider} />
+            <View style={styles.aiSuggestionRow}>
+              <Ionicons name="sparkles" size={12} color="#9B68E1" />
+              <Text style={styles.aiSuggestionText}>AI suggests: "shitshow"</Text>
+            </View>
           </View>
-
         </View>
       </Animated.View>
     </GestureDetector>
@@ -183,7 +217,7 @@ export default function CacheCardUI({
 
 const styles = StyleSheet.create({
   shadowWrapper: {
-    borderRadius: 32,
+    borderRadius: 24,
     backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
@@ -194,63 +228,61 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 32,
-    padding: 16, // 產生白色外框
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
-  mediaContainer: {
+  headerRow: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  sourcePill: {
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#EFEFF3',
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  sourcePillText: {
+    color: '#858895',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  relativeTimeText: {
+    color: '#C4C7D0',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  mainContentContainer: {
     flex: 1,
-    borderRadius: 24, // 內部圖片/文字圓角
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#EBEBEB',
+    backgroundColor: '#FFFFFF',
   },
   overlay: {
     zIndex: 1,
   },
-  stampContainer: {
-    position: 'absolute',
-    top: 40,
-    zIndex: 10,
-    padding: 10,
-    borderRadius: 15,
-    borderWidth: 5,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+  footerContainer: {
+    marginTop: 10,
   },
-  likeStamp: {
-    left: 20,
-    borderColor: '#4CAF50',
-    transform: [{ rotate: '-15deg' }],
+  footerDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#EBEDF2',
+    marginBottom: 8,
   },
-  nopeStamp: {
-    right: 20,
-    borderColor: '#F44336',
-    transform: [{ rotate: '15deg' }],
-  },
-  bottomContainer: {
+  aiSuggestionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
-    height: 48,
+    gap: 6,
+    paddingVertical: 2,
   },
-  leftInput: {
-    flex: 1,
-    height: '100%',
-    marginRight: 8,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    color: '#101010',
-    fontSize: 14,
-  },
-  rightInput: {
-    flex: 1,
-    height: '100%',
-    marginLeft: 8,
-    backgroundColor: '#1E1E1E', // 深色背景以符合附圖右下角風格
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    color: '#FFFFFF',
-    fontSize: 14,
-    textAlign: 'center',
+  aiSuggestionText: {
+    color: '#9B68E1',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

@@ -1,11 +1,11 @@
 // WatermelonDB Schema
 // ⚠️ 重要：每次修改此文件時，必須增加 version 號！
-// Version: 4 - 新增 user_settings 表，支援訂閱/配額管理
+// Version: 5 - cards 新增 image_url，Deck/Profile 直接使用後端圖片
 
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export default appSchema({
-  version: 4,
+  version: 5,
   tables: [
     // ============================================
     // PROFILES TABLE
@@ -73,6 +73,7 @@ export default appSchema({
         { name: 'difficulty_level', type: 'number', isOptional: true },
         { name: 'tags', type: 'string', isOptional: true }, // JSON string array
         { name: 'source_app', type: 'string', isOptional: true },
+        { name: 'image_url', type: 'string', isOptional: true },
         // SRS fields
         { name: 'ease_factor', type: 'number' },
         { name: 'interval_days', type: 'number' },

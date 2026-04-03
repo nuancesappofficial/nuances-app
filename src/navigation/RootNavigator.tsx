@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { NavigationContainer, NavigationIndependentTree, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import PagerView, {
@@ -39,10 +39,28 @@ const APP_DARK_THEME = {
   },
 };
 
-function CacheStack() {
+function getActiveRouteName(state?: unknown): string | null {
+  let current: any = state;
+  while (current?.routes?.length) {
+    const route = current.routes[current.index];
+    if (!route) return null;
+    if (!route.state) return typeof route.name === 'string' ? route.name : null;
+    current = route.state;
+  }
+  return null;
+}
+
+function CacheStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
   return (
     <NavigationIndependentTree>
-      <NavigationContainer theme={APP_DARK_THEME}>
+      <NavigationContainer
+        theme={APP_DARK_THEME}
+        onReady={() => onShowTabBarChange(true)}
+        onStateChange={(state) => {
+          const routeName = getActiveRouteName(state);
+          onShowTabBarChange(routeName === 'CacheList');
+        }}
+      >
         <CacheStackNav.Navigator screenOptions={{ headerShown: false }}>
           <CacheStackNav.Screen name="CacheList" component={CacheScreenFlow} />
           <CacheStackNav.Screen
@@ -77,14 +95,29 @@ function CacheStack() {
   );
 }
 
-function CardsStack() {
+function CardsStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
   return (
     <NavigationIndependentTree>
-      <NavigationContainer theme={APP_DARK_THEME}>
+      <NavigationContainer
+        theme={APP_DARK_THEME}
+        onReady={() => onShowTabBarChange(true)}
+        onStateChange={(state) => {
+          const routeName = getActiveRouteName(state);
+          onShowTabBarChange(routeName === 'CardsList' || routeName === 'Deck');
+        }}
+      >
         <CardsStackNav.Navigator screenOptions={{ headerShown: false }}>
           <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
           <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="AlbumView" component={AlbumViewFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen
+            name="AlbumView"
+            component={AlbumViewFlow}
+            options={{
+              presentation: 'card',
+              animation: 'simple_push',
+              animationDuration: 520,
+            }}
+          />
           <CardsStackNav.Screen name="CardDetail" component={CardDetailFlow} options={{ presentation: 'card' }} />
           <CardsStackNav.Screen name="DayView" component={DayViewFlow} options={{ presentation: 'card' }} />
           <CardsStackNav.Screen name="CardReview" component={ReviewFlow} options={{ presentation: 'card' }} />
@@ -94,10 +127,17 @@ function CardsStack() {
   );
 }
 
-function ProfileStack() {
+function ProfileStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
   return (
     <NavigationIndependentTree>
-      <NavigationContainer theme={APP_DARK_THEME}>
+      <NavigationContainer
+        theme={APP_DARK_THEME}
+        onReady={() => onShowTabBarChange(true)}
+        onStateChange={(state) => {
+          const routeName = getActiveRouteName(state);
+          onShowTabBarChange(routeName === 'ProfileHome');
+        }}
+      >
         <ProfileStackNav.Navigator screenOptions={{ headerShown: false }}>
           <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
         </ProfileStackNav.Navigator>
@@ -150,6 +190,13 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
   const [isPaginationEnabled, setIsPaginationEnabled] = React.useState(true);
+  const [tabRootBarVisible, setTabRootBarVisible] = React.useState<Record<number, boolean>>({
+    0: true,
+    1: true,
+    2: true,
+  });
+  const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
+  const tabBarOpacity = React.useRef(new Animated.Value(1)).current;
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
     cacheSwipeExclusionRangeRef.current = range;
@@ -230,6 +277,15 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     cacheAddActionHandlerRef.current = handler;
   }, []);
 
+  const setTabRootVisible = React.useCallback((tabIndex: number, visible: boolean) => {
+    setTabRootBarVisible((prev) => {
+      if (prev[tabIndex] === visible) return prev;
+      return { ...prev, [tabIndex]: visible };
+    });
+  }, []);
+
+  const isTabBarVisible = tabRootBarVisible[selectedTabIndex] ?? true;
+
   const handleAddPress = React.useCallback(() => {
     if (selectedTabIndex !== 0) return;
     triggerTabHaptic();
@@ -254,6 +310,21 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     []
   );
 
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(tabBarTranslateY, {
+        toValue: isTabBarVisible ? 0 : 120,
+        duration: 380,
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabBarOpacity, {
+        toValue: isTabBarVisible ? 1 : 0,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [isTabBarVisible, tabBarOpacity, tabBarTranslateY]);
+
   return (
     <TabSwipeContext.Provider
       value={{
@@ -276,22 +347,27 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           overdrag={false}
         >
           <View key="0" style={styles.page}>
-            <CacheStack />
+            <CacheStack onShowTabBarChange={(visible) => setTabRootVisible(0, visible)} />
           </View>
           <View key="1" style={styles.page}>
-            <CardsStack />
+            <CardsStack onShowTabBarChange={(visible) => setTabRootVisible(1, visible)} />
           </View>
           <View key="2" style={styles.page}>
-            <ProfileStack />
+            <ProfileStack onShowTabBarChange={(visible) => setTabRootVisible(2, visible)} />
           </View>
         </PagerView>
 
-        <LiquidTabBar
-          selectedTabIndex={selectedTabIndex}
-          showsAddButton={selectedTabIndex === 0}
-          onSelectTab={handleTabSelect}
-          onAddPress={handleAddPress}
-        />
+        <Animated.View
+          pointerEvents={isTabBarVisible ? 'auto' : 'none'}
+          style={[styles.tabBarAnimatedWrap, { opacity: tabBarOpacity, transform: [{ translateY: tabBarTranslateY }] }]}
+        >
+          <LiquidTabBar
+            selectedTabIndex={selectedTabIndex}
+            showsAddButton={selectedTabIndex === 0}
+            onSelectTab={handleTabSelect}
+            onAddPress={handleAddPress}
+          />
+        </Animated.View>
       </View>
     </TabSwipeContext.Provider>
   );
@@ -309,6 +385,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tabBarOuter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 200,
+  },
+  tabBarAnimatedWrap: {
     position: 'absolute',
     bottom: 0,
     left: 0,

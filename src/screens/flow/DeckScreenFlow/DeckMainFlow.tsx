@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Q } from '@nozbe/watermelondb';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import { SymbolView } from 'expo-symbols';
@@ -31,7 +32,7 @@ import { FolderIcon } from '../../../components/UI/DeckScreenUI/FolderIcon';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
-import type CachedItem from '@database/models/CachedItem';
+import { resolveCardImageUri } from '@services/media/cardImage';
 
 type Props = {
   navigation: any;
@@ -68,7 +69,11 @@ type AlbumGridItemProps = {
   onActionEnd: (album: Album, action: 'none' | 'edit' | 'delete') => void;
 };
 
-const ELEGANT_SPRING = { damping: 30, stiffness: 80, mass: 1 } as const;
+const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
+const MENU_BUTTON_HALF_SIZE = 25;
+const MENU_BUTTON_OFFSET_X = 45;
+const MENU_MIN_TOP = 72;
+const WINDOW_WIDTH = Dimensions.get('window').width || 390;
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync();
@@ -136,25 +141,34 @@ function AlbumGridItem({
       isActive.value = 1;
       liftScale.value = withSpring(1.02, ELEGANT_SPRING);
       isMenuVisible.value = true;
-      startX.value = e.absoluteX;
-      startY.value = e.absoluteY;
       hoveredAction.value = 'none';
 
       const measured = measure(cardRef);
       if (measured) {
+        const anchorX = Math.min(
+          WINDOW_WIDTH - (MENU_BUTTON_HALF_SIZE + MENU_BUTTON_OFFSET_X + 8),
+          Math.max(MENU_BUTTON_HALF_SIZE + MENU_BUTTON_OFFSET_X + 8, measured.pageX + measured.width / 2)
+        );
+        const anchorY = Math.max(MENU_MIN_TOP, measured.pageY - 16);
+        startX.value = anchorX;
+        startY.value = anchorY;
+
         runOnJS(onMenuStart)(item, {
           x: measured.pageX,
           y: measured.pageY,
           width: measured.width,
           height: measured.height,
         });
+      } else {
+        startX.value = e.absoluteX;
+        startY.value = Math.max(MENU_MIN_TOP, e.absoluteY - 16);
       }
     })
     .onUpdate((e) => {
-      const editX = startX.value - 45;
-      const editY = startY.value - 60;
-      const deleteX = startX.value + 45;
-      const deleteY = startY.value - 60;
+      const editX = startX.value - MENU_BUTTON_OFFSET_X;
+      const editY = startY.value;
+      const deleteX = startX.value + MENU_BUTTON_OFFSET_X;
+      const deleteY = startY.value;
       const radius = 40;
 
       const editDistance = Math.hypot(e.absoluteX - editX, e.absoluteY - editY);
@@ -237,15 +251,15 @@ function ActionMenuOverlay({
   const editButtonStyle = useAnimatedStyle(() => ({
     opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
     transform: [{ scale: withSpring(hoveredAction.value === 'edit' ? 1.5 : 1, ELEGANT_SPRING) }],
-    left: startX.value - 45 - 25,
-    top: startY.value - 60 - 25,
+    left: startX.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
+    top: startY.value - MENU_BUTTON_HALF_SIZE,
   }));
 
   const deleteButtonStyle = useAnimatedStyle(() => ({
     opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
     transform: [{ scale: withSpring(hoveredAction.value === 'delete' ? 1.5 : 1, ELEGANT_SPRING) }],
-    left: startX.value + 45 - 25,
-    top: startY.value - 60 - 25,
+    left: startX.value + MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
+    top: startY.value - MENU_BUTTON_HALF_SIZE,
   }));
 
   const cloneStyle = useAnimatedStyle(() => ({
@@ -257,7 +271,7 @@ function ActionMenuOverlay({
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <AnimatedBlurView
         tint="dark"
-        intensity={65}
+        intensity={100}
         pointerEvents="none"
         style={[styles.menuBlurLayer, blurStyle]}
       />
@@ -342,6 +356,7 @@ function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>):
 export default function DeckScreen({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
+  const [imageReloadSeed, setImageReloadSeed] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortOrder, setSortOrder] = React.useState<'desc' | 'asc'>('desc');
   const [isModalVisible, setIsModalVisible] = React.useState(false);
@@ -378,26 +393,46 @@ export default function DeckScreen({ navigation }: Props) {
     return () => sub.unsubscribe();
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      setImageReloadSeed((prev) => prev + 1);
+    }, [])
+  );
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setImageReloadSeed((prev) => prev + 1);
+    }, 25 * 60 * 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
 
     const loadCardImages = async () => {
       const nextMap: Record<string, string> = {};
-      const cardsWithCachedItem = allCards.filter((card) => Boolean(card.cachedItemId));
-
       await Promise.all(
-        cardsWithCachedItem.map(async (card) => {
-          try {
-            const linked = await database.get<CachedItem>('cached_items').find(card.cachedItemId as string);
-            const uri = linked.imageStoragePath || linked.mediaUri;
-            if (uri) {
-              nextMap[card.id] = uri;
-            }
-          } catch {
-            // ignore missing linked cached item
+        allCards.map(async (card) => {
+          const uri = await resolveCardImageUri({
+            cardId: card.id,
+            remoteUri: card.imageUrl,
+          });
+          if (card.imageUrl && !uri) {
+            console.warn('[DeckMain] card image resolve failed', {
+              cardId: card.id,
+              imageUrl: card.imageUrl,
+            });
+          }
+          if (uri) {
+            nextMap[card.id] = uri;
           }
         })
       );
+      console.log('[DeckMain] card image map size:', {
+        allCards: allCards.length,
+        mapped: Object.keys(nextMap).length,
+      });
 
       if (!cancelled) {
         setCardImageMap(nextMap);
@@ -409,7 +444,7 @@ export default function DeckScreen({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [allCards]);
+  }, [allCards, imageReloadSeed]);
 
   const albums = React.useMemo<Album[]>(() => {
     const slangCards: Card[] = [];
@@ -866,7 +901,7 @@ const styles = StyleSheet.create({
   menuDimLayer: {
     zIndex: 11,
     position: 'absolute',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.9)',
   },
   menuButtonLayer: {
     zIndex: 100,

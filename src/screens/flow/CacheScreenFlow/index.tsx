@@ -25,10 +25,55 @@ type CacheCardRecord = {
   id: string;
   imageUri?: string;
   text: string;
+  sourceLabel: string;
+  importedAtLabel: string;
   cachedItem: CachedItem;
 };
 
 type CropperFlowTarget = 'quick-add' | 'swipe-image';
+
+function toSourceLabel(sourceApp?: string | null): string {
+  const value = (sourceApp || '').trim().toLowerCase();
+  if (!value) return 'Unknown';
+
+  if (value === 'share_sheet' || value === 'share sheet') return 'Share Sheet';
+  if (value === 'clipboard') return 'Clipboard';
+  if (value === 'manual entry') return 'Manual Entry';
+  if (value === 'quick add') return 'Quick Add';
+  if (value === 'camera') return 'Camera';
+
+  return sourceApp || 'Unknown';
+}
+
+function toRelativeImportTime(createdAt?: Date | null): string {
+  if (!createdAt) return 'Unknown time';
+  const ts = createdAt.getTime();
+  if (!Number.isFinite(ts)) return 'Unknown time';
+
+  const diffMs = Date.now() - ts;
+  if (diffMs < 0) return 'Just now';
+
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return 'Just now';
+
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min ago`;
+
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour} hr ago`;
+
+  const day = Math.floor(hour / 24);
+  if (day < 7) return `${day} d ago`;
+
+  const week = Math.floor(day / 7);
+  if (week < 5) return `${week} wk ago`;
+
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month} mo ago`;
+
+  const year = Math.floor(day / 365);
+  return `${year} yr ago`;
+}
 
 export default function CacheScreenFlow({ navigation }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
@@ -130,6 +175,8 @@ export default function CacheScreenFlow({ navigation }: Props) {
           id: item.id,
           imageUri,
           text: hasText ? text : 'Image unavailable',
+          sourceLabel: toSourceLabel(item.sourceApp),
+          importedAtLabel: toRelativeImportTime(item.createdAt),
           cachedItem: item,
         });
         return acc;
@@ -141,6 +188,8 @@ export default function CacheScreenFlow({ navigation }: Props) {
       id: item.id,
       imageUri: item.imageUri,
       text: item.text,
+      sourceLabel: item.sourceLabel,
+      importedAtLabel: item.importedAtLabel,
     }));
   }, [cards]);
 

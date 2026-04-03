@@ -124,6 +124,7 @@ export type Card = {
   difficulty_level: number | null;
   tags: string[] | null;
   source_app: string | null;
+  image_url: string | null;
   ease_factor: number;
   interval_days: number;
   repetitions: number;

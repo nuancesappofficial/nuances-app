@@ -28,6 +28,7 @@ export default class Card extends Model {
   @json('tags', (json) => json) tags?: string[];
 
   @field('source_app') sourceApp?: string;
+  @field('image_url') imageUrl?: string;
 
   // SRS fields
   @field('ease_factor') easeFactor!: number;

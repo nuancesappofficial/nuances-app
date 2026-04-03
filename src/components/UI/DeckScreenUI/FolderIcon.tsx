@@ -16,8 +16,27 @@ type FolderIconProps = {
 };
 
 function PreviewPane({ card }: { card: PreviewCard }) {
-  if (card.imageUrl) {
-    return <Image source={{ uri: card.imageUrl }} style={styles.previewImage} resizeMode="cover" />;
+  const [imageLoadFailed, setImageLoadFailed] = React.useState(false);
+  React.useEffect(() => {
+    setImageLoadFailed(false);
+  }, [card.imageUrl]);
+
+  if (card.imageUrl && !imageLoadFailed) {
+    return (
+      <Image
+        key={card.imageUrl}
+        source={{ uri: card.imageUrl }}
+        style={styles.previewImage}
+        resizeMode="cover"
+        onError={(event) => {
+          console.warn('[FolderIcon] preview image load failed', {
+            imageUrl: card.imageUrl,
+            error: event.nativeEvent?.error,
+          });
+          setImageLoadFailed(true);
+        }}
+      />
+    );
   }
 
   return (
@@ -108,17 +127,17 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   leftPane: {
-    width: '50%',
+    width: '66.6667%',
     height: '100%',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.14)',
   },
   rightHalfPane: {
-    width: '50%',
+    width: '33.3333%',
     height: '100%',
   },
   rightPane: {
-    width: '50%',
+    width: '33.3333%',
     height: '100%',
   },
   rightTopPane: {

@@ -19,8 +19,8 @@ public struct LiquidTabBarView: View {
   private let tabInnerPadding: CGFloat = 6
 
   private let liquidTabs: [LiquidTabItem] = [
-    .init(id: 0, title: "Cache", symbol: "tray.full"),
-    .init(id: 1, title: "Card", symbol: "rectangle.portrait.on.rectangle.portrait.angled"),
+    .init(id: 0, title: "Cache", symbol: "rectangle.portrait.on.rectangle.portrait.angled"),
+    .init(id: 1, title: "Card", symbol: "tray.full"),
     .init(id: 2, title: "Profile", symbol: "person.circle")
   ]
 
@@ -139,11 +139,9 @@ public struct LiquidTabBarView: View {
               }
               resetIdleTimer()
             }) {
-              VStack(spacing: 4) {
+              VStack(spacing: 0) {
                 Image(systemName: item.symbol)
                   .font(.system(size: 20, weight: isActive ? .bold : .medium))
-                Text(item.title)
-                  .font(.system(size: 11, weight: .bold))
               }
               .foregroundColor(isActive ? .white : .white.opacity(0.62))
               .frame(maxWidth: .infinity, maxHeight: .infinity)

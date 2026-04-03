@@ -20,12 +20,12 @@ import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
-import type CachedItem from '@database/models/CachedItem';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import {
   assessPronunciationCloud,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
+import { resolveCardImageUri } from '@services/media/cardImage';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 
 type Props = {
@@ -148,7 +148,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const cardId = route.params?.cardId;
   const [card, setCard] = React.useState<Card | null>(null);
-  const [cachedItem, setCachedItem] = React.useState<CachedItem | null>(null);
+  const [resolvedImageUri, setResolvedImageUri] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   const [isPlaying, setIsPlaying] = React.useState(false);
@@ -187,19 +187,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         const found = await database.get<Card>('cards').find(cardId);
         if (!mounted) return;
         setCard(found);
-
-        if (found.cachedItemId) {
-          try {
-            const linked = await database.get<CachedItem>('cached_items').find(found.cachedItemId);
-            if (!mounted) return;
-            setCachedItem(linked);
-          } catch {
-            if (!mounted) return;
-            setCachedItem(null);
-          }
-        } else {
-          setCachedItem(null);
-        }
       } catch (error) {
         console.error('[CardDetail] load failed:', error);
       } finally {
@@ -213,6 +200,34 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       mounted = false;
     };
   }, [cardId]);
+
+  React.useEffect(() => {
+    let active = true;
+    const resolveImage = async () => {
+      const uri = await resolveCardImageUri({
+        cardId: card?.id,
+        remoteUri: card?.imageUrl,
+      });
+      if (card?.imageUrl && !uri) {
+        console.warn('[CardDetail] card image resolve failed', {
+          cardId: card.id,
+          imageUrl: card.imageUrl,
+        });
+      }
+      console.log('[CardDetail] resolved image', {
+        cardId: card?.id,
+        raw: card?.imageUrl,
+        resolved: uri,
+      });
+      if (active) {
+        setResolvedImageUri(uri);
+      }
+    };
+    void resolveImage();
+    return () => {
+      active = false;
+    };
+  }, [card?.imageUrl]);
 
   React.useEffect(() => {
     return () => {
@@ -565,9 +580,21 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {cachedItem?.imageStoragePath ? (
+        {resolvedImageUri ? (
           <View style={styles.heroImageWrap}>
-            <Image source={{ uri: cachedItem.imageStoragePath }} style={styles.heroImage} resizeMode="cover" />
+            <Image
+              key={resolvedImageUri}
+              source={{ uri: resolvedImageUri }}
+              style={styles.heroImage}
+              resizeMode="cover"
+              onError={(event) => {
+                console.warn('[CardDetail] hero image load failed', {
+                  cardId: card.id,
+                  imageUri: resolvedImageUri,
+                  error: event.nativeEvent?.error,
+                });
+              }}
+            />
           </View>
         ) : null}
 

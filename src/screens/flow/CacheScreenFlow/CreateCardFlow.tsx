@@ -13,11 +13,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { generateContentForWord } from '@services/ai';
 import { extractTextFromImage } from '@services/ocr/ocrService';
+import { supabase } from '@services/supabase/client';
+import { persistLocalCardImage } from '@services/media/localCardImageStore';
 
 type Props = {
   navigation: any;
@@ -99,6 +103,65 @@ function collocationsFromText(raw: string): CollocationItem[] {
     phrase,
     example: `Example: ${phrase}`,
   }));
+}
+
+async function uploadCardImageToSupabase(params: {
+  imageUri: string;
+  cachedItemId: string;
+}): Promise<string | null> {
+  const { imageUri, cachedItemId } = params;
+  if (!imageUri.trim()) return null;
+  if (/^https?:\/\//i.test(imageUri)) return imageUri;
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user?.id) {
+    throw authError || new Error('尚未登入，無法上傳圖片');
+  }
+
+  // Normalize to JPEG before upload to avoid iOS Blob corruption / decoder issues.
+  const normalized = await ImageManipulator.manipulateAsync(
+    imageUri,
+    [],
+    { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  const base64 = await FileSystemLegacy.readAsStringAsync(normalized.uri, {
+    encoding: 'base64',
+  });
+  if (!base64) {
+    throw new Error('圖片轉碼失敗：無法讀取 base64');
+  }
+  const dataUrl = `data:image/jpeg;base64,${base64}`;
+  const imageBytes = await fetch(dataUrl).then((res) => res.arrayBuffer());
+  if (!imageBytes || imageBytes.byteLength === 0) {
+    throw new Error('圖片轉碼失敗：位元組內容為空');
+  }
+  const storagePath = `${user.id}/${cachedItemId}/${Date.now()}.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('cached-images')
+    .upload(storagePath, imageBytes, {
+      cacheControl: '3600',
+      contentType: 'image/jpeg',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data: signedData, error: signedError } = await supabase.storage
+    .from('cached-images')
+    .createSignedUrl(storagePath, 60 * 60);
+  if (signedError || !signedData?.signedUrl) {
+    throw new Error(
+      `圖片已上傳，但無法建立讀取簽名網址（可能是 Storage 權限設定問題）: ${signedError?.message || 'unknown error'}`
+    );
+  }
+
+  return storagePath;
 }
 
 export default function CreateCardScreen({ navigation, route }: Props) {
@@ -322,10 +385,33 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
     setSaving(true);
     try {
+      const imageSourceForUpload =
+        croppedImageUri ||
+        routeOriginalImageUri ||
+        cachedItem.mediaUri ||
+        cachedItem.imageStoragePath ||
+        '';
+
+      let uploadedImageUrl: string | null = null;
+      if (imageSourceForUpload) {
+        uploadedImageUrl = await uploadCardImageToSupabase({
+          imageUri: imageSourceForUpload,
+          cachedItemId: cachedItem.id,
+        });
+        if (!uploadedImageUrl) {
+          throw new Error('圖片上傳失敗，未取得可用的後端圖片網址');
+        }
+        console.log('[CreateCard] image upload succeeded:', {
+          cachedItemId: cachedItem.id,
+          uploadedImageUrl,
+        });
+      }
+
       const cardsCollection = database.get<Card>('cards');
+      const createdCardIds: string[] = [];
       await database.write(async () => {
         for (const cardDraft of cardsToSave) {
-          await cardsCollection.create((card) => {
+          const created = await cardsCollection.create((card) => {
             card.userId = cachedItem.userId;
             card.cachedItemId = cachedItem.id;
             card.targetWord = cardDraft.word;
@@ -339,18 +425,52 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             const tags = [cachedItem.sourceApp, 'create-flow'].filter(Boolean) as string[];
             card.tags = tags.length > 0 ? tags : undefined;
             card.sourceApp = cachedItem.sourceApp;
+            card.imageUrl = uploadedImageUrl || undefined;
             card.easeFactor = 2.5;
             card.intervalDays = 1;
             card.repetitions = 0;
             card.nextReviewAt = new Date();
           });
+          createdCardIds.push(created.id);
         }
 
         await cachedItem.update((item) => {
           item.convertedToCard = true;
+          item.imageStoragePath = uploadedImageUrl || item.imageStoragePath;
           item.deletedAt = new Date();
         });
       });
+      try {
+        const persisted = await Promise.all(
+          createdCardIds.map((id) => database.get<Card>('cards').find(id))
+        );
+        console.log(
+          '[CreateCard] persisted cards imageUrl check:',
+          persisted.map((row) => ({ id: row.id, imageUrl: row.imageUrl }))
+        );
+      } catch (persistCheckError) {
+        console.warn('[CreateCard] persisted card imageUrl check failed:', persistCheckError);
+      }
+      if (imageSourceForUpload) {
+        await Promise.all(
+          createdCardIds.map(async (id) => {
+            try {
+              const localUri = await persistLocalCardImage(id, imageSourceForUpload);
+              if (!localUri) {
+                console.warn('[CreateCard] local card image persist skipped', {
+                  cardId: id,
+                  imageSourceForUpload,
+                });
+              }
+            } catch (localPersistError) {
+              console.warn('[CreateCard] local card image persist failed', {
+                cardId: id,
+                error: localPersistError instanceof Error ? localPersistError.message : localPersistError,
+              });
+            }
+          })
+        );
+      }
 
       Alert.alert('完成', `已建立 ${cardsToSave.length} 張卡片`, [
         {
@@ -360,7 +480,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       ]);
     } catch (error) {
       console.error('[CreateCard] save failed:', error);
-      Alert.alert('錯誤', '儲存卡片失敗，請稍後再試。');
+      const message = error instanceof Error ? error.message : '儲存卡片失敗，請稍後再試。';
+      Alert.alert('錯誤', message);
     } finally {
       setSaving(false);
     }

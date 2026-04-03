@@ -51,5 +51,16 @@ export default schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 5,
+      steps: [
+        addColumns({
+          table: 'cards',
+          columns: [
+            { name: 'image_url', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 });

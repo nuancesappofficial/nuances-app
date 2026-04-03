@@ -8,8 +8,7 @@ type Props = {
 export default function CacheTextCardFace({ text }: Props) {
   return (
     <View style={styles.textCard}>
-      <Text style={styles.textCardLabel}>TEXT CACHE</Text>
-      <Text style={styles.textCardContent} numberOfLines={8}>
+      <Text style={styles.textCardContent} numberOfLines={7}>
         {text}
       </Text>
     </View>
@@ -19,22 +18,15 @@ export default function CacheTextCardFace({ text }: Props) {
 const styles = StyleSheet.create({
   textCard: {
     flex: 1,
-    backgroundColor: '#F5F5F5', // 調整為淺灰色
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingVertical: 16,
     justifyContent: 'center',
   },
-  textCardLabel: {
-    color: '#8E8E93',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    marginBottom: 12,
-  },
   textCardContent: {
-    color: '#101010',
-    fontSize: 24,
-    lineHeight: 33,
-    fontWeight: '700',
+    color: '#25272E',
+    fontSize: 31,
+    lineHeight: 45,
+    fontWeight: '500',
   },
 });
