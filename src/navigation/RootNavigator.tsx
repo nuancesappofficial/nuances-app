@@ -50,15 +50,26 @@ function getActiveRouteName(state?: unknown): string | null {
   return null;
 }
 
-function CacheStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
+function CacheStack({
+  onShowTabBarChange,
+  onSwipeEnabledChange,
+}: {
+  onShowTabBarChange: (visible: boolean) => void;
+  onSwipeEnabledChange: (enabled: boolean) => void;
+}) {
   return (
     <NavigationIndependentTree>
       <NavigationContainer
         theme={APP_DARK_THEME}
-        onReady={() => onShowTabBarChange(true)}
+        onReady={() => {
+          onShowTabBarChange(true);
+          onSwipeEnabledChange(true);
+        }}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
-          onShowTabBarChange(routeName === 'CacheList');
+          const isRootRoute = routeName === 'CacheList';
+          onShowTabBarChange(isRootRoute);
+          onSwipeEnabledChange(isRootRoute);
         }}
       >
         <CacheStackNav.Navigator screenOptions={{ headerShown: false }}>
@@ -95,15 +106,26 @@ function CacheStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: bool
   );
 }
 
-function CardsStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
+function CardsStack({
+  onShowTabBarChange,
+  onSwipeEnabledChange,
+}: {
+  onShowTabBarChange: (visible: boolean) => void;
+  onSwipeEnabledChange: (enabled: boolean) => void;
+}) {
   return (
     <NavigationIndependentTree>
       <NavigationContainer
         theme={APP_DARK_THEME}
-        onReady={() => onShowTabBarChange(true)}
+        onReady={() => {
+          onShowTabBarChange(true);
+          onSwipeEnabledChange(true);
+        }}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
-          onShowTabBarChange(routeName === 'CardsList' || routeName === 'Deck');
+          const isRootRoute = routeName === 'CardsList' || routeName === 'Deck';
+          onShowTabBarChange(isRootRoute);
+          onSwipeEnabledChange(isRootRoute);
         }}
       >
         <CardsStackNav.Navigator screenOptions={{ headerShown: false }}>
@@ -127,15 +149,26 @@ function CardsStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: bool
   );
 }
 
-function ProfileStack({ onShowTabBarChange }: { onShowTabBarChange: (visible: boolean) => void }) {
+function ProfileStack({
+  onShowTabBarChange,
+  onSwipeEnabledChange,
+}: {
+  onShowTabBarChange: (visible: boolean) => void;
+  onSwipeEnabledChange: (enabled: boolean) => void;
+}) {
   return (
     <NavigationIndependentTree>
       <NavigationContainer
         theme={APP_DARK_THEME}
-        onReady={() => onShowTabBarChange(true)}
+        onReady={() => {
+          onShowTabBarChange(true);
+          onSwipeEnabledChange(true);
+        }}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
-          onShowTabBarChange(routeName === 'ProfileHome');
+          const isRootRoute = routeName === 'ProfileHome';
+          onShowTabBarChange(isRootRoute);
+          onSwipeEnabledChange(isRootRoute);
         }}
       >
         <ProfileStackNav.Navigator screenOptions={{ headerShown: false }}>
@@ -191,6 +224,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
   const [isPaginationEnabled, setIsPaginationEnabled] = React.useState(true);
   const [tabRootBarVisible, setTabRootBarVisible] = React.useState<Record<number, boolean>>({
+    0: true,
+    1: true,
+    2: true,
+  });
+  const [tabSwipeEnabled, setTabSwipeEnabled] = React.useState<Record<number, boolean>>({
     0: true,
     1: true,
     2: true,
@@ -284,7 +322,16 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     });
   }, []);
 
+  const setTabSwipeRouteEnabled = React.useCallback((tabIndex: number, enabled: boolean) => {
+    setTabSwipeEnabled((prev) => {
+      if (prev[tabIndex] === enabled) return prev;
+      return { ...prev, [tabIndex]: enabled };
+    });
+  }, []);
+
   const isTabBarVisible = tabRootBarVisible[selectedTabIndex] ?? true;
+  const isSwipeEnabledByRoute = tabSwipeEnabled[selectedTabIndex] ?? true;
+  const pagerSwipeEnabled = isPaginationEnabled && isSwipeEnabledByRoute;
 
   const handleAddPress = React.useCallback(() => {
     if (selectedTabIndex !== 0) return;
@@ -341,19 +388,28 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           ref={pagerRef}
           style={styles.pager}
           initialPage={0}
-          scrollEnabled={isPaginationEnabled}
+          scrollEnabled={pagerSwipeEnabled}
           onPageScroll={handlePageScroll}
           onPageSelected={handlePageSelected}
           overdrag={false}
         >
           <View key="0" style={styles.page}>
-            <CacheStack onShowTabBarChange={(visible) => setTabRootVisible(0, visible)} />
+            <CacheStack
+              onShowTabBarChange={(visible) => setTabRootVisible(0, visible)}
+              onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(0, enabled)}
+            />
           </View>
           <View key="1" style={styles.page}>
-            <CardsStack onShowTabBarChange={(visible) => setTabRootVisible(1, visible)} />
+            <CardsStack
+              onShowTabBarChange={(visible) => setTabRootVisible(1, visible)}
+              onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(1, enabled)}
+            />
           </View>
           <View key="2" style={styles.page}>
-            <ProfileStack onShowTabBarChange={(visible) => setTabRootVisible(2, visible)} />
+            <ProfileStack
+              onShowTabBarChange={(visible) => setTabRootVisible(2, visible)}
+              onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(2, enabled)}
+            />
           </View>
         </PagerView>
 

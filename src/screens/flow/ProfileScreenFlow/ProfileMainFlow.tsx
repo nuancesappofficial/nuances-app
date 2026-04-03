@@ -88,9 +88,13 @@ function shiftMonth(base: Date, offset: number): Date {
   return new Date(base.getFullYear(), base.getMonth() + offset, 1);
 }
 
-function buildHeatMapMonths(cards: Card[], cardImageMap: Record<string, string | undefined>): HeatMapMonth[] {
+function buildHeatMapMonths(
+  cards: Card[],
+  cardImageMap: Record<string, string | undefined>,
+  currentDate: Date
+): HeatMapMonth[] {
   const cardsByDate = buildCardsByDate(cards);
-  const currentMonth = getMonthStart(new Date());
+  const currentMonth = getMonthStart(currentDate);
   const monthOffsets = [-6, -5, -4, -3, -2, -1, 0, 1];
 
   return monthOffsets.map((offset) => {
@@ -102,6 +106,15 @@ function buildHeatMapMonths(cards: Card[], cardImageMap: Record<string, string |
       days: buildMonthDays(monthDate, cardsByDate, cardImageMap),
     };
   });
+}
+
+function findCurrentMonthIndex(months: HeatMapMonth[], currentDate: Date): number {
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const index = months.findIndex(
+    (item) => item.monthDate.getFullYear() === year && item.monthDate.getMonth() === month
+  );
+  return index >= 0 ? index : 0;
 }
 
 function getProfileTitle(profile: Profile | null): string {
@@ -126,10 +139,28 @@ export default function ProfileMainFlow({ navigation }: Props) {
   const [cards, setCards] = React.useState<Card[]>([]);
   const [profile, setProfile] = React.useState<Profile | null>(null);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
+  const [currentDate, setCurrentDate] = React.useState(() => new Date());
   const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      0,
+      0,
+      1
+    );
+    const timeout = setTimeout(() => {
+      setCurrentDate(new Date());
+    }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
+
+    return () => clearTimeout(timeout);
+  }, [currentDate]);
 
   React.useEffect(() => {
     const queryCards = database
@@ -255,8 +286,12 @@ export default function ProfileMainFlow({ navigation }: Props) {
   }, []);
 
   const heatMapMonths = React.useMemo(
-    () => buildHeatMapMonths(cards, cardImageMap),
-    [cardImageMap, cards]
+    () => buildHeatMapMonths(cards, cardImageMap, currentDate),
+    [cardImageMap, cards, currentDate]
+  );
+  const initialMonthIndex = React.useMemo(
+    () => findCurrentMonthIndex(heatMapMonths, currentDate),
+    [currentDate, heatMapMonths]
   );
 
   const subtitle = React.useMemo(
@@ -275,8 +310,9 @@ export default function ProfileMainFlow({ navigation }: Props) {
       title={title}
       subtitle={subtitle}
       profileImageUri={selectedProfilePhotoUri || fallbackProfilePhotoUri}
+      todayDateKey={getDateKey(currentDate)}
       heatMapMonths={heatMapMonths}
-      initialMonthIndex={6}
+      initialMonthIndex={initialMonthIndex}
       savingEntitlement={savingEntitlement}
       entitlementMode={entitlementMode}
       settingsVisible={settingsVisible}

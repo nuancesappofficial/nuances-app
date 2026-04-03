@@ -36,6 +36,7 @@ type Props = {
   title: string;
   subtitle: string;
   profileImageUri?: string | null;
+  todayDateKey: string;
   heatMapMonths: HeatMapMonth[];
   initialMonthIndex: number;
   entitlementMode: 'guest' | 'premium';
@@ -57,6 +58,7 @@ const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const TAB_BAR_CLEARANCE = 100;
+const BASE_BG = '#0A0A0A';
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;
@@ -118,9 +120,11 @@ function HeaderAction({
 
 function HeatMapCircle({
   item,
+  isToday,
   onPressDay,
 }: {
   item: HeatMapDay;
+  isToday: boolean;
   onPressDay: (cardId: string) => void;
 }) {
   const circleStyle = {
@@ -149,6 +153,7 @@ function HeatMapCircle({
         onPressDay(item.card.id);
       }}
     >
+      {isToday ? <View style={styles.todayHalo} /> : null}
       {content}
     </TouchableOpacity>
   );
@@ -158,6 +163,7 @@ export default function ProfileMainScreenUI({
   title,
   subtitle,
   profileImageUri,
+  todayDateKey,
   heatMapMonths,
   initialMonthIndex,
   entitlementMode,
@@ -173,6 +179,8 @@ export default function ProfileMainScreenUI({
   onPressDay,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const listRef = React.useRef<FlatList<any> | null>(null);
+  const lastAppliedIndexRef = React.useRef<number | null>(null);
   const [pagerHeight, setPagerHeight] = React.useState<number>(420);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -211,22 +219,29 @@ export default function ProfileMainScreenUI({
     [heatMapMonths]
   );
 
+  React.useEffect(() => {
+    if (!monthsWithCalendarItems.length) return;
+    if (!pagerHeight || pagerHeight <= 0) return;
+    const safeIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
+    if (lastAppliedIndexRef.current === safeIndex) return;
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({
+        offset: pagerHeight * safeIndex,
+        animated: false,
+      });
+      lastAppliedIndexRef.current = safeIndex;
+    });
+  }, [initialMonthIndex, monthsWithCalendarItems.length, pagerHeight]);
+
   return (
     <View style={styles.root}>
       <Image source={PROFILE_SCREEN_BG} style={styles.backgroundImage} resizeMode="cover" />
+      <View style={styles.backgroundFilter} pointerEvents="none" />
 
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.headerContainer}>
           <View style={styles.coverArea}>
-            <View style={styles.topNavRow}>
-              <TouchableOpacity style={styles.navButton} activeOpacity={0.85} onPress={onPressBack}>
-                <IconSymbol name="chevron.left" fallback="<" size={22} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.navButton} activeOpacity={0.85} onPress={onPressMenu}>
-                <IconSymbol name="ellipsis" fallback="..." size={22} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
             <View style={styles.headerOverlay}>
               <View style={styles.avatarWrap}>
                 {profileImageUri ? (
@@ -263,6 +278,7 @@ export default function ProfileMainScreenUI({
 
         <View style={styles.heatMapPagerWrap} onLayout={handlePagerLayout}>
           <FlatList
+            ref={listRef}
             data={monthsWithCalendarItems}
             keyExtractor={(item) => item.key}
             renderItem={({ item }) => (
@@ -291,14 +307,18 @@ export default function ProfileMainScreenUI({
                           { height: GRID_ROW_HEIGHT * item.usedRowCount },
                         ]}
                       >
-                        {item.calendarItems.map((calendarItem) => (
+                        {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
                           'isPlaceholder' in calendarItem ? (
                             <View key={calendarItem.key} style={styles.gridCell}>
                               <View style={styles.placeholderCell} />
                             </View>
                           ) : (
                             <View key={calendarItem.key} style={styles.gridCell}>
-                              <HeatMapCircle item={calendarItem} onPressDay={onPressDay} />
+                              <HeatMapCircle
+                                item={calendarItem}
+                                isToday={calendarItem.key === todayDateKey}
+                                onPressDay={onPressDay}
+                              />
                             </View>
                           )
                         ))}
@@ -315,7 +335,6 @@ export default function ProfileMainScreenUI({
             decelerationRate="fast"
             snapToInterval={pagerHeight}
             snapToAlignment="start"
-            initialScrollIndex={Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1))}
             showsVerticalScrollIndicator={false}
             style={styles.heatMapScroller}
             contentContainerStyle={styles.heatMapContent}
@@ -343,12 +362,16 @@ export default function ProfileMainScreenUI({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: BASE_BG,
   },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  backgroundFilter: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 20, 35, 0.4)',
   },
   container: {
     flex: 1,
@@ -366,34 +389,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   topNavRow: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  navButton: {
-    minWidth: 36,
-    minHeight: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
+    display: 'none',
   },
   headerOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: -34,
+    bottom: -90,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
   avatarWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     overflow: 'hidden',
     marginBottom: 12,
     borderWidth: 2,
@@ -408,14 +417,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   titleBlock: {
     alignItems: 'center',
     marginTop: 0,
   },
   subtitle: {
-    color: '#FFFFFF',
+    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
     marginBottom: 6,
     fontWeight: '600',
@@ -469,6 +478,7 @@ const styles = StyleSheet.create({
   monthPage: {
     width: '100%',
     backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
   monthPageInner: {
     flex: 1,
@@ -499,7 +509,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   weekdayText: {
-    color: 'rgba(255,255,255,0.72)',
+    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -523,6 +533,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  todayHalo: {
+    position: 'absolute',
+    width: GRID_SIZE + 12,
+    height: GRID_SIZE + 12,
+    borderRadius: (GRID_SIZE + 12) / 2,
+    backgroundColor: 'rgba(255, 170, 90, 0.22)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 196, 120, 0.82)',
+    shadowColor: '#FFB36B',
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
   placeholderCell: {
     width: GRID_SIZE,
     height: GRID_SIZE,
@@ -532,10 +555,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(50, 65, 110, 0.5)',
   },
   dayCircleEmpty: {
-    backgroundColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(50, 65, 110, 0.25)',
   },
   dayImageOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -545,5 +568,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });
