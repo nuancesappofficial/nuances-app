@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { Q } from '@nozbe/watermelondb';
@@ -92,10 +93,10 @@ const albumIdToCategoryTag: Record<string, string> = {
   work: 'work',
 };
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH;
-const SPACING = -20;
+const CARD_WIDTH = SCREEN_WIDTH * 0.95;
+const SPACING = 8;
 const SNAP_INTERVAL = CARD_WIDTH + SPACING;
-const SIDE_PADDING = 0;
+const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2 - SPACING / 2;
 const SIDE_PEEK_SHIFT = 15;
 const HEADER_BUTTON_TOP_OFFSET = 0;
 
@@ -720,15 +721,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     );
   };
 
-  const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
+  const commitIndex = React.useCallback((nextIndex: number) => {
     if (nextIndex === currentIndex) return;
     const targetCard = scopedCards[nextIndex];
     if (!targetCard) return;
     setCurrentIndex(nextIndex);
     setDisplayIndex(nextIndex);
     navigation.setParams({ cardId: targetCard.id });
-  };
+  }, [currentIndex, navigation, scopedCards]);
+
+  const handleMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
+    commitIndex(nextIndex);
+  }, [commitIndex]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -756,12 +761,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         (index + 1) * SNAP_INTERVAL,
       ];
 
-      const scale = interpolate(scrollX.value, inputRange, [0.985, 1, 0.985], Extrapolation.CLAMP);
-      const translateY = interpolate(scrollX.value, inputRange, [54, 0, 54], Extrapolation.CLAMP);
+      const scale = interpolate(scrollX.value, inputRange, [0.9, 1, 0.9], Extrapolation.CLAMP);
+      const translateY = interpolate(scrollX.value, inputRange, [30, 0, 30], Extrapolation.CLAMP);
       const translateX = interpolate(
         scrollX.value,
         inputRange,
-        [-SIDE_PEEK_SHIFT, 0, SIDE_PEEK_SHIFT],
+        [SIDE_PEEK_SHIFT, 0, -SIDE_PEEK_SHIFT],
         Extrapolation.CLAMP
       );
       const opacity = interpolate(scrollX.value, inputRange, [0.72, 1, 0.72], Extrapolation.CLAMP);
@@ -927,7 +932,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onPress={() => navigation.goBack()}
           style={[styles.floatingIconButton, styles.floatingBackButton, { top: floatingHeaderTop }]}
         >
-          <Text style={styles.backChevron}>‹</Text>
+          <Ionicons name="chevron-back" size={24} color="#F4EDE6" />
           <Text style={styles.backText}>Deck</Text>
         </TouchableOpacity>
 
@@ -935,13 +940,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onPress={() => setShowAlbumSheet(true)}
           style={[styles.floatingIconButton, styles.floatingHeaderAction, { top: floatingHeaderTop, right: 64 }]}
         >
-          <Text style={styles.headerIcon}>📁</Text>
+          <Ionicons name="folder-outline" size={23} color="#F4EDE6" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.floatingIconButton, styles.floatingHeaderAction, { top: floatingHeaderTop, right: 16 }]}
         >
-          <Text style={styles.headerIcon}>⭐</Text>
+          <Ionicons name="star-outline" size={24} color="#F4EDE6" />
         </TouchableOpacity>
       </View>
 
@@ -955,6 +960,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           scrollHandler={scrollHandler}
           onMomentumScrollEnd={handleMomentumEnd}
           snapInterval={SNAP_INTERVAL}
+          sidePadding={SIDE_PADDING}
         />
       </View>
 
@@ -1020,9 +1026,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
   },
-  backChevron: { fontSize: 30, color: '#F4EDE6', lineHeight: 30 },
   backText: { fontSize: 17, color: '#F4EDE6', fontWeight: '500' },
-  headerIcon: { fontSize: 22, color: '#F4EDE6' },
   content: { flex: 1, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0 },
   stageSection: {
     flex: 1,

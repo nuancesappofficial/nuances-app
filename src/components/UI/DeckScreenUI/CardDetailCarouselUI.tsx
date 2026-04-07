@@ -13,6 +13,7 @@ type Props = {
   scrollHandler: any;
   onMomentumScrollEnd: (event: any) => void;
   snapInterval: number;
+  sidePadding: number;
 };
 
 export default function CardDetailCarouselUI({
@@ -24,6 +25,7 @@ export default function CardDetailCarouselUI({
   scrollHandler,
   onMomentumScrollEnd,
   snapInterval,
+  sidePadding,
 }: Props) {
   return (
     <View style={styles.stageSection}>
@@ -39,10 +41,11 @@ export default function CardDetailCarouselUI({
           snapToAlignment="center"
           decelerationRate="fast"
           disableIntervalMomentum
+          directionalLockEnabled
+          alwaysBounceHorizontal={false}
           bounces={false}
           overScrollMode="never"
-          contentContainerStyle={styles.carouselContent}
-          initialScrollIndex={_currentIndex}
+          contentContainerStyle={[styles.carouselContent, { paddingHorizontal: sidePadding }]}
           initialNumToRender={3}
           windowSize={5}
           maxToRenderPerBatch={3}

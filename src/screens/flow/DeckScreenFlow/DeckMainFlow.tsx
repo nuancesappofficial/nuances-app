@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -15,6 +16,16 @@ import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 type Props = {
   navigation: any;
 };
+
+type DeckAlbumPreferences = {
+  customAlbums: DeckAlbum[];
+  albumNameOverrides: Record<string, string>;
+  albumEmojiOverrides: Record<string, string>;
+  albumColorOverrides: Record<string, string>;
+  deletedAlbumIds: string[];
+};
+
+const DECK_ALBUM_PREFS_KEY = 'deck_album_preferences_v1';
 
 function getTagsArray(tags: unknown): string[] {
   if (Array.isArray(tags)) {
@@ -72,6 +83,7 @@ export default function DeckMainFlow({ navigation }: Props) {
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
+  const [isAlbumPrefsHydrated, setIsAlbumPrefsHydrated] = React.useState(false);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
   const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(null);
   const [settingsName, setSettingsName] = React.useState('');
@@ -85,6 +97,58 @@ export default function DeckMainFlow({ navigation }: Props) {
   const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
 
   const filterPills = ['群組', '隱私', '已封存'];
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const hydrateAlbumPrefs = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DECK_ALBUM_PREFS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<DeckAlbumPreferences>;
+        if (cancelled) return;
+        if (Array.isArray(parsed.customAlbums)) setCustomAlbums(parsed.customAlbums);
+        if (parsed.albumNameOverrides && typeof parsed.albumNameOverrides === 'object') {
+          setAlbumNameOverrides(parsed.albumNameOverrides as Record<string, string>);
+        }
+        if (parsed.albumEmojiOverrides && typeof parsed.albumEmojiOverrides === 'object') {
+          setAlbumEmojiOverrides(parsed.albumEmojiOverrides as Record<string, string>);
+        }
+        if (parsed.albumColorOverrides && typeof parsed.albumColorOverrides === 'object') {
+          setAlbumColorOverrides(parsed.albumColorOverrides as Record<string, string>);
+        }
+        if (Array.isArray(parsed.deletedAlbumIds)) setDeletedAlbumIds(parsed.deletedAlbumIds);
+      } catch (error) {
+        console.warn('[DeckMain] load album preferences failed:', error);
+      } finally {
+        if (!cancelled) setIsAlbumPrefsHydrated(true);
+      }
+    };
+    void hydrateAlbumPrefs();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!isAlbumPrefsHydrated) return;
+    const payload: DeckAlbumPreferences = {
+      customAlbums,
+      albumNameOverrides,
+      albumEmojiOverrides,
+      albumColorOverrides,
+      deletedAlbumIds,
+    };
+    AsyncStorage.setItem(DECK_ALBUM_PREFS_KEY, JSON.stringify(payload)).catch((error) => {
+      console.warn('[DeckMain] save album preferences failed:', error);
+    });
+  }, [
+    isAlbumPrefsHydrated,
+    customAlbums,
+    albumNameOverrides,
+    albumEmojiOverrides,
+    albumColorOverrides,
+    deletedAlbumIds,
+  ]);
 
   React.useEffect(() => {
     const queryCards = database
