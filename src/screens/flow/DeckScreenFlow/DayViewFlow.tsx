@@ -111,7 +111,12 @@ export default function DayViewScreen({ navigation, route }: Props) {
                   key={card.id}
                   style={[styles.cardTile, { backgroundColor: masteryColors[mastery], opacity: 1 - Math.min(index, 6) * 0.03 }]}
                   activeOpacity={0.9}
-                  onPress={() => navigation.navigate('CardDetail', { cardId: card.id })}
+                  onPress={() =>
+                    navigation.navigate('CardDetail', {
+                      cardId: card.id,
+                      cardIds: dayCards.map((item) => item.id),
+                    })
+                  }
                 >
                   <View style={styles.wordWrap}>
                     <Text style={styles.word} numberOfLines={2}>

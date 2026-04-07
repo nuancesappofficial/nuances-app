@@ -1,340 +1,20 @@
 import React from 'react';
-import {
-  Alert,
-  Dimensions,
-  FlatList,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
-import * as Haptics from 'expo-haptics';
-import { BlurView } from 'expo-blur';
-import { SymbolView } from 'expo-symbols';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Reanimated, {
-  measure,
-  runOnJS,
-  type SharedValue,
-  useAnimatedRef,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
-import { FolderIcon } from '../../../components/UI/DeckScreenUI/FolderIcon';
-import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
+import { useSharedValue } from 'react-native-reanimated';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
+import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
+import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreenUI';
+import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
+import AlbumActionMenuOverlayUI from '../../../components/UI/DeckScreenUI/AlbumActionMenuOverlayUI';
+import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 
 type Props = {
   navigation: any;
 };
-
-type AlbumPreviewCard = {
-  imageUrl?: string;
-  cardTypeText: string;
-  previewText?: string;
-  createdAtMs: number;
-};
-
-type Album = {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
-  cardIds: string[];
-  wordCount: number;
-  latestCards: AlbumPreviewCard[];
-  isDefault?: boolean;
-};
-
-type AlbumGridItemProps = {
-  item: Album;
-  onPress: (album: Album) => void;
-  isMenuVisible: SharedValue<boolean>;
-  startX: SharedValue<number>;
-  startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
-  activeAlbumId: string | null;
-  onMenuStart: (album: Album, layout: { x: number; y: number; width: number; height: number }) => void;
-  onMenuFinish: () => void;
-  onActionEnd: (album: Album, action: 'none' | 'edit' | 'delete') => void;
-};
-
-const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
-const MENU_BUTTON_HALF_SIZE = 25;
-const MENU_BUTTON_OFFSET_X = 45;
-const MENU_MIN_TOP = 72;
-const WINDOW_WIDTH = Dimensions.get('window').width || 390;
-
-function triggerSelectionHaptic() {
-  void Haptics.selectionAsync();
-}
-
-function canUseSFSymbolsOnDevice() {
-  if (Platform.OS !== 'ios') return false;
-  const version =
-    typeof Platform.Version === 'string'
-      ? parseInt(Platform.Version.split('.')[0] || '0', 10)
-      : Platform.Version;
-  return Number.isFinite(version) && version >= 17;
-}
-
-function MenuSymbol({
-  name,
-  color,
-  fallback,
-}: {
-  name: 'square.and.pencil' | 'trash.fill';
-  color: string;
-  fallback: string;
-}) {
-  if (!canUseSFSymbolsOnDevice()) {
-    return <Text style={{ fontSize: 22 }}>{fallback}</Text>;
-  }
-
-  return (
-    <SymbolView
-      name={name}
-      size={22}
-      tintColor={color}
-      type="hierarchical"
-      style={{ width: 22, height: 22 }}
-      fallback={<Text style={{ fontSize: 22 }}>{fallback}</Text>}
-    />
-  );
-}
-
-function AlbumGridItem({
-  item,
-  onPress,
-  isMenuVisible,
-  startX,
-  startY,
-  hoveredAction,
-  activeAlbumId,
-  onMenuStart,
-  onMenuFinish,
-  onActionEnd,
-}: AlbumGridItemProps) {
-  const cardRef = useAnimatedRef<Reanimated.View>();
-  const isActive = useSharedValue(0);
-  const liftScale = useSharedValue(1);
-  const suppressPressRef = React.useRef(false);
-
-  const markLongPressStarted = React.useCallback(() => {
-    suppressPressRef.current = true;
-  }, []);
-
-  const releaseLongPressSuppression = React.useCallback(() => {
-    setTimeout(() => {
-      suppressPressRef.current = false;
-    }, 220);
-  }, []);
-
-  const albumContainerStyle = useAnimatedStyle(() => ({
-    zIndex: isActive.value ? 50 : 1,
-    transform: [{ scale: withSpring(isActive.value ? 1.05 : 1, ELEGANT_SPRING) }, { scale: liftScale.value }],
-  }));
-
-  const gesture = Gesture.Pan()
-    .activateAfterLongPress(250)
-    .onStart((e) => {
-      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
-      runOnJS(markLongPressStarted)();
-      isActive.value = 1;
-      liftScale.value = withSpring(1.02, ELEGANT_SPRING);
-      isMenuVisible.value = true;
-      hoveredAction.value = 'none';
-
-      const measured = measure(cardRef);
-      if (measured) {
-        const anchorX = Math.min(
-          WINDOW_WIDTH - (MENU_BUTTON_HALF_SIZE + MENU_BUTTON_OFFSET_X + 8),
-          Math.max(MENU_BUTTON_HALF_SIZE + MENU_BUTTON_OFFSET_X + 8, measured.pageX + measured.width / 2)
-        );
-        const anchorY = Math.max(MENU_MIN_TOP, measured.pageY - 16);
-        startX.value = anchorX;
-        startY.value = anchorY;
-
-        runOnJS(onMenuStart)(item, {
-          x: measured.pageX,
-          y: measured.pageY,
-          width: measured.width,
-          height: measured.height,
-        });
-      } else {
-        startX.value = e.absoluteX;
-        startY.value = Math.max(MENU_MIN_TOP, e.absoluteY - 16);
-      }
-    })
-    .onUpdate((e) => {
-      const editX = startX.value - MENU_BUTTON_OFFSET_X;
-      const editY = startY.value;
-      const deleteX = startX.value + MENU_BUTTON_OFFSET_X;
-      const deleteY = startY.value;
-      const radius = 40;
-
-      const editDistance = Math.hypot(e.absoluteX - editX, e.absoluteY - editY);
-      const deleteDistance = Math.hypot(e.absoluteX - deleteX, e.absoluteY - deleteY);
-
-      let nextAction: 'none' | 'edit' | 'delete' = 'none';
-      if (editDistance <= radius) nextAction = 'edit';
-      if (deleteDistance <= radius) nextAction = 'delete';
-
-      if (nextAction !== hoveredAction.value) {
-        hoveredAction.value = nextAction;
-        if (nextAction === 'edit' || nextAction === 'delete') {
-          runOnJS(triggerSelectionHaptic)();
-        }
-      }
-    })
-    .onEnd(() => {
-      const action = hoveredAction.value;
-      isMenuVisible.value = false;
-      hoveredAction.value = 'none';
-      isActive.value = 0;
-      liftScale.value = withSpring(1, ELEGANT_SPRING);
-      runOnJS(onMenuFinish)();
-      runOnJS(onActionEnd)(item, action);
-      runOnJS(releaseLongPressSuppression)();
-    })
-    .onFinalize(() => {
-      isMenuVisible.value = false;
-      hoveredAction.value = 'none';
-      isActive.value = 0;
-      liftScale.value = withSpring(1, ELEGANT_SPRING);
-      runOnJS(onMenuFinish)();
-      runOnJS(releaseLongPressSuppression)();
-    });
-
-  return (
-    <GestureDetector gesture={gesture}>
-      <Reanimated.View
-        ref={cardRef}
-        style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
-      >
-        <TouchableOpacity
-          style={styles.albumPressArea}
-          activeOpacity={0.92}
-          onPress={() => {
-            if (suppressPressRef.current) return;
-            onPress(item);
-          }}
-        >
-          <FolderIcon
-            title={item.name}
-            wordCount={item.wordCount}
-            latestCards={item.latestCards}
-            iconEmoji={item.emoji}
-            coverColor={item.color}
-            style={styles.folderIcon}
-          />
-        </TouchableOpacity>
-      </Reanimated.View>
-    </GestureDetector>
-  );
-}
-
-function ActionMenuOverlay({
-  isMenuVisible,
-  startX,
-  startY,
-  hoveredAction,
-  activeAlbum,
-  activeLayout,
-}: {
-  isMenuVisible: SharedValue<boolean>;
-  startX: SharedValue<number>;
-  startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
-  activeAlbum: Album | null;
-  activeLayout: { x: number; y: number; width: number; height: number } | null;
-}) {
-  const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
-  const AnimatedBlurView = React.useMemo(() => Reanimated.createAnimatedComponent(BlurView), []);
-
-  const blurStyle = useAnimatedStyle(() => ({
-    position: 'absolute',
-    top: -windowHeight,
-    bottom: -windowHeight,
-    left: -windowWidth,
-    right: -windowWidth,
-    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 160 }),
-  }));
-
-  const editButtonStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
-    transform: [{ scale: withSpring(hoveredAction.value === 'edit' ? 1.5 : 1, ELEGANT_SPRING) }],
-    left: startX.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
-    top: startY.value - MENU_BUTTON_HALF_SIZE,
-  }));
-
-  const deleteButtonStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
-    transform: [{ scale: withSpring(hoveredAction.value === 'delete' ? 1.5 : 1, ELEGANT_SPRING) }],
-    left: startX.value + MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
-    top: startY.value - MENU_BUTTON_HALF_SIZE,
-  }));
-
-  const cloneStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
-    transform: [{ scale: withSpring(isMenuVisible.value ? 1.06 : 1, ELEGANT_SPRING) }],
-  }));
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <AnimatedBlurView
-        tint="dark"
-        intensity={100}
-        pointerEvents="none"
-        style={[styles.menuBlurLayer, blurStyle]}
-      />
-      <Reanimated.View style={[styles.menuDimLayer, blurStyle]} />
-
-      {activeAlbum && activeLayout ? (
-        <Reanimated.View
-          style={[
-            styles.activeAlbumClone,
-            cloneStyle,
-            {
-              top: activeLayout.y,
-              left: activeLayout.x,
-              width: activeLayout.width,
-              height: activeLayout.height,
-            },
-          ]}
-        >
-          <FolderIcon
-            title={activeAlbum.name}
-            wordCount={activeAlbum.wordCount}
-            latestCards={activeAlbum.latestCards}
-            iconEmoji={activeAlbum.emoji}
-            coverColor={activeAlbum.color}
-            style={styles.activeAlbumCloneInner}
-          />
-        </Reanimated.View>
-      ) : null}
-
-      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
-        <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
-      </Reanimated.View>
-
-      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, deleteButtonStyle]}>
-        <MenuSymbol name="trash.fill" color="#FF3B30" fallback="🗑️" />
-      </Reanimated.View>
-    </View>
-  );
-}
 
 function getTagsArray(tags: unknown): string[] {
   if (Array.isArray(tags)) {
@@ -367,7 +47,7 @@ function getTagsArray(tags: unknown): string[] {
   return [];
 }
 
-function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>): AlbumPreviewCard[] {
+function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>) {
   return cards.slice(0, 3).map((card) => {
     const imageUrl = cardImageMap[card.id];
     return {
@@ -379,25 +59,25 @@ function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>):
   });
 }
 
-export default function DeckScreen({ navigation }: Props) {
+export default function DeckMainFlow({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [imageReloadSeed, setImageReloadSeed] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortOrder, setSortOrder] = React.useState<'desc' | 'asc'>('desc');
-  const [isModalVisible, setIsModalVisible] = React.useState(false);
+  const [isCreateModalVisible, setIsCreateModalVisible] = React.useState(false);
   const [newAlbumName, setNewAlbumName] = React.useState('');
-  const [customAlbums, setCustomAlbums] = React.useState<Album[]>([]);
+  const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
-  const [settingsAlbum, setSettingsAlbum] = React.useState<Album | null>(null);
+  const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(null);
   const [settingsName, setSettingsName] = React.useState('');
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
   const [settingsColor, setSettingsColor] = React.useState('#4A67D8');
-  const [activeAlbum, setActiveAlbum] = React.useState<Album | null>(null);
+  const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
@@ -479,7 +159,7 @@ export default function DeckScreen({ navigation }: Props) {
     };
   }, [allCards, imageReloadSeed]);
 
-  const albums = React.useMemo<Album[]>(() => {
+  const albums = React.useMemo<DeckAlbum[]>(() => {
     const slangCards: Card[] = [];
     const cultureCards: Card[] = [];
     const workCards: Card[] = [];
@@ -599,7 +279,7 @@ export default function DeckScreen({ navigation }: Props) {
     const trimmedName = newAlbumName.trim();
     if (!trimmedName) return;
 
-    const newAlbum: Album = {
+    const newAlbum: DeckAlbum = {
       id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: trimmedName,
       emoji: '📁',
@@ -610,18 +290,18 @@ export default function DeckScreen({ navigation }: Props) {
     };
 
     setCustomAlbums((prev) => [newAlbum, ...prev]);
-    setIsModalVisible(false);
+    setIsCreateModalVisible(false);
     setNewAlbumName('');
   }, [newAlbumName]);
 
   const handleAlbumPress = React.useCallback(
-    (album: Album) => {
+    (album: DeckAlbum) => {
       navigation.navigate('AlbumView', { album, isDefault: album.isDefault });
     },
     [navigation]
   );
 
-  const openAlbumSettings = React.useCallback((album: Album) => {
+  const openAlbumSettings = React.useCallback((album: DeckAlbum) => {
     setSettingsAlbum(album);
     setSettingsName(album.name);
     setSettingsEmoji(album.emoji || '📁');
@@ -657,7 +337,7 @@ export default function DeckScreen({ navigation }: Props) {
     setSettingsAlbum(null);
   }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor]);
 
-  const handleDeleteAlbum = React.useCallback((album: Album) => {
+  const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
     if (album.isDefault) {
       Alert.alert('無法刪除', 'All cards 是預設相簿，不能刪除。');
       return;
@@ -681,7 +361,7 @@ export default function DeckScreen({ navigation }: Props) {
   }, [customAlbums]);
 
   const handleActionEnd = React.useCallback(
-    (album: Album, action: 'none' | 'edit' | 'delete') => {
+    (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
       if (action === 'edit') {
         openAlbumSettings(album);
         return;
@@ -694,7 +374,7 @@ export default function DeckScreen({ navigation }: Props) {
   );
 
   const handleMenuStart = React.useCallback(
-    (album: Album, layout: { x: number; y: number; width: number; height: number }) => {
+    (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => {
       setActiveAlbum(album);
       setActiveLayout(layout);
     },
@@ -707,153 +387,54 @@ export default function DeckScreen({ navigation }: Props) {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputWrap}>
-          <Text style={styles.searchIcon}>⌕</Text>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="搜尋卡片關鍵字"
-            placeholderTextColor="#8E8E93"
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          <TouchableOpacity
-            style={styles.clearSearchButton}
-            activeOpacity={0.8}
-            onPress={() => setSearchQuery('')}
-          >
-            <Text style={styles.clearSearchButtonText}>×</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.addAlbumButton}
-          activeOpacity={0.85}
-          onPress={() => setIsModalVisible(true)}
-        >
-          <Text style={styles.addAlbumText}>＋</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        <TouchableOpacity
-          style={styles.sortPill}
-          activeOpacity={0.85}
-          onPress={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-        >
-          <Text style={styles.sortPillText}>↕︎</Text>
-          <Text style={styles.sortPillChevron}>{sortOrder === 'desc' ? '新→舊' : '舊→新'}</Text>
-        </TouchableOpacity>
-
-        {filterPills.map((pill) => (
-          <TouchableOpacity key={pill} style={styles.filterPill} activeOpacity={0.85}>
-            <Text style={styles.filterPillText}>{pill}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <FlatList
-        data={processedAlbums}
-        numColumns={2}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.albumGridContent}
-        columnWrapperStyle={styles.albumRow}
-        renderItem={({ item }) => (
-          <AlbumGridItem
-            item={item}
-            onPress={handleAlbumPress}
-            isMenuVisible={isMenuVisible}
-            startX={startX}
-            startY={startY}
-            hoveredAction={hoveredAction}
-            activeAlbumId={activeAlbum?.id || null}
-            onMenuStart={handleMenuStart}
-            onMenuFinish={handleMenuFinish}
-            onActionEnd={handleActionEnd}
-          />
-        )}
+    <>
+      <DeckMainScreenUI
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onClearSearch={() => setSearchQuery('')}
+        onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
+        sortOrder={sortOrder}
+        onToggleSort={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+        filterPills={filterPills}
+        albums={processedAlbums}
+        onPressAlbum={handleAlbumPress}
+        isMenuVisible={isMenuVisible}
+        startX={startX}
+        startY={startY}
+        hoveredAction={hoveredAction}
+        activeAlbumId={activeAlbum?.id || null}
+        onMenuStart={handleMenuStart}
+        onMenuFinish={handleMenuFinish}
+        onActionEnd={handleActionEnd}
       />
 
       <CreateAlbumModalUI
-        visible={isModalVisible}
+        visible={isCreateModalVisible}
         albumName={newAlbumName}
         onChangeAlbumName={setNewAlbumName}
         onCancel={() => {
-          setIsModalVisible(false);
+          setIsCreateModalVisible(false);
           setNewAlbumName('');
         }}
         onConfirm={handleAddAlbum}
       />
 
-      <Modal
+      <AlbumSettingsModalUI
         visible={settingsVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSettingsVisible(false)}
-      >
-        <View style={styles.settingsOverlay}>
-          <View style={styles.settingsCard}>
-            <Text style={styles.settingsTitle}>Album Settings</Text>
+        settingsName={settingsName}
+        settingsEmoji={settingsEmoji}
+        settingsColor={settingsColor}
+        onChangeName={setSettingsName}
+        onChangeEmoji={setSettingsEmoji}
+        onChangeColor={setSettingsColor}
+        onCancel={() => {
+          setSettingsVisible(false);
+          setSettingsAlbum(null);
+        }}
+        onSave={handleSaveAlbumSettings}
+      />
 
-            <Text style={styles.settingsSectionTitle}>改名</Text>
-            <TextInput
-              value={settingsName}
-              onChangeText={setSettingsName}
-              style={styles.settingsInput}
-              placeholder="輸入相簿名稱"
-              placeholderTextColor="#8E8E93"
-            />
-
-            <Text style={styles.settingsSectionTitle}>選圖示</Text>
-            <View style={styles.optionRow}>
-              {['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'].map((emoji) => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[styles.emojiOption, settingsEmoji === emoji && styles.emojiOptionActive]}
-                  onPress={() => setSettingsEmoji(emoji)}
-                >
-                  <Text style={styles.emojiOptionText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.settingsSectionTitle}>選顏色</Text>
-            <View style={styles.optionRow}>
-              {['#3688E5', '#9A63CC', '#D15463', '#42A878', '#4A67D8', '#E0912D', '#5D6A7D'].map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  style={[styles.colorOption, { backgroundColor: color }, settingsColor === color && styles.colorOptionActive]}
-                  onPress={() => setSettingsColor(color)}
-                />
-              ))}
-            </View>
-
-            <View style={styles.settingsButtonRow}>
-              <TouchableOpacity
-                style={styles.settingsCancelBtn}
-                onPress={() => {
-                  setSettingsVisible(false);
-                  setSettingsAlbum(null);
-                }}
-              >
-                <Text style={styles.settingsCancelText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.settingsSaveBtn} onPress={handleSaveAlbumSettings}>
-                <Text style={styles.settingsSaveText}>儲存</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <ActionMenuOverlay
+      <AlbumActionMenuOverlayUI
         isMenuVisible={isMenuVisible}
         startX={startX}
         startY={startY}
@@ -861,270 +442,6 @@ export default function DeckScreen({ navigation }: Props) {
         activeAlbum={activeAlbum}
         activeLayout={activeLayout}
       />
-    </SafeAreaView>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-  },
-  searchRow: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  searchInputWrap: {
-    flex: 1,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    backgroundColor: '#0B0B0F',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  searchIcon: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 15,
-    paddingVertical: 0,
-  },
-  clearSearchButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  clearSearchButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 14,
-  },
-  addAlbumButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0B0B0F',
-  },
-  addAlbumText: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: '300',
-  },
-  filterRow: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  sortPill: {
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    backgroundColor: '#111317',
-    gap: 6,
-  },
-  sortPillText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  sortPillChevron: {
-    color: '#C7C7CC',
-    fontSize: 12,
-  },
-  filterPill: {
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  filterPillText: {
-    color: '#F2F2F7',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  albumGridContent: {
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 120,
-    gap: 16,
-  },
-  albumRow: {
-    justifyContent: 'space-between',
-  },
-  albumItem: {
-    width: '48.3%',
-    overflow: 'visible',
-  },
-  albumPressArea: {
-    width: '100%',
-    overflow: 'visible',
-  },
-  folderIcon: {
-    width: '100%',
-  },
-  activeAlbumHidden: {
-    opacity: 0,
-  },
-  menuBlurLayer: {
-    zIndex: 10,
-  },
-  menuDimLayer: {
-    zIndex: 11,
-    position: 'absolute',
-    backgroundColor: 'rgba(0,0,0,0.9)',
-  },
-  menuButtonLayer: {
-    zIndex: 100,
-  },
-  activeAlbumClone: {
-    position: 'absolute',
-    zIndex: 60,
-    overflow: 'visible',
-  },
-  activeAlbumCloneInner: {
-    width: '100%',
-    height: '100%',
-  },
-  floatingActionButton: {
-    position: 'absolute',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  settingsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  settingsCard: {
-    width: '100%',
-    maxWidth: 380,
-    borderRadius: 16,
-    backgroundColor: '#121419',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    padding: 14,
-    gap: 10,
-  },
-  settingsTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  settingsSectionTitle: {
-    color: '#D0D6E2',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  settingsInput: {
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: '#1A1D24',
-    paddingHorizontal: 12,
-    color: '#FFFFFF',
-    fontSize: 15,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  emojiOption: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: '#1A1D24',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emojiOptionActive: {
-    borderColor: '#56A1FF',
-    backgroundColor: 'rgba(86,161,255,0.15)',
-  },
-  emojiOptionText: {
-    fontSize: 20,
-  },
-  colorOption: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  colorOptionActive: {
-    borderColor: '#FFFFFF',
-  },
-  settingsButtonRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 6,
-  },
-  settingsCancelBtn: {
-    borderRadius: 10,
-    backgroundColor: '#2A2F3A',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  settingsSaveBtn: {
-    borderRadius: 10,
-    backgroundColor: '#2F80ED',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  settingsCancelText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  settingsSaveText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-});
