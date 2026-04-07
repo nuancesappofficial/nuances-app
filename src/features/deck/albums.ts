@@ -14,6 +14,8 @@ export const DECK_ALBUM_PREFS_KEY = 'deck_album_preferences_v1';
 export const DEFAULT_CUSTOM_ALBUM_EMOJI = '📁';
 export const DEFAULT_CUSTOM_ALBUM_COLOR = '#E5E5EA';
 export const ALBUM_TAG_PREFIX = 'album:';
+export const ALL_CARDS_ALBUM_ID = 'all';
+export const FAVORITES_ALBUM_ID = 'favorites';
 
 export function getTagsArray(tags: unknown): string[] {
   if (Array.isArray(tags)) {
@@ -121,6 +123,7 @@ export function buildDeckAlbums(
   cardImageMap: Record<string, string>,
   prefs: DeckAlbumPreferences
 ): DeckAlbum[] {
+  const favoriteCards: Card[] = [];
   const slangCards: Card[] = [];
   const cultureCards: Card[] = [];
   const workCards: Card[] = [];
@@ -135,6 +138,10 @@ export function buildDeckAlbums(
       .map((tag) => tag.slice(ALBUM_TAG_PREFIX.length).trim());
     const source = (card.sourceApp || '').toLowerCase();
     const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
+
+    if (albumTagIds.includes(FAVORITES_ALBUM_ID)) {
+      favoriteCards.push(card);
+    }
 
     if (
       tags.some((t) => ['slang', 'internet', 'social'].includes(t)) ||
@@ -169,13 +176,23 @@ export function buildDeckAlbums(
 
   const defaultAlbums: DeckAlbum[] = [
     {
-      id: 'all',
+      id: ALL_CARDS_ALBUM_ID,
       name: 'All cards',
       emoji: '📌',
-      color: '#1B1B1F',
+      color: '#D94A4A',
       cardIds: allCards.map((card) => card.id),
       wordCount: allCards.length,
       latestCards: buildPreviewCards(allCards, cardImageMap),
+      isDefault: true,
+    },
+    {
+      id: FAVORITES_ALBUM_ID,
+      name: 'My Favorites',
+      emoji: '⭐',
+      color: '#F4C542',
+      cardIds: Array.from(new Set(favoriteCards.map((card) => card.id))),
+      wordCount: favoriteCards.length,
+      latestCards: buildPreviewCards(favoriteCards, cardImageMap),
       isDefault: true,
     },
     {
@@ -220,9 +237,9 @@ export function buildDeckAlbums(
   return [...defaultAlbums, ...computedCustomAlbums]
     .map((album) => ({
       ...album,
-      name: prefs.albumNameOverrides[album.id] || album.name,
-      emoji: prefs.albumEmojiOverrides[album.id] || album.emoji,
-      color: prefs.albumColorOverrides[album.id] || album.color,
+      name: album.isDefault ? album.name : prefs.albumNameOverrides[album.id] || album.name,
+      emoji: album.isDefault ? album.emoji : prefs.albumEmojiOverrides[album.id] || album.emoji,
+      color: album.isDefault ? album.color : prefs.albumColorOverrides[album.id] || album.color,
     }))
     .filter((album) => !prefs.deletedAlbumIds.includes(album.id));
 }

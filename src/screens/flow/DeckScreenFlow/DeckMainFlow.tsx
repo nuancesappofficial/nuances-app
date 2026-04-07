@@ -224,6 +224,10 @@ export default function DeckMainFlow({ navigation }: Props) {
   );
 
   const openAlbumSettings = React.useCallback((album: DeckAlbum) => {
+    if (album.isDefault) {
+      Alert.alert('無法編輯', '預設資料夾不能修改名稱、圖示或顏色。');
+      return;
+    }
     setSettingsAlbum(album);
     setSettingsName(album.name);
     setSettingsEmoji(album.emoji || '📁');
@@ -233,6 +237,10 @@ export default function DeckMainFlow({ navigation }: Props) {
 
   const handleSaveAlbumSettings = React.useCallback(() => {
     if (!settingsAlbum) return;
+    if (settingsAlbum.isDefault) {
+      Alert.alert('無法編輯', '預設資料夾不能修改名稱、圖示或顏色。');
+      return;
+    }
 
     const nextName = settingsName.trim();
     if (!nextName) {
@@ -261,7 +269,7 @@ export default function DeckMainFlow({ navigation }: Props) {
 
   const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
     if (album.isDefault) {
-      Alert.alert('無法刪除', 'All cards 是預設相簿，不能刪除。');
+      Alert.alert('無法刪除', '預設資料夾不能刪除。');
       return;
     }
 

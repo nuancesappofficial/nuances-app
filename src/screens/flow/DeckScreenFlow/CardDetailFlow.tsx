@@ -49,6 +49,7 @@ import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumM
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   ALBUM_TAG_PREFIX,
+  FAVORITES_ALBUM_ID,
   buildDeckAlbums,
   createCustomAlbum,
   loadDeckAlbumPreferences,
@@ -634,6 +635,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }).filter((album) => album.id !== 'all'),
     [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
   );
+  const isFavorite = selectedAlbums.includes(FAVORITES_ALBUM_ID);
 
   const displayWord = card?.targetWord || card?.targetPhrase || '-';
   const pronunciationText = React.useMemo(() => {
@@ -925,6 +927,35 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  const toggleFavorite = React.useCallback(async () => {
+    if (!card) return;
+    try {
+      const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
+      const favoriteTag = `${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}`;
+      const hasFavorite = currentTags.includes(favoriteTag);
+      const nextTags = hasFavorite
+        ? currentTags.filter((tag) => tag !== favoriteTag)
+        : Array.from(new Set([...currentTags, favoriteTag]));
+
+      await database.write(async () => {
+        await card.update((record) => {
+          record.tags = nextTags;
+        });
+      });
+
+      setSelectedAlbums((prev) =>
+        hasFavorite
+          ? prev.filter((id) => id !== FAVORITES_ALBUM_ID)
+          : prev.includes(FAVORITES_ALBUM_ID)
+            ? prev
+            : [...prev, FAVORITES_ALBUM_ID]
+      );
+    } catch (error) {
+      console.error('[CardDetail] toggle favorite failed:', error);
+      Alert.alert('更新失敗', '無法更新我的最愛狀態，請再試一次。');
+    }
+  }, [card]);
+
   const navigateToIndex = React.useCallback(
     (targetIndex: number, animated = true) => {
       const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
@@ -1007,6 +1038,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     },
     [navigateToIndex]
   );
+
+  const openCreateAlbumModal = React.useCallback(() => {
+    setShowAlbumSheet(false);
+    requestAnimationFrame(() => {
+      setIsCreateAlbumModalVisible(true);
+    });
+  }, []);
 
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => (
@@ -1093,9 +1131,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         </TouchableOpacity>
 
         <TouchableOpacity
+          onPress={() => void toggleFavorite()}
           style={[styles.floatingIconButton, styles.floatingHeaderAction, { top: floatingHeaderTop, right: 16 }]}
         >
-          <Ionicons name="star-outline" size={24} color="#F4EDE6" />
+          <Ionicons
+            name={isFavorite ? 'star' : 'star-outline'}
+            size={24}
+            color={isFavorite ? '#F4C542' : '#F4EDE6'}
+          />
         </TouchableOpacity>
       </View>
 
@@ -1121,7 +1164,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         allAlbums={allAlbums}
         onClose={() => setShowAlbumSheet(false)}
         onDone={() => void saveAlbumSelection()}
-        onOpenCreateAlbum={() => setIsCreateAlbumModalVisible(true)}
+        onOpenCreateAlbum={openCreateAlbumModal}
         onToggleAlbum={toggleAlbum}
       />
 
