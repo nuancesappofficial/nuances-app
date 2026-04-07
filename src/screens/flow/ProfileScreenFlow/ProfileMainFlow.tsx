@@ -6,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type Profile from '@database/models/Profile';
+import ImageCropperModal from '../../../components/ImageCropperModal';
 import ProfileMainScreenUI, {
   type HeatMapDay,
   type HeatMapMonth,
@@ -143,6 +144,11 @@ export default function ProfileMainFlow({ navigation }: Props) {
   const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
+  const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
+  const [pendingProfilePhotoSize, setPendingProfilePhotoSize] = React.useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
 
   React.useEffect(() => {
@@ -264,21 +270,32 @@ export default function ProfileMainFlow({ navigation }: Props) {
 
   const handleChangeProfilePhoto = React.useCallback(async () => {
     try {
+      setSettingsVisible(false);
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert('需要相簿權限', '請先允許存取相簿，才能上傳頭像。');
         return;
       }
 
+      await new Promise((resolve) => setTimeout(resolve, 220));
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.9,
       });
 
       if (result.canceled || !result.assets?.[0]?.uri) return;
-      setSelectedProfilePhotoUri(result.assets[0].uri);
-      setSettingsVisible(false);
+      const asset = result.assets[0];
+      setPendingProfilePhotoUri(asset.uri);
+      setPendingProfilePhotoSize(
+        asset.width && asset.height
+          ? {
+              width: asset.width,
+              height: asset.height,
+            }
+          : null
+      );
     } catch (error) {
       console.error('[Profiles] change profile pic failed:', error);
       Alert.alert('上傳頭像失敗', '請稍後再試。');
@@ -300,34 +317,48 @@ export default function ProfileMainFlow({ navigation }: Props) {
   );
   const title = React.useMemo(() => getProfileTitle(profile), [profile]);
 
-  const fallbackProfilePhotoUri = React.useMemo(() => {
-    const firstCardWithImage = cards.find((card) => Boolean(cardImageMap[card.id]));
-    return firstCardWithImage ? cardImageMap[firstCardWithImage.id] ?? null : null;
-  }, [cardImageMap, cards]);
-
   return (
-    <ProfileMainScreenUI
-      title={title}
-      subtitle={subtitle}
-      profileImageUri={selectedProfilePhotoUri || fallbackProfilePhotoUri}
-      todayDateKey={getDateKey(currentDate)}
-      heatMapMonths={heatMapMonths}
-      initialMonthIndex={initialMonthIndex}
-      savingEntitlement={savingEntitlement}
-      entitlementMode={entitlementMode}
-      settingsVisible={settingsVisible}
-      onPressRecaps={() => Alert.alert('Recaps', 'Recaps 功能下一步接上資料來源。')}
-      onPressSettings={() => setSettingsVisible(true)}
-      onCloseSettings={() => setSettingsVisible(false)}
-      onPressUploadProfilePic={handleChangeProfilePhoto}
-      onToggleEntitlement={handleToggleEntitlementMode}
-      onPressBack={() => {
-        if (navigation.canGoBack?.()) {
-          navigation.goBack();
-        }
-      }}
-      onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
-      onPressDay={(cardId) => navigation.navigate('CardDetail', { cardId })}
-    />
+    <>
+      <ProfileMainScreenUI
+        title={title}
+        subtitle={subtitle}
+        profileImageUri={selectedProfilePhotoUri}
+        todayDateKey={getDateKey(currentDate)}
+        heatMapMonths={heatMapMonths}
+        initialMonthIndex={initialMonthIndex}
+        savingEntitlement={savingEntitlement}
+        entitlementMode={entitlementMode}
+        settingsVisible={settingsVisible}
+        onPressRecaps={() => Alert.alert('Recaps', 'Recaps 功能下一步接上資料來源。')}
+        onPressSettings={() => setSettingsVisible(true)}
+        onCloseSettings={() => setSettingsVisible(false)}
+        onPressUploadProfilePic={handleChangeProfilePhoto}
+        onToggleEntitlement={handleToggleEntitlementMode}
+        onPressBack={() => {
+          if (navigation.canGoBack?.()) {
+            navigation.goBack();
+          }
+        }}
+        onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
+        onPressDay={(cardId) => navigation.navigate('CardDetail', { cardId })}
+      />
+
+      <ImageCropperModal
+        visible={!!pendingProfilePhotoUri}
+        imageUri={pendingProfilePhotoUri}
+        initialImageSize={pendingProfilePhotoSize}
+        cropShape="circle"
+        fixedCropSize={300}
+        onCancel={() => {
+          setPendingProfilePhotoUri(null);
+          setPendingProfilePhotoSize(null);
+        }}
+        onConfirm={(croppedUri) => {
+          setSelectedProfilePhotoUri(croppedUri);
+          setPendingProfilePhotoUri(null);
+          setPendingProfilePhotoSize(null);
+        }}
+      />
+    </>
   );
 }

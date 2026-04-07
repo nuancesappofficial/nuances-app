@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Props = {
@@ -19,12 +19,63 @@ export default function ProfileSettingsModalUI({
   onPressUploadProfilePic,
   onToggleEntitlement,
 }: Props) {
+  const [mounted, setMounted] = React.useState(visible);
+  const overlayOpacity = React.useRef(new Animated.Value(0)).current;
+  const sheetTranslateY = React.useRef(new Animated.Value(48)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.parallel([
+        Animated.timing(overlayOpacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          damping: 18,
+          stiffness: 180,
+          mass: 0.9,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 48,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) {
+        setMounted(false);
+      }
+    });
+  }, [overlayOpacity, sheetTranslateY, visible]);
+
+  if (!mounted) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-          <View style={styles.sheet}>
+        <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+          <Animated.View
+            style={[
+              styles.sheet,
+              {
+                transform: [{ translateY: sheetTranslateY }],
+              },
+            ]}
+          >
             <View style={styles.handle} />
             <Text style={styles.title}>Settings</Text>
 
@@ -45,9 +96,9 @@ export default function ProfileSettingsModalUI({
             <TouchableOpacity style={styles.closeButton} activeOpacity={0.85} onPress={onClose}>
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </SafeAreaView>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

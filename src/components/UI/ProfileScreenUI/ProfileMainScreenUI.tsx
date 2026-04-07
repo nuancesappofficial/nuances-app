@@ -153,7 +153,12 @@ function HeatMapCircle({
         onPressDay(item.card.id);
       }}
     >
-      {isToday ? <View style={styles.todayHalo} /> : null}
+      {isToday ? (
+        <>
+          <View style={styles.todayGlow} />
+          <View style={styles.todayRing} />
+        </>
+      ) : null}
       {content}
     </TouchableOpacity>
   );
@@ -180,7 +185,7 @@ export default function ProfileMainScreenUI({
 }: Props) {
   const insets = useSafeAreaInsets();
   const listRef = React.useRef<FlatList<any> | null>(null);
-  const lastAppliedIndexRef = React.useRef<number | null>(null);
+  const lastAppliedScrollKeyRef = React.useRef<string | null>(null);
   const [pagerHeight, setPagerHeight] = React.useState<number>(420);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -223,14 +228,15 @@ export default function ProfileMainScreenUI({
     if (!monthsWithCalendarItems.length) return;
     if (!pagerHeight || pagerHeight <= 0) return;
     const safeIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
-    if (lastAppliedIndexRef.current === safeIndex) return;
+    const scrollKey = `${safeIndex}-${pagerHeight}`;
+    if (lastAppliedScrollKeyRef.current === scrollKey) return;
 
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({
         offset: pagerHeight * safeIndex,
         animated: false,
       });
-      lastAppliedIndexRef.current = safeIndex;
+      lastAppliedScrollKeyRef.current = scrollKey;
     });
   }, [initialMonthIndex, monthsWithCalendarItems.length, pagerHeight]);
 
@@ -248,7 +254,7 @@ export default function ProfileMainScreenUI({
                   <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
                 ) : (
                   <View style={styles.avatarFallback}>
-                    <IconSymbol name="person.crop.circle.fill" fallback="◉" size={42} color="#FFFFFF" />
+                    <IconSymbol name="person.crop.circle.fill" fallback="◉" size={192} color="#FFFFFF" />
                   </View>
                 )}
               </View>
@@ -532,19 +538,29 @@ const styles = StyleSheet.create({
   dayWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
-  todayHalo: {
+  todayGlow: {
     position: 'absolute',
-    width: GRID_SIZE + 12,
-    height: GRID_SIZE + 12,
-    borderRadius: (GRID_SIZE + 12) / 2,
-    backgroundColor: 'rgba(255, 170, 90, 0.22)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 196, 120, 0.82)',
+    width: GRID_SIZE + 18,
+    height: GRID_SIZE + 18,
+    borderRadius: (GRID_SIZE + 18) / 2,
+    backgroundColor: 'rgba(255, 179, 102, 0.14)',
     shadowColor: '#FFB36B',
-    shadowOpacity: 0.55,
-    shadowRadius: 12,
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 0 },
+    zIndex: 0,
+  },
+  todayRing: {
+    position: 'absolute',
+    width: GRID_SIZE + 10,
+    height: GRID_SIZE + 10,
+    borderRadius: (GRID_SIZE + 10) / 2,
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 205, 138, 0.95)',
+    zIndex: 0,
   },
   placeholderCell: {
     width: GRID_SIZE,

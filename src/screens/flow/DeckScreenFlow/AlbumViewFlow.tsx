@@ -1,15 +1,20 @@
 import React from 'react';
 import {
+  Alert,
   Animated,
   Easing,
   FlatList,
   Image,
+  Modal,
+  Pressable,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -31,6 +36,8 @@ type Props = {
   navigation: any;
   route: { params?: RouteParams };
 };
+
+type SortMode = 'recently_added' | 'recently_reviewed' | 'alphabetical';
 
 function getDefaultAlbum(cards: Card[]): Album {
   return {
@@ -62,10 +69,52 @@ function getWordText(card: Card): string {
   return (card.targetWord || card.targetPhrase || card.definition || 'WORD').toUpperCase();
 }
 
+function withHexAlpha(color: string, alphaHex: string): string {
+  if (/^#[0-9a-f]{6}$/i.test(color)) return `${color}${alphaHex}`;
+  return color;
+}
+
 export default function AlbumViewScreen({ navigation, route }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [sortMode, setSortMode] = React.useState<SortMode>('recently_added');
+  const [showSortModal, setShowSortModal] = React.useState(false);
+  const [isSearchVisible, setIsSearchVisible] = React.useState(false);
+  const [showCardActionModal, setShowCardActionModal] = React.useState(false);
+  const [selectedCard, setSelectedCard] = React.useState<Card | null>(null);
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
+  const searchInputRef = React.useRef<TextInput | null>(null);
+
+  const closeCardActionModal = React.useCallback(() => {
+    setShowCardActionModal(false);
+    setSelectedCard(null);
+  }, []);
+
+  const openCardActionModal = React.useCallback((card: Card) => {
+    setSelectedCard(card);
+    setShowCardActionModal(true);
+  }, []);
+
+  const handleDeleteCard = React.useCallback(() => {
+    if (!selectedCard) return;
+    const targetCard = selectedCard;
+    Alert.alert('刪除卡片', `確定要刪除 ${getWordText(targetCard)} 嗎？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '刪除',
+        style: 'destructive',
+        onPress: () => {
+          void database.write(async () => {
+            await targetCard.update((record) => {
+              record.deletedAt = new Date();
+            });
+          });
+          closeCardActionModal();
+        },
+      },
+    ]);
+  }, [closeCardActionModal, selectedCard]);
 
   React.useEffect(() => {
     screenOpacity.setValue(0);
@@ -100,6 +149,7 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
   const album = React.useMemo(() => {
     return route.params?.album ?? getDefaultAlbum(allCards);
   }, [allCards, route.params?.album]);
+  const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
 
   const albumCards = React.useMemo(() => {
     if (!album.cardIds.length) return [];
@@ -154,6 +204,46 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
     return Math.round((learnedCount / albumCards.length) * 100);
   }, [albumCards.length, learnedCount]);
 
+  const processedCards = React.useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    let result = [...albumCards];
+
+    if (keyword) {
+      result = result.filter((card) => {
+        const target = `${card.targetWord || ''} ${card.targetPhrase || ''} ${card.definition || ''} ${
+          card.partOfSpeech || ''
+        }`.toLowerCase();
+        return target.includes(keyword);
+      });
+    }
+
+    result.sort((a, b) => {
+      if (sortMode === 'alphabetical') {
+        const aWord = (a.targetWord || a.targetPhrase || a.definition || '').toLowerCase();
+        const bWord = (b.targetWord || b.targetPhrase || b.definition || '').toLowerCase();
+        return aWord.localeCompare(bWord);
+      }
+
+      if (sortMode === 'recently_reviewed') {
+        const aReviewed = a.lastReviewedAt ? new Date(a.lastReviewedAt).getTime() : 0;
+        const bReviewed = b.lastReviewedAt ? new Date(b.lastReviewedAt).getTime() : 0;
+        if (bReviewed !== aReviewed) return bReviewed - aReviewed;
+      }
+
+      const aCreated = new Date(a.createdAt).getTime();
+      const bCreated = new Date(b.createdAt).getTime();
+      return bCreated - aCreated;
+    });
+
+    return result;
+  }, [albumCards, searchQuery, sortMode]);
+
+  const sortLabel = React.useMemo(() => {
+    if (sortMode === 'recently_reviewed') return 'Recently reviewed';
+    if (sortMode === 'alphabetical') return 'Alphabetical';
+    return 'Recently added';
+  }, [sortMode]);
+
   const listHeader = (
     <View style={styles.headerWrap}>
       <View style={styles.topNavRow}>
@@ -162,41 +252,51 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
         </TouchableOpacity>
 
         <View style={styles.topNavRightRow}>
-          <TouchableOpacity style={styles.iconHitArea}>
+          <TouchableOpacity
+            style={styles.iconHitArea}
+            onPress={() => {
+              setIsSearchVisible(true);
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+            }}
+          >
             <Text style={styles.navIcon}>⌕</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconHitArea}>
+          <TouchableOpacity style={styles.iconHitArea} onPress={() => setShowSortModal(true)}>
             <Text style={styles.navIcon}>⇅</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <Text style={styles.titleText}>Made for You</Text>
-
-      <View style={styles.subtitleRow}>
-        <View style={styles.logoBadge}>
-          <Text style={styles.logoBadgeCheck}>✓</Text>
+      {isSearchVisible ? (
+        <View style={styles.searchWrap}>
+          <TextInput
+            ref={searchInputRef}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search words"
+            placeholderTextColor="#8DA0BE"
+            style={styles.searchInput}
+            returnKeyType="search"
+            onBlur={() => setIsSearchVisible(false)}
+          />
         </View>
-        <Text style={styles.subtitleBrand}>VividVocab</Text>
-        <Text style={styles.lockIcon}>🔒</Text>
-        <Text style={styles.subtitlePrivate}>Private</Text>
-      </View>
+      ) : null}
 
-      <Text style={styles.descriptionText}>
-        Words picked just for you, with new ones added automatically as you learn them.
+      <Text style={styles.titleText} numberOfLines={1}>
+        {album.name || 'Made for You'}
       </Text>
 
       <View style={styles.progressRow}>
         <View style={styles.progressDot} />
-        <Text style={styles.progressText}>{`${albumCards.length} words, ${learnedPercent}% learned`}</Text>
+        <Text style={styles.progressText}>{`${processedCards.length} words, ${learnedPercent}% learned`}</Text>
       </View>
 
       <View style={styles.actionButtonsRow}>
-        <TouchableOpacity style={styles.actionButton} activeOpacity={0.9}>
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: themeColor }]} activeOpacity={0.9}>
           <Text style={styles.actionButtonIcon}>▥</Text>
           <Text style={styles.actionButtonText}>Review words</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} activeOpacity={0.9}>
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: themeColor }]} activeOpacity={0.9}>
           <Text style={styles.actionButtonIcon}>☰</Text>
           <Text style={styles.actionButtonText}>Personalize</Text>
         </TouchableOpacity>
@@ -207,8 +307,29 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
   return (
     <Animated.View style={[styles.screenWrap, { opacity: screenOpacity }]}>
       <SafeAreaView style={styles.container} edges={['top']}>
+        <View pointerEvents="none" style={styles.backgroundLayer}>
+          <LinearGradient
+            colors={[
+              withHexAlpha(themeColor, 'F0'),
+              withHexAlpha(themeColor, '8C'),
+              withHexAlpha(themeColor, '2E'),
+              'rgba(0,0,0,0)',
+            ]}
+            locations={[0, 0.2, 0.46, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.topThemeGradient}
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.74)', 'rgba(0,0,0,1)']}
+            locations={[0, 0.56, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.bottomBlackGradient}
+          />
+        </View>
         <FlatList
-          data={albumCards}
+          data={processedCards}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
           contentContainerStyle={styles.listContent}
@@ -246,8 +367,9 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
                   )}
 
                   <View style={styles.premiumBadge}>
-                    <Text style={styles.premiumStar}>☆</Text>
-                    <Text style={styles.premiumText}>PREMIUM</Text>
+                    <Text style={styles.premiumText} numberOfLines={1}>
+                      {getWordText(item)}
+                    </Text>
                   </View>
                 </View>
 
@@ -263,7 +385,15 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
                 </View>
 
                 <View style={styles.moreWrap}>
-                  <Text style={styles.moreIcon}>•••</Text>
+                  <TouchableOpacity
+                    style={styles.moreButton}
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      openCardActionModal(item);
+                    }}
+                  >
+                    <Text style={styles.moreIcon}>⋯</Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             );
@@ -275,6 +405,74 @@ export default function AlbumViewScreen({ navigation, route }: Props) {
           }
         />
       </SafeAreaView>
+      <Modal
+        visible={showSortModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSortModal(false)}
+      >
+        <Pressable style={styles.sortModalOverlay} onPress={() => setShowSortModal(false)}>
+          <Pressable style={styles.sortModalCard} onPress={() => undefined}>
+            <Text style={styles.sortModalTitle}>Sort by...</Text>
+
+            <TouchableOpacity
+              style={[styles.sortOptionBtn, sortMode === 'recently_added' && styles.sortOptionBtnActive]}
+              onPress={() => {
+                setSortMode('recently_added');
+                setShowSortModal(false);
+              }}
+            >
+              <Text style={[styles.sortOptionText, sortMode === 'recently_added' && styles.sortOptionTextActive]}>
+                Recently added
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortOptionBtn, sortMode === 'recently_reviewed' && styles.sortOptionBtnActive]}
+              onPress={() => {
+                setSortMode('recently_reviewed');
+                setShowSortModal(false);
+              }}
+            >
+              <Text style={[styles.sortOptionText, sortMode === 'recently_reviewed' && styles.sortOptionTextActive]}>
+                Recently reviewed
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortOptionBtn, sortMode === 'alphabetical' && styles.sortOptionBtnActive]}
+              onPress={() => {
+                setSortMode('alphabetical');
+                setShowSortModal(false);
+              }}
+            >
+              <Text style={[styles.sortOptionText, sortMode === 'alphabetical' && styles.sortOptionTextActive]}>
+                Alphabetical
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.sortModeHint}>{`Current: ${sortLabel}`}</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showCardActionModal}
+        transparent
+        animationType="slide"
+        onRequestClose={closeCardActionModal}
+      >
+        <Pressable style={styles.sortModalOverlay} onPress={closeCardActionModal}>
+          <Pressable style={styles.sortModalCard} onPress={() => undefined}>
+            <Text style={styles.sortModalTitle}>{selectedCard ? getWordText(selectedCard) : 'Card Action'}</Text>
+            <TouchableOpacity style={styles.deleteOptionBtn} onPress={handleDeleteCard}>
+              <Text style={styles.deleteOptionText}>刪掉卡片</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelOptionBtn} onPress={closeCardActionModal}>
+              <Text style={styles.cancelOptionText}>取消</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Animated.View>
   );
 }
@@ -285,7 +483,16 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#0B1320',
+    backgroundColor: '#000000',
+  },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topThemeGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bottomBlackGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -294,6 +501,20 @@ const styles = StyleSheet.create({
   headerWrap: {
     paddingTop: 8,
     marginBottom: 8,
+  },
+  searchWrap: {
+    marginBottom: 12,
+  },
+  searchInput: {
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#121D2D',
+    borderWidth: 1,
+    borderColor: '#2A3D5D',
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '500',
   },
   topNavRow: {
     flexDirection: 'row',
@@ -323,43 +544,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     marginBottom: 8,
-  },
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 16,
-  },
-  logoBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    backgroundColor: '#228BE6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoBadgeCheck: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  subtitleBrand: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  lockIcon: {
-    fontSize: 12,
-  },
-  subtitlePrivate: {
-    color: '#C6D0E1',
-    fontSize: 14,
-  },
-  descriptionText: {
-    color: '#D5DEEC',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 20,
   },
   progressRow: {
     flexDirection: 'row',
@@ -453,11 +637,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     gap: 4,
   },
-  premiumStar: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '700',
-  },
   premiumText: {
     color: '#FFFFFF',
     fontSize: 9,
@@ -497,14 +676,20 @@ const styles = StyleSheet.create({
   },
   moreWrap: {
     width: 24,
-    alignItems: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moreButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   moreIcon: {
     color: '#FFFFFF',
-    fontSize: 20,
-    lineHeight: 20,
-    letterSpacing: 1,
+    fontSize: 24,
+    lineHeight: 24,
+    textAlign: 'center',
   },
   emptyWrap: {
     alignItems: 'center',
@@ -514,5 +699,73 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#8EA0BE',
     fontSize: 14,
+  },
+  sortModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+  sortModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 16,
+    backgroundColor: '#131F31',
+    borderWidth: 1,
+    borderColor: '#2A3D5D',
+    padding: 14,
+    gap: 10,
+  },
+  sortModalTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  sortOptionBtn: {
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#1B2940',
+  },
+  sortOptionBtnActive: {
+    backgroundColor: '#2E4F80',
+  },
+  sortOptionText: {
+    color: '#D8E2F1',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  sortOptionTextActive: {
+    color: '#FFFFFF',
+  },
+  sortModeHint: {
+    marginTop: 4,
+    color: '#8EA0BE',
+    fontSize: 12,
+  },
+  deleteOptionBtn: {
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    backgroundColor: '#4D1E24',
+  },
+  deleteOptionText: {
+    color: '#FFBFC7',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cancelOptionBtn: {
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#1B2940',
+  },
+  cancelOptionText: {
+    color: '#D8E2F1',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

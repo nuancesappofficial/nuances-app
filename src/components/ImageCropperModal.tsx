@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Animated,
   Alert,
   Image,
   Modal,
@@ -12,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import Svg, { Path } from 'react-native-svg';
 
 type Size = {
   width: number;
@@ -25,6 +25,12 @@ type Rect = {
   height: number;
 };
 
+type ImageTransform = {
+  scale: number;
+  translateX: number;
+  translateY: number;
+};
+
 type CornerKey = 'topLeft' | 'topRight' | 'bottomRight' | 'bottomLeft';
 type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 
@@ -32,6 +38,8 @@ type Props = {
   visible: boolean;
   imageUri: string | null;
   initialImageSize?: Size | null;
+  cropShape?: 'rect' | 'circle';
+  fixedCropSize?: number;
   modalAnimationType?: 'none' | 'slide' | 'fade';
   onCancel: () => void;
   onConfirm: (croppedUri: string) => void;
@@ -47,6 +55,8 @@ export default function ImageCropperModal({
   visible,
   imageUri,
   initialImageSize,
+  cropShape = 'rect',
+  fixedCropSize,
   modalAnimationType = 'slide',
   onCancel,
   onConfirm,
@@ -55,10 +65,18 @@ export default function ImageCropperModal({
   const [containerSize, setContainerSize] = React.useState<Size>({ width: 0, height: 0 });
   const [cropRect, setCropRect] = React.useState<Rect | null>(null);
   const [processing, setProcessing] = React.useState(false);
-  const gridOpacity = React.useRef(new Animated.Value(0)).current;
-  const gridFadeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [imageTransform, setImageTransform] = React.useState<ImageTransform>({
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+  });
 
   const cropRectRef = React.useRef<Rect | null>(null);
+  const imageTransformRef = React.useRef<ImageTransform>({
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+  });
   const displayMetricsRef = React.useRef<{
     width: number;
     height: number;
@@ -96,33 +114,50 @@ export default function ImageCropperModal({
     return { width, height, left, top };
   }, [containerSize, imageSize]);
 
+  const clamp = React.useCallback((value: number, min: number, max: number) => {
+    return Math.min(Math.max(value, min), max);
+  }, []);
+
   React.useEffect(() => {
     if (!displayMetrics) return;
+
+    if (cropShape === 'circle') {
+      const preferredSize = fixedCropSize ?? 200;
+      const size = Math.max(
+        MIN_EDGE,
+        Math.min(preferredSize, displayMetrics.width, displayMetrics.height)
+      );
+      const left = (containerSize.width - size) / 2;
+      const top = (containerSize.height - size) / 2;
+      setCropRect({ x: left, y: top, width: size, height: size });
+      return;
+    }
+
     setCropRect((prev) => {
       if (prev) return prev;
       const marginX = Math.max(16, displayMetrics.width * 0.1);
       const marginY = Math.max(16, displayMetrics.height * 0.1);
       return {
-        x: marginX,
-        y: marginY,
+        x: displayMetrics.left + marginX,
+        y: displayMetrics.top + marginY,
         width: Math.max(MIN_EDGE, displayMetrics.width - marginX * 2),
         height: Math.max(MIN_EDGE, displayMetrics.height - marginY * 2),
       };
     });
-  }, [displayMetrics]);
+  }, [containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize]);
 
   React.useEffect(() => {
     if (!visible) {
       setCropRect(null);
       setImageSize(null);
       setProcessing(false);
-      gridOpacity.setValue(0);
-      if (gridFadeTimeoutRef.current) {
-        clearTimeout(gridFadeTimeoutRef.current);
-        gridFadeTimeoutRef.current = null;
-      }
+      setImageTransform({
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+      });
     }
-  }, [gridOpacity, visible]);
+  }, [visible]);
 
   React.useEffect(() => {
     cropRectRef.current = cropRect;
@@ -132,53 +167,68 @@ export default function ImageCropperModal({
     displayMetricsRef.current = displayMetrics;
   }, [displayMetrics]);
 
-  const clamp = React.useCallback((value: number, min: number, max: number) => {
-    return Math.min(Math.max(value, min), max);
-  }, []);
+  React.useEffect(() => {
+    imageTransformRef.current = imageTransform;
+  }, [imageTransform]);
 
-  const showGrid = React.useCallback(() => {
-    if (gridFadeTimeoutRef.current) {
-      clearTimeout(gridFadeTimeoutRef.current);
-      gridFadeTimeoutRef.current = null;
+  const circleScaleBounds = React.useMemo(() => {
+    if (!displayMetrics || !cropRect || cropShape !== 'circle') {
+      return { minScale: 1, maxScale: 4 };
     }
-    Animated.timing(gridOpacity, {
-      toValue: 1,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
-  }, [gridOpacity]);
+    const minScale = Math.max(cropRect.width / displayMetrics.width, cropRect.height / displayMetrics.height, 1);
+    return {
+      minScale,
+      maxScale: Math.max(minScale, 4),
+    };
+  }, [cropRect, cropShape, displayMetrics]);
 
-  const scheduleGridFade = React.useCallback(() => {
-    if (gridFadeTimeoutRef.current) {
-      clearTimeout(gridFadeTimeoutRef.current);
-    }
-    gridFadeTimeoutRef.current = setTimeout(() => {
-      Animated.timing(gridOpacity, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-      gridFadeTimeoutRef.current = null;
-    }, 500);
-  }, [gridOpacity]);
+  const clampCircleTransform = React.useCallback(
+    (transform: ImageTransform) => {
+      if (!displayMetrics || !cropRect) return transform;
+
+      const width = displayMetrics.width * transform.scale;
+      const height = displayMetrics.height * transform.scale;
+      const baseLeft = displayMetrics.left + (displayMetrics.width - width) / 2;
+      const baseTop = displayMetrics.top + (displayMetrics.height - height) / 2;
+
+      const minTranslateX = cropRect.x + cropRect.width - (baseLeft + width);
+      const maxTranslateX = cropRect.x - baseLeft;
+      const minTranslateY = cropRect.y + cropRect.height - (baseTop + height);
+      const maxTranslateY = cropRect.y - baseTop;
+
+      return {
+        scale: transform.scale,
+        translateX: clamp(transform.translateX, minTranslateX, maxTranslateX),
+        translateY: clamp(transform.translateY, minTranslateY, maxTranslateY),
+      };
+    },
+    [clamp, cropRect, displayMetrics]
+  );
+
+  React.useEffect(() => {
+    if (!visible || cropShape !== 'circle' || !displayMetrics || !cropRect) return;
+    setImageTransform(
+      clampCircleTransform({
+        scale: circleScaleBounds.minScale,
+        translateX: 0,
+        translateY: 0,
+      })
+    );
+  }, [clampCircleTransform, circleScaleBounds.minScale, cropRect, cropShape, displayMetrics, visible]);
 
   const createHandleResponder = React.useCallback(
     (corner: CornerKey) => {
       let startRect: Rect | null = null;
 
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
+        onStartShouldSetPanResponder: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
+        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
         onPanResponderGrant: () => {
-          showGrid();
-          const rect = cropRectRef.current;
-          if (!rect) return;
-          startRect = rect;
+          startRect = cropRectRef.current;
         },
         onPanResponderMove: (_, gestureState) => {
-          showGrid();
           const metrics = displayMetricsRef.current;
           if (!startRect || !metrics) return;
           const dx = gestureState.dx;
@@ -189,154 +239,232 @@ export default function ImageCropperModal({
           let next: Rect = startRect;
 
           if (corner === 'topLeft') {
-            const x = clamp(startRect.x + dx, 0, right - MIN_EDGE);
-            const y = clamp(startRect.y + dy, 0, bottom - MIN_EDGE);
-            next = {
-              x,
-              y,
-              width: right - x,
-              height: bottom - y,
-            };
+            const x = clamp(startRect.x + dx, metrics.left, right - MIN_EDGE);
+            const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
+            next = { x, y, width: right - x, height: bottom - y };
           } else if (corner === 'topRight') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.width);
-            const y = clamp(startRect.y + dy, 0, bottom - MIN_EDGE);
-            next = {
-              x: startRect.x,
-              y,
-              width: newRight - startRect.x,
-              height: bottom - y,
-            };
+            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
+            const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
+            next = { x: startRect.x, y, width: newRight - startRect.x, height: bottom - y };
           } else if (corner === 'bottomRight') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.width);
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.height);
-            next = {
-              x: startRect.x,
-              y: startRect.y,
-              width: newRight - startRect.x,
-              height: newBottom - startRect.y,
-            };
+            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
+            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
+            next = { x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: newBottom - startRect.y };
           } else {
-            const x = clamp(startRect.x + dx, 0, right - MIN_EDGE);
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.height);
-            next = {
-              x,
-              y: startRect.y,
-              width: right - x,
-              height: newBottom - startRect.y,
-            };
+            const x = clamp(startRect.x + dx, metrics.left, right - MIN_EDGE);
+            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
+            next = { x, y: startRect.y, width: right - x, height: newBottom - startRect.y };
           }
 
           setCropRect(next);
         },
-        onPanResponderRelease: scheduleGridFade,
-        onPanResponderTerminate: scheduleGridFade,
       });
     },
-    [clamp, scheduleGridFade, showGrid]
+    [clamp, cropShape]
   );
-
-  const topLeftResponder = React.useRef(createHandleResponder('topLeft')).current;
-  const topRightResponder = React.useRef(createHandleResponder('topRight')).current;
-  const bottomRightResponder = React.useRef(createHandleResponder('bottomRight')).current;
-  const bottomLeftResponder = React.useRef(createHandleResponder('bottomLeft')).current;
 
   const createEdgeResponder = React.useCallback(
     (edge: EdgeKey) => {
       let startRect: Rect | null = null;
 
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
+        onStartShouldSetPanResponder: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
+        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
         onPanResponderGrant: () => {
-          showGrid();
-          const rect = cropRectRef.current;
-          if (!rect) return;
-          startRect = rect;
+          startRect = cropRectRef.current;
         },
         onPanResponderMove: (_, gestureState) => {
-          showGrid();
           const metrics = displayMetricsRef.current;
           if (!startRect || !metrics) return;
           const dx = gestureState.dx;
           const dy = gestureState.dy;
-
           const right = startRect.x + startRect.width;
           const bottom = startRect.y + startRect.height;
-          let next: Rect = startRect;
 
           if (edge === 'top') {
-            const y = clamp(startRect.y + dy, 0, bottom - MIN_EDGE);
-            next = { x: startRect.x, y, width: startRect.width, height: bottom - y };
+            const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
+            setCropRect({ x: startRect.x, y, width: startRect.width, height: bottom - y });
           } else if (edge === 'right') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.width);
-            next = { x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: startRect.height };
+            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
+            setCropRect({ x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: startRect.height });
           } else if (edge === 'bottom') {
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.height);
-            next = { x: startRect.x, y: startRect.y, width: startRect.width, height: newBottom - startRect.y };
+            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
+            setCropRect({ x: startRect.x, y: startRect.y, width: startRect.width, height: newBottom - startRect.y });
           } else {
-            const x = clamp(startRect.x + dx, 0, right - MIN_EDGE);
-            next = { x, y: startRect.y, width: right - x, height: startRect.height };
+            const x = clamp(startRect.x + dx, metrics.left, right - MIN_EDGE);
+            setCropRect({ x, y: startRect.y, width: right - x, height: startRect.height });
           }
-
-          setCropRect(next);
         },
-        onPanResponderRelease: scheduleGridFade,
-        onPanResponderTerminate: scheduleGridFade,
       });
     },
-    [clamp, scheduleGridFade, showGrid]
+    [clamp, cropShape]
   );
-
-  const topEdgeResponder = React.useRef(createEdgeResponder('top')).current;
-  const rightEdgeResponder = React.useRef(createEdgeResponder('right')).current;
-  const bottomEdgeResponder = React.useRef(createEdgeResponder('bottom')).current;
-  const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
 
   const moveRectResponder = React.useRef(
     (() => {
       let startRect: Rect | null = null;
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
+        onStartShouldSetPanResponder: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
+        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
         onPanResponderGrant: () => {
-          showGrid();
           startRect = cropRectRef.current;
         },
         onPanResponderMove: (_, gestureState) => {
-          showGrid();
           const metrics = displayMetricsRef.current;
           if (!metrics || !startRect) return;
 
-          const maxX = Math.max(0, metrics.width - startRect.width);
-          const maxY = Math.max(0, metrics.height - startRect.height);
-          const x = clamp(startRect.x + gestureState.dx, 0, maxX);
-          const y = clamp(startRect.y + gestureState.dy, 0, maxY);
+          const minX = metrics.left;
+          const maxX = metrics.left + metrics.width - startRect.width;
+          const minY = metrics.top;
+          const maxY = metrics.top + metrics.height - startRect.height;
+
           setCropRect({
-            x,
-            y,
+            x: clamp(startRect.x + gestureState.dx, minX, maxX),
+            y: clamp(startRect.y + gestureState.dy, minY, maxY),
             width: startRect.width,
             height: startRect.height,
           });
         },
-        onPanResponderRelease: scheduleGridFade,
-        onPanResponderTerminate: scheduleGridFade,
       });
     })()
   ).current;
+
+  const circleImageResponder = React.useRef(
+    (() => {
+      let startTransform: ImageTransform | null = null;
+      let startDistance = 0;
+
+      const getPinchDistance = (touches: readonly any[]) => {
+        if (touches.length < 2) return 0;
+        const [first, second] = touches;
+        return Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
+      };
+
+      return PanResponder.create({
+        onStartShouldSetPanResponder: () => cropShape === 'circle',
+        onMoveShouldSetPanResponder: () => cropShape === 'circle',
+        onStartShouldSetPanResponderCapture: () => cropShape === 'circle',
+        onMoveShouldSetPanResponderCapture: () => cropShape === 'circle',
+        onPanResponderGrant: (event) => {
+          startTransform = imageTransformRef.current;
+          startDistance = getPinchDistance(event.nativeEvent.touches);
+        },
+        onPanResponderMove: (event, gestureState) => {
+          if (cropShape !== 'circle' || !startTransform) return;
+
+          if (event.nativeEvent.touches.length >= 2) {
+            const nextDistance = getPinchDistance(event.nativeEvent.touches);
+            if (!startDistance || !nextDistance) {
+              startTransform = imageTransformRef.current;
+              startDistance = nextDistance;
+              return;
+            }
+            const nextScale = clamp(
+              startTransform.scale * (nextDistance / startDistance),
+              circleScaleBounds.minScale,
+              circleScaleBounds.maxScale
+            );
+            setImageTransform(
+              clampCircleTransform({
+                scale: nextScale,
+                translateX: startTransform.translateX,
+                translateY: startTransform.translateY,
+              })
+            );
+            return;
+          }
+
+          startDistance = 0;
+
+          setImageTransform(
+            clampCircleTransform({
+              scale: startTransform.scale,
+              translateX: startTransform.translateX + gestureState.dx,
+              translateY: startTransform.translateY + gestureState.dy,
+            })
+          );
+        },
+        onPanResponderRelease: () => {
+          startTransform = imageTransformRef.current;
+          startDistance = 0;
+        },
+        onPanResponderTerminate: () => {
+          startTransform = imageTransformRef.current;
+          startDistance = 0;
+        },
+      });
+    })()
+  ).current;
+
+  const topLeftResponder = React.useRef(createHandleResponder('topLeft')).current;
+  const topRightResponder = React.useRef(createHandleResponder('topRight')).current;
+  const bottomRightResponder = React.useRef(createHandleResponder('bottomRight')).current;
+  const bottomLeftResponder = React.useRef(createHandleResponder('bottomLeft')).current;
+  const topEdgeResponder = React.useRef(createEdgeResponder('top')).current;
+  const rightEdgeResponder = React.useRef(createEdgeResponder('right')).current;
+  const bottomEdgeResponder = React.useRef(createEdgeResponder('bottom')).current;
+  const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
+
+  const circleImageFrame = React.useMemo(() => {
+    if (!displayMetrics || cropShape !== 'circle') return null;
+    const width = displayMetrics.width * imageTransform.scale;
+    const height = displayMetrics.height * imageTransform.scale;
+    return {
+      left: displayMetrics.left + (displayMetrics.width - width) / 2 + imageTransform.translateX,
+      top: displayMetrics.top + (displayMetrics.height - height) / 2 + imageTransform.translateY,
+      width,
+      height,
+    };
+  }, [cropShape, displayMetrics, imageTransform]);
+
+  const cropRectStyle = React.useMemo(() => {
+    if (!cropRect) return null;
+    return {
+      left: cropRect.x,
+      top: cropRect.y,
+      width: cropRect.width,
+      height: cropRect.height,
+    };
+  }, [cropRect]);
 
   const handleConfirm = React.useCallback(async () => {
     if (!imageUri || !cropRect || !imageSize || !displayMetrics) return;
 
     try {
       setProcessing(true);
-      const originX = Math.max(0, Math.round((cropRect.x / displayMetrics.width) * imageSize.width));
-      const originY = Math.max(0, Math.round((cropRect.y / displayMetrics.height) * imageSize.height));
-      const width = Math.max(1, Math.round((cropRect.width / displayMetrics.width) * imageSize.width));
-      const height = Math.max(1, Math.round((cropRect.height / displayMetrics.height) * imageSize.height));
+
+      let originX = 0;
+      let originY = 0;
+      let width = 1;
+      let height = 1;
+
+      if (cropShape === 'circle' && circleImageFrame) {
+        originX = Math.max(
+          0,
+          Math.round(((cropRect.x - circleImageFrame.left) / circleImageFrame.width) * imageSize.width)
+        );
+        originY = Math.max(
+          0,
+          Math.round(((cropRect.y - circleImageFrame.top) / circleImageFrame.height) * imageSize.height)
+        );
+        width = Math.max(1, Math.round((cropRect.width / circleImageFrame.width) * imageSize.width));
+        height = Math.max(1, Math.round((cropRect.height / circleImageFrame.height) * imageSize.height));
+      } else {
+        originX = Math.max(
+          0,
+          Math.round(((cropRect.x - displayMetrics.left) / displayMetrics.width) * imageSize.width)
+        );
+        originY = Math.max(
+          0,
+          Math.round(((cropRect.y - displayMetrics.top) / displayMetrics.height) * imageSize.height)
+        );
+        width = Math.max(1, Math.round((cropRect.width / displayMetrics.width) * imageSize.width));
+        height = Math.max(1, Math.round((cropRect.height / displayMetrics.height) * imageSize.height));
+      }
 
       const result = await ImageManipulator.manipulateAsync(
         imageUri,
@@ -351,7 +479,7 @@ export default function ImageCropperModal({
     } finally {
       setProcessing(false);
     }
-  }, [cropRect, displayMetrics, imageSize, imageUri, onConfirm]);
+  }, [circleImageFrame, cropRect, cropShape, displayMetrics, imageSize, imageUri, onConfirm]);
 
   return (
     <Modal
@@ -365,7 +493,10 @@ export default function ImageCropperModal({
           <TouchableOpacity onPress={onCancel} style={styles.headerButton} disabled={processing}>
             <Text style={styles.cancelText}>取消</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>裁切圖片</Text>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.title}>裁切圖片</Text>
+            {cropShape === 'circle' ? <Text style={styles.helperText}>拖曳與縮放</Text> : null}
+          </View>
           <TouchableOpacity onPress={handleConfirm} style={styles.headerButton} disabled={processing || !cropRect}>
             <Text style={styles.confirmText}>{processing ? '處理中...' : '完成'}</Text>
           </TouchableOpacity>
@@ -382,200 +513,182 @@ export default function ImageCropperModal({
             <View style={styles.absoluteFill}>
               <Image
                 source={{ uri: imageUri }}
-                style={{
-                  position: 'absolute',
-                  left: displayMetrics.left,
-                  top: displayMetrics.top,
-                  width: displayMetrics.width,
-                  height: displayMetrics.height,
-                }}
+                style={
+                  cropShape === 'circle' && circleImageFrame
+                    ? [styles.absoluteImage, circleImageFrame]
+                    : [
+                        styles.absoluteImage,
+                        {
+                          left: displayMetrics.left,
+                          top: displayMetrics.top,
+                          width: displayMetrics.width,
+                          height: displayMetrics.height,
+                        },
+                      ]
+                }
                 resizeMode="contain"
               />
 
-              <View
-                style={[
-                  styles.mask,
-                  {
-                    left: displayMetrics.left,
-                    top: displayMetrics.top,
-                    width: displayMetrics.width,
-                    height: cropRect.y,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.mask,
-                  {
-                    left: displayMetrics.left,
-                    top: displayMetrics.top + cropRect.y + cropRect.height,
-                    width: displayMetrics.width,
-                    height: Math.max(0, displayMetrics.height - (cropRect.y + cropRect.height)),
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.mask,
-                  {
-                    left: displayMetrics.left,
-                    top: displayMetrics.top + cropRect.y,
-                    width: cropRect.x,
-                    height: cropRect.height,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.mask,
-                  {
-                    left: displayMetrics.left + cropRect.x + cropRect.width,
-                    top: displayMetrics.top + cropRect.y,
-                    width: Math.max(0, displayMetrics.width - (cropRect.x + cropRect.width)),
-                    height: cropRect.height,
-                  },
-                ]}
-              />
+              {cropShape === 'circle' ? (
+                <View pointerEvents="none" style={styles.absoluteFill}>
+                  <Svg width="100%" height="100%">
+                    <Path
+                      d={`M 0 0 H ${containerSize.width} V ${containerSize.height} H 0 Z M ${cropRect.x + cropRect.width / 2} ${cropRect.y + cropRect.height / 2} m -${cropRect.width / 2} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 ${cropRect.width} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 -${cropRect.width} 0`}
+                      fill="rgba(8, 12, 20, 0.58)"
+                      fillRule="evenodd"
+                    />
+                  </Svg>
+                </View>
+              ) : (
+                <>
+                  <View style={[styles.mask, { left: 0, top: 0, width: containerSize.width, height: cropRect.y }]} />
+                  <View
+                    style={[
+                      styles.mask,
+                      {
+                        left: 0,
+                        top: cropRect.y + cropRect.height,
+                        width: containerSize.width,
+                        height: Math.max(0, containerSize.height - (cropRect.y + cropRect.height)),
+                      },
+                    ]}
+                  />
+                  <View style={[styles.mask, { left: 0, top: cropRect.y, width: cropRect.x, height: cropRect.height }]} />
+                  <View
+                    style={[
+                      styles.mask,
+                      {
+                        left: cropRect.x + cropRect.width,
+                        top: cropRect.y,
+                        width: Math.max(0, containerSize.width - (cropRect.x + cropRect.width)),
+                        height: cropRect.height,
+                      },
+                    ]}
+                  />
+                </>
+              )}
 
               <View
                 style={[
                   styles.cropRect,
-                  {
-                    left: displayMetrics.left + cropRect.x,
-                    top: displayMetrics.top + cropRect.y,
-                    width: cropRect.width,
-                    height: cropRect.height,
-                  },
+                  cropShape === 'circle' ? styles.cropCircle : null,
+                  cropRectStyle,
                 ]}
               />
+
               <View
                 style={[
                   styles.moveHitbox,
-                  {
-                    left: displayMetrics.left + cropRect.x + MOVE_HITBOX_INSET,
-                    top: displayMetrics.top + cropRect.y + MOVE_HITBOX_INSET,
-                    width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
-                    height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
-                  },
+                  cropShape === 'circle' ? styles.moveHitboxCircle : null,
+                  cropShape === 'circle'
+                    ? cropRectStyle
+                    : {
+                        left: cropRect.x + MOVE_HITBOX_INSET,
+                        top: cropRect.y + MOVE_HITBOX_INSET,
+                        width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
+                        height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
+                      },
                 ]}
-                {...moveRectResponder.panHandlers}
-              />
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.gridOverlay,
-                  {
-                    left: displayMetrics.left + cropRect.x,
-                    top: displayMetrics.top + cropRect.y,
-                    width: cropRect.width,
-                    height: cropRect.height,
-                    opacity: gridOpacity,
-                  },
-                ]}
-              >
-                <View style={[styles.gridVerticalLine, { left: `${100 / 3}%` }]} />
-                <View style={[styles.gridVerticalLine, { left: `${(100 * 2) / 3}%` }]} />
-                <View style={[styles.gridHorizontalLine, { top: `${100 / 3}%` }]} />
-                <View style={[styles.gridHorizontalLine, { top: `${(100 * 2) / 3}%` }]} />
-              </Animated.View>
-
-              <View
-                style={[
-                  styles.edgeHitboxHorizontal,
-                  {
-                    left: displayMetrics.left + cropRect.x + HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y - EDGE_HITBOX_SIZE / 2,
-                    width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
-                  },
-                ]}
-                {...topEdgeResponder.panHandlers}
-              />
-              <View
-                style={[
-                  styles.edgeHitboxVertical,
-                  {
-                    left: displayMetrics.left + cropRect.x + cropRect.width - EDGE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y + HANDLE_HITBOX_SIZE / 2,
-                    height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
-                  },
-                ]}
-                {...rightEdgeResponder.panHandlers}
-              />
-              <View
-                style={[
-                  styles.edgeHitboxHorizontal,
-                  {
-                    left: displayMetrics.left + cropRect.x + HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y + cropRect.height - EDGE_HITBOX_SIZE / 2,
-                    width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
-                  },
-                ]}
-                {...bottomEdgeResponder.panHandlers}
-              />
-              <View
-                style={[
-                  styles.edgeHitboxVertical,
-                  {
-                    left: displayMetrics.left + cropRect.x - EDGE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y + HANDLE_HITBOX_SIZE / 2,
-                    height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
-                  },
-                ]}
-                {...leftEdgeResponder.panHandlers}
+                {...(cropShape === 'circle'
+                  ? circleImageResponder.panHandlers
+                  : moveRectResponder.panHandlers)}
               />
 
-              <View
-                style={[
-                  styles.cornerHitbox,
-                  {
-                    left: displayMetrics.left + cropRect.x - HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y - HANDLE_HITBOX_SIZE / 2,
-                  },
-                ]}
-                {...topLeftResponder.panHandlers}
-              >
-                <View style={styles.cornerHandle} />
-              </View>
-              <View
-                style={[
-                  styles.cornerHitbox,
-                  {
-                    left: displayMetrics.left + cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y - HANDLE_HITBOX_SIZE / 2,
-                  },
-                ]}
-                {...topRightResponder.panHandlers}
-              >
-                <View style={styles.cornerHandle} />
-              </View>
-              <View
-                style={[
-                  styles.cornerHitbox,
-                  {
-                    left: displayMetrics.left + cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
-                  },
-                ]}
-                {...bottomRightResponder.panHandlers}
-              >
-                <View style={styles.cornerHandle} />
-              </View>
-              <View
-                style={[
-                  styles.cornerHitbox,
-                  {
-                    left: displayMetrics.left + cropRect.x - HANDLE_HITBOX_SIZE / 2,
-                    top: displayMetrics.top + cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
-                  },
-                ]}
-                {...bottomLeftResponder.panHandlers}
-              >
-                <View style={styles.cornerHandle} />
-              </View>
+              {cropShape === 'circle' ? null : (
+                <>
+                  <View
+                    style={[
+                      styles.edgeHitboxHorizontal,
+                      {
+                        left: cropRect.x + HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y - EDGE_HITBOX_SIZE / 2,
+                        width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
+                      },
+                    ]}
+                    {...topEdgeResponder.panHandlers}
+                  />
+                  <View
+                    style={[
+                      styles.edgeHitboxVertical,
+                      {
+                        left: cropRect.x + cropRect.width - EDGE_HITBOX_SIZE / 2,
+                        top: cropRect.y + HANDLE_HITBOX_SIZE / 2,
+                        height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                      },
+                    ]}
+                    {...rightEdgeResponder.panHandlers}
+                  />
+                  <View
+                    style={[
+                      styles.edgeHitboxHorizontal,
+                      {
+                        left: cropRect.x + HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y + cropRect.height - EDGE_HITBOX_SIZE / 2,
+                        width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
+                      },
+                    ]}
+                    {...bottomEdgeResponder.panHandlers}
+                  />
+                  <View
+                    style={[
+                      styles.edgeHitboxVertical,
+                      {
+                        left: cropRect.x - EDGE_HITBOX_SIZE / 2,
+                        top: cropRect.y + HANDLE_HITBOX_SIZE / 2,
+                        height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                      },
+                    ]}
+                    {...leftEdgeResponder.panHandlers}
+                  />
+
+                  <View
+                    style={[styles.cornerHitbox, { left: cropRect.x - HANDLE_HITBOX_SIZE / 2, top: cropRect.y - HANDLE_HITBOX_SIZE / 2 }]}
+                    {...topLeftResponder.panHandlers}
+                  >
+                    <View style={styles.cornerHandle} />
+                  </View>
+                  <View
+                    style={[
+                      styles.cornerHitbox,
+                      {
+                        left: cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y - HANDLE_HITBOX_SIZE / 2,
+                      },
+                    ]}
+                    {...topRightResponder.panHandlers}
+                  >
+                    <View style={styles.cornerHandle} />
+                  </View>
+                  <View
+                    style={[
+                      styles.cornerHitbox,
+                      {
+                        left: cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
+                      },
+                    ]}
+                    {...bottomRightResponder.panHandlers}
+                  >
+                    <View style={styles.cornerHandle} />
+                  </View>
+                  <View
+                    style={[
+                      styles.cornerHitbox,
+                      {
+                        left: cropRect.x - HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
+                      },
+                    ]}
+                    {...bottomLeftResponder.panHandlers}
+                  >
+                    <View style={styles.cornerHandle} />
+                  </View>
+                </>
+              )}
             </View>
           ) : (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#4CAF50" />
+              <ActivityIndicator size="large" color="#FFFFFF" />
             </View>
           )}
         </View>
@@ -587,35 +700,44 @@ export default function ImageCropperModal({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: '#0A0E17',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 60,
-    paddingBottom: 12,
+    paddingBottom: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#1b1b1b',
+    backgroundColor: '#0F1522',
   },
   headerButton: {
     minWidth: 56,
   },
+  headerTitleWrap: {
+    alignItems: 'center',
+  },
   cancelText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
   confirmText: {
-    color: '#80e27e',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'right',
   },
   title: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '700',
+  },
+  helperText: {
+    marginTop: 4,
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 12,
+    fontWeight: '600',
   },
   editorArea: {
     flex: 1,
@@ -623,42 +745,29 @@ const styles = StyleSheet.create({
   absoluteFill: {
     ...StyleSheet.absoluteFillObject,
   },
+  absoluteImage: {
+    position: 'absolute',
+  },
   mask: {
     position: 'absolute',
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(8, 12, 20, 0.58)',
   },
   cropRect: {
     position: 'absolute',
     borderWidth: 2,
-    borderColor: '#7CFF7A',
+    borderColor: '#FFFFFF',
     backgroundColor: 'transparent',
   },
-  gridOverlay: {
-    position: 'absolute',
-  },
-  gridVerticalLine: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 1,
-    marginLeft: -0.5,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-  },
-  gridHorizontalLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    marginTop: -0.5,
-    backgroundColor: 'rgba(255,255,255,0.85)',
+  cropCircle: {
+    borderRadius: 999,
   },
   cornerHandle: {
     width: HANDLE_SIZE,
     height: HANDLE_SIZE,
     borderRadius: HANDLE_SIZE / 2,
-    backgroundColor: '#7CFF7A',
+    backgroundColor: '#FFFFFF',
     borderWidth: 2,
-    borderColor: '#ffffff',
+    borderColor: '#0F1522',
   },
   cornerHitbox: {
     position: 'absolute',
@@ -685,6 +794,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 12,
     elevation: 12,
+  },
+  moveHitboxCircle: {
+    borderRadius: 999,
   },
   loadingContainer: {
     flex: 1,

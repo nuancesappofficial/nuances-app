@@ -3,6 +3,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -128,6 +129,17 @@ function AlbumGridItem({
   const cardRef = useAnimatedRef<Reanimated.View>();
   const isActive = useSharedValue(0);
   const liftScale = useSharedValue(1);
+  const suppressPressRef = React.useRef(false);
+
+  const markLongPressStarted = React.useCallback(() => {
+    suppressPressRef.current = true;
+  }, []);
+
+  const releaseLongPressSuppression = React.useCallback(() => {
+    setTimeout(() => {
+      suppressPressRef.current = false;
+    }, 220);
+  }, []);
 
   const albumContainerStyle = useAnimatedStyle(() => ({
     zIndex: isActive.value ? 50 : 1,
@@ -138,6 +150,7 @@ function AlbumGridItem({
     .activateAfterLongPress(250)
     .onStart((e) => {
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
+      runOnJS(markLongPressStarted)();
       isActive.value = 1;
       liftScale.value = withSpring(1.02, ELEGANT_SPRING);
       isMenuVisible.value = true;
@@ -193,6 +206,7 @@ function AlbumGridItem({
       liftScale.value = withSpring(1, ELEGANT_SPRING);
       runOnJS(onMenuFinish)();
       runOnJS(onActionEnd)(item, action);
+      runOnJS(releaseLongPressSuppression)();
     })
     .onFinalize(() => {
       isMenuVisible.value = false;
@@ -200,6 +214,7 @@ function AlbumGridItem({
       isActive.value = 0;
       liftScale.value = withSpring(1, ELEGANT_SPRING);
       runOnJS(onMenuFinish)();
+      runOnJS(releaseLongPressSuppression)();
     });
 
   return (
@@ -208,11 +223,20 @@ function AlbumGridItem({
         ref={cardRef}
         style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
       >
-        <TouchableOpacity style={styles.albumPressArea} activeOpacity={0.92} onPress={() => onPress(item)}>
+        <TouchableOpacity
+          style={styles.albumPressArea}
+          activeOpacity={0.92}
+          onPress={() => {
+            if (suppressPressRef.current) return;
+            onPress(item);
+          }}
+        >
           <FolderIcon
             title={item.name}
             wordCount={item.wordCount}
             latestCards={item.latestCards}
+            iconEmoji={item.emoji}
+            coverColor={item.color}
             style={styles.folderIcon}
           />
         </TouchableOpacity>
@@ -294,6 +318,8 @@ function ActionMenuOverlay({
             title={activeAlbum.name}
             wordCount={activeAlbum.wordCount}
             latestCards={activeAlbum.latestCards}
+            iconEmoji={activeAlbum.emoji}
+            coverColor={activeAlbum.color}
             style={styles.activeAlbumCloneInner}
           />
         </Reanimated.View>
@@ -363,7 +389,14 @@ export default function DeckScreen({ navigation }: Props) {
   const [newAlbumName, setNewAlbumName] = React.useState('');
   const [customAlbums, setCustomAlbums] = React.useState<Album[]>([]);
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
+  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
+  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
+  const [settingsVisible, setSettingsVisible] = React.useState(false);
+  const [settingsAlbum, setSettingsAlbum] = React.useState<Album | null>(null);
+  const [settingsName, setSettingsName] = React.useState('');
+  const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
+  const [settingsColor, setSettingsColor] = React.useState('#4A67D8');
   const [activeAlbum, setActiveAlbum] = React.useState<Album | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const isMenuVisible = useSharedValue(false);
@@ -530,10 +563,12 @@ export default function DeckScreen({ navigation }: Props) {
     const allMerged = [...albums, ...customAlbums].map((album) => ({
       ...album,
       name: albumNameOverrides[album.id] || album.name,
+      emoji: albumEmojiOverrides[album.id] || album.emoji,
+      color: albumColorOverrides[album.id] || album.color,
     }));
 
     return allMerged.filter((album) => !deletedAlbumIds.includes(album.id));
-  }, [albums, customAlbums, albumNameOverrides, deletedAlbumIds]);
+  }, [albums, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]);
 
   const processedAlbums = React.useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
@@ -586,38 +621,41 @@ export default function DeckScreen({ navigation }: Props) {
     [navigation]
   );
 
-  const handleRenameAlbum = React.useCallback((album: Album) => {
-    Alert.prompt(
-      '重命名相簿',
-      '請輸入新名稱',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '確認',
-          onPress: (name?: string) => {
-            const nextName = (name || '').trim();
-            if (!nextName) return;
+  const openAlbumSettings = React.useCallback((album: Album) => {
+    setSettingsAlbum(album);
+    setSettingsName(album.name);
+    setSettingsEmoji(album.emoji || '📁');
+    setSettingsColor(album.color || '#4A67D8');
+    setSettingsVisible(true);
+  }, []);
 
-            if (album.isDefault) {
-              Alert.alert('無法重命名', '預設相簿不可重命名。');
-              return;
-            }
+  const handleSaveAlbumSettings = React.useCallback(() => {
+    if (!settingsAlbum) return;
 
-            const isCustomAlbum = customAlbums.some((it) => it.id === album.id);
-            if (isCustomAlbum) {
-              setCustomAlbums((prev) =>
-                prev.map((it) => (it.id === album.id ? { ...it, name: nextName } : it))
-              );
-            } else {
-              setAlbumNameOverrides((prev) => ({ ...prev, [album.id]: nextName }));
-            }
-          },
-        },
-      ],
-      'plain-text',
-      album.name
-    );
-  }, [customAlbums]);
+    const nextName = settingsName.trim();
+    if (!nextName) {
+      Alert.alert('名稱不可為空', '請輸入相簿名稱。');
+      return;
+    }
+
+    const isCustomAlbum = customAlbums.some((it) => it.id === settingsAlbum.id);
+    if (isCustomAlbum) {
+      setCustomAlbums((prev) =>
+        prev.map((it) =>
+          it.id === settingsAlbum.id
+            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor }
+            : it
+        )
+      );
+    } else {
+      setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
+      setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
+      setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
+    }
+
+    setSettingsVisible(false);
+    setSettingsAlbum(null);
+  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor]);
 
   const handleDeleteAlbum = React.useCallback((album: Album) => {
     if (album.isDefault) {
@@ -645,14 +683,14 @@ export default function DeckScreen({ navigation }: Props) {
   const handleActionEnd = React.useCallback(
     (album: Album, action: 'none' | 'edit' | 'delete') => {
       if (action === 'edit') {
-        handleRenameAlbum(album);
+        openAlbumSettings(album);
         return;
       }
       if (action === 'delete') {
         handleDeleteAlbum(album);
       }
     },
-    [handleDeleteAlbum, handleRenameAlbum]
+    [handleDeleteAlbum, openAlbumSettings]
   );
 
   const handleMenuStart = React.useCallback(
@@ -754,6 +792,67 @@ export default function DeckScreen({ navigation }: Props) {
         onConfirm={handleAddAlbum}
       />
 
+      <Modal
+        visible={settingsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSettingsVisible(false)}
+      >
+        <View style={styles.settingsOverlay}>
+          <View style={styles.settingsCard}>
+            <Text style={styles.settingsTitle}>Album Settings</Text>
+
+            <Text style={styles.settingsSectionTitle}>改名</Text>
+            <TextInput
+              value={settingsName}
+              onChangeText={setSettingsName}
+              style={styles.settingsInput}
+              placeholder="輸入相簿名稱"
+              placeholderTextColor="#8E8E93"
+            />
+
+            <Text style={styles.settingsSectionTitle}>選圖示</Text>
+            <View style={styles.optionRow}>
+              {['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'].map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[styles.emojiOption, settingsEmoji === emoji && styles.emojiOptionActive]}
+                  onPress={() => setSettingsEmoji(emoji)}
+                >
+                  <Text style={styles.emojiOptionText}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.settingsSectionTitle}>選顏色</Text>
+            <View style={styles.optionRow}>
+              {['#3688E5', '#9A63CC', '#D15463', '#42A878', '#4A67D8', '#E0912D', '#5D6A7D'].map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[styles.colorOption, { backgroundColor: color }, settingsColor === color && styles.colorOptionActive]}
+                  onPress={() => setSettingsColor(color)}
+                />
+              ))}
+            </View>
+
+            <View style={styles.settingsButtonRow}>
+              <TouchableOpacity
+                style={styles.settingsCancelBtn}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  setSettingsAlbum(null);
+                }}
+              >
+                <Text style={styles.settingsCancelText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.settingsSaveBtn} onPress={handleSaveAlbumSettings}>
+                <Text style={styles.settingsSaveText}>儲存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ActionMenuOverlay
         isMenuVisible={isMenuVisible}
         startX={startX}
@@ -769,7 +868,7 @@ export default function DeckScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#0A0A0A',
   },
   searchRow: {
     paddingHorizontal: 16,
@@ -928,5 +1027,104 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.22,
     shadowRadius: 10,
     elevation: 10,
+  },
+  settingsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  settingsCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 16,
+    backgroundColor: '#121419',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    padding: 14,
+    gap: 10,
+  },
+  settingsTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  settingsSectionTitle: {
+    color: '#D0D6E2',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  settingsInput: {
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#1A1D24',
+    paddingHorizontal: 12,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  emojiOption: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#1A1D24',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emojiOptionActive: {
+    borderColor: '#56A1FF',
+    backgroundColor: 'rgba(86,161,255,0.15)',
+  },
+  emojiOptionText: {
+    fontSize: 20,
+  },
+  colorOption: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorOptionActive: {
+    borderColor: '#FFFFFF',
+  },
+  settingsButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 6,
+  },
+  settingsCancelBtn: {
+    borderRadius: 10,
+    backgroundColor: '#2A2F3A',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  settingsSaveBtn: {
+    borderRadius: 10,
+    backgroundColor: '#2F80ED',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  settingsCancelText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  settingsSaveText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
