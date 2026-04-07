@@ -1,11 +1,12 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-type LocalAlbum = {
+type AlbumOption = {
   id: string;
   name: string;
   emoji: string;
   color: string;
+  wordCount: number;
 };
 
 type Props = {
@@ -13,21 +14,10 @@ type Props = {
   displayWord: string;
   partOfSpeech?: string;
   selectedAlbums: string[];
-  allAlbums: LocalAlbum[];
-  showNewAlbumForm: boolean;
-  newAlbumName: string;
-  selectedEmoji: string;
-  selectedColor: string;
-  availableEmojis: string[];
-  availableColors: string[];
+  allAlbums: AlbumOption[];
   onClose: () => void;
   onDone: () => void;
-  onToggleCreateForm: () => void;
-  onChangeNewAlbumName: (value: string) => void;
-  onSelectEmoji: (value: string) => void;
-  onSelectColor: (value: string) => void;
-  onCancelCreateForm: () => void;
-  onCreateAlbum: () => void;
+  onOpenCreateAlbum: () => void;
   onToggleAlbum: (albumId: string) => void;
 };
 
@@ -37,20 +27,9 @@ export default function CardAlbumSheetModalUI({
   partOfSpeech,
   selectedAlbums,
   allAlbums,
-  showNewAlbumForm,
-  newAlbumName,
-  selectedEmoji,
-  selectedColor,
-  availableEmojis,
-  availableColors,
   onClose,
   onDone,
-  onToggleCreateForm,
-  onChangeNewAlbumName,
-  onSelectEmoji,
-  onSelectColor,
-  onCancelCreateForm,
-  onCreateAlbum,
+  onOpenCreateAlbum,
   onToggleAlbum,
 }: Props) {
   return (
@@ -81,64 +60,10 @@ export default function CardAlbumSheetModalUI({
         </View>
 
         <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={styles.sheetScrollContent}>
-          <TouchableOpacity style={styles.createAlbumBtn} onPress={onToggleCreateForm}>
+          <TouchableOpacity style={styles.createAlbumBtn} onPress={onOpenCreateAlbum}>
             <Text style={styles.createAlbumIcon}>➕</Text>
             <Text style={styles.createAlbumText}>Create New Album</Text>
           </TouchableOpacity>
-
-          {showNewAlbumForm ? (
-            <View style={styles.newAlbumForm}>
-              <Text style={styles.formLabel}>Album Name</Text>
-              <TextInput
-                value={newAlbumName}
-                onChangeText={onChangeNewAlbumName}
-                placeholder="e.g., Business English"
-                style={styles.formInput}
-              />
-
-              <Text style={styles.formLabel}>Choose Emoji</Text>
-              <View style={styles.emojiWrap}>
-                {availableEmojis.map((emoji) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[styles.emojiBtn, selectedEmoji === emoji && styles.emojiBtnActive]}
-                    onPress={() => onSelectEmoji(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.formLabel}>Choose Color</Text>
-              <View style={styles.colorWrap}>
-                {availableColors.map((color) => {
-                  const active = selectedColor === color;
-                  return (
-                    <TouchableOpacity
-                      key={color}
-                      style={[styles.colorBtn, { backgroundColor: color }, active && styles.colorBtnActive]}
-                      onPress={() => onSelectColor(color)}
-                    >
-                      {active ? <Text style={styles.colorCheck}>✓</Text> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <View style={styles.formActions}>
-                <TouchableOpacity style={styles.formCancelBtn} onPress={onCancelCreateForm}>
-                  <Text style={styles.formCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.formCreateBtn, !newAlbumName.trim() && styles.formCreateBtnDisabled]}
-                  disabled={!newAlbumName.trim()}
-                  onPress={onCreateAlbum}
-                >
-                  <Text style={styles.formCreateText}>Create</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : null}
 
           {allAlbums.map((album) => {
             const isSelected = selectedAlbums.includes(album.id);
@@ -151,7 +76,10 @@ export default function CardAlbumSheetModalUI({
                 <View style={[styles.albumEmojiWrap, { backgroundColor: isSelected ? '#fff' : album.color }]}>
                   <Text style={styles.albumEmoji}>{album.emoji}</Text>
                 </View>
-                <Text style={styles.albumNameText}>{album.name}</Text>
+                <View style={styles.albumTextWrap}>
+                  <Text style={styles.albumNameText}>{album.name}</Text>
+                  <Text style={styles.albumCountText}>{album.wordCount} cards</Text>
+                </View>
                 {isSelected ? (
                   <View style={styles.albumCheckWrap}>
                     <Text style={styles.albumCheckText}>✓</Text>
@@ -212,65 +140,6 @@ const styles = StyleSheet.create({
   },
   createAlbumIcon: { color: '#fff', fontSize: 18 },
   createAlbumText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  newAlbumForm: {
-    backgroundColor: '#F4ECE5',
-    borderRadius: 14,
-    padding: 12,
-    marginTop: 8,
-  },
-  formLabel: { fontSize: 13, fontWeight: '700', color: '#8E8E93', marginBottom: 8, marginTop: 8 },
-  formInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-  },
-  emojiWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  emojiBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-  emojiBtnActive: { borderColor: '#007AFF', backgroundColor: '#E8F1FF' },
-  emojiText: { fontSize: 22 },
-  colorWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  colorBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  colorBtnActive: { borderWidth: 2, borderColor: '#007AFF' },
-  colorCheck: { color: '#007AFF', fontSize: 16, fontWeight: '800' },
-  formActions: { marginTop: 12, flexDirection: 'row', gap: 8 },
-  formCancelBtn: {
-    flex: 1,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 11,
-  },
-  formCancelText: { fontSize: 16, color: '#8E8E93', fontWeight: '700' },
-  formCreateBtn: {
-    flex: 1,
-    borderRadius: 10,
-    backgroundColor: '#7D2A2E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 11,
-  },
-  formCreateBtnDisabled: { opacity: 0.4 },
-  formCreateText: { fontSize: 16, color: '#fff', fontWeight: '700' },
   albumRow: {
     borderRadius: 14,
     padding: 12,
@@ -287,7 +156,9 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   albumEmoji: { fontSize: 24 },
-  albumNameText: { flex: 1, fontSize: 16, color: '#000', fontWeight: '600' },
+  albumTextWrap: { flex: 1 },
+  albumNameText: { fontSize: 16, color: '#000', fontWeight: '600' },
+  albumCountText: { marginTop: 2, fontSize: 12, color: '#6E6E73', fontWeight: '500' },
   albumCheckWrap: {
     width: 28,
     height: 28,

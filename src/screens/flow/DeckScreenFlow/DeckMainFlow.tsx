@@ -3,7 +3,6 @@ import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -12,63 +11,17 @@ import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreen
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
 import AlbumActionMenuOverlayUI from '../../../components/UI/DeckScreenUI/AlbumActionMenuOverlayUI';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
+import {
+  buildDeckAlbums,
+  createCustomAlbum,
+  loadDeckAlbumPreferences,
+  saveDeckAlbumPreferences,
+  type DeckAlbumPreferences,
+} from '../../../features/deck/albums';
 
 type Props = {
   navigation: any;
 };
-
-type DeckAlbumPreferences = {
-  customAlbums: DeckAlbum[];
-  albumNameOverrides: Record<string, string>;
-  albumEmojiOverrides: Record<string, string>;
-  albumColorOverrides: Record<string, string>;
-  deletedAlbumIds: string[];
-};
-
-const DECK_ALBUM_PREFS_KEY = 'deck_album_preferences_v1';
-
-function getTagsArray(tags: unknown): string[] {
-  if (Array.isArray(tags)) {
-    return tags
-      .filter((tag): tag is string => typeof tag === 'string')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-  }
-
-  if (typeof tags === 'string') {
-    const trimmed = tags.trim();
-    if (!trimmed) return [];
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter((tag): tag is string => typeof tag === 'string')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
-      }
-    } catch {
-      return trimmed
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-    }
-  }
-
-  return [];
-}
-
-function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>) {
-  return cards.slice(0, 3).map((card) => {
-    const imageUrl = cardImageMap[card.id];
-    return {
-      ...(imageUrl ? { imageUrl } : {}),
-      cardTypeText: card.partOfSpeech || 'word',
-      previewText: (card.targetWord || card.definition || 'card').trim(),
-      createdAtMs: new Date(card.createdAt).getTime(),
-    };
-  });
-}
 
 export default function DeckMainFlow({ navigation }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
@@ -98,36 +51,28 @@ export default function DeckMainFlow({ navigation }: Props) {
 
   const filterPills = ['群組', '隱私', '已封存'];
 
-  React.useEffect(() => {
-    let cancelled = false;
-    const hydrateAlbumPrefs = async () => {
-      try {
-        const raw = await AsyncStorage.getItem(DECK_ALBUM_PREFS_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as Partial<DeckAlbumPreferences>;
-        if (cancelled) return;
-        if (Array.isArray(parsed.customAlbums)) setCustomAlbums(parsed.customAlbums);
-        if (parsed.albumNameOverrides && typeof parsed.albumNameOverrides === 'object') {
-          setAlbumNameOverrides(parsed.albumNameOverrides as Record<string, string>);
-        }
-        if (parsed.albumEmojiOverrides && typeof parsed.albumEmojiOverrides === 'object') {
-          setAlbumEmojiOverrides(parsed.albumEmojiOverrides as Record<string, string>);
-        }
-        if (parsed.albumColorOverrides && typeof parsed.albumColorOverrides === 'object') {
-          setAlbumColorOverrides(parsed.albumColorOverrides as Record<string, string>);
-        }
-        if (Array.isArray(parsed.deletedAlbumIds)) setDeletedAlbumIds(parsed.deletedAlbumIds);
-      } catch (error) {
-        console.warn('[DeckMain] load album preferences failed:', error);
-      } finally {
-        if (!cancelled) setIsAlbumPrefsHydrated(true);
-      }
-    };
-    void hydrateAlbumPrefs();
-    return () => {
-      cancelled = true;
-    };
+  const hydrateAlbumPrefs = React.useCallback(async () => {
+    try {
+      const prefs = await loadDeckAlbumPreferences();
+      setCustomAlbums(prefs.customAlbums);
+      setAlbumNameOverrides(prefs.albumNameOverrides);
+      setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
+      setAlbumColorOverrides(prefs.albumColorOverrides);
+      setDeletedAlbumIds(prefs.deletedAlbumIds);
+    } finally {
+      setIsAlbumPrefsHydrated(true);
+    }
   }, []);
+
+  React.useEffect(() => {
+    void hydrateAlbumPrefs();
+  }, [hydrateAlbumPrefs]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void hydrateAlbumPrefs();
+    }, [hydrateAlbumPrefs])
+  );
 
   React.useEffect(() => {
     if (!isAlbumPrefsHydrated) return;
@@ -138,7 +83,7 @@ export default function DeckMainFlow({ navigation }: Props) {
       albumColorOverrides,
       deletedAlbumIds,
     };
-    AsyncStorage.setItem(DECK_ALBUM_PREFS_KEY, JSON.stringify(payload)).catch((error) => {
+    saveDeckAlbumPreferences(payload).catch((error) => {
       console.warn('[DeckMain] save album preferences failed:', error);
     });
   }, [
@@ -223,96 +168,17 @@ export default function DeckMainFlow({ navigation }: Props) {
     };
   }, [allCards, imageReloadSeed]);
 
-  const albums = React.useMemo<DeckAlbum[]>(() => {
-    const slangCards: Card[] = [];
-    const cultureCards: Card[] = [];
-    const workCards: Card[] = [];
-
-    allCards.forEach((card) => {
-      const tags = getTagsArray(card.tags).map((t) => t.toLowerCase());
-      const albumTagIds = tags
-        .filter((tag) => tag.startsWith('album:'))
-        .map((tag) => tag.slice('album:'.length).trim());
-      const source = (card.sourceApp || '').toLowerCase();
-      const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
-
-      if (
-        tags.some((t) => ['slang', 'internet', 'social'].includes(t)) ||
-        albumTagIds.includes('slang') ||
-        /slang|internet|meme/.test(text)
-      ) {
-        slangCards.push(card);
-      }
-
-      if (
-        tags.some((t) => ['culture', 'pop', 'movie'].includes(t)) ||
-        albumTagIds.includes('culture') ||
-        /culture|movie|music|pop/.test(text)
-      ) {
-        cultureCards.push(card);
-      }
-
-      if (
-        tags.some((t) => ['work', 'business', 'office'].includes(t)) ||
-        albumTagIds.includes('work') ||
-        /work|business|office/.test(text) ||
-        source.includes('slack')
-      ) {
-        workCards.push(card);
-      }
-    });
-
-    return [
-      {
-        id: 'all',
-        name: 'All cards',
-        emoji: '📌',
-        color: '#1B1B1F',
-        cardIds: allCards.map((card) => card.id),
-        wordCount: allCards.length,
-        latestCards: buildPreviewCards(allCards, cardImageMap),
-        isDefault: true,
-      },
-      {
-        id: 'slang',
-        name: 'Internet Slang',
-        emoji: '💬',
-        color: '#1B1B1F',
-        cardIds: Array.from(new Set(slangCards.map((card) => card.id))),
-        wordCount: slangCards.length,
-        latestCards: buildPreviewCards(slangCards, cardImageMap),
-      },
-      {
-        id: 'culture',
-        name: 'Pop Culture',
-        emoji: '🎬',
-        color: '#1B1B1F',
-        cardIds: Array.from(new Set(cultureCards.map((card) => card.id))),
-        wordCount: cultureCards.length,
-        latestCards: buildPreviewCards(cultureCards, cardImageMap),
-      },
-      {
-        id: 'work',
-        name: 'Work Phrases',
-        emoji: '💼',
-        color: '#1B1B1F',
-        cardIds: Array.from(new Set(workCards.map((card) => card.id))),
-        wordCount: workCards.length,
-        latestCards: buildPreviewCards(workCards, cardImageMap),
-      },
-    ];
-  }, [allCards, cardImageMap]);
-
-  const mergedAlbums = React.useMemo(() => {
-    const allMerged = [...albums, ...customAlbums].map((album) => ({
-      ...album,
-      name: albumNameOverrides[album.id] || album.name,
-      emoji: albumEmojiOverrides[album.id] || album.emoji,
-      color: albumColorOverrides[album.id] || album.color,
-    }));
-
-    return allMerged.filter((album) => !deletedAlbumIds.includes(album.id));
-  }, [albums, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]);
+  const mergedAlbums = React.useMemo(
+    () =>
+      buildDeckAlbums(allCards, cardImageMap, {
+        customAlbums,
+        albumNameOverrides,
+        albumEmojiOverrides,
+        albumColorOverrides,
+        deletedAlbumIds,
+      }),
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
+  );
 
   const processedAlbums = React.useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
@@ -343,15 +209,7 @@ export default function DeckMainFlow({ navigation }: Props) {
     const trimmedName = newAlbumName.trim();
     if (!trimmedName) return;
 
-    const newAlbum: DeckAlbum = {
-      id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: trimmedName,
-      emoji: '📁',
-      color: '#E5E5EA',
-      cardIds: [],
-      wordCount: 0,
-      latestCards: [],
-    };
+    const newAlbum = createCustomAlbum(trimmedName);
 
     setCustomAlbums((prev) => [newAlbum, ...prev]);
     setIsCreateModalVisible(false);

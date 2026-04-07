@@ -18,6 +18,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -26,6 +27,8 @@ import { Q } from '@nozbe/watermelondb';
 import Reanimated, {
   Extrapolation,
   interpolate,
+  runOnJS,
+  type SharedValue,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -42,17 +45,20 @@ import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
+import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
+import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
+import {
+  ALBUM_TAG_PREFIX,
+  buildDeckAlbums,
+  createCustomAlbum,
+  loadDeckAlbumPreferences,
+  saveDeckAlbumPreferences,
+  type DeckAlbumPreferences,
+} from '../../../features/deck/albums';
 
 type Props = {
   navigation: any;
   route: { params?: { cardId?: string; cardIds?: string[] } };
-};
-
-type LocalAlbum = {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
 };
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
@@ -76,17 +82,6 @@ const PRONUNCIATION_RECORDING_OPTIONS = {
 const MAX_PRONUNCIATION_RECORDING_MS = 10_000;
 const MIN_PRONUNCIATION_RECORDING_MS = 350;
 
-const defaultAlbums: LocalAlbum[] = [
-  { id: 'slang', name: 'Internet Slang', emoji: '💬', color: '#FFE5E5' },
-  { id: 'culture', name: 'Pop Culture', emoji: '🎬', color: '#E5F4FF' },
-  { id: 'work', name: 'Work Phrases', emoji: '💼', color: '#FFF4E5' },
-  { id: 'travel', name: 'Travel', emoji: '✈️', color: '#E5FFE5' },
-  { id: 'idioms', name: 'Idioms', emoji: '🗣️', color: '#FFE5F5' },
-];
-
-const availableEmojis = ['📚', '💬', '🎬', '💼', '✈️', '🗣️', '🎯', '🎨', '🎵', '🏆', '🌟', '🔥'];
-const availableColors = ['#FFE5E5', '#E5F4FF', '#FFF4E5', '#E5FFE5', '#FFE5F5', '#E5E5FF', '#FFE5CC', '#E5FFF5'];
-const ALBUM_TAG_PREFIX = 'album:';
 const albumIdToCategoryTag: Record<string, string> = {
   slang: 'slang',
   culture: 'culture',
@@ -97,7 +92,7 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.99;
 const SPACING = 8;
 const SNAP_INTERVAL = CARD_WIDTH + SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2 - SPACING / 2;
-const SIDE_PEEK_SHIFT = 70;
+const SIDE_PEEK_SHIFT = 60;
 const HEADER_BUTTON_TOP_OFFSET = 0;
 
 function getFloatingHeaderTop(insetTop: number): number {
@@ -181,6 +176,250 @@ function formatCardDate(input: Date | string | undefined | null): string {
   });
 }
 
+type CarouselCardProps = {
+  item: Card;
+  index: number;
+  currentIndex: number | null;
+  scrollX: SharedValue<number>;
+  itemImageUri: string | null;
+  isPlaying: boolean;
+  isRecording: boolean;
+  isAnalyzing: boolean;
+  hasRecorded: boolean;
+  showFeedback: boolean;
+  pronunciationScore: number | null;
+  pronunciationFeedbackLines: string[];
+  phonemeChips: CloudPhonemeFeedback[];
+  waveformValues: Animated.Value[];
+  onPlayCard: (text: string, isActiveCard: boolean, index: number) => void;
+  onToggleRecord: (isActiveCard: boolean, index: number) => void;
+  onPlayPreview: () => void;
+  onReset: () => void;
+  navigateToIndex: (index: number) => void;
+  snapInterval: number;
+  sidePeekShift: number;
+};
+
+function renderPosterCard(
+  item: Card | null,
+  imageUri: string | null,
+  variant: 'center' | 'side',
+  edge?: 'left' | 'right'
+) {
+  if (!item) return null;
+
+  const word = item.targetWord || item.targetPhrase || '-';
+  const topRightLabel = item.partOfSpeech || item.sourceApp || 'CARD';
+  const footLabel = item.sourceApp || 'nuances';
+  const posterDate = formatCardDate(item.createdAt);
+  const isCenter = variant === 'center';
+
+  return (
+    <View style={[styles.posterCard, isCenter ? styles.posterCardCenter : styles.posterCardSide]}>
+      <View style={styles.posterTopRow}>
+        <Text style={[styles.posterMeta, !isCenter && styles.posterMetaSide]} numberOfLines={1}>
+          {topRightLabel}
+        </Text>
+        <Text style={[styles.posterDate, !isCenter && styles.posterDateSide]} numberOfLines={1}>
+          {posterDate}
+        </Text>
+      </View>
+
+      <View style={[styles.posterPhotoFrame, !isCenter && styles.posterPhotoFrameSide]}>
+        {imageUri ? (
+          <Image
+            key={`${item.id}-${imageUri}`}
+            source={{ uri: imageUri }}
+            style={[styles.posterPhoto, !isCenter && styles.posterPhotoSide]}
+            resizeMode="cover"
+            blurRadius={isCenter ? 0 : 1.2}
+          />
+        ) : null}
+        <View style={[styles.posterGhostWordWrap, !isCenter && styles.posterGhostWordWrapSide]}>
+          <Text style={[styles.posterTitle, !isCenter && styles.posterTitleSide]} numberOfLines={2}>
+            {word}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.posterBottomBar}>
+        <Text style={[styles.posterBrand, !isCenter && styles.posterBrandSide]} numberOfLines={1}>
+          {footLabel}
+        </Text>
+        <Text style={[styles.posterBookmark, !isCenter && styles.posterActionIconSide]}>⤢</Text>
+      </View>
+
+      {!isCenter && edge ? (
+        <View style={[styles.sideHintWrap, edge === 'left' ? styles.sideHintLeft : styles.sideHintRight]}>
+          <Text style={styles.sideHintText}>{edge === 'left' ? '上一張' : '下一張'}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const CarouselCard = React.memo(function CarouselCard({
+  item,
+  index,
+  currentIndex,
+  scrollX,
+  itemImageUri,
+  isPlaying,
+  isRecording,
+  isAnalyzing,
+  hasRecorded,
+  showFeedback,
+  pronunciationScore,
+  pronunciationFeedbackLines,
+  phonemeChips,
+  waveformValues,
+  onPlayCard,
+  onToggleRecord,
+  onPlayPreview,
+  onReset,
+  navigateToIndex,
+  snapInterval,
+  sidePeekShift,
+}: CarouselCardProps) {
+  const itemWord = item.targetWord || item.targetPhrase || '-';
+  const itemPronunciation =
+    item.phoneticTranscription || buildPronunciation(itemWord);
+  const itemPronunciationText =
+    sanitizePronunciationText(item.targetWord) ||
+    sanitizePronunciationText(item.targetPhrase) ||
+    sanitizePronunciationText(item.originalSentence) ||
+    '';
+  const itemCaption = item.partOfSpeech || item.sourceApp || 'Card';
+  const itemDisplayDate = formatCardDate(item.createdAt);
+  const isActiveCard = index === currentIndex;
+
+  const animatedCardStyle = useAnimatedStyle(() => {
+    const inputRange = [
+      (index - 1) * snapInterval,
+      index * snapInterval,
+      (index + 1) * snapInterval,
+    ];
+
+    const scale = interpolate(scrollX.value, inputRange, [0.9, 1, 0.9], Extrapolation.CLAMP);
+    const translateY = interpolate(scrollX.value, inputRange, [30, 0, 30], Extrapolation.CLAMP);
+    const translateX = interpolate(
+      scrollX.value,
+      inputRange,
+      [-sidePeekShift, 0, sidePeekShift],
+      Extrapolation.CLAMP
+    );
+    const opacity = interpolate(scrollX.value, inputRange, [0.72, 1, 0.72], Extrapolation.CLAMP);
+    const zIndex = Math.round(
+      interpolate(scrollX.value, inputRange, [0, 100, 0], Extrapolation.CLAMP)
+    );
+
+    return {
+      opacity,
+      zIndex,
+      elevation: zIndex,
+      transform: [{ scale }, { translateX }, { translateY }],
+    };
+  }, [index, scrollX, sidePeekShift, snapInterval]);
+
+  return (
+    <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
+      <View style={styles.detailCardShell}>
+        <ScrollView
+          style={styles.detailCardScroll}
+          contentContainerStyle={styles.detailCardScrollContent}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={isActiveCard}
+        >
+          <View style={styles.detailPaper}>
+            {renderPosterCard(item, itemImageUri, 'center')}
+
+            <View style={styles.wordCard}>
+              <View style={styles.wordTopRow}>
+                <View style={styles.wordLeft}>
+                  <Text style={styles.word}>{itemWord}</Text>
+                  <View style={styles.wordMetaRow}>
+                    <View style={styles.posBadge}>
+                      <Text style={styles.posText}>{itemCaption}</Text>
+                    </View>
+                    <Text style={styles.pronunciation}>{itemPronunciation}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.playBtn}
+                  onPress={() => onPlayCard(itemPronunciationText, isActiveCard, index)}
+                >
+                  <Text style={styles.playBtnText}>{isActiveCard && isPlaying ? '🔊' : '🔉'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.infoGrid}>
+                <View style={styles.infoPill}>
+                  <Text style={styles.infoPillLabel}>卡片日期</Text>
+                  <Text style={styles.infoPillValue}>{itemDisplayDate || '-'}</Text>
+                </View>
+                <View style={styles.infoPill}>
+                  <Text style={styles.infoPillLabel}>難度</Text>
+                  <Text style={styles.infoPillValue}>
+                    {item.difficultyLevel ? `Lv.${item.difficultyLevel}` : '-'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionLabel}>Definition</Text>
+                <Text style={styles.sectionValue}>{item.definition || '-'}</Text>
+              </View>
+
+              {item.contextualExplanation ? (
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionLabel}>Context</Text>
+                  <Text style={styles.sectionValue}>{item.contextualExplanation}</Text>
+                </View>
+              ) : null}
+
+              {item.originalSentence ? (
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionLabel}>Example</Text>
+                  <Text style={styles.sectionExample}>"{item.originalSentence}"</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <PronunciationCoachUI
+              isActiveCard={isActiveCard}
+              isRecording={isRecording}
+              hasRecorded={hasRecorded}
+              showFeedback={showFeedback}
+              isAnalyzing={isAnalyzing}
+              pronunciationScore={pronunciationScore}
+              pronunciationFeedbackLines={pronunciationFeedbackLines}
+              phonemeChips={phonemeChips}
+              waveformValues={waveformValues}
+              itemWord={itemWord}
+              onReset={onReset}
+              onPrimaryAction={() => onToggleRecord(isActiveCard, index)}
+              onPlayPreview={onPlayPreview}
+            />
+
+            <View style={[styles.tipsCard, !isActiveCard && styles.inactiveDetailBlock]}>
+              <Text style={styles.tipsTitle}>Learning Tips</Text>
+              <View style={styles.tipRow}>
+                <Text style={styles.tipIcon}>💡</Text>
+                <Text style={styles.tipText}>This word is commonly used in informal American English</Text>
+              </View>
+              <View style={styles.tipRow}>
+                <Text style={styles.tipIcon}>📝</Text>
+                <Text style={styles.tipText}>Try using it in a sentence today to reinforce your memory</Text>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    </Reanimated.View>
+  );
+});
+
 export default function CardDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
@@ -203,13 +442,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [phonemeFeedback, setPhonemeFeedback] = React.useState<CloudPhonemeFeedback[]>([]);
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
-  const [showNewAlbumForm, setShowNewAlbumForm] = React.useState(false);
+  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
   const [selectedAlbums, setSelectedAlbums] = React.useState<string[]>([]);
-  const [customAlbums, setCustomAlbums] = React.useState<LocalAlbum[]>([]);
-
+  const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
+  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
+  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
+  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
+  const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [newAlbumName, setNewAlbumName] = React.useState('');
-  const [selectedEmoji, setSelectedEmoji] = React.useState('📚');
-  const [selectedColor, setSelectedColor] = React.useState('#E5E5FF');
 
   const waveformValues = React.useRef(Array.from({ length: 24 }, () => new Animated.Value(8))).current;
   const recordingRef = React.useRef<any | null>(null);
@@ -217,8 +457,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const userRecordingSoundRef = React.useRef<any | null>(null);
   const waveformPointerRef = React.useRef(0);
   const flatListRef = React.useRef<FlatList<Card> | null>(null);
+  const initialScrollDone = React.useRef(false);
   const didMountIndexRef = React.useRef(false);
   const scrollX = useSharedValue(0);
+  const activeIndexUI = useSharedValue(currentIndex ?? 0);
+
+  const hydrateAlbumPrefs = React.useCallback(async () => {
+    const prefs = await loadDeckAlbumPreferences();
+    setCustomAlbums(prefs.customAlbums);
+    setAlbumNameOverrides(prefs.albumNameOverrides);
+    setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
+    setAlbumColorOverrides(prefs.albumColorOverrides);
+    setDeletedAlbumIds(prefs.deletedAlbumIds);
+  }, []);
 
   React.useEffect(() => {
     const queryCards = database
@@ -245,6 +496,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     return () => sub.unsubscribe();
   }, [cardId]);
 
+  React.useEffect(() => {
+    void hydrateAlbumPrefs();
+  }, [hydrateAlbumPrefs]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void hydrateAlbumPrefs();
+    }, [hydrateAlbumPrefs])
+  );
+
   const scopedCards = React.useMemo(() => {
     if (!routeCardIds?.length) return allCards;
     const allowed = new Set(routeCardIds);
@@ -258,35 +519,45 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
 
   React.useEffect(() => {
+    if (!scopedCards.length || initialScrollDone.current) {
+      if (!scopedCards.length) {
+        setCurrentIndex(null);
+        setDisplayIndex(null);
+      }
+      return;
+    }
+
+    const targetIndex = !cardId
+      ? 0
+      : Math.max(0, scopedCards.findIndex((item) => item.id === cardId));
+
+    initialScrollDone.current = true;
+    didMountIndexRef.current = true;
+    activeIndexUI.value = targetIndex;
+    setCurrentIndex(targetIndex);
+    setDisplayIndex(targetIndex);
+
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({
+        offset: targetIndex * SNAP_INTERVAL,
+        animated: false,
+      });
+    });
+  }, [activeIndexUI, cardId, scopedCards]);
+
+  React.useEffect(() => {
     if (!scopedCards.length) {
       setCurrentIndex(null);
       setDisplayIndex(null);
       return;
     }
-
-    const nextIndex = !cardId
+    const targetIndex = !cardId
       ? 0
-      : Math.max(
-          0,
-          scopedCards.findIndex((item) => item.id === cardId)
-        );
-    const targetCard = scopedCards[nextIndex];
-    const activeCard = currentIndex === null ? null : scopedCards[currentIndex] ?? null;
-    if (targetCard && activeCard?.id === targetCard.id) {
-      return;
-    }
-
-    setCurrentIndex(nextIndex);
-    setDisplayIndex(nextIndex);
-  }, [scopedCards, cardId, currentIndex]);
-
-  React.useEffect(() => {
-    if (currentIndex === null || !flatListRef.current) return;
-    flatListRef.current.scrollToOffset({
-      offset: currentIndex * SNAP_INTERVAL,
-      animated: false,
-    });
-  }, [currentIndex, scopedCards.length]);
+      : Math.max(0, scopedCards.findIndex((item) => item.id === cardId));
+    activeIndexUI.value = targetIndex;
+    setCurrentIndex(targetIndex);
+    setDisplayIndex(targetIndex);
+  }, [activeIndexUI, cardId, scopedCards, scopedCards.length]);
 
   React.useEffect(() => {
     let active = true;
@@ -330,15 +601,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [scopedCards]);
 
   React.useEffect(() => {
-    if (!didMountIndexRef.current) {
-      didMountIndexRef.current = currentIndex !== null;
-      return;
-    }
-    if (currentIndex === null) return;
-    void Haptics.selectionAsync();
-  }, [currentIndex]);
-
-  React.useEffect(() => {
     return () => {
       const recording = recordingRef.current;
       recordingRef.current = null;
@@ -361,7 +623,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setSelectedAlbums(deriveSelectedAlbums(tags));
   }, [card]);
 
-  const allAlbums = React.useMemo(() => [...defaultAlbums, ...customAlbums], [customAlbums]);
+  const allAlbums = React.useMemo(
+    () =>
+      buildDeckAlbums(allCards, cardImageMap, {
+        customAlbums,
+        albumNameOverrides,
+        albumEmojiOverrides,
+        albumColorOverrides,
+        deletedAlbumIds,
+      }).filter((album) => album.id !== 'all'),
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
+  );
 
   const displayWord = card?.targetWord || card?.targetPhrase || '-';
   const pronunciationText = React.useMemo(() => {
@@ -599,24 +871,30 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     );
   };
 
-  const createAlbum = () => {
+  const createAlbum = async () => {
     const name = newAlbumName.trim();
     if (!name) return;
 
-    const id = `custom-${Date.now()}`;
-    const newAlbum: LocalAlbum = {
-      id,
-      name,
-      emoji: selectedEmoji,
-      color: selectedColor,
+    const newAlbum = createCustomAlbum(name);
+    const nextCustomAlbums = [newAlbum, ...customAlbums];
+    const nextPrefs: DeckAlbumPreferences = {
+      customAlbums: nextCustomAlbums,
+      albumNameOverrides,
+      albumEmojiOverrides,
+      albumColorOverrides,
+      deletedAlbumIds,
     };
 
-    setCustomAlbums((prev) => [newAlbum, ...prev]);
-    setSelectedAlbums((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    setShowNewAlbumForm(false);
-    setNewAlbumName('');
-    setSelectedEmoji('📚');
-    setSelectedColor('#E5E5FF');
+    try {
+      await saveDeckAlbumPreferences(nextPrefs);
+      setCustomAlbums(nextCustomAlbums);
+      setSelectedAlbums((prev) => (prev.includes(newAlbum.id) ? prev : [...prev, newAlbum.id]));
+      setIsCreateAlbumModalVisible(false);
+      setNewAlbumName('');
+    } catch (error) {
+      console.error('[CardDetail] create album failed:', error);
+      Alert.alert('建立失敗', '建立資料夾時發生問題，請再試一次。');
+    }
   };
 
   const saveAlbumSelection = async () => {
@@ -665,252 +943,116 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const cardCaption = card?.partOfSpeech || card?.sourceApp || 'Card';
   const displayDate = formatCardDate(card?.createdAt);
 
-  const renderPosterCard = (
-    item: Card | null,
-    imageUri: string | null,
-    variant: 'center' | 'side',
-    edge?: 'left' | 'right'
-  ) => {
-    if (!item) return null;
-
-    const word = item.targetWord || item.targetPhrase || '-';
-    const topRightLabel = item.partOfSpeech || item.sourceApp || 'CARD';
-    const footLabel = item.sourceApp || 'nuances';
-    const posterDate = formatCardDate(item.createdAt);
-    const isCenter = variant === 'center';
-
-    return (
-      <View style={[styles.posterCard, isCenter ? styles.posterCardCenter : styles.posterCardSide]}>
-        <View style={styles.posterTopRow}>
-          <Text style={[styles.posterMeta, !isCenter && styles.posterMetaSide]} numberOfLines={1}>
-            {topRightLabel}
-          </Text>
-          <Text style={[styles.posterDate, !isCenter && styles.posterDateSide]} numberOfLines={1}>
-            {posterDate}
-          </Text>
-        </View>
-
-        <View style={[styles.posterPhotoFrame, !isCenter && styles.posterPhotoFrameSide]}>
-          {imageUri ? (
-            <Image
-              key={`${item.id}-${imageUri}`}
-              source={{ uri: imageUri }}
-              style={[styles.posterPhoto, !isCenter && styles.posterPhotoSide]}
-              resizeMode="cover"
-              blurRadius={isCenter ? 0 : 1.2}
-            />
-          ) : null}
-          <View style={[styles.posterGhostWordWrap, !isCenter && styles.posterGhostWordWrapSide]}>
-            <Text style={[styles.posterTitle, !isCenter && styles.posterTitleSide]} numberOfLines={2}>
-              {word}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.posterBottomBar}>
-          <Text style={[styles.posterBrand, !isCenter && styles.posterBrandSide]} numberOfLines={1}>
-            {footLabel}
-          </Text>
-          <Text style={[styles.posterBookmark, !isCenter && styles.posterActionIconSide]}>⤢</Text>
-        </View>
-
-        {!isCenter && edge ? (
-          <View style={[styles.sideHintWrap, edge === 'left' ? styles.sideHintLeft : styles.sideHintRight]}>
-            <Text style={styles.sideHintText}>{edge === 'left' ? '上一張' : '下一張'}</Text>
-          </View>
-        ) : null}
-      </View>
-    );
-  };
-
-  const commitIndex = React.useCallback((nextIndex: number) => {
-    if (nextIndex === currentIndex) return;
-    const targetCard = scopedCards[nextIndex];
-    if (!targetCard) return;
-    setCurrentIndex(nextIndex);
-    setDisplayIndex(nextIndex);
-    navigation.setParams({ cardId: targetCard.id });
-  }, [currentIndex, navigation, scopedCards]);
+  const triggerHapticFeedback = React.useCallback(() => {
+    if (!didMountIndexRef.current) return;
+    void Haptics.selectionAsync();
+  }, []);
 
   const handleMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
-    commitIndex(nextIndex);
-  }, [commitIndex]);
+    if (nextIndex !== currentIndex) {
+      setCurrentIndex(nextIndex);
+      setDisplayIndex(nextIndex);
+    }
+    const targetCard = scopedCards[nextIndex];
+    if (targetCard && route.params?.cardId !== targetCard.id) {
+      navigation.setParams({ cardId: targetCard.id });
+    }
+  }, [currentIndex, navigation, route.params?.cardId, scopedCards]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollX.value = event.contentOffset.x;
+      const nextIndex = Math.round(event.contentOffset.x / SNAP_INTERVAL);
+      if (nextIndex !== activeIndexUI.value) {
+        activeIndexUI.value = nextIndex;
+        runOnJS(triggerHapticFeedback)();
+      }
     },
   });
 
-  function CarouselCard({ item, index }: { item: Card; index: number }) {
-    const itemWord = item.targetWord || item.targetPhrase || '-';
-    const itemPronunciation =
-      item.phoneticTranscription || buildPronunciation(itemWord);
-    const itemPronunciationText =
-      sanitizePronunciationText(item.targetWord) ||
-      sanitizePronunciationText(item.targetPhrase) ||
-      sanitizePronunciationText(item.originalSentence) ||
-      '';
-    const itemCaption = item.partOfSpeech || item.sourceApp || 'Card';
-    const itemDisplayDate = formatCardDate(item.createdAt);
-    const itemImageUri = cardImageMap[item.id] ?? null;
-    const isActiveCard = index === currentIndex;
-    const animatedCardStyle = useAnimatedStyle(() => {
-      const inputRange = [
-        (index - 1) * SNAP_INTERVAL,
-        index * SNAP_INTERVAL,
-        (index + 1) * SNAP_INTERVAL,
-      ];
+  const handlePlayCard = React.useCallback(
+    (itemPronunciationText: string, isActiveCard: boolean, index: number) => {
+      if (!isActiveCard) {
+        navigateToIndex(index);
+        return;
+      }
+      if (!itemPronunciationText) {
+        Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
+        return;
+      }
+      if (isPlaying) return;
+      setIsPlaying(true);
+      Vibration.vibrate(8);
+      Speech.stop();
+      Speech.speak(itemPronunciationText, {
+        language: 'en-US',
+        rate: 0.95,
+        pitch: 1,
+        onDone: () => setIsPlaying(false),
+        onStopped: () => setIsPlaying(false),
+        onError: () => setIsPlaying(false),
+      });
+    },
+    [isPlaying, navigateToIndex]
+  );
 
-      const scale = interpolate(scrollX.value, inputRange, [0.85, 1, 0.85], Extrapolation.CLAMP);
-      const translateY = interpolate(scrollX.value, inputRange, [30, 0, 30], Extrapolation.CLAMP);
-      const translateX = interpolate(
-        scrollX.value,
-        inputRange,
-        [-SIDE_PEEK_SHIFT, 0, SIDE_PEEK_SHIFT],
-        Extrapolation.CLAMP
-      );
-      const opacity = interpolate(scrollX.value, inputRange, [0.72, 1, 0.72], Extrapolation.CLAMP);
-      const zIndex = Math.round(
-        interpolate(scrollX.value, inputRange, [0, 100, 0], Extrapolation.CLAMP)
-      );
-
-      return {
-        opacity,
-        zIndex,
-        elevation: zIndex,
-        transform: [{ scale }, { translateX }, { translateY }],
-      };
-    }, [index]);
-
-    return (
-      <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
-        <View style={styles.detailCardShell}>
-          <ScrollView
-            style={styles.detailCardScroll}
-            contentContainerStyle={styles.detailCardScrollContent}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={isActiveCard}
-          >
-            <View style={styles.detailPaper}>
-              {renderPosterCard(item, itemImageUri, 'center')}
-
-              <View style={styles.wordCard}>
-                <View style={styles.wordTopRow}>
-                  <View style={styles.wordLeft}>
-                    <Text style={styles.word}>{itemWord}</Text>
-                    <View style={styles.wordMetaRow}>
-                      <View style={styles.posBadge}>
-                        <Text style={styles.posText}>{itemCaption}</Text>
-                      </View>
-                      <Text style={styles.pronunciation}>{itemPronunciation}</Text>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.playBtn}
-                    onPress={() => {
-                      if (!isActiveCard) {
-                        navigateToIndex(index);
-                        return;
-                      }
-                      if (!itemPronunciationText) {
-                        Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
-                        return;
-                      }
-                      if (isPlaying) return;
-                      setIsPlaying(true);
-                      Vibration.vibrate(8);
-                      Speech.stop();
-                      Speech.speak(itemPronunciationText, {
-                        language: 'en-US',
-                        rate: 0.95,
-                        pitch: 1,
-                        onDone: () => setIsPlaying(false),
-                        onStopped: () => setIsPlaying(false),
-                        onError: () => setIsPlaying(false),
-                      });
-                    }}
-                  >
-                    <Text style={styles.playBtnText}>{isActiveCard && isPlaying ? '🔊' : '🔉'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.infoGrid}>
-                  <View style={styles.infoPill}>
-                    <Text style={styles.infoPillLabel}>卡片日期</Text>
-                    <Text style={styles.infoPillValue}>{itemDisplayDate || '-'}</Text>
-                  </View>
-                  <View style={styles.infoPill}>
-                    <Text style={styles.infoPillLabel}>難度</Text>
-                    <Text style={styles.infoPillValue}>{item.difficultyLevel ? `Lv.${item.difficultyLevel}` : '-'}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionLabel}>Definition</Text>
-                  <Text style={styles.sectionValue}>{item.definition || '-'}</Text>
-                </View>
-
-                {item.contextualExplanation ? (
-                  <View style={styles.sectionBlock}>
-                    <Text style={styles.sectionLabel}>Context</Text>
-                    <Text style={styles.sectionValue}>{item.contextualExplanation}</Text>
-                  </View>
-                ) : null}
-
-                {item.originalSentence ? (
-                  <View style={styles.sectionBlock}>
-                    <Text style={styles.sectionLabel}>Example</Text>
-                    <Text style={styles.sectionExample}>"{item.originalSentence}"</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <PronunciationCoachUI
-                isActiveCard={isActiveCard}
-                isRecording={isRecording}
-                hasRecorded={hasRecorded}
-                showFeedback={showFeedback}
-                isAnalyzing={isAnalyzing}
-                pronunciationScore={pronunciationScore}
-                pronunciationFeedbackLines={pronunciationFeedbackLines}
-                phonemeChips={phonemeChips}
-                waveformValues={waveformValues}
-                itemWord={itemWord}
-                onReset={() => void handleReset()}
-                onPrimaryAction={() => {
-                  if (!isActiveCard) {
-                    navigateToIndex(index);
-                    return;
-                  }
-                  void togglePronunciationRecording();
-                }}
-                onPlayPreview={() => void playUserRecordingPreview()}
-              />
-
-              <View style={[styles.tipsCard, !isActiveCard && styles.inactiveDetailBlock]}>
-                <Text style={styles.tipsTitle}>Learning Tips</Text>
-                <View style={styles.tipRow}>
-                  <Text style={styles.tipIcon}>💡</Text>
-                  <Text style={styles.tipText}>This word is commonly used in informal American English</Text>
-                </View>
-                <View style={styles.tipRow}>
-                  <Text style={styles.tipIcon}>📝</Text>
-                  <Text style={styles.tipText}>Try using it in a sentence today to reinforce your memory</Text>
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </Reanimated.View>
-    );
-  }
+  const handleToggleRecordCard = React.useCallback(
+    (isActiveCard: boolean, index: number) => {
+      if (!isActiveCard) {
+        navigateToIndex(index);
+        return;
+      }
+      void togglePronunciationRecording();
+    },
+    [navigateToIndex]
+  );
 
   const renderCarouselCard = React.useCallback(
-    ({ item, index }: { item: Card; index: number }) => <CarouselCard item={item} index={index} />,
-    [currentIndex, cardImageMap, isPlaying, isRecording, isAnalyzing, hasRecorded, showFeedback, pronunciationScore, pronunciationFeedbackLines, phonemeFeedback]
+    ({ item, index }: { item: Card; index: number }) => (
+      <CarouselCard
+        item={item}
+        index={index}
+        currentIndex={currentIndex}
+        scrollX={scrollX}
+        itemImageUri={cardImageMap[item.id] ?? null}
+        isPlaying={isPlaying}
+        isRecording={isRecording}
+        isAnalyzing={isAnalyzing}
+        hasRecorded={hasRecorded}
+        showFeedback={showFeedback}
+        pronunciationScore={pronunciationScore}
+        pronunciationFeedbackLines={pronunciationFeedbackLines}
+        phonemeChips={phonemeChips}
+        waveformValues={waveformValues}
+        onPlayCard={handlePlayCard}
+        onToggleRecord={handleToggleRecordCard}
+        onPlayPreview={() => void playUserRecordingPreview()}
+        onReset={() => void handleReset()}
+        navigateToIndex={navigateToIndex}
+        snapInterval={SNAP_INTERVAL}
+        sidePeekShift={SIDE_PEEK_SHIFT}
+      />
+    ),
+    [
+      cardImageMap,
+      currentIndex,
+      handlePlayCard,
+      handleReset,
+      handleToggleRecordCard,
+      hasRecorded,
+      isAnalyzing,
+      isPlaying,
+      isRecording,
+      navigateToIndex,
+      phonemeChips,
+      pronunciationFeedbackLines,
+      pronunciationScore,
+      scrollX,
+      showFeedback,
+      waveformValues,
+      playUserRecordingPreview,
+    ]
   );
 
   if (loading || currentIndex === null || displayIndex === null) {
@@ -977,26 +1119,21 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         partOfSpeech={card.partOfSpeech || 'unknown'}
         selectedAlbums={selectedAlbums}
         allAlbums={allAlbums}
-        showNewAlbumForm={showNewAlbumForm}
-        newAlbumName={newAlbumName}
-        selectedEmoji={selectedEmoji}
-        selectedColor={selectedColor}
-        availableEmojis={availableEmojis}
-        availableColors={availableColors}
         onClose={() => setShowAlbumSheet(false)}
         onDone={() => void saveAlbumSelection()}
-        onToggleCreateForm={() => setShowNewAlbumForm((prev) => !prev)}
-        onChangeNewAlbumName={setNewAlbumName}
-        onSelectEmoji={setSelectedEmoji}
-        onSelectColor={setSelectedColor}
-        onCancelCreateForm={() => {
-          setShowNewAlbumForm(false);
-          setNewAlbumName('');
-          setSelectedEmoji('📚');
-          setSelectedColor('#E5E5FF');
-        }}
-        onCreateAlbum={createAlbum}
+        onOpenCreateAlbum={() => setIsCreateAlbumModalVisible(true)}
         onToggleAlbum={toggleAlbum}
+      />
+
+      <CreateAlbumModalUI
+        visible={isCreateAlbumModalVisible}
+        albumName={newAlbumName}
+        onChangeAlbumName={setNewAlbumName}
+        onCancel={() => {
+          setIsCreateAlbumModalVisible(false);
+          setNewAlbumName('');
+        }}
+        onConfirm={() => void createAlbum()}
       />
     </SafeAreaView>
   );
