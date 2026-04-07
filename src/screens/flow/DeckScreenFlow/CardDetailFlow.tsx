@@ -93,11 +93,11 @@ const albumIdToCategoryTag: Record<string, string> = {
   work: 'work',
 };
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 0.95;
+const CARD_WIDTH = SCREEN_WIDTH * 0.99;
 const SPACING = 8;
 const SNAP_INTERVAL = CARD_WIDTH + SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2 - SPACING / 2;
-const SIDE_PEEK_SHIFT = 15;
+const SIDE_PEEK_SHIFT = 70;
 const HEADER_BUTTON_TOP_OFFSET = 0;
 
 function getFloatingHeaderTop(insetTop: number): number {
@@ -278,13 +278,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
     setCurrentIndex(nextIndex);
     setDisplayIndex(nextIndex);
-    requestAnimationFrame(() => {
-      flatListRef.current?.scrollToOffset({
-        offset: nextIndex * SNAP_INTERVAL,
-        animated: false,
-      });
-    });
   }, [scopedCards, cardId, currentIndex]);
+
+  React.useEffect(() => {
+    if (currentIndex === null || !flatListRef.current) return;
+    flatListRef.current.scrollToOffset({
+      offset: currentIndex * SNAP_INTERVAL,
+      animated: false,
+    });
+  }, [currentIndex, scopedCards.length]);
 
   React.useEffect(() => {
     let active = true;
@@ -761,19 +763,24 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         (index + 1) * SNAP_INTERVAL,
       ];
 
-      const scale = interpolate(scrollX.value, inputRange, [0.9, 1, 0.9], Extrapolation.CLAMP);
+      const scale = interpolate(scrollX.value, inputRange, [0.85, 1, 0.85], Extrapolation.CLAMP);
       const translateY = interpolate(scrollX.value, inputRange, [30, 0, 30], Extrapolation.CLAMP);
       const translateX = interpolate(
         scrollX.value,
         inputRange,
-        [SIDE_PEEK_SHIFT, 0, -SIDE_PEEK_SHIFT],
+        [-SIDE_PEEK_SHIFT, 0, SIDE_PEEK_SHIFT],
         Extrapolation.CLAMP
       );
       const opacity = interpolate(scrollX.value, inputRange, [0.72, 1, 0.72], Extrapolation.CLAMP);
+      const zIndex = Math.round(
+        interpolate(scrollX.value, inputRange, [0, 100, 0], Extrapolation.CLAMP)
+      );
 
       return {
         opacity,
-        transform: [{ translateX }, { translateY }, { scale }],
+        zIndex,
+        elevation: zIndex,
+        transform: [{ scale }, { translateX }, { translateY }],
       };
     }, [index]);
 

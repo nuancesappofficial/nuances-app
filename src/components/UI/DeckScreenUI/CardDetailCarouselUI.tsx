@@ -38,7 +38,7 @@ export default function CardDetailCarouselUI({
           scrollEnabled
           showsHorizontalScrollIndicator={false}
           snapToInterval={snapInterval}
-          snapToAlignment="center"
+          snapToAlignment="start"
           decelerationRate="fast"
           disableIntervalMomentum
           directionalLockEnabled
