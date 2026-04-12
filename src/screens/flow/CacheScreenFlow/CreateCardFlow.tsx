@@ -44,6 +44,7 @@ type CompletedCard = {
   partOfSpeech: string;
   definition: string;
   cultural: string;
+  aiExampleSentence: string;
   collocations: CollocationItem[];
   note: string;
   addedToDeck: boolean;
@@ -103,6 +104,24 @@ function collocationsFromText(raw: string): CollocationItem[] {
     phrase,
     example: `Example: ${phrase}`,
   }));
+}
+
+function pickSentenceContainingWord(text: string, word: string): string {
+  const source = (text || '').trim();
+  const target = normalizeWord(word);
+  if (!source) return '';
+  if (!target) return source;
+
+  const sentences = source
+    .split(/(?<=[.!?。！？])\s+|\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!sentences.length) return source;
+
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const reg = new RegExp(`\\b${escaped}\\b`, 'i');
+  const matched = sentences.find((sentence) => reg.test(sentence));
+  return matched || sentences[0] || source;
 }
 
 async function uploadCardImageToSupabase(params: {
@@ -186,8 +205,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, [navigation]);
 
   const baseSourceText = React.useMemo(() => getCachedItemSourceText(cachedItem), [cachedItem]);
-  const originalImageUri = React.useMemo(
+  const ocrImageUri = React.useMemo(
     () => croppedImageUri || routeOriginalImageUri || cachedItem.mediaUri || cachedItem.imageStoragePath || null,
+    [cachedItem.imageStoragePath, cachedItem.mediaUri, croppedImageUri, routeOriginalImageUri]
+  );
+  const originalImageUri = React.useMemo(
+    () => routeOriginalImageUri || cachedItem.mediaUri || croppedImageUri || cachedItem.imageStoragePath || null,
     [cachedItem.imageStoragePath, cachedItem.mediaUri, croppedImageUri, routeOriginalImageUri]
   );
   const [ocrSourceText, setOcrSourceText] = React.useState('');
@@ -229,11 +252,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   React.useEffect(() => {
     let active = true;
     const runOCR = async () => {
-      if (!runOcrOnLoad || !originalImageUri) return;
+      if (!runOcrOnLoad || !ocrImageUri) return;
       setIsOcrRunning(true);
       setOcrError(null);
       try {
-        const result = await extractTextFromImage(originalImageUri);
+        const result = await extractTextFromImage(ocrImageUri);
         if (!active) return;
         const textFromBlocks = result.blocks
           .map((block) => block.text?.trim() || '')
@@ -259,7 +282,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => {
       active = false;
     };
-  }, [originalImageUri, runOcrOnLoad]);
+  }, [ocrImageUri, runOcrOnLoad]);
 
   const toggleWord = (word: string) => {
     const cleanWord = normalizeWord(word);
@@ -303,6 +326,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           partOfSpeech: generated.partOfSpeech || 'noun',
           definition: generated.definition || `${word}（待補充定義）`,
           cultural: generated.contextualExplanation || '',
+          aiExampleSentence: generated.exampleSentence || '',
           collocations: collocationsFromText(generated.frequentCollocations || ''),
           note: '',
           addedToDeck: false,
@@ -331,6 +355,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             partOfSpeech: 'noun',
             definition: `${word}（待補充定義）`,
             cultural: '',
+            aiExampleSentence: '',
             collocations: [{ phrase: word, example: `Example of ${word}.` }],
             note: '',
             addedToDeck: false,
@@ -386,9 +411,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     setSaving(true);
     try {
       const imageSourceForUpload =
-        croppedImageUri ||
-        routeOriginalImageUri ||
-        cachedItem.mediaUri ||
+        originalImageUri ||
         cachedItem.imageStoragePath ||
         '';
 
@@ -412,11 +435,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       await database.write(async () => {
         for (const cardDraft of cardsToSave) {
           const created = await cardsCollection.create((card) => {
+            const sourceSentence = pickSentenceContainingWord(sourceText, cardDraft.word);
             card.userId = cachedItem.userId;
             card.cachedItemId = cachedItem.id;
             card.targetWord = cardDraft.word;
             card.targetPhrase = undefined;
-            card.originalSentence = sourceText;
+            card.originalSentence = (cardDraft.aiExampleSentence || '').trim() || sourceSentence || sourceText;
             card.definition = cardDraft.definition;
             card.partOfSpeech = cardDraft.partOfSpeech || undefined;
             card.contextualExplanation = cardDraft.cultural || undefined;
@@ -455,7 +479,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         await Promise.all(
           createdCardIds.map(async (id) => {
             try {
-              const localUri = await persistLocalCardImage(id, imageSourceForUpload);
+              const localUri = await persistLocalCardImage(id, originalImageUri || imageSourceForUpload);
               if (!localUri) {
                 console.warn('[CreateCard] local card image persist skipped', {
                   cardId: id,

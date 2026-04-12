@@ -1,5 +1,5 @@
-// OpenAI API Service
-// 用於文本分析、定義生成等
+// AI Action Service
+// 透過 Supabase ai-proxy 呼叫後端 AI action
 
 import { callAIAction, callAIProxy, isAIProxyConfigured } from './edgeAiClient';
 import type { AIPersonalizationOptions } from './types';
@@ -120,6 +120,7 @@ export async function generateCardContent(
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
+  example: string;
   frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
@@ -140,6 +141,7 @@ export async function generateCardContent(
         partOfSpeech?: string;
         ['part of speech']?: string;
         contextualExplanation: string;
+        example?: string;
         frequentCollocations?: string;
         ['Frequent collocations']?: string;
         phoneticTranscription: string | null;
@@ -159,6 +161,7 @@ export async function generateCardContent(
       partOfSpeech:
         result.partOfSpeech || result['part of speech'] || '',
       contextualExplanation: result.contextualExplanation || '',
+      example: result.example || '',
       frequentCollocations:
         result.frequentCollocations || result['Frequent collocations'] || '',
       phoneticTranscription:
@@ -189,50 +192,59 @@ export async function analyzeAndGenerateCard(
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
+  exampleSentence: string;
   frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
 }> {
   void personalization;
   const normalizedKeywords = normalizeOptionalString(userKeywords);
+  const targetWord = normalizeOptionalString(userKeywords);
+  if (!targetWord) {
+    throw new Error('targetWord is required for generate_card');
+  }
 
   const result = await callAIAction<
     {
-      text: string;
-      userKeywords?: string;
+      targetWord: string;
+      originalSentence: string;
+      includePronunciation: boolean;
     },
     {
-      keywords: string[];
-      suggestedWord: string | null;
       definition: string;
-      partOfSpeech: string;
+      partOfSpeech?: string;
+      ['part of speech']?: string;
       contextualExplanation: string;
-      frequentCollocations: string;
+      example?: string;
+      frequentCollocations?: string;
+      ['Frequent collocations']?: string;
       phoneticTranscription: string | null;
+      pronunciation?: string | null;
+      ipa?: string | null;
+      phonetic?: string | null;
       tags: string[];
     }
-  >(
-    'analyze_and_generate_card',
-    {
-      text,
-      userKeywords: normalizedKeywords,
-    },
-    {
-      preferAsync: true,
-      asyncThresholdChars: 700,
-      maxPollAttempts: 30,
-      pollIntervalMs: 1000,
-    }
-  );
+  >('generate_card', {
+    targetWord,
+    originalSentence: text,
+    includePronunciation: true,
+  });
 
   return {
-    keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 1) : [],
-    suggestedWord: result.suggestedWord,
+    keywords: [targetWord],
+    suggestedWord: targetWord,
     definition: result.definition || '',
-    partOfSpeech: result.partOfSpeech || '',
+    partOfSpeech: result.partOfSpeech || result['part of speech'] || '',
     contextualExplanation: result.contextualExplanation || '',
-    frequentCollocations: result.frequentCollocations || '',
-    phoneticTranscription: result.phoneticTranscription || null,
+    exampleSentence: result.example || '',
+    frequentCollocations:
+      result.frequentCollocations || result['Frequent collocations'] || '',
+    phoneticTranscription:
+      result.phoneticTranscription ||
+      result.pronunciation ||
+      result.ipa ||
+      result.phonetic ||
+      null,
     tags: Array.isArray(result.tags) ? result.tags : [],
   };
 }

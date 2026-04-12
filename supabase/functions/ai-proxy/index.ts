@@ -1,6 +1,40 @@
 // Supabase Edge Function: ai-proxy
 // Securely proxies AI requests so API keys never live in the mobile app.
 declare const Deno: any;
+import { getUserIdFromAuthorization } from './auth/resolveUserFromBearerToken.ts';
+import { corsHeaders, jsonResponse } from './_shared/httpResponse.ts';
+import { handlePronunciationAssess } from './providers/azureProvider.ts';
+import { callGeminiLegacy, routeGeminiModelForAction } from './providers/geminiProvider.ts';
+import {
+  buildOpenAIStreamResponse,
+  callOpenAIChat,
+  routeOpenAIModelForAction,
+} from './providers/openaiProvider.ts';
+import {
+  clampTokens,
+  normalizeTargetToken,
+  sanitizeText,
+} from './_shared/requestSanitizers.ts';
+import {
+  AI_MAX_CONTEXT_CHARS,
+  AI_MAX_CONTEXT_MESSAGES,
+  AI_MAX_MESSAGE_CHARS,
+  AI_TASK_TTL_HOURS,
+  ALLOW_BILLABLE_WITHOUT_KV,
+  DAILY_QUOTA,
+  MAX_AUDIO_BASE64_CHARS,
+  MAX_KEYWORDS_CHARS,
+  MAX_SENTENCE_CHARS,
+  MAX_TEXT_CHARS,
+  MAX_TOKENS_ANALYZE,
+  MAX_TOKENS_CONTEXT,
+  MAX_TOKENS_GENERATE,
+  MAX_TOKENS_LEGACY,
+  MAX_WORD_CHARS,
+  RATE_LIMIT_PER_MINUTE,
+  USAGE_RECENT_LIMIT_MAX,
+  USAGE_RETENTION_DAYS,
+} from './_shared/runtimeConfig.ts';
 
 type Provider = 'openai' | 'gemini';
 type Action =
@@ -96,100 +130,6 @@ type ActionRequestBody = {
 
 type RequestBody = LegacyRequestBody | ActionRequestBody;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-const RATE_LIMIT_PER_MINUTE = Number(
-  Deno.env.get('AI_RATE_LIMIT_PER_MINUTE') ?? '20'
-);
-const DAILY_QUOTA = Number(Deno.env.get('AI_DAILY_QUOTA') ?? '200');
-
-const MAX_TEXT_CHARS = Number(Deno.env.get('AI_MAX_TEXT_CHARS') ?? '2000');
-const MAX_SENTENCE_CHARS = Number(
-  Deno.env.get('AI_MAX_SENTENCE_CHARS') ?? '600'
-);
-const MAX_WORD_CHARS = Number(Deno.env.get('AI_MAX_WORD_CHARS') ?? '64');
-const MAX_KEYWORDS_CHARS = Number(
-  Deno.env.get('AI_MAX_KEYWORDS_CHARS') ?? '200'
-);
-
-const MAX_TOKENS_ANALYZE = Number(
-  Deno.env.get('AI_MAX_TOKENS_ANALYZE') ?? '180'
-);
-const MAX_TOKENS_GENERATE = Number(
-  Deno.env.get('AI_MAX_TOKENS_GENERATE') ?? '420'
-);
-const MAX_TOKENS_CONTEXT = Number(
-  Deno.env.get('AI_MAX_TOKENS_CONTEXT') ?? '300'
-);
-const MAX_TOKENS_LEGACY = Number(Deno.env.get('AI_MAX_TOKENS_LEGACY') ?? '500');
-const AI_OUTPUT_TOKEN_CAP = Number(Deno.env.get('AI_OUTPUT_TOKEN_CAP') ?? '500');
-const AI_MAX_CONTEXT_MESSAGES = Number(Deno.env.get('AI_MAX_CONTEXT_MESSAGES') ?? '8');
-const AI_MAX_MESSAGE_CHARS = Number(Deno.env.get('AI_MAX_MESSAGE_CHARS') ?? '500');
-const AI_MAX_CONTEXT_CHARS = Number(Deno.env.get('AI_MAX_CONTEXT_CHARS') ?? '3200');
-const MAX_AUDIO_BASE64_CHARS = Number(
-  Deno.env.get('AI_MAX_AUDIO_BASE64_CHARS') ?? '12000000'
-);
-const USAGE_RETENTION_DAYS = Number(Deno.env.get('AI_USAGE_RETENTION_DAYS') ?? '14');
-const USAGE_RECENT_LIMIT_MAX = Number(
-  Deno.env.get('AI_USAGE_RECENT_LIMIT_MAX') ?? '50'
-);
-const AI_TASK_TTL_HOURS = Number(Deno.env.get('AI_TASK_TTL_HOURS') ?? '24');
-// Default to fail-open for compatibility because some hosted runtimes
-// do not provide Deno KV for Edge Functions.
-const ALLOW_BILLABLE_WITHOUT_KV = String(
-  Deno.env.get('AI_ALLOW_BILLABLE_WITHOUT_KV') ?? 'true'
-).toLowerCase() === 'true';
-
-const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')
-  ?? 'gpt-4o-mini')
-  .split(',')
-  .map((item: string) => item.trim())
-  .filter(Boolean);
-
-const GEMINI_ALLOWED_MODELS = (Deno.env.get('GEMINI_ALLOWED_MODELS')
-  ?? 'gemini-2.0-flash-lite,gemini-3-flash-preview')
-  .split(',')
-  .map((item: string) => item.trim())
-  .filter(Boolean);
-
-const AZURE_SPEECH_KEY = Deno.env.get('AZURE_SPEECH_KEY') ?? '';
-const AZURE_SPEECH_REGION_RAW = Deno.env.get('AZURE_SPEECH_REGION') ?? '';
-const AZURE_REQUEST_TIMEOUT_MS = Number(
-  Deno.env.get('AZURE_REQUEST_TIMEOUT_MS') ?? '12000'
-);
-const AZURE_TOKEN_TIMEOUT_MS = Number(
-  Deno.env.get('AZURE_TOKEN_TIMEOUT_MS') ?? '4000'
-);
-const AZURE_MIN_WAV_BYTES = Number(Deno.env.get('AZURE_MIN_WAV_BYTES') ?? '6000');
-
-function normalizeAzureRegion(raw: string): string {
-  return raw.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-const AZURE_SPEECH_REGION = normalizeAzureRegion(AZURE_SPEECH_REGION_RAW);
-
-async function fetchWithTimeout(
-  input: string | URL | Request,
-  init: RequestInit,
-  timeoutMs: number
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 let kvClient: any | null = null;
 let kvInitAttempted = false;
 
@@ -228,87 +168,6 @@ const BILLABLE_ACTIONS = new Set<Action>([
   'pronunciation_assess',
 ]);
 
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function getBearerToken(req: Request): string | null {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  return authHeader.slice(7).trim();
-}
-
-async function resolveUserIdViaSupabaseAuth(
-  req: Request,
-  token: string
-): Promise<string | null> {
-  const requestUrl = new URL(req.url);
-  const supabaseOrigin = requestUrl.origin;
-  const reqApiKey = req.headers.get('apikey');
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  const apiKey = reqApiKey || supabaseAnonKey || supabaseServiceRoleKey;
-  if (!supabaseOrigin || !apiKey) return null;
-
-  try {
-    const response = await fetch(`${supabaseOrigin}/auth/v1/user`, {
-      method: 'GET',
-      headers: {
-        apikey: apiKey,
-        authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json() as Record<string, unknown>;
-    if (typeof payload.id === 'string' && payload.id.trim()) {
-      return payload.id;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function getUserIdFromAuthorization(req: Request): Promise<string | null> {
-  const token = getBearerToken(req);
-  if (!token) return null;
-
-  // Always verify bearer token via Supabase Auth service.
-  return await resolveUserIdViaSupabaseAuth(req, token);
-}
-
-function sanitizeText(input: unknown, maxLen: number): string {
-  if (typeof input !== 'string') return '';
-  return input.trim().slice(0, maxLen);
-}
-
-function normalizeTargetToken(input: string): string {
-  return input
-    .replace(/^[\s"'“”‘’()[\]{}<>.,!?;:]+|[\s"'“”‘’()[\]{}<>.,!?;:]+$/g, '')
-    .trim();
-}
-
-function clampTokens(value: unknown, maxAllowed: number): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) return maxAllowed;
-  return Math.max(1, Math.min(Math.floor(value), Math.min(maxAllowed, AI_OUTPUT_TOKEN_CAP)));
-}
-
-function pickModel(
-  requested: unknown,
-  allowed: string[],
-  fallback: string
-): string {
-  if (typeof requested === 'string' && allowed.includes(requested)) {
-    return requested;
-  }
-  return fallback;
-}
-
 type ModelRoute = {
   model: string;
   tier: 'fast' | 'balanced' | 'quality';
@@ -322,11 +181,6 @@ type AIExecutionMetrics = {
   ttfbMs?: number;
   inputTokens?: number;
   outputTokens?: number;
-};
-
-type AIResponse = {
-  content: string;
-  metrics: AIExecutionMetrics;
 };
 
 function normalizeWhitespace(input: string): string {
@@ -363,68 +217,15 @@ function compactMessages(messages: LegacyRequestBody['messages']): { role: strin
   return output;
 }
 
-function routeOpenAIModelForAction(params: {
-  action: Action | 'legacy_openai';
-  payloadSize: number;
-  requested?: unknown;
-}): ModelRoute {
-  if (typeof params.requested === 'string' && OPENAI_ALLOWED_MODELS.includes(params.requested)) {
-    return {
-      model: params.requested,
-      tier: 'quality',
-      reason: 'explicit_model_override',
-    };
-  }
-
-  const fast = OPENAI_ALLOWED_MODELS[0] ?? 'gpt-4o-mini';
-  const balanced = OPENAI_ALLOWED_MODELS[Math.min(1, OPENAI_ALLOWED_MODELS.length - 1)] ?? fast;
-  const quality = OPENAI_ALLOWED_MODELS[Math.min(2, OPENAI_ALLOWED_MODELS.length - 1)] ?? balanced;
-
-  if (params.action === 'analyze_text') {
-    return { model: fast, tier: 'fast', reason: 'short_keyword_extraction' };
-  }
-  if (params.payloadSize > 1200 || params.action === 'analyze_context') {
-    return { model: quality, tier: 'quality', reason: 'long_or_context_heavy' };
-  }
-  if (params.action === 'generate_card' || params.action === 'analyze_and_generate_card') {
-    return { model: balanced, tier: 'balanced', reason: 'content_generation' };
-  }
-  return { model: fast, tier: 'fast', reason: 'default_low_latency' };
-}
-
-function routeGeminiModelForAction(params: {
-  action: Action | 'legacy_gemini';
-  payloadSize: number;
-  requested?: unknown;
-}): ModelRoute {
-  if (typeof params.requested === 'string' && GEMINI_ALLOWED_MODELS.includes(params.requested)) {
-    return {
-      model: params.requested,
-      tier: 'quality',
-      reason: 'explicit_model_override',
-    };
-  }
-
-  const fast = GEMINI_ALLOWED_MODELS[0] ?? 'gemini-2.0-flash-lite';
-  const balanced = GEMINI_ALLOWED_MODELS[Math.min(1, GEMINI_ALLOWED_MODELS.length - 1)] ?? fast;
-  const quality = GEMINI_ALLOWED_MODELS[Math.min(2, GEMINI_ALLOWED_MODELS.length - 1)] ?? balanced;
-
-  if (params.action === 'analyze_text') {
-    return { model: fast, tier: 'fast', reason: 'short_keyword_extraction' };
-  }
-  if (params.payloadSize > 1200 || params.action === 'analyze_context') {
-    return { model: quality, tier: 'quality', reason: 'long_or_context_heavy' };
-  }
-  if (params.action === 'generate_card' || params.action === 'analyze_and_generate_card') {
-    return { model: balanced, tier: 'balanced', reason: 'content_generation' };
-  }
-  return { model: fast, tier: 'fast', reason: 'default_low_latency' };
-}
 
 function stripMarkdownFences(raw: string): string {
   const trimmed = raw.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
-  return trimmed.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  // Safety net: Gemini occasionally wraps JSON with markdown fences.
+  // Remove both opening/closing fences even when they are not perfectly formatted.
+  return trimmed
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
 }
 
 function extractJsonObject(raw: string): string {
@@ -677,29 +478,6 @@ function isValidDayBucket(input: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(input);
 }
 
-function toGeminiContents(messages: LegacyRequestBody['messages']) {
-  const contents = messages.map((msg) => ({
-    role: msg.role === 'system' ? 'user' : msg.role,
-    parts: [{ text: String(msg.content ?? '') }],
-  }));
-
-  if (messages[0]?.role === 'system' && messages.length > 1) {
-    contents[0] = {
-      role: 'user',
-      parts: [
-        {
-          text: `[System Instructions]\n${String(
-            messages[0].content ?? ''
-          )}\n\n[User Query]\n${String(messages[1].content ?? '')}`,
-        },
-      ],
-    };
-    contents.splice(1, 1);
-  }
-
-  return contents;
-}
-
 async function incrementCounter(
   kv: any,
   key: readonly unknown[],
@@ -888,223 +666,6 @@ async function getUsageSummary(
   });
 }
 
-async function callOpenAIChat(params: {
-  model: string;
-  messages: { role: string; content: string }[];
-  temperature?: number;
-  maxTokens: number;
-  jsonMode?: boolean;
-}): Promise<AIResponse> {
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!apiKey) {
-    throw new Error('Missing OPENAI_API_KEY in Edge Function secrets');
-  }
-
-  const startedAt = Date.now();
-  const model = pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]);
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: params.messages,
-      temperature: params.temperature ?? 0.5,
-      max_tokens: params.maxTokens,
-      ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      (data as { error?: { message?: string } })?.error?.message
-        || `OpenAI request failed (${response.status})`
-    );
-  }
-
-  const usage = (data as {
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  })?.usage;
-
-  return {
-    content:
-      (data as { choices?: { message?: { content?: string } }[] })
-        ?.choices?.[0]?.message?.content || '',
-    metrics: {
-      provider: 'openai',
-      model,
-      latencyMs: Date.now() - startedAt,
-      inputTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
-      outputTokens:
-        typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : undefined,
-    },
-  };
-}
-
-async function callGeminiLegacy(params: {
-  model: string;
-  messages: LegacyRequestBody['messages'];
-  temperature?: number;
-  maxTokens: number;
-  jsonMode?: boolean;
-}): Promise<AIResponse> {
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) {
-    throw new Error('Missing GEMINI_API_KEY in Edge Function secrets');
-  }
-
-  const startedAt = Date.now();
-  const model = pickModel(params.model, GEMINI_ALLOWED_MODELS, GEMINI_ALLOWED_MODELS[0]);
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: toGeminiContents(params.messages),
-        generationConfig: {
-          temperature: params.temperature ?? 0.7,
-          maxOutputTokens: params.maxTokens,
-          ...(params.jsonMode ? { responseMimeType: 'application/json' } : {}),
-        },
-      }),
-    }
-  );
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      (data as { error?: { message?: string } })?.error?.message
-        || `Gemini request failed (${response.status})`
-    );
-  }
-
-  const usage = (data as {
-    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
-  })?.usageMetadata;
-
-  return {
-    content:
-      (data as {
-        candidates?: { content?: { parts?: { text?: string }[] } }[];
-      })?.candidates?.[0]?.content?.parts?.[0]?.text || '',
-    metrics: {
-      provider: 'gemini',
-      model,
-      latencyMs: Date.now() - startedAt,
-      inputTokens:
-        typeof usage?.promptTokenCount === 'number' ? usage.promptTokenCount : undefined,
-      outputTokens:
-        typeof usage?.candidatesTokenCount === 'number'
-          ? usage.candidatesTokenCount
-          : undefined,
-    },
-  };
-}
-
-async function buildOpenAIStreamResponse(params: {
-  model: string;
-  messages: { role: string; content: string }[];
-  temperature?: number;
-  maxTokens: number;
-}): Promise<Response> {
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!apiKey) {
-    throw new Error('Missing OPENAI_API_KEY in Edge Function secrets');
-  }
-  const startedAt = Date.now();
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]),
-      messages: params.messages,
-      temperature: params.temperature ?? 0.5,
-      max_tokens: params.maxTokens,
-      stream: true,
-      stream_options: { include_usage: true },
-    }),
-  });
-  if (!response.ok || !response.body) {
-    const text = await response.text();
-    throw new Error(text || `OpenAI stream request failed (${response.status})`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let firstTokenAt = 0;
-  let outputTokens: number | undefined;
-  let inputTokens: number | undefined;
-  let lineBuffer = '';
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      controller.enqueue(encoder.encode('event: ready\ndata: {"started":true}\n\n'));
-      let shouldRead = true;
-      while (shouldRead) {
-        const { done, value } = await reader.read();
-        if (done) {
-          shouldRead = false;
-          continue;
-        }
-        lineBuffer += decoder.decode(value, { stream: true });
-        const parts = lineBuffer.split('\n');
-        lineBuffer = parts.pop() ?? '';
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith('data:')) continue;
-          const raw = line.slice(5).trim();
-          if (raw === '[DONE]') continue;
-          let parsed: any;
-          try {
-            parsed = JSON.parse(raw);
-          } catch {
-            continue;
-          }
-          const delta = parsed?.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string' && delta.length > 0) {
-            if (!firstTokenAt) firstTokenAt = Date.now();
-            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ delta })}\n\n`));
-          }
-          if (parsed?.usage) {
-            inputTokens = parsed.usage.prompt_tokens;
-            outputTokens = parsed.usage.completion_tokens;
-          }
-        }
-      }
-
-      const donePayload = {
-        ttfbMs: firstTokenAt ? firstTokenAt - startedAt : null,
-        totalMs: Date.now() - startedAt,
-        inputTokens,
-        outputTokens,
-      };
-      controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`));
-      controller.close();
-    },
-    cancel() {
-      reader.cancel().catch(() => undefined);
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  });
-}
-
 async function handleAnalyzeText(payload: AnalyzeTextPayload): Promise<Response> {
   const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
   const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
@@ -1142,15 +703,41 @@ Return JSON only:
   });
   const content = aiResponse.content;
 
-  const parsed = parseJson<{ keywords?: string[]; suggestedWord?: string | null }>(
-    content
-  );
+  let parsed: { keywords?: string[]; suggestedWord?: string | null };
+  try {
+    parsed = parseJson<{ keywords?: string[]; suggestedWord?: string | null }>(content);
+  } catch (error) {
+    const cleanedText = stripMarkdownFences(content);
+    console.error('[ai-proxy][analyze_text] JSON parse failed', {
+      error: error instanceof Error ? error.message : String(error),
+      cleanedText,
+    });
+    return jsonResponse({
+      result: {
+        keywords: [],
+        suggestedWord: null,
+      },
+      meta: {
+        route,
+        metrics: aiResponse.metrics,
+        degraded: 'parse_fallback',
+      },
+    });
+  }
   const keywords = Array.isArray(parsed.keywords)
     ? parsed.keywords.filter((item) => typeof item === 'string').slice(0, 1)
     : [];
-  const suggestedWord = typeof parsed.suggestedWord === 'string'
+    
+  let suggestedWord = typeof parsed.suggestedWord === 'string'
     ? parsed.suggestedWord
     : keywords[0] ?? null;
+
+  // 增強容錯：如果 Gemini 沒有照 schema 回傳，嘗試抓取其他常見的 keys
+  if (!suggestedWord && parsed) {
+    if (typeof (parsed as any).keyword === 'string') suggestedWord = (parsed as any).keyword;
+    else if (typeof (parsed as any).word === 'string') suggestedWord = (parsed as any).word;
+    else if (typeof (parsed as any).targetWord === 'string') suggestedWord = (parsed as any).targetWord;
+  }
 
   return jsonResponse({
     result: {
@@ -1176,66 +763,86 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
     );
   }
 
+  // 修正 1：將 JSON Key 的空格移除，改用 camelCase (partOfSpeech, frequentCollocations)
   const prompt = `Create a vocabulary learning card for "${targetWord}" in:
 "${originalSentence}"
 
 Critical semantic rules:
-1. Use ONLY the meaning of "${targetWord}" in this specific sentence, not the most common dictionary meaning.
-2. If the sentence implies a fixed phrase/collocation, explain that phrase-level meaning first.
-3. Prefer Traditional Chinese wording used by learners in Taiwan/Hong Kong context.
+1. If "${targetWord}" looks like a typo or OCR error, GUESS the correct intended English word based on the sentence and define that instead. Do NOT give up.
+2. Use ONLY the meaning of "${targetWord}" in this specific sentence, not the most common dictionary meaning.
+3. If the sentence implies a fixed phrase/collocation, explain that phrase-level meaning instead of the single word.
 4. If multiple senses are possible, choose the single best one for this sentence and mention why in contextualExplanation.
-5. In "Frequent collocations", prioritize high-frequency phrasal-verb collocations for the target word.
+5. In "frequentCollocations", provide 1-3 common collocations or phrases for the target word. Do NOT leave it empty.
 6. Every collocation must include Traditional Chinese translation next to English. Format: English（繁中）.
 
 Return JSON only:
 {
-  "part of speech":"What part of speech this word is.",
+  "partOfSpeech":"What part of speech this word is.",
   "definition":"Traditional Chinese definition.",
   "contextualExplanation":"Explaination mainly in traditional chinese about why this word is used in this context or as this collocation.",
-  "Frequent collocations":"The most frequent form or phrase that contains this word.",
-  ${includePronunciation
-    ? '"phoneticTranscription":"IPA string (prefer UK/US common IPA, e.g. /əˈnaɪz/) or null only if truly unavailable",'
-    : ''}
-  "tags":["IELTS","Academic"]
+  "example":"Create one concise natural English example sentence using the target word in the same sense as this context.",
+  "frequentCollocations":"The most frequent form or phrase that contains this word.",
+  "tags":["Vocabulary"]
 }`;
 
   const route = routeGeminiModelForAction({
     action: 'generate_card',
     payloadSize: targetWord.length + originalSentence.length,
   });
-  const aiResponse = await callGeminiLegacy({
-    model: route.model,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are an expert bilingual English teacher. Return strict JSON only. Keep each field concise.',
+
+  let parsed: any = null;
+  let aiResponse: any = null;
+
+  // 修正 2：自動重試機制 (最多 2 次)。第一次失敗時，第二次會提高 temperature 來打破死結。
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      aiResponse = await callGeminiLegacy({
+        model: route.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert bilingual English teacher. Return strict JSON only. Keep each field concise.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        maxTokens: MAX_TOKENS_GENERATE,
+        temperature: attempt === 1 ? 0.6 : 0.85, // 第二次重試時提高溫度
+        jsonMode: true,
+      });
+
+      parsed = parseJson(aiResponse.content);
+      if (parsed) break; // 成功解析 JSON 就跳出迴圈
+    } catch (error) {
+      console.warn(`[ai-proxy][generate_card] Attempt ${attempt} failed:`, error instanceof Error ? error.message : String(error));
+      console.warn(`[ai-proxy][generate_card] Raw content was:`, aiResponse?.content);
+    }
+  }
+
+  // 如果兩次都失敗，才觸發我們之前寫好的 Fallback 備用資料
+  if (!parsed) {
+    return jsonResponse({
+      result: {
+        partOfSpeech: '',
+        definition: `${targetWord}（AI 暫時無法分析，請手動補充定義）`,
+        contextualExplanation: '',
+        example: originalSentence,
+        frequentCollocations: '',
+        phoneticTranscription: null,
+        tags: ['ai-parse-fallback'],
       },
-      { role: 'user', content: prompt },
-    ],
-    maxTokens: MAX_TOKENS_GENERATE,
-    temperature: 0.6,
-    jsonMode: true,
-  });
-  const content = aiResponse.content;
+      meta: {
+        route,
+        metrics: aiResponse?.metrics,
+        degraded: 'parse_fallback',
+      },
+    });
+  }
 
-  const parsed = parseJson<{
-    partOfSpeech?: string;
-    ['part of speech']?: string;
-    definition?: string;
-    contextualExplanation?: string;
-    frequentCollocations?: string;
-    ['Frequent collocations']?: string;
-    phoneticTranscription?: string | null;
-    pronunciation?: string | null;
-    ipa?: string | null;
-    phonetic?: string | null;
-    tags?: string[];
-  }>(content);
-
+  // 相容舊資料或偶發性抓錯 key 的處理
   const partOfSpeech = sanitizeText(parsed.partOfSpeech || parsed['part of speech'], 80);
   const definition = sanitizeText(parsed.definition, 2000);
   const contextualExplanation = sanitizeText(parsed.contextualExplanation, 2000);
+  const example = sanitizeText(parsed.example, 1200);
   const frequentCollocations = sanitizeText(
     parsed.frequentCollocations || parsed['Frequent collocations'],
     500
@@ -1252,8 +859,8 @@ Return JSON only:
       : null;
   const tags = Array.isArray(parsed.tags)
     ? parsed.tags
-      .filter((item) => typeof item === 'string')
-      .map((item) => sanitizeText(item, 40))
+      .filter((item: unknown): item is string => typeof item === 'string')
+      .map((item: string) => sanitizeText(item, 40))
       .filter(Boolean)
       .slice(0, 8)
     : [];
@@ -1263,13 +870,14 @@ Return JSON only:
       partOfSpeech,
       definition,
       contextualExplanation,
+      example,
       frequentCollocations,
       phoneticTranscription,
       tags,
     },
     meta: {
       route,
-      metrics: aiResponse.metrics,
+      metrics: aiResponse?.metrics,
     },
   });
 }
@@ -1392,7 +1000,7 @@ Return JSON only:
     typeof content === 'string' ? content : JSON.stringify(content)
   );
 
-  const parsed = parseJson<{
+  let parsed: {
     keyword?: string;
     partOfSpeech?: string;
     ['part of speech']?: string;
@@ -1408,7 +1016,51 @@ Return JSON only:
     phoneticTranscription?: string | null;
     ipa?: string | null;
     phonetic?: string | null;
-  }>(content);
+  };
+  try {
+    parsed = parseJson<{
+      keyword?: string;
+      partOfSpeech?: string;
+      ['part of speech']?: string;
+      definition?: string;
+      contextualExplanation?: string;
+      example?: string;
+      frequentCollocations?: string;
+      ['Frequent collocations']?: string;
+      confidence?: number;
+      alternatives?: string[];
+      tags?: string[];
+      pronunciation?: string | null;
+      phoneticTranscription?: string | null;
+      ipa?: string | null;
+      phonetic?: string | null;
+    }>(content);
+  } catch (error) {
+    const cleanedText = stripMarkdownFences(content);
+    console.error('[ai-proxy][analyze_context] JSON parse failed', {
+      error: error instanceof Error ? error.message : String(error),
+      cleanedText,
+    });
+    return jsonResponse({
+      result: {
+        keyword: targetText,
+        partOfSpeech: '',
+        definition: `${targetText}（AI 暫時無法分析，請手動補充定義）`,
+        contextualExplanation: '',
+        example: originalSentence,
+        frequentCollocations: '',
+        confidence: undefined,
+        alternatives: [],
+        tags: ['ai-parse-fallback'],
+        pronunciation: null,
+      },
+      meta: {
+        route,
+        metrics: aiResponse.metrics,
+        degraded: 'parse_fallback',
+      },
+    });
+  }
 
   const firstPass = parsed;
   const rawDefinition = sanitizeText(firstPass.definition, 2000);
@@ -1544,529 +1196,93 @@ async function handleAnalyzeAndGenerate(
     return jsonResponse({ error: 'text is required' }, 400);
   }
 
-  const analyzedResponse = await handleAnalyzeText({
-    text,
-    userKeywords,
-  });
-  const analyzedJson = await analyzedResponse.clone().json() as {
-    result?: { keywords?: string[]; suggestedWord?: string | null };
-  };
+  // 🚀 速度優化：將「抓單字」與「生卡片」合併成一次 API 請求 (One-Shot)
+  const prompt = `Analyze this text and create a vocabulary learning card for ONE key word.
+Text: "${text}"
+${userKeywords ? `Prioritize these keywords if present: "${userKeywords}".` : ''}
 
-  const suggestedWord = analyzedJson?.result?.suggestedWord || analyzedJson?.result?.keywords?.[0] || null;
-  if (!suggestedWord) {
+Critical rules:
+1. Pick ONE target English word (suggestedWord) from the text. If there are OCR errors, GUESS the correct intended word.
+2. "definition" and "contextualExplanation" MUST explain the word specifically as used in this context. Use Traditional Chinese.
+3. "frequentCollocations": Provide 1-3 common collocations (Noun+Noun, Verb+Noun, etc.). Do NOT leave it empty. Format: English (繁中).
+4. "example": One concise natural English example sentence.
+
+Return JSON only:
+{
+  "keywords": ["word1"],
+  "suggestedWord": "target word",
+  "partOfSpeech": "What part of speech this word is.",
+  "definition": "Traditional Chinese definition.",
+  "contextualExplanation": "Explanation mainly in traditional chinese.",
+  "example": "example sentence.",
+  "frequentCollocations": "collocation 1 (繁中), collocation 2 (繁中)",
+  "phoneticTranscription": "IPA string or null",
+  "tags": ["Vocabulary"]
+}`;
+
+  const route = routeGeminiModelForAction({
+    action: 'analyze_and_generate_card',
+    payloadSize: text.length + userKeywords.length,
+  });
+
+  let parsed: any = null;
+  let aiResponse: any = null;
+
+  // 加入自動重試機制
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      aiResponse = await callGeminiLegacy({
+        model: route.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert bilingual English teacher. Return strict JSON only. ALL JSON property names MUST be enclosed in double quotes.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        maxTokens: MAX_TOKENS_GENERATE,
+        temperature: attempt === 1 ? 0.6 : 0.85,
+        jsonMode: true,
+      });
+
+      parsed = parseJson(aiResponse.content);
+      if (parsed?.suggestedWord) break; 
+    } catch (error) {
+      console.warn(`[ai-proxy][analyze_and_generate] Attempt ${attempt} failed:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // 防空白畫面的 Fallback
+  if (!parsed?.suggestedWord) {
+    console.warn('[ai-proxy][analyze_and_generate] using regex fallback from text.');
+    const match = text.match(/[A-Za-z]+/);
+    const fallbackWord = match ? match[0] : 'Unknown';
     return jsonResponse({
       result: {
-        keywords: analyzedJson?.result?.keywords || [],
-        suggestedWord: null,
-        definition: '',
+        keywords: [],
+        suggestedWord: fallbackWord,
+        definition: `${fallbackWord}（AI 暫時無法分析，請手動補充定義）`,
         partOfSpeech: '',
         contextualExplanation: '',
+        example: text,
         frequentCollocations: '',
         phoneticTranscription: null,
-        tags: [],
+        tags: ['ai-parse-fallback'],
       },
     });
   }
 
-  const generatedResponse = await handleGenerateCard({
-    targetWord: suggestedWord,
-    originalSentence: text,
-    includePronunciation: true,
-  });
-  const generatedJson = await generatedResponse.clone().json() as {
-    result?: {
-      definition?: string;
-      partOfSpeech?: string;
-      contextualExplanation?: string;
-      frequentCollocations?: string;
-      phoneticTranscription?: string | null;
-      tags?: string[];
-    };
-  };
-
   return jsonResponse({
     result: {
-      keywords: analyzedJson?.result?.keywords || [],
-      suggestedWord,
-      definition: generatedJson?.result?.definition || '',
-      partOfSpeech: generatedJson?.result?.partOfSpeech || '',
-      contextualExplanation: generatedJson?.result?.contextualExplanation || '',
-      frequentCollocations: generatedJson?.result?.frequentCollocations || '',
-      phoneticTranscription: generatedJson?.result?.phoneticTranscription || null,
-      tags: generatedJson?.result?.tags || [],
-    },
-  });
-}
-
-function toAccuracyLevel(score: number): 'red' | 'yellow' | 'green' {
-  if (score < 60) return 'red';
-  if (score < 80) return 'yellow';
-  return 'green';
-}
-
-function clampPronScore(score: unknown): number | null {
-  const value = typeof score === 'number' ? score : Number(score);
-  if (!Number.isFinite(value)) return null;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function extractAccuracyScore(source: unknown): number | null {
-  if (!source || typeof source !== 'object') return null;
-  const obj = source as Record<string, unknown>;
-  return (
-    clampPronScore((obj.PronunciationAssessment as Record<string, unknown> | undefined)?.AccuracyScore)
-    ?? clampPronScore(obj.AccuracyScore)
-    ?? clampPronScore(obj.accuracyScore)
-    ?? clampPronScore(obj.Score)
-    ?? clampPronScore(obj.score)
-  );
-}
-
-function sanitizeLocale(locale: unknown): string {
-  const normalized = sanitizeText(locale, 20);
-  if (!normalized) return 'en-US';
-  return /^[a-z]{2,3}-[A-Z]{2}$/.test(normalized) ? normalized : 'en-US';
-}
-
-function normalizeAudioBase64(input: string): string {
-  const trimmed = input.trim();
-  const commaIndex = trimmed.indexOf(',');
-  if (commaIndex >= 0 && trimmed.slice(0, commaIndex).includes('base64')) {
-    return trimmed.slice(commaIndex + 1).trim();
-  }
-  return trimmed;
-}
-
-function decodeBase64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function readUint16LE(bytes: Uint8Array, offset: number): number | null {
-  if (offset + 2 > bytes.length) return null;
-  return bytes[offset] | (bytes[offset + 1] << 8);
-}
-
-function readUint32LE(bytes: Uint8Array, offset: number): number | null {
-  if (offset + 4 > bytes.length) return null;
-  return (
-    bytes[offset]
-    | (bytes[offset + 1] << 8)
-    | (bytes[offset + 2] << 16)
-    | (bytes[offset + 3] << 24)
-  ) >>> 0;
-}
-
-function isLikelyWav(bytes: Uint8Array): boolean {
-  if (bytes.length < 12) return false;
-  const riff =
-    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
-  const wave =
-    bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
-  return riff && wave;
-}
-
-function parseWavFormat(bytes: Uint8Array): {
-  audioFormat: number | null;
-  channels: number | null;
-  sampleRate: number | null;
-  byteRate: number | null;
-  bitsPerSample: number | null;
-} {
-  if (!isLikelyWav(bytes)) {
-    return {
-      audioFormat: null,
-      channels: null,
-      sampleRate: null,
-      byteRate: null,
-      bitsPerSample: null,
-    };
-  }
-  let offset = 12;
-  while (offset + 8 <= bytes.length) {
-    const chunkId = String.fromCharCode(
-      bytes[offset],
-      bytes[offset + 1],
-      bytes[offset + 2],
-      bytes[offset + 3]
-    );
-    const chunkSize = readUint32LE(bytes, offset + 4);
-    if (chunkSize === null) break;
-    if (chunkId === 'fmt ') {
-      return {
-        audioFormat: readUint16LE(bytes, offset + 8),
-        channels: readUint16LE(bytes, offset + 10),
-        sampleRate: readUint32LE(bytes, offset + 12),
-        byteRate: readUint32LE(bytes, offset + 16),
-        bitsPerSample: readUint16LE(bytes, offset + 22),
-      };
-    }
-    offset += 8 + chunkSize + (chunkSize % 2);
-  }
-  return {
-    audioFormat: null,
-    channels: null,
-    sampleRate: null,
-    byteRate: null,
-    bitsPerSample: null,
-  };
-}
-
-function buildArticulationHint(expected: string, spoken: string | null): string {
-  const substitution = spoken && spoken !== expected
-    ? `你目前更接近 ${spoken}，目標要更靠近 ${expected}。`
-    : '';
-  if (expected === 'θ' || expected === 'ð') return `${substitution}舌尖輕放在上下門牙之間，再平穩送氣。`.trim();
-  if (expected === 'r') return `${substitution}R 音舌頭後縮並懸空，不要碰上顎。`.trim();
-  if (expected === 'l') return `${substitution}L 音舌尖要碰齒齦，尾音不要糊掉。`.trim();
-  if (expected === 'i' || expected === 'iː') return `${substitution}長母音要拉長，嘴角更展開。`.trim();
-  return `${substitution}放慢速度重讀此音段，確保子音釋放清楚。`.trim();
-}
-
-function splitWordIntoLetterSegments(word: string, segmentCount: number): string[] {
-  const normalized = sanitizeText(word, 80);
-  if (!normalized) return [];
-  if (!Number.isFinite(segmentCount) || segmentCount <= 1) return [normalized];
-  const total = Math.min(segmentCount, normalized.length);
-  const baseSize = Math.floor(normalized.length / total);
-  const remainder = normalized.length % total;
-  const segments: string[] = [];
-  let offset = 0;
-  for (let i = 0; i < total; i += 1) {
-    const size = baseSize + (i < remainder ? 1 : 0);
-    const next = normalized.slice(offset, offset + size);
-    if (next) segments.push(next);
-    offset += size;
-  }
-  return segments.length > 0 ? segments : [normalized];
-}
-
-async function handlePronunciationAssess(
-  payload: PronunciationAssessPayload
-): Promise<Response> {
-  const referenceText = sanitizeText(payload.referenceText, MAX_SENTENCE_CHARS);
-  const locale = sanitizeLocale(payload.locale);
-  const audioBase64 = normalizeAudioBase64(payload.audioBase64 || '');
-
-  if (!referenceText || !audioBase64) {
-    return jsonResponse({ error: 'referenceText and audioBase64 are required' }, 400);
-  }
-  if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
-    throw new Error('Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION in Edge Function secrets');
-  }
-
-  const tokenEndpoint = `https://${AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/sts/v1.0/issueToken`;
-  const tokenResponse = await fetchWithTimeout(
-    tokenEndpoint,
-    {
-      method: 'POST',
-      headers: {
-        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
-        'Content-Length': '0',
-      },
-    },
-    AZURE_TOKEN_TIMEOUT_MS
-  );
-  if (!tokenResponse.ok) {
-    const tokenBody = await tokenResponse.text().catch(() => '');
-    throw new Error(
-      `Azure token endpoint failed (${tokenResponse.status}) body=${tokenBody || '<empty>'}`
-    );
-  }
-
-  const audioBytes = decodeBase64ToBytes(audioBase64);
-  const wavFormat = parseWavFormat(audioBytes);
-  if (!isLikelyWav(audioBytes)) {
-    throw new Error(`Audio payload is not WAV RIFF/WAVE header (bytes=${audioBytes.length})`);
-  }
-  if (audioBytes.length < AZURE_MIN_WAV_BYTES) {
-    return jsonResponse(
-      { error: `Audio too short for cloud assessment (wavBytes=${audioBytes.length}, min=${AZURE_MIN_WAV_BYTES})` },
-      400
-    );
-  }
-
-  const pronunciationHeader = btoa(JSON.stringify({
-    ReferenceText: referenceText,
-    GradingSystem: 'HundredMark',
-    Granularity: 'Phoneme',
-    Dimension: 'Comprehensive',
-    EnableMiscue: true,
-    EnableProsodyAssessment: true,
-    NBestPhonemeCount: 3,
-  }));
-  const endpoint =
-    `https://${AZURE_SPEECH_REGION}.stt.speech.microsoft.com/` +
-    `speech/recognition/conversation/cognitiveservices/v1?language=${encodeURIComponent(locale)}&format=detailed`;
-
-  const audioBuffer = audioBytes.buffer.slice(
-    audioBytes.byteOffset,
-    audioBytes.byteOffset + audioBytes.byteLength
-  ) as ArrayBuffer;
-  const azureResponse = await fetchWithTimeout(
-    endpoint,
-    {
-      method: 'POST',
-      headers: {
-        'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
-        'Content-Type': 'audio/wav',
-        Accept: 'application/json',
-        'Pronunciation-Assessment': pronunciationHeader,
-      },
-      body: audioBuffer,
-    },
-    AZURE_REQUEST_TIMEOUT_MS
-  );
-
-  const rawText = await azureResponse.text().catch(() => '');
-  const raw = rawText ? JSON.parse(rawText) : null;
-  if (!azureResponse.ok) {
-    const detail =
-      (raw as { error?: { message?: string }; RecognitionStatus?: string } | null)?.error?.message
-      || (raw as { RecognitionStatus?: string } | null)?.RecognitionStatus
-      || `Azure Speech request failed (${azureResponse.status})`;
-    throw new Error(`${detail} (wavBytes=${audioBytes.length})`);
-  }
-
-  const rawRecord = (raw || {}) as {
-    RecognitionStatus?: string;
-    DisplayText?: string;
-    PronunciationAssessment?: {
-      PronScore?: number;
-      AccuracyScore?: number;
-      FluencyScore?: number;
-      CompletenessScore?: number;
-      ProsodyScore?: number;
-    };
-    Words?: Array<{
-      Word?: string;
-      PronunciationAssessment?: { AccuracyScore?: number };
-      Syllables?: Array<{
-        Syllable?: string;
-        PronunciationAssessment?: { AccuracyScore?: number };
-      }>;
-      Phonemes?: Array<{
-        Phoneme?: string;
-        PronunciationAssessment?: {
-          AccuracyScore?: number;
-          NBestPhonemes?: Array<{ Phoneme?: string }>;
-        };
-      }>;
-    }>;
-    NBest?: Array<{
-      Display?: string;
-      Lexical?: string;
-      PronunciationAssessment?: {
-        PronScore?: number;
-        AccuracyScore?: number;
-        FluencyScore?: number;
-        CompletenessScore?: number;
-        ProsodyScore?: number;
-      };
-      Words?: Array<{
-        Word?: string;
-        PronunciationAssessment?: { AccuracyScore?: number };
-        Syllables?: Array<{
-          Syllable?: string;
-          PronunciationAssessment?: { AccuracyScore?: number };
-        }>;
-        Phonemes?: Array<{
-          Phoneme?: string;
-          PronunciationAssessment?: {
-            AccuracyScore?: number;
-            NBestPhonemes?: Array<{ Phoneme?: string }>;
-          };
-        }>;
-      }>;
-    }>;
-  };
-  const best = Array.isArray(rawRecord.NBest) ? rawRecord.NBest[0] : undefined;
-  const pa = best?.PronunciationAssessment || rawRecord.PronunciationAssessment;
-  const wordsRaw = Array.isArray(best?.Words)
-    ? best.Words
-    : (Array.isArray(rawRecord.Words) ? rawRecord.Words : []);
-  console.log(
-    '[ai-proxy][pronunciation_assess] azure-shape',
-    JSON.stringify({
-      recognitionStatus: rawRecord.RecognitionStatus ?? null,
-      hasNBest: Array.isArray(rawRecord.NBest) && rawRecord.NBest.length > 0,
-      hasPAInBest: Boolean(best?.PronunciationAssessment),
-      hasPAInRoot: Boolean(rawRecord.PronunciationAssessment),
-      wordsCount: wordsRaw.length,
-      phonemeCountInWords: wordsRaw.reduce(
-        (sum, word) => sum + (Array.isArray(word?.Phonemes) ? word.Phonemes.length : 0),
-        0
-      ),
-      syllableCountInWords: wordsRaw.reduce(
-        (sum, word) => sum + (Array.isArray(word?.Syllables) ? word.Syllables.length : 0),
-        0
-      ),
-    })
-  );
-
-  const phonemeFeedback: Array<{
-    phoneme: string;
-    letters?: string;
-    spokenPhoneme: string | null;
-    accuracy: number;
-    level: 'red' | 'yellow' | 'green';
-    suggestion: string;
-  }> = [];
-  const letterSegments: Array<{
-    text: string;
-    letters: string;
-    phoneme: string;
-    spokenPhoneme: string | null;
-    accuracy: number;
-    level: 'red' | 'yellow' | 'green';
-    suggestion: string;
-  }> = [];
-
-  const wordFeedback = wordsRaw
-    .map((wordItem) => {
-      const word = sanitizeText(wordItem?.Word, 80);
-      if (!word) return null;
-      const phonemesRaw = Array.isArray(wordItem?.Phonemes) ? wordItem.Phonemes : [];
-      const syllablesRaw = Array.isArray(wordItem?.Syllables) ? wordItem.Syllables : [];
-      const perWordPhonemes: Array<{
-        phoneme: string;
-        spokenPhoneme: string | null;
-        accuracy: number;
-        level: 'red' | 'yellow' | 'green';
-        suggestion: string;
-      }> = [];
-      for (const phonemeItem of phonemesRaw) {
-        const phoneme = sanitizeText(phonemeItem?.Phoneme, 20);
-        const accuracy = extractAccuracyScore(phonemeItem);
-        if (!phoneme || accuracy === null) continue;
-        const spokenPhoneme =
-          typeof phonemeItem?.PronunciationAssessment?.NBestPhonemes?.[0]?.Phoneme === 'string'
-            ? sanitizeText(phonemeItem.PronunciationAssessment.NBestPhonemes[0].Phoneme, 20)
-            : '';
-        const item = {
-          phoneme,
-          spokenPhoneme: spokenPhoneme || null,
-          accuracy,
-          level: toAccuracyLevel(accuracy),
-          suggestion: buildArticulationHint(phoneme, spokenPhoneme || null),
-        };
-        perWordPhonemes.push(item);
-        phonemeFeedback.push(item);
-      }
-      const perWordSyllables: Array<{
-        phoneme: string;
-        spokenPhoneme: null;
-        accuracy: number;
-        level: 'red' | 'yellow' | 'green';
-        suggestion: string;
-      }> = [];
-      for (const syllableItem of syllablesRaw) {
-        const syllable = sanitizeText(syllableItem?.Syllable, 40);
-        const accuracy = extractAccuracyScore(syllableItem);
-        if (!syllable || accuracy === null) continue;
-        perWordSyllables.push({
-          phoneme: syllable,
-          spokenPhoneme: null,
-          accuracy,
-          level: toAccuracyLevel(accuracy),
-          suggestion: '放慢語速，將此音節拆開重讀，先求清楚再求連貫。',
-        });
-      }
-      if (perWordPhonemes.length === 0 && perWordSyllables.length > 0) {
-        for (const s of perWordSyllables) {
-          phonemeFeedback.push(s);
-        }
-      }
-      const mappedLettersByPhoneme = splitWordIntoLetterSegments(word, perWordPhonemes.length);
-      for (const [index, p] of perWordPhonemes.entries()) {
-        letterSegments.push({
-          text: word,
-          letters: mappedLettersByPhoneme[index] || p.phoneme || word,
-          phoneme: p.phoneme,
-          spokenPhoneme: p.spokenPhoneme,
-          accuracy: p.accuracy,
-          level: p.level,
-          suggestion: p.suggestion,
-        });
-      }
-      if (perWordPhonemes.length === 0) {
-        for (const s of perWordSyllables) {
-          letterSegments.push({
-            text: word,
-            letters: s.phoneme,
-            phoneme: s.phoneme,
-            spokenPhoneme: null,
-            accuracy: s.accuracy,
-            level: s.level,
-            suggestion: s.suggestion,
-          });
-        }
-      }
-      const accuracy =
-        extractAccuracyScore(wordItem)
-        ?? (perWordPhonemes.length > 0
-          ? Math.round(perWordPhonemes.reduce((sum, item) => sum + item.accuracy, 0) / perWordPhonemes.length)
-          : perWordSyllables.length > 0
-            ? Math.round(perWordSyllables.reduce((sum, item) => sum + item.accuracy, 0) / perWordSyllables.length)
-          : null);
-      if (accuracy === null) return null;
-      return { word, accuracy, level: toAccuracyLevel(accuracy) };
-    })
-    .filter((item): item is { word: string; accuracy: number; level: 'red' | 'yellow' | 'green' } => Boolean(item));
-
-  const wordAvgScore = wordFeedback.length > 0
-    ? Math.round(wordFeedback.reduce((sum, item) => sum + item.accuracy, 0) / wordFeedback.length)
-    : null;
-  const hasTopLevelScores =
-    clampPronScore(pa?.PronScore) !== null
-    || clampPronScore(pa?.AccuracyScore) !== null
-    || clampPronScore(pa?.FluencyScore) !== null
-    || clampPronScore(pa?.CompletenessScore) !== null
-    || clampPronScore(pa?.ProsodyScore) !== null;
-  const hasPronunciationAssessment =
-    hasTopLevelScores || wordFeedback.length > 0 || phonemeFeedback.length > 0;
-  const overallScore =
-    clampPronScore(pa?.PronScore)
-    ?? clampPronScore(pa?.AccuracyScore)
-    ?? clampPronScore(pa?.FluencyScore)
-    ?? clampPronScore(pa?.CompletenessScore)
-    ?? extractAccuracyScore(wordsRaw[0])
-    ?? wordAvgScore
-    ?? 0;
-  console.log(
-    '[ai-proxy][pronunciation_assess] normalized-summary',
-    JSON.stringify({
-      hasPronunciationAssessment,
-      overallScore,
-      wordFeedbackCount: wordFeedback.length,
-      phonemeFeedbackCount: phonemeFeedback.length,
-      letterSegmentCount: letterSegments.length,
-      hasTopLevelScores,
-    })
-  );
-
-  return jsonResponse({
-    result: {
-      overallScore,
-      accuracyScore: clampPronScore(pa?.AccuracyScore) ?? overallScore,
-      fluencyScore: clampPronScore(pa?.FluencyScore) ?? overallScore,
-      completenessScore: clampPronScore(pa?.CompletenessScore) ?? overallScore,
-      prosodyScore: clampPronScore(pa?.ProsodyScore) ?? overallScore,
-      hasPronunciationAssessment,
-      wordFeedback,
-      phonemeFeedback,
-      letterSegments,
-      recognitionStatus: sanitizeText(rawRecord.RecognitionStatus, 40) || 'Unknown',
-      displayText:
-        sanitizeText(best?.Display, 300)
-        || sanitizeText(rawRecord.DisplayText, 300)
-        || sanitizeText(best?.Lexical, 300),
-      wavFormat,
-      raw,
+      keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [parsed.suggestedWord],
+      suggestedWord: sanitizeText(parsed.suggestedWord, MAX_WORD_CHARS),
+      definition: sanitizeText(parsed.definition, 2000),
+      partOfSpeech: sanitizeText(parsed.partOfSpeech || parsed['part of speech'], 80),
+      contextualExplanation: sanitizeText(parsed.contextualExplanation, 2000),
+      example: sanitizeText(parsed.example, 1200),
+      frequentCollocations: sanitizeText(parsed.frequentCollocations || parsed['Frequent collocations'], 500),
+      phoneticTranscription: typeof parsed.phoneticTranscription === 'string' ? sanitizeText(parsed.phoneticTranscription, 120) : null,
+      tags: Array.isArray(parsed.tags) ? parsed.tags : ['Vocabulary'],
     },
   });
 }
@@ -2454,9 +1670,13 @@ Deno.serve(async (req: Request) => {
       }
 
       if (body.provider === 'gemini') {
-        const model = pickModel(options.model, GEMINI_ALLOWED_MODELS, GEMINI_ALLOWED_MODELS[0]);
+        const route = routeGeminiModelForAction({
+          action: 'legacy_gemini',
+          payloadSize: compactedMessages.reduce((sum, item) => sum + item.content.length, 0),
+          requested: options.model,
+        });
         const result = await callGeminiLegacy({
-          model,
+          model: route.model,
           messages: compactedMessages,
           temperature:
             typeof options.temperature === 'number' ? options.temperature : 0.7,
@@ -2467,14 +1687,14 @@ Deno.serve(async (req: Request) => {
           action: 'legacy_gemini',
           status: 'success',
           meta: {
-            model,
+            route,
             metrics: result.metrics,
           },
         });
         return jsonResponse({
           content: result.content,
           meta: {
-            model,
+            model: route.model,
             metrics: result.metrics,
           },
         });

@@ -4,7 +4,7 @@ import {
   analyzeAndGenerateCard,
   generateCardContent,
   isOpenAIConfigured,
-} from './openaiService';
+} from './aiActionService';
 import type { AIPersonalizationOptions } from './types';
 
 export type { AIPersonalizationOptions } from './types';
@@ -15,6 +15,7 @@ export interface AnalysisResult {
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
+  exampleSentence: string;
   frequentCollocations: string;
   phoneticTranscription: string | null;
   tags: string[];
@@ -44,6 +45,7 @@ export async function analyzeText(
       definition: mockResult.definition,
       partOfSpeech: '',
       contextualExplanation: mockResult.explanation,
+      exampleSentence: '',
       frequentCollocations: '',
       phoneticTranscription: mockResult.phonetic,
       tags: mockResult.tags,
@@ -57,6 +59,7 @@ export async function analyzeText(
       definition: mockResult.definition,
       partOfSpeech: '',
       contextualExplanation: mockResult.explanation,
+      exampleSentence: '',
       frequentCollocations: '',
       phoneticTranscription: mockResult.phonetic,
       tags: mockResult.tags,
@@ -86,6 +89,7 @@ export async function generateContentForWord(
         definition: generated.definition,
         partOfSpeech: generated.partOfSpeech,
         contextualExplanation: generated.contextualExplanation,
+        exampleSentence: generated.example,
         frequentCollocations: generated.frequentCollocations,
         phoneticTranscription: generated.phoneticTranscription,
         tags: generated.tags,
@@ -102,6 +106,7 @@ export async function generateContentForWord(
       definition: generateMockDefinition(word),
       partOfSpeech: '',
       contextualExplanation: generateMockExplanation(word, originalText),
+      exampleSentence: '',
       frequentCollocations: '',
       phoneticTranscription: null,
       tags: generateMockTags(word),
