@@ -54,6 +54,7 @@ function buildMonthDays(
       key,
       date,
       dayNumber: String(day),
+      cards: cardsOnDay,
       card: primaryCard,
       imageUri: primaryCard ? cardImageMap[primaryCard.id] : undefined,
     });
@@ -83,6 +84,14 @@ function formatMonthLabel(date: Date): string {
 
 function formatSinceDate(date: Date): string {
   return `since ${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatHeatmapDayTitle(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function shiftMonth(base: Date, offset: number): Date {
@@ -340,7 +349,14 @@ export default function ProfileMainFlow({ navigation }: Props) {
           }
         }}
         onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
-        onPressDay={(cardId) => navigation.navigate('CardDetail', { cardId })}
+        onPressDay={(day) => {
+          if (!day.cards.length) return;
+          navigation.navigate('CardDetail', {
+            cardId: day.cards[0]?.id,
+            cardIds: day.cards.map((card) => card.id),
+            headerTitle: formatHeatmapDayTitle(day.date),
+          });
+        }}
       />
 
       <ImageCropperModal

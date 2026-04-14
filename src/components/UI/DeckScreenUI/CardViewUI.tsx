@@ -147,7 +147,6 @@ export default function CardViewUI({
                 <View style={styles.thumbnailWrap}>
                   {imageUri ? (
                     <Image
-                      key={imageUri}
                       source={{ uri: imageUri }}
                       style={styles.thumbnailImage}
                       resizeMode="cover"
@@ -159,12 +158,6 @@ export default function CardViewUI({
                       </Text>
                     </View>
                   )}
-
-                  <View style={styles.premiumBadge}>
-                    <Text style={styles.premiumText} numberOfLines={1}>
-                      {getWordText(item)}
-                    </Text>
-                  </View>
                 </View>
 
                 <View style={styles.cardMiddle}>
@@ -340,21 +333,6 @@ const styles = StyleSheet.create({
   thumbnailFallbackText: {
     color: '#DDE7FF',
     fontSize: 22,
-    fontWeight: '700',
-  },
-  premiumBadge: {
-    position: 'absolute',
-    left: 4,
-    right: 4,
-    bottom: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  premiumText: {
-    color: '#FFFFFF',
-    fontSize: 10,
     fontWeight: '700',
   },
   cardMiddle: {

@@ -12,7 +12,6 @@ import {
 } from './providers/openaiProvider.ts';
 import {
   clampTokens,
-  normalizeTargetToken,
   sanitizeText,
 } from './_shared/requestSanitizers.ts';
 import {
@@ -23,11 +22,7 @@ import {
   ALLOW_BILLABLE_WITHOUT_KV,
   DAILY_QUOTA,
   MAX_AUDIO_BASE64_CHARS,
-  MAX_KEYWORDS_CHARS,
   MAX_SENTENCE_CHARS,
-  MAX_TEXT_CHARS,
-  MAX_TOKENS_ANALYZE,
-  MAX_TOKENS_CONTEXT,
   MAX_TOKENS_GENERATE,
   MAX_TOKENS_LEGACY,
   MAX_WORD_CHARS,
@@ -38,10 +33,7 @@ import {
 
 type Provider = 'openai' | 'gemini';
 type Action =
-  | 'analyze_text'
   | 'generate_card'
-  | 'analyze_context'
-  | 'analyze_and_generate_card'
   | 'pronunciation_assess'
   | 'usage_summary'
   | 'get_task_result';
@@ -58,34 +50,9 @@ type LegacyRequestBody = {
   };
 };
 
-type AnalyzeTextPayload = {
-  text: string;
-  userKeywords?: string;
-  learningGoal?: 'ielts' | 'casual' | 'professional' | string;
-  proficiencyStandard?: string;
-  proficiencyLevel?: string;
-  domain?: string;
-  tone?: string;
-};
-
 type GenerateCardPayload = {
   targetWord: string;
   originalSentence: string;
-  includePronunciation?: boolean;
-  learningGoal?: 'ielts' | 'casual' | 'professional' | string;
-  proficiencyStandard?: string;
-  proficiencyLevel?: string;
-  domain?: string;
-  tone?: string;
-};
-
-type AnalyzeContextPayload = {
-  targetText: string;
-  originalSentence: string;
-  contextText?: string;
-  focusSentence?: string;
-  fullContext?: string;
-  useParagraphMode?: boolean;
   includePronunciation?: boolean;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
   proficiencyStandard?: string;
@@ -98,11 +65,6 @@ type UsageSummaryPayload = {
   day?: string;
   includeRecent?: boolean;
   limit?: number;
-};
-
-type AnalyzeAndGeneratePayload = {
-  text: string;
-  userKeywords?: string;
 };
 
 type PronunciationAssessPayload = {
@@ -118,10 +80,7 @@ type GetTaskResultPayload = {
 type ActionRequestBody = {
   action: Action;
   payload?:
-    | AnalyzeTextPayload
     | GenerateCardPayload
-    | AnalyzeContextPayload
-    | AnalyzeAndGeneratePayload
     | PronunciationAssessPayload
     | UsageSummaryPayload
     | GetTaskResultPayload;
@@ -152,19 +111,13 @@ async function getKvClient(): Promise<any | null> {
   }
 }
 const SUPPORTED_ACTIONS = new Set<Action>([
-  'analyze_text',
   'generate_card',
-  'analyze_context',
-  'analyze_and_generate_card',
   'pronunciation_assess',
   'usage_summary',
   'get_task_result',
 ]);
 const BILLABLE_ACTIONS = new Set<Action>([
-  'analyze_text',
   'generate_card',
-  'analyze_context',
-  'analyze_and_generate_card',
   'pronunciation_assess',
 ]);
 
@@ -185,6 +138,19 @@ type AIExecutionMetrics = {
 
 function normalizeWhitespace(input: string): string {
   return input.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeHeadword(input: unknown, fallback: string): string {
+  const cleaned = sanitizeText(input, MAX_WORD_CHARS)
+    .toLowerCase()
+    .replace(/[^a-z'\-\s]/g, ' ')
+    .trim();
+  const firstToken = cleaned.split(/\s+/).find(Boolean) || '';
+  if (firstToken) return firstToken;
+  return sanitizeText(fallback, MAX_WORD_CHARS)
+    .toLowerCase()
+    .replace(/[^a-z'\-]/g, '')
+    .trim();
 }
 
 function compactMessages(messages: LegacyRequestBody['messages']): { role: string; content: string }[] {
@@ -217,68 +183,8 @@ function compactMessages(messages: LegacyRequestBody['messages']): { role: strin
   return output;
 }
 
-
-function stripMarkdownFences(raw: string): string {
-  const trimmed = raw.trim();
-  // Safety net: Gemini occasionally wraps JSON with markdown fences.
-  // Remove both opening/closing fences even when they are not perfectly formatted.
-  return trimmed
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .trim();
-}
-
-function extractJsonObject(raw: string): string {
-  const cleaned = stripMarkdownFences(raw);
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  return match ? match[0] : cleaned;
-}
-
-function parseJson<T>(raw: string): T {
-  return JSON.parse(extractJsonObject(raw)) as T;
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function validateAnalyzeTextPayload(payload: unknown): string[] {
-  if (!isObject(payload)) return ['payload must be an object'];
-  const errors: string[] = [];
-  if (typeof payload.text !== 'string' || !payload.text.trim()) {
-    errors.push('payload.text is required and must be a non-empty string');
-  }
-  if (
-    payload.userKeywords !== undefined &&
-    typeof payload.userKeywords !== 'string'
-  ) {
-    errors.push('payload.userKeywords must be a string when provided');
-  }
-  if (
-    payload.learningGoal !== undefined &&
-    typeof payload.learningGoal !== 'string'
-  ) {
-    errors.push('payload.learningGoal must be a string when provided');
-  }
-  if (
-    payload.proficiencyStandard !== undefined &&
-    typeof payload.proficiencyStandard !== 'string'
-  ) {
-    errors.push('payload.proficiencyStandard must be a string when provided');
-  }
-  if (
-    payload.proficiencyLevel !== undefined &&
-    typeof payload.proficiencyLevel !== 'string'
-  ) {
-    errors.push('payload.proficiencyLevel must be a string when provided');
-  }
-  if (payload.domain !== undefined && typeof payload.domain !== 'string') {
-    errors.push('payload.domain must be a string when provided');
-  }
-  if (payload.tone !== undefined && typeof payload.tone !== 'string') {
-    errors.push('payload.tone must be a string when provided');
-  }
-  return errors;
 }
 
 function validateGenerateCardPayload(payload: unknown): string[] {
@@ -328,68 +234,6 @@ function validateGenerateCardPayload(payload: unknown): string[] {
   return errors;
 }
 
-function validateAnalyzeContextPayload(payload: unknown): string[] {
-  if (!isObject(payload)) return ['payload must be an object'];
-  const errors: string[] = [];
-  if (typeof payload.targetText !== 'string' || !payload.targetText.trim()) {
-    errors.push('payload.targetText is required and must be a non-empty string');
-  }
-  if (
-    typeof payload.originalSentence !== 'string' ||
-    !payload.originalSentence.trim()
-  ) {
-    errors.push(
-      'payload.originalSentence is required and must be a non-empty string'
-    );
-  }
-  if (
-    payload.includePronunciation !== undefined &&
-    typeof payload.includePronunciation !== 'boolean'
-  ) {
-    errors.push('payload.includePronunciation must be a boolean when provided');
-  }
-  if (payload.contextText !== undefined && typeof payload.contextText !== 'string') {
-    errors.push('payload.contextText must be a string when provided');
-  }
-  if (payload.focusSentence !== undefined && typeof payload.focusSentence !== 'string') {
-    errors.push('payload.focusSentence must be a string when provided');
-  }
-  if (payload.fullContext !== undefined && typeof payload.fullContext !== 'string') {
-    errors.push('payload.fullContext must be a string when provided');
-  }
-  if (
-    payload.useParagraphMode !== undefined &&
-    typeof payload.useParagraphMode !== 'boolean'
-  ) {
-    errors.push('payload.useParagraphMode must be a boolean when provided');
-  }
-  if (
-    payload.learningGoal !== undefined &&
-    typeof payload.learningGoal !== 'string'
-  ) {
-    errors.push('payload.learningGoal must be a string when provided');
-  }
-  if (
-    payload.proficiencyStandard !== undefined &&
-    typeof payload.proficiencyStandard !== 'string'
-  ) {
-    errors.push('payload.proficiencyStandard must be a string when provided');
-  }
-  if (
-    payload.proficiencyLevel !== undefined &&
-    typeof payload.proficiencyLevel !== 'string'
-  ) {
-    errors.push('payload.proficiencyLevel must be a string when provided');
-  }
-  if (payload.domain !== undefined && typeof payload.domain !== 'string') {
-    errors.push('payload.domain must be a string when provided');
-  }
-  if (payload.tone !== undefined && typeof payload.tone !== 'string') {
-    errors.push('payload.tone must be a string when provided');
-  }
-  return errors;
-}
-
 function validateUsageSummaryPayload(payload: unknown): string[] {
   if (payload === undefined) return [];
   if (!isObject(payload)) return ['payload must be an object when provided'];
@@ -405,21 +249,6 @@ function validateUsageSummaryPayload(payload: unknown): string[] {
   }
   if (payload.limit !== undefined && typeof payload.limit !== 'number') {
     errors.push('payload.limit must be a number');
-  }
-  return errors;
-}
-
-function validateAnalyzeAndGeneratePayload(payload: unknown): string[] {
-  if (!isObject(payload)) return ['payload must be an object'];
-  const errors: string[] = [];
-  if (typeof payload.text !== 'string' || !payload.text.trim()) {
-    errors.push('payload.text is required and must be a non-empty string');
-  }
-  if (
-    payload.userKeywords !== undefined &&
-    typeof payload.userKeywords !== 'string'
-  ) {
-    errors.push('payload.userKeywords must be a string when provided');
   }
   return errors;
 }
@@ -460,12 +289,7 @@ function validateGetTaskResultPayload(payload: unknown): string[] {
 }
 
 function validateActionPayload(action: Action, payload: unknown): string[] {
-  if (action === 'analyze_text') return validateAnalyzeTextPayload(payload);
   if (action === 'generate_card') return validateGenerateCardPayload(payload);
-  if (action === 'analyze_context') return validateAnalyzeContextPayload(payload);
-  if (action === 'analyze_and_generate_card') {
-    return validateAnalyzeAndGeneratePayload(payload);
-  }
   if (action === 'pronunciation_assess') {
     return validatePronunciationAssessPayload(payload);
   }
@@ -621,10 +445,7 @@ async function getUsageSummary(
   );
 
   const actions = [
-    'analyze_text',
     'generate_card',
-    'analyze_context',
-    'analyze_and_generate_card',
     'pronunciation_assess',
     'legacy_openai',
     'legacy_gemini',
@@ -666,138 +487,51 @@ async function getUsageSummary(
   });
 }
 
-async function handleAnalyzeText(payload: AnalyzeTextPayload): Promise<Response> {
-  const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
-  const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
-
-  if (!text) {
-    return jsonResponse({ error: 'text is required' }, 400);
-  }
-
-  const prompt = `Analyze the following English text and extract 1 key vocabulary word that a language learner should focus on.
-
-${userKeywords ? `User has expressed interest in: "${userKeywords}". Prioritize these if they appear in the text.` : ''}
-
-Text: "${text}"
-
-Return JSON only:
-{"keywords":["word1"],"suggestedWord":"word1"}`;
-
-  const route = routeGeminiModelForAction({
-    action: 'analyze_text',
-    payloadSize: text.length + userKeywords.length,
-  });
-  const aiResponse = await callGeminiLegacy({
-    model: route.model,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are an English vocabulary coach. Respond with strict JSON only. Keep output concise.',
-      },
-      { role: 'user', content: prompt },
-    ],
-    maxTokens: MAX_TOKENS_ANALYZE,
-    temperature: 0.4,
-    jsonMode: true,
-  });
-  const content = aiResponse.content;
-
-  let parsed: { keywords?: string[]; suggestedWord?: string | null };
-  try {
-    parsed = parseJson<{ keywords?: string[]; suggestedWord?: string | null }>(content);
-  } catch (error) {
-    const cleanedText = stripMarkdownFences(content);
-    console.error('[ai-proxy][analyze_text] JSON parse failed', {
-      error: error instanceof Error ? error.message : String(error),
-      cleanedText,
-    });
-    return jsonResponse({
-      result: {
-        keywords: [],
-        suggestedWord: null,
-      },
-      meta: {
-        route,
-        metrics: aiResponse.metrics,
-        degraded: 'parse_fallback',
-      },
-    });
-  }
-  const keywords = Array.isArray(parsed.keywords)
-    ? parsed.keywords.filter((item) => typeof item === 'string').slice(0, 1)
-    : [];
-    
-  let suggestedWord = typeof parsed.suggestedWord === 'string'
-    ? parsed.suggestedWord
-    : keywords[0] ?? null;
-
-  // 增強容錯：如果 Gemini 沒有照 schema 回傳，嘗試抓取其他常見的 keys
-  if (!suggestedWord && parsed) {
-    if (typeof (parsed as any).keyword === 'string') suggestedWord = (parsed as any).keyword;
-    else if (typeof (parsed as any).word === 'string') suggestedWord = (parsed as any).word;
-    else if (typeof (parsed as any).targetWord === 'string') suggestedWord = (parsed as any).targetWord;
-  }
-
-  return jsonResponse({
-    result: {
-      keywords,
-      suggestedWord,
-    },
-    meta: {
-      route,
-      metrics: aiResponse.metrics,
-    },
-  });
-}
-
+// ==========================================
+// 🚀 UPDATED GENERATE CARD LOGIC
+// ==========================================
 async function handleGenerateCard(payload: GenerateCardPayload): Promise<Response> {
   const targetWord = sanitizeText(payload.targetWord, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
-  const includePronunciation = payload.includePronunciation !== false;
 
   if (!targetWord || !originalSentence) {
-    return jsonResponse(
-      { error: 'targetWord and originalSentence are required' },
-      400
-    );
+    return jsonResponse({ error: 'targetWord and originalSentence are required' }, 400);
   }
 
-  // 修正 1：將 JSON Key 的空格移除，改用 camelCase (partOfSpeech, frequentCollocations)
-  const prompt = `Create a vocabulary learning card for "${targetWord}" in:
+  const prompt = `Create a vocabulary learning card for "${targetWord}" in the context of this sentence:
 "${originalSentence}"
 
 Critical semantic rules:
-1. If "${targetWord}" looks like a typo or OCR error, GUESS the correct intended English word based on the sentence and define that instead. Do NOT give up.
-2. Use ONLY the meaning of "${targetWord}" in this specific sentence, not the most common dictionary meaning.
-3. If the sentence implies a fixed phrase/collocation, explain that phrase-level meaning instead of the single word.
-4. If multiple senses are possible, choose the single best one for this sentence and mention why in contextualExplanation.
-5. In "frequentCollocations", provide 1-3 common collocations or phrases for the target word. Do NOT leave it empty.
-6. Every collocation must include Traditional Chinese translation next to English. Format: English（繁中）.
+1. If "${targetWord}" looks like a typo or OCR error, GUESS the correct intended word.
+2. In "frequentCollocations", you MUST provide 1-3 distinct common collocations. 
+3. Every collocation must include Traditional Chinese translation. Format: English（繁中）.
+4. "normalizedTargetWord" must be the corrected lemma/base form in lowercase.
+5. If input is an inflected verb (e.g. went, studying), return base verb (go, study).
+6. For "contextualExplanation", first output the ORIGINAL English sentence with the target word enclosed in double quotes (""). Then, add a newline character (\\n), followed by the Traditional Chinese translation of the entire sentence with the translated target word enclosed in Chinese quotation marks (「」).
+7. For "example", create a new English example sentence that explicitly uses ONE of the generated "frequentCollocations".
 
 Return JSON only:
 {
-  "partOfSpeech":"What part of speech this word is.",
-  "definition":"Traditional Chinese definition.",
-  "contextualExplanation":"Explaination mainly in traditional chinese about why this word is used in this context or as this collocation.",
-  "example":"Create one concise natural English example sentence using the target word in the same sense as this context.",
-  "frequentCollocations":"The most frequent form or phrase that contains this word.",
+  "normalizedTargetWord":"corrected lemma/base word",
+  "partOfSpeech":"noun/verb/etc.",
+  "definition":"Traditional Chinese definition of the target word.",
+  "contextualExplanation":"The original English sentence with "target word".\\nTraditional Chinese translation with 「翻譯單字」.",
+  "example":"A natural English example sentence utilizing one of the generated collocations.",
+  "frequentCollocations":"collocation 1（繁中）, collocation 2（繁中）",
   "tags":["Vocabulary"]
 }`;
 
-  const route = routeGeminiModelForAction({
-    action: 'generate_card',
-    payloadSize: targetWord.length + originalSentence.length,
-  });
-
+  // 🚀 Hardcode the ultra-fast preview model 
+  const modelName = 'gemini-3.1-flash-lite-preview';
+  //const modelName = 'gemini-2.5-flash';
   let parsed: any = null;
   let aiResponse: any = null;
+  let lastErrorMsg = '';
 
-  // 修正 2：自動重試機制 (最多 2 次)。第一次失敗時，第二次會提高 temperature 來打破死結。
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       aiResponse = await callGeminiLegacy({
-        model: route.model,
+        model: modelName,
         messages: [
           {
             role: 'system',
@@ -806,499 +540,82 @@ Return JSON only:
           { role: 'user', content: prompt },
         ],
         maxTokens: MAX_TOKENS_GENERATE,
-        temperature: attempt === 1 ? 0.6 : 0.85, // 第二次重試時提高溫度
+        temperature: attempt === 1 ? 0.3 : 0.7,
         jsonMode: true,
       });
 
-      parsed = parseJson(aiResponse.content);
-      if (parsed) break; // 成功解析 JSON 就跳出迴圈
+      // Robust JSON extraction matching `{...}`
+      const rawContent = aiResponse.content.trim();
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON object found in response');
+      
+      parsed = JSON.parse(jsonMatch[0]);
+      if (parsed) break; 
     } catch (error) {
-      console.warn(`[ai-proxy][generate_card] Attempt ${attempt} failed:`, error instanceof Error ? error.message : String(error));
-      console.warn(`[ai-proxy][generate_card] Raw content was:`, aiResponse?.content);
+      lastErrorMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`[ai-proxy][generate_card] Attempt ${attempt} failed:`, lastErrorMsg);
     }
   }
 
-  // 如果兩次都失敗，才觸發我們之前寫好的 Fallback 備用資料
+  // 🚀 Explicit UI messages for Quota limits
   if (!parsed) {
+    const isOutOfQuota = lastErrorMsg.toLowerCase().includes('quota') || 
+                         lastErrorMsg.includes('429') || 
+                         lastErrorMsg.includes('limit');
+
     return jsonResponse({
       result: {
+        normalizedTargetWord: normalizeHeadword(targetWord, targetWord),
         partOfSpeech: '',
-        definition: `${targetWord}（AI 暫時無法分析，請手動補充定義）`,
-        contextualExplanation: '',
+        definition: isOutOfQuota ? '⚠️ 目前 AI 額度已用盡' : `${targetWord}（AI 暫時無法分析）`,
+        contextualExplanation: isOutOfQuota 
+          ? '請稍後再試，或聯絡開發者增加 API 額度。' 
+          : `發生錯誤：${lastErrorMsg.slice(0, 50)}... 請檢查網路連線。`,
         example: originalSentence,
         frequentCollocations: '',
         phoneticTranscription: null,
-        tags: ['ai-parse-fallback'],
-      },
-      meta: {
-        route,
-        metrics: aiResponse?.metrics,
-        degraded: 'parse_fallback',
+        tags: ['ai-error'],
       },
     });
   }
 
-  // 相容舊資料或偶發性抓錯 key 的處理
-  const partOfSpeech = sanitizeText(parsed.partOfSpeech || parsed['part of speech'], 80);
-  const definition = sanitizeText(parsed.definition, 2000);
-  const contextualExplanation = sanitizeText(parsed.contextualExplanation, 2000);
-  const example = sanitizeText(parsed.example, 1200);
-  const frequentCollocations = sanitizeText(
-    parsed.frequentCollocations || parsed['Frequent collocations'],
-    500
+  // Robust Key parsing
+  const normalizedTargetWord = normalizeHeadword(
+    parsed.normalizedTargetWord ||
+      parsed.correctedTargetWord ||
+      parsed.lemma ||
+      parsed.targetWord ||
+      parsed.keyword,
+    targetWord
   );
-  const phoneticTranscription =
-    typeof parsed.phoneticTranscription === 'string'
-      ? sanitizeText(parsed.phoneticTranscription, 120)
-      : typeof parsed.pronunciation === 'string'
-        ? sanitizeText(parsed.pronunciation, 120)
-        : typeof parsed.ipa === 'string'
-          ? sanitizeText(parsed.ipa, 120)
-          : typeof parsed.phonetic === 'string'
-            ? sanitizeText(parsed.phonetic, 120)
-      : null;
-  const tags = Array.isArray(parsed.tags)
-    ? parsed.tags
-      .filter((item: unknown): item is string => typeof item === 'string')
-      .map((item: string) => sanitizeText(item, 40))
-      .filter(Boolean)
-      .slice(0, 8)
-    : [];
 
   return jsonResponse({
     result: {
-      partOfSpeech,
-      definition,
-      contextualExplanation,
-      example,
-      frequentCollocations,
-      phoneticTranscription,
-      tags,
-    },
-    meta: {
-      route,
-      metrics: aiResponse?.metrics,
-    },
-  });
-}
-
-async function handleAnalyzeContext(payload: AnalyzeContextPayload): Promise<Response> {
-  const targetText = normalizeTargetToken(
-    sanitizeText(payload.targetText, MAX_WORD_CHARS)
-  );
-  const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
-  const contextText = sanitizeText(payload.contextText, MAX_SENTENCE_CHARS);
-  const focusSentence = sanitizeText(payload.focusSentence, MAX_SENTENCE_CHARS) || originalSentence;
-  const fullContext = sanitizeText(payload.fullContext, MAX_TEXT_CHARS);
-  const useParagraphMode = Boolean(payload.useParagraphMode && fullContext);
-  const includePronunciation = payload.includePronunciation !== false;
-  const shortModalPattern =
-    /^(it|they|he|she|we|i|you)\s+(will|would|shall|should|must|can|could|may|might)\s+[a-z]+$/i
-      .test(focusSentence.trim());
-  const hasDirectMoneyCue =
-    /(\$|dollars?|bucks?|fee|fees|bill|payment|pay for|paying for)/i.test(
-      `${focusSentence} ${contextText}`
-    );
-  const mayNeedPragmaticDisambiguation = shortModalPattern && !hasDirectMoneyCue;
-
-  if (!targetText || !originalSentence) {
-    return jsonResponse(
-      { error: 'targetText and originalSentence are required' },
-      400
-    );
-  }
-  const prompt = `${useParagraphMode
-    ? `請先讀完整段落，再回答目標句中的詞義。\n\nFull context:\n"${fullContext}"\n\nFocus sentence:\n"${focusSentence}"`
-    : `「${originalSentence}」中的「${targetText}」是什麼意思？`}
-
-Context around target:
-"${contextText}"
-
-Critical semantic rules:
-1. 僅解釋此情境的詞義。
-2. "keyword" 必須等於 "${targetText}"，不可改字、不可擴寫成片語。
-3. 先判斷最小語義單位（片語/搭配），再給 translation。
-4. "definition" 只能是精簡繁中翻譯（2-8字），不能寫解釋句。
-5. 若有片語義，禁止輸出裸字典義。
-6. "contextualExplanation" 才能放完整解釋。
-7. "Frequent collocations" 只列 1-3 個同義域高頻搭配，格式 English（繁中）；不確定就回空字串。
-
-Return JSON only:
-{
-  "keyword":"target word",
-  "part of speech":"What part of speech this word is.",
-  "definition":"Concise Traditional Chinese translation only",
-  "contextualExplanation":"Detailed explanation in Traditional Chinese for this sentence",
-  "example":"short example sentence",
-  "Frequent collocations":"The most frequent form or phrase that contains this word.",
-  "confidence":0.0,
-  "alternatives":["sense A","sense B"],
-  "tags":["Vocabulary"]${includePronunciation
-    ? ',\n  "pronunciation":"IPA string (prefer UK/US common IPA) or null only if truly unavailable"'
-    : ''}
-}`;
-
-  console.log(
-    '[ai-proxy][analyze_context][mode]',
-    JSON.stringify(
-      {
-        contextMode: useParagraphMode ? 'paragraph' : 'sentence',
-        secondSegmentModeActivated: useParagraphMode,
-        shortModalPattern,
-        hasDirectMoneyCue,
-        promptLength: prompt.length,
-      },
-      null,
-      2
-    )
-  );
-
-  console.log(
-    '[ai-proxy][analyze_context][input]',
-    JSON.stringify(
-      {
-        targetText,
-        originalSentence,
-        focusSentence,
-        contextText,
-        contextMode: useParagraphMode ? 'paragraph' : 'sentence',
-        secondSegmentModeActivated: useParagraphMode,
-        shortModalPattern,
-        hasDirectMoneyCue,
-        promptLength: prompt.length,
-        useParagraphMode,
-        fullContext,
-        prompt,
-      },
-      null,
-      2
-    )
-  );
-
-  const route = routeGeminiModelForAction({
-    action: 'analyze_context',
-    payloadSize: targetText.length + originalSentence.length + contextText.length + fullContext.length,
-  });
-  const aiResponse = await callGeminiLegacy({
-    model: route.model,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a native English speaker with expert level Chinese skills. Return strict JSON only. Keep wording concise.',
-      },
-      { role: 'user', content: prompt },
-    ],
-    maxTokens: Math.min(MAX_TOKENS_CONTEXT, 220),
-    temperature: 0.2,
-    jsonMode: true,
-  });
-  const content = aiResponse.content;
-
-  console.log(
-    '[ai-proxy][analyze_context][ai_raw_output]',
-    typeof content === 'string' ? content : JSON.stringify(content)
-  );
-
-  let parsed: {
-    keyword?: string;
-    partOfSpeech?: string;
-    ['part of speech']?: string;
-    definition?: string;
-    contextualExplanation?: string;
-    example?: string;
-    frequentCollocations?: string;
-    ['Frequent collocations']?: string;
-    confidence?: number;
-    alternatives?: string[];
-    tags?: string[];
-    pronunciation?: string | null;
-    phoneticTranscription?: string | null;
-    ipa?: string | null;
-    phonetic?: string | null;
-  };
-  try {
-    parsed = parseJson<{
-      keyword?: string;
-      partOfSpeech?: string;
-      ['part of speech']?: string;
-      definition?: string;
-      contextualExplanation?: string;
-      example?: string;
-      frequentCollocations?: string;
-      ['Frequent collocations']?: string;
-      confidence?: number;
-      alternatives?: string[];
-      tags?: string[];
-      pronunciation?: string | null;
-      phoneticTranscription?: string | null;
-      ipa?: string | null;
-      phonetic?: string | null;
-    }>(content);
-  } catch (error) {
-    const cleanedText = stripMarkdownFences(content);
-    console.error('[ai-proxy][analyze_context] JSON parse failed', {
-      error: error instanceof Error ? error.message : String(error),
-      cleanedText,
-    });
-    return jsonResponse({
-      result: {
-        keyword: targetText,
-        partOfSpeech: '',
-        definition: `${targetText}（AI 暫時無法分析，請手動補充定義）`,
-        contextualExplanation: '',
-        example: originalSentence,
-        frequentCollocations: '',
-        confidence: undefined,
-        alternatives: [],
-        tags: ['ai-parse-fallback'],
-        pronunciation: null,
-      },
-      meta: {
-        route,
-        metrics: aiResponse.metrics,
-        degraded: 'parse_fallback',
-      },
-    });
-  }
-
-  const firstPass = parsed;
-  const rawDefinition = sanitizeText(firstPass.definition, 2000);
-  const rawExplanation = sanitizeText(firstPass.contextualExplanation, 2000);
-  const looksLikeMonetarySense =
-    /(支付|付款|付費|繳費|付錢|金錢交易|pay for|payment|monetary|financial)/i.test(
-      `${rawDefinition} ${rawExplanation}`
-    );
-
-  let finalized = firstPass;
-  if (mayNeedPragmaticDisambiguation && looksLikeMonetarySense) {
-    const retryPrompt = `${prompt}
-
-Disambiguation check:
-- Focus sentence is short modal/aux + verb pattern and context has no explicit money object.
-- Re-evaluate pragmatic reading first (consequence/result/retaliation etc.) before transaction meaning.
-- Keep all previous JSON schema requirements unchanged.`;
-
-    const retryResponse = await callGeminiLegacy({
-      model: route.model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a native English speaker with expert level Chinese skills. Return strict JSON only.',
-        },
-        { role: 'user', content: retryPrompt },
-      ],
-      maxTokens: Math.min(MAX_TOKENS_CONTEXT, 220),
-      temperature: 0.1,
-      jsonMode: true,
-    });
-    const retryContent = retryResponse.content;
-
-    console.log(
-      '[ai-proxy][analyze_context][retry_raw_output]',
-      typeof retryContent === 'string' ? retryContent : JSON.stringify(retryContent)
-    );
-
-    const retryParsed = parseJson<{
-      keyword?: string;
-      partOfSpeech?: string;
-      ['part of speech']?: string;
-      definition?: string;
-      contextualExplanation?: string;
-      example?: string;
-      frequentCollocations?: string;
-      ['Frequent collocations']?: string;
-      confidence?: number;
-      alternatives?: string[];
-      tags?: string[];
-      pronunciation?: string | null;
-      phoneticTranscription?: string | null;
-      ipa?: string | null;
-      phonetic?: string | null;
-    }>(retryContent);
-
-    console.log(
-      '[ai-proxy][analyze_context][retry_parsed_output]',
-      JSON.stringify(retryParsed, null, 2)
-    );
-    finalized = retryParsed;
-  }
-
-  console.log(
-    '[ai-proxy][analyze_context][parsed_output]',
-    JSON.stringify(finalized, null, 2)
-  );
-
-  const lockedKeyword = targetText;
-  const partOfSpeech = sanitizeText(finalized.partOfSpeech || finalized['part of speech'], 80);
-  const definition = sanitizeText(finalized.definition, 2000);
-  const contextualExplanation = sanitizeText(finalized.contextualExplanation, 2000);
-  const example = sanitizeText(finalized.example || originalSentence, 1200);
-  const frequentCollocations = sanitizeText(
-    finalized.frequentCollocations || finalized['Frequent collocations'],
-    500
-  );
-  const confidence = typeof finalized.confidence === 'number'
-    ? Math.max(0, Math.min(1, finalized.confidence))
-    : undefined;
-  const alternatives = Array.isArray(finalized.alternatives)
-    ? finalized.alternatives
-      .filter((item) => typeof item === 'string')
-      .map((item) => sanitizeText(item, 120))
-      .filter(Boolean)
-      .slice(0, 3)
-    : [];
-  const tags = Array.isArray(finalized.tags)
-    ? finalized.tags
-      .filter((item) => typeof item === 'string')
-      .map((item) => sanitizeText(item, 40))
-      .filter(Boolean)
-      .slice(0, 8)
-    : [];
-  const pronunciation =
-    typeof finalized.pronunciation === 'string'
-      ? sanitizeText(finalized.pronunciation, 120)
-      : typeof finalized.phoneticTranscription === 'string'
-        ? sanitizeText(finalized.phoneticTranscription, 120)
-        : typeof finalized.ipa === 'string'
-          ? sanitizeText(finalized.ipa, 120)
-          : typeof finalized.phonetic === 'string'
-            ? sanitizeText(finalized.phonetic, 120)
-      : null;
-
-  return jsonResponse({
-    result: {
-      keyword: lockedKeyword,
-      partOfSpeech,
-      definition,
-      contextualExplanation,
-      example,
-      frequentCollocations,
-      confidence,
-      alternatives,
-      tags,
-      pronunciation,
-    },
-    meta: {
-      route,
-      metrics: aiResponse.metrics,
-    },
-  });
-}
-
-async function handleAnalyzeAndGenerate(
-  payload: AnalyzeAndGeneratePayload
-): Promise<Response> {
-  const text = sanitizeText(payload.text, MAX_TEXT_CHARS);
-  const userKeywords = sanitizeText(payload.userKeywords, MAX_KEYWORDS_CHARS);
-  if (!text) {
-    return jsonResponse({ error: 'text is required' }, 400);
-  }
-
-  // 🚀 速度優化：將「抓單字」與「生卡片」合併成一次 API 請求 (One-Shot)
-  const prompt = `Analyze this text and create a vocabulary learning card for ONE key word.
-Text: "${text}"
-${userKeywords ? `Prioritize these keywords if present: "${userKeywords}".` : ''}
-
-Critical rules:
-1. Pick ONE target English word (suggestedWord) from the text. If there are OCR errors, GUESS the correct intended word.
-2. "definition" and "contextualExplanation" MUST explain the word specifically as used in this context. Use Traditional Chinese.
-3. "frequentCollocations": Provide 1-3 common collocations (Noun+Noun, Verb+Noun, etc.). Do NOT leave it empty. Format: English (繁中).
-4. "example": One concise natural English example sentence.
-
-Return JSON only:
-{
-  "keywords": ["word1"],
-  "suggestedWord": "target word",
-  "partOfSpeech": "What part of speech this word is.",
-  "definition": "Traditional Chinese definition.",
-  "contextualExplanation": "Explanation mainly in traditional chinese.",
-  "example": "example sentence.",
-  "frequentCollocations": "collocation 1 (繁中), collocation 2 (繁中)",
-  "phoneticTranscription": "IPA string or null",
-  "tags": ["Vocabulary"]
-}`;
-
-  const route = routeGeminiModelForAction({
-    action: 'analyze_and_generate_card',
-    payloadSize: text.length + userKeywords.length,
-  });
-
-  let parsed: any = null;
-  let aiResponse: any = null;
-
-  // 加入自動重試機制
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      aiResponse = await callGeminiLegacy({
-        model: route.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert bilingual English teacher. Return strict JSON only. ALL JSON property names MUST be enclosed in double quotes.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        maxTokens: MAX_TOKENS_GENERATE,
-        temperature: attempt === 1 ? 0.6 : 0.85,
-        jsonMode: true,
-      });
-
-      parsed = parseJson(aiResponse.content);
-      if (parsed?.suggestedWord) break; 
-    } catch (error) {
-      console.warn(`[ai-proxy][analyze_and_generate] Attempt ${attempt} failed:`, error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  // 防空白畫面的 Fallback
-  if (!parsed?.suggestedWord) {
-    console.warn('[ai-proxy][analyze_and_generate] using regex fallback from text.');
-    const match = text.match(/[A-Za-z]+/);
-    const fallbackWord = match ? match[0] : 'Unknown';
-    return jsonResponse({
-      result: {
-        keywords: [],
-        suggestedWord: fallbackWord,
-        definition: `${fallbackWord}（AI 暫時無法分析，請手動補充定義）`,
-        partOfSpeech: '',
-        contextualExplanation: '',
-        example: text,
-        frequentCollocations: '',
-        phoneticTranscription: null,
-        tags: ['ai-parse-fallback'],
-      },
-    });
-  }
-
-  return jsonResponse({
-    result: {
-      keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [parsed.suggestedWord],
-      suggestedWord: sanitizeText(parsed.suggestedWord, MAX_WORD_CHARS),
-      definition: sanitizeText(parsed.definition, 2000),
-      partOfSpeech: sanitizeText(parsed.partOfSpeech || parsed['part of speech'], 80),
-      contextualExplanation: sanitizeText(parsed.contextualExplanation, 2000),
-      example: sanitizeText(parsed.example, 1200),
-      frequentCollocations: sanitizeText(parsed.frequentCollocations || parsed['Frequent collocations'], 500),
-      phoneticTranscription: typeof parsed.phoneticTranscription === 'string' ? sanitizeText(parsed.phoneticTranscription, 120) : null,
+      normalizedTargetWord,
+      partOfSpeech: sanitizeText(parsed.partOfSpeech || parsed['part of speech'] || parsed['pos'] || '', 80),
+      definition: sanitizeText(parsed.definition || '', 2000),
+      contextualExplanation: sanitizeText(parsed.contextualExplanation || parsed['explanation'] || '', 2000),
+      example: sanitizeText(parsed.example || '', 1200),
+      frequentCollocations: sanitizeText(
+        parsed.frequentCollocations || 
+        parsed['frequent_collocations'] || 
+        parsed['collocations'] || 
+        parsed['Frequent collocations'] || '', 
+        500
+      ),
+      phoneticTranscription: typeof (parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa) === 'string' 
+        ? sanitizeText(parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa, 120) 
+        : null,
       tags: Array.isArray(parsed.tags) ? parsed.tags : ['Vocabulary'],
     },
+    meta: { modelUsed: modelName, metrics: aiResponse?.metrics },
   });
 }
+// ==========================================
 
 async function executeAction(action: Action, payload: unknown): Promise<Response> {
-  if (action === 'analyze_text') {
-    return await handleAnalyzeText(payload as AnalyzeTextPayload);
-  }
   if (action === 'generate_card') {
     return await handleGenerateCard(payload as GenerateCardPayload);
-  }
-  if (action === 'analyze_context') {
-    return await handleAnalyzeContext(payload as AnalyzeContextPayload);
-  }
-  if (action === 'analyze_and_generate_card') {
-    return await handleAnalyzeAndGenerate(payload as AnalyzeAndGeneratePayload);
   }
   if (action === 'pronunciation_assess') {
     return await handlePronunciationAssess(payload as PronunciationAssessPayload);
@@ -1545,44 +862,6 @@ Deno.serve(async (req: Request) => {
         }
       } catch {
         // ignore
-      }
-      if (body.action === 'analyze_context') {
-        try {
-          const payload = body.payload as AnalyzeContextPayload;
-          const parsed = await response.clone().json() as {
-            result?: {
-              keyword?: string;
-              definition?: string;
-              contextualExplanation?: string;
-              frequentCollocations?: string;
-              pronunciation?: string | null;
-            };
-            meta?: {
-              metrics?: AIExecutionMetrics;
-              route?: ModelRoute;
-            };
-          };
-          debugMeta = {
-            ...(debugMeta || {}),
-            input: {
-              targetText: sanitizeText(payload.targetText, 120),
-              originalSentence: sanitizeText(payload.originalSentence, 600),
-              contextText: sanitizeText(payload.contextText, 600),
-            },
-            output: {
-              keyword: sanitizeText(parsed?.result?.keyword, 120),
-              definition: sanitizeText(parsed?.result?.definition, 600),
-              contextualExplanation: sanitizeText(parsed?.result?.contextualExplanation, 600),
-              frequentCollocations: sanitizeText(parsed?.result?.frequentCollocations, 600),
-              pronunciation:
-                typeof parsed?.result?.pronunciation === 'string'
-                  ? sanitizeText(parsed.result.pronunciation, 120)
-                  : '',
-            },
-          };
-        } catch {
-          debugMeta = { debug: 'failed_to_capture_analyze_context_result' };
-        }
       }
       await trackUsage({
         userId,

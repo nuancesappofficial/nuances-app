@@ -115,6 +115,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
                     navigation.navigate('CardDetail', {
                       cardId: card.id,
                       cardIds: dayCards.map((item) => item.id),
+                      headerTitle: dayNames[day] || day,
                     })
                   }
                 >

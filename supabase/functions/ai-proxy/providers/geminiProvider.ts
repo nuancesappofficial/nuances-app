@@ -62,7 +62,7 @@ export function routeGeminiModelForAction(params: {
     return { model: quality, tier: 'quality', reason: 'long_or_context_heavy' };
   }
   if (params.action === 'generate_card' || params.action === 'analyze_and_generate_card') {
-    return { model: balanced, tier: 'balanced', reason: 'content_generation' };
+    return { model: fast, tier: 'fast', reason: 'content_generation' };
   }
   return { model: fast, tier: 'fast', reason: 'default_low_latency' };
 }

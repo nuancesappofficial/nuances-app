@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, Alert, AppState, type AppStateStatus } from 'react-native';
+import { View, Text, StyleSheet, Alert, AppState, type AppStateStatus } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
@@ -76,6 +77,7 @@ function toRelativeImportTime(createdAt?: Date | null): string {
 }
 
 export default function CacheScreenFlow({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
   const [animationSeed, setAnimationSeed] = useState(0);
@@ -210,7 +212,6 @@ export default function CacheScreenFlow({ navigation }: Props) {
       }
       setManualText('');
       setShowAddModal(false);
-      Alert.alert('成功', '已新增文字快取');
     } catch (error) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
@@ -284,7 +285,6 @@ export default function CacheScreenFlow({ navigation }: Props) {
           );
           if (createdCount > 0) {
             setShowAddModal(false);
-            Alert.alert('成功', `已新增 ${createdCount} 張圖片快取`);
           } else {
             Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
           }
@@ -520,6 +520,10 @@ export default function CacheScreenFlow({ navigation }: Props) {
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <View pointerEvents="none" style={[styles.brandWrap, { top: insets.top + 6 }]}>
+        <Text style={styles.brandText}>Nuances</Text>
+      </View>
+
       <CacheStackUI
         cards={stackCards}
         animationSeed={animationSeed}
@@ -568,5 +572,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A0A',
+  },
+  brandWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 12,
+    alignItems: 'center',
+  },
+  brandText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
 });

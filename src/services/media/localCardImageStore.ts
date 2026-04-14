@@ -75,6 +75,30 @@ export async function persistLocalCardImage(cardId: string, sourceUri?: string |
   return targetUri;
 }
 
+export async function persistRemoteCardImage(cardId: string, remoteUri?: string | null): Promise<string | null> {
+  const normalizedCardId = (cardId || '').trim();
+  const normalizedRemote = (remoteUri || '').trim();
+  if (!normalizedCardId || !normalizedRemote) return null;
+  if (!/^https?:\/\//i.test(normalizedRemote)) return null;
+
+  await ensureLocalDir();
+  const clean = normalizedRemote.split('?')[0] || '';
+  const ext = getExt(clean);
+  const targetUri = `${LOCAL_CARD_IMAGE_DIR}${normalizedCardId}.${ext}`;
+  try {
+    await FileSystemLegacy.downloadAsync(normalizedRemote, targetUri);
+  } catch {
+    return null;
+  }
+
+  const targetInfo = await FileSystemLegacy.getInfoAsync(targetUri);
+  if (!targetInfo.exists) return null;
+  const map = await loadMap();
+  const nextMap = { ...map, [normalizedCardId]: targetUri };
+  await saveMap(nextMap);
+  return targetUri;
+}
+
 export async function getLocalCardImageUri(cardId?: string | null): Promise<string | null> {
   const normalizedCardId = (cardId || '').trim();
   if (!normalizedCardId) return null;
@@ -92,4 +116,3 @@ export async function getLocalCardImageUri(cardId?: string | null): Promise<stri
   }
   return fileUri;
 }
-

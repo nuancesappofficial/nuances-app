@@ -78,6 +78,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 52,
     justifyContent: 'center',
+    marginHorizontal: 8,
   },
   imageAction: {
     backgroundColor: '#FF9500',

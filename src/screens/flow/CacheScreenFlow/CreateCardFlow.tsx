@@ -40,7 +40,10 @@ type CollocationItem = {
 };
 
 type CompletedCard = {
+  // OCR/選字原字，用作本地狀態 key
   word: string;
+  // AI 校正後（含詞形還原）的卡片顯示字
+  displayWord: string;
   partOfSpeech: string;
   definition: string;
   cultural: string;
@@ -320,11 +323,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     async (word: string) => {
       startProgressTimer(word);
       try {
-        const generated = await generateContentForWord(word, sourceText || word);
+        const sentenceForAI = pickSentenceContainingWord(sourceText, word) || sourceText || word;
+        const generated = await generateContentForWord(word, sentenceForAI);
+        const resolvedDisplayWord = normalizeWord(generated.suggestedWord || word) || word;
         const card: CompletedCard = {
           word,
+          displayWord: resolvedDisplayWord,
           partOfSpeech: generated.partOfSpeech || 'noun',
-          definition: generated.definition || `${word}（待補充定義）`,
+          definition: generated.definition || `${resolvedDisplayWord}（待補充定義）`,
           cultural: generated.contextualExplanation || '',
           aiExampleSentence: generated.exampleSentence || '',
           collocations: collocationsFromText(generated.frequentCollocations || ''),
@@ -352,6 +358,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           ...prev,
           {
             word,
+            displayWord: word,
             partOfSpeech: 'noun',
             definition: `${word}（待補充定義）`,
             cultural: '',
@@ -438,9 +445,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             const sourceSentence = pickSentenceContainingWord(sourceText, cardDraft.word);
             card.userId = cachedItem.userId;
             card.cachedItemId = cachedItem.id;
-            card.targetWord = cardDraft.word;
+            card.targetWord = cardDraft.displayWord;
             card.targetPhrase = undefined;
-            card.originalSentence = (cardDraft.aiExampleSentence || '').trim() || sourceSentence || sourceText;
+            card.originalSentence = sourceSentence || sourceText;
             card.definition = cardDraft.definition;
             card.partOfSpeech = cardDraft.partOfSpeech || undefined;
             card.contextualExplanation = cardDraft.cultural || undefined;
@@ -626,7 +633,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               <View key={card.word} style={styles.cardBlock}>
                 <View style={styles.cardHead}>
                   <View>
-                    <Text style={styles.cardWord}>{card.word}</Text>
+                    <Text style={styles.cardWord}>{card.displayWord}</Text>
                     <Text style={styles.cardPos}>{card.partOfSpeech}</Text>
                   </View>
                   <TouchableOpacity

@@ -21,6 +21,7 @@ export type HeatMapDay = {
   key: string;
   date: Date;
   dayNumber: string;
+  cards: Card[];
   card?: Card;
   imageUri?: string;
 };
@@ -49,7 +50,7 @@ type Props = {
   onToggleEntitlement: () => void;
   onPressBack: () => void;
   onPressMenu: () => void;
-  onPressDay: (cardId: string) => void;
+  onPressDay: (day: HeatMapDay) => void;
 };
 
 const GRID_SIZE = 42;
@@ -125,7 +126,7 @@ function HeatMapCircle({
 }: {
   item: HeatMapDay;
   isToday: boolean;
-  onPressDay: (cardId: string) => void;
+  onPressDay: (day: HeatMapDay) => void;
 }) {
   const circleStyle = {
     width: GRID_SIZE,
@@ -147,10 +148,10 @@ function HeatMapCircle({
   return (
     <TouchableOpacity
       style={styles.dayWrap}
-      activeOpacity={item.card ? 0.88 : 1}
+      activeOpacity={item.cards.length ? 0.88 : 1}
       onPress={() => {
-        if (!item.card) return;
-        onPressDay(item.card.id);
+        if (!item.cards.length) return;
+        onPressDay(item);
       }}
     >
       {isToday ? (

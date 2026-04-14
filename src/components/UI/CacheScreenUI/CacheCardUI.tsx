@@ -201,14 +201,6 @@ export default function CacheCardUI({
             {imageUri ? <CacheImageCardFace imageUri={imageUri} fallbackText={text} /> : <CacheTextCardFace text={text} />}
             <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
           </View>
-
-          <View style={styles.footerContainer}>
-            <View style={styles.footerDivider} />
-            <View style={styles.aiSuggestionRow}>
-              <Ionicons name="sparkles" size={12} color="#9B68E1" />
-              <Text style={styles.aiSuggestionText}>AI suggests: "shitshow"</Text>
-            </View>
-          </View>
         </View>
       </Animated.View>
     </GestureDetector>
@@ -265,24 +257,5 @@ const styles = StyleSheet.create({
   },
   overlay: {
     zIndex: 1,
-  },
-  footerContainer: {
-    marginTop: 10,
-  },
-  footerDivider: {
-    borderTopWidth: 1,
-    borderTopColor: '#EBEDF2',
-    marginBottom: 8,
-  },
-  aiSuggestionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 2,
-  },
-  aiSuggestionText: {
-    color: '#9B68E1',
-    fontSize: 12,
-    fontWeight: '600',
   },
 });

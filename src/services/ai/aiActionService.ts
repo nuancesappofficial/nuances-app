@@ -117,6 +117,7 @@ export async function generateCardContent(
   originalSentence: string,
   _personalization?: AIPersonalizationOptions
 ): Promise<{
+  normalizedTargetWord: string;
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
@@ -137,6 +138,11 @@ export async function generateCardContent(
         includePronunciation?: boolean;
       },
       {
+        normalizedTargetWord?: string;
+        correctedTargetWord?: string;
+        lemma?: string;
+        targetWord?: string;
+        keyword?: string;
         definition: string;
         partOfSpeech?: string;
         ['part of speech']?: string;
@@ -156,7 +162,16 @@ export async function generateCardContent(
       includePronunciation: !localPhonetic,
     });
 
+    const resolvedHeadword = normalizeOptionalString(
+      result.normalizedTargetWord ||
+      result.correctedTargetWord ||
+      result.lemma ||
+      result.targetWord ||
+      result.keyword
+    ) || targetWord;
+
     return {
+      normalizedTargetWord: resolvedHeadword,
       definition: result.definition || '',
       partOfSpeech:
         result.partOfSpeech || result['part of speech'] || '',
@@ -211,6 +226,11 @@ export async function analyzeAndGenerateCard(
       includePronunciation: boolean;
     },
     {
+      normalizedTargetWord?: string;
+      correctedTargetWord?: string;
+      lemma?: string;
+      targetWord?: string;
+      keyword?: string;
       definition: string;
       partOfSpeech?: string;
       ['part of speech']?: string;
@@ -230,9 +250,17 @@ export async function analyzeAndGenerateCard(
     includePronunciation: true,
   });
 
+  const resolvedHeadword = normalizeOptionalString(
+    result.normalizedTargetWord ||
+    result.correctedTargetWord ||
+    result.lemma ||
+    result.targetWord ||
+    result.keyword
+  ) || targetWord;
+
   return {
-    keywords: [targetWord],
-    suggestedWord: targetWord,
+    keywords: [resolvedHeadword],
+    suggestedWord: resolvedHeadword,
     definition: result.definition || '',
     partOfSpeech: result.partOfSpeech || result['part of speech'] || '',
     contextualExplanation: result.contextualExplanation || '',

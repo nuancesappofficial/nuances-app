@@ -59,6 +59,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 52,
     justifyContent: 'center',
+    marginHorizontal: 8,
   },
   primaryActionDisabled: {
     opacity: 0.5,

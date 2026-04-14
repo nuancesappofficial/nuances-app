@@ -126,6 +126,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    transform: [{ translateY: 40 }]
   },
   floatingActionsRow: {
     position: 'absolute',

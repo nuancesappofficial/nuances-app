@@ -1,6 +1,5 @@
 import React from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
-import { BlurView } from 'expo-blur';
 import Reanimated from 'react-native-reanimated';
 import type Card from '@database/models/Card';
 
@@ -9,6 +8,7 @@ type Props = {
   flatListRef: React.RefObject<FlatList<Card> | null>;
   currentIndex: number;
   displayIndex: number;
+  extraData?: unknown;
   renderItem: ({ item, index }: { item: Card; index: number }) => React.ReactElement;
   scrollHandler: any;
   onMomentumScrollEnd: (event: any) => void;
@@ -21,6 +21,7 @@ export default function CardDetailCarouselUI({
   flatListRef,
   currentIndex: _currentIndex,
   displayIndex,
+  extraData,
   renderItem,
   scrollHandler,
   onMomentumScrollEnd,
@@ -33,6 +34,7 @@ export default function CardDetailCarouselUI({
         <Reanimated.FlatList
           ref={flatListRef}
           data={scopedCards}
+          extraData={extraData}
           keyExtractor={(item) => item.id}
           horizontal
           scrollEnabled
@@ -62,11 +64,7 @@ export default function CardDetailCarouselUI({
         />
       </View>
 
-      <View pointerEvents="none" style={styles.floatingCountWrap}>
-        <BlurView intensity={26} tint="dark" style={styles.floatingCountPill}>
-          <Text style={styles.floatingCountText}>{`${displayIndex + 1}/${scopedCards.length}`}</Text>
-        </BlurView>
-      </View>
+      
     </View>
   );
 }
@@ -88,29 +86,5 @@ const styles = StyleSheet.create({
   },
   carouselContent: {
     paddingHorizontal: 0,
-  },
-  floatingCountWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  floatingCountPill: {
-    minWidth: 56,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(16, 16, 18, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  floatingCountText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
   },
 });

@@ -2,18 +2,21 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   FlatList,
+  Image,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
-  Image,
   Animated,
+  Easing,
   Vibration,
   Platform,
 } from 'react-native';
@@ -21,32 +24,38 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { Q } from '@nozbe/watermelondb';
 import Reanimated, {
-  Extrapolation,
-  interpolate,
   runOnJS,
-  type SharedValue,
   useAnimatedScrollHandler,
-  useAnimatedStyle,
   useSharedValue,
 } from 'react-native-reanimated';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import type CachedItem from '@database/models/CachedItem';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import {
   assessPronunciationCloud,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
 import { resolveCardImageUri } from '@services/media/cardImage';
+import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
-import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
+import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
+import {
+  CARD_WIDTH,
+  SPACING,
+  SIDE_PADDING,
+  SIDE_PEEK_SHIFT,
+  SNAP_INTERVAL,
+} from '../../../components/UI/DeckScreenUI/cardCarouselConfig';
 import {
   ALBUM_TAG_PREFIX,
   FAVORITES_ALBUM_ID,
@@ -56,10 +65,11 @@ import {
   saveDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
+import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
 
 type Props = {
   navigation: any;
-  route: { params?: { cardId?: string; cardIds?: string[] } };
+  route: { params?: { cardId?: string; cardIds?: string[]; albumName?: string; headerTitle?: string } };
 };
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
@@ -82,19 +92,18 @@ const PRONUNCIATION_RECORDING_OPTIONS = {
 
 const MAX_PRONUNCIATION_RECORDING_MS = 10_000;
 const MIN_PRONUNCIATION_RECORDING_MS = 350;
+const CARD_DETAIL_FONT_SCALE = 0.7;
 
 const albumIdToCategoryTag: Record<string, string> = {
   slang: 'slang',
   culture: 'culture',
   work: 'work',
 };
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 0.99;
-const SPACING = 8;
-const SNAP_INTERVAL = CARD_WIDTH + SPACING;
-const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2 - SPACING / 2;
-const SIDE_PEEK_SHIFT = 60;
 const HEADER_BUTTON_TOP_OFFSET = 0;
+
+function scaleFont(size: number): number {
+  return Math.round(size * CARD_DETAIL_FONT_SCALE * 100) / 100;
+}
 
 function getFloatingHeaderTop(insetTop: number): number {
   return insetTop + HEADER_BUTTON_TOP_OFFSET;
@@ -177,256 +186,14 @@ function formatCardDate(input: Date | string | undefined | null): string {
   });
 }
 
-type CarouselCardProps = {
-  item: Card;
-  index: number;
-  currentIndex: number | null;
-  scrollX: SharedValue<number>;
-  itemImageUri: string | null;
-  isPlaying: boolean;
-  isRecording: boolean;
-  isAnalyzing: boolean;
-  hasRecorded: boolean;
-  showFeedback: boolean;
-  pronunciationScore: number | null;
-  pronunciationFeedbackLines: string[];
-  phonemeChips: CloudPhonemeFeedback[];
-  waveformValues: Animated.Value[];
-  onPlayCard: (text: string, isActiveCard: boolean, index: number) => void;
-  onToggleRecord: (isActiveCard: boolean, index: number) => void;
-  onPlayPreview: () => void;
-  onReset: () => void;
-  navigateToIndex: (index: number) => void;
-  snapInterval: number;
-  sidePeekShift: number;
-};
-
-function renderPosterCard(
-  item: Card | null,
-  imageUri: string | null,
-  variant: 'center' | 'side',
-  edge?: 'left' | 'right'
-) {
-  if (!item) return null;
-
-  const word = item.targetWord || item.targetPhrase || '-';
-  const topRightLabel = item.partOfSpeech || item.sourceApp || 'CARD';
-  const footLabel = item.sourceApp || 'nuances';
-  const posterDate = formatCardDate(item.createdAt);
-  const isCenter = variant === 'center';
-
-  return (
-    <View style={[styles.posterCard, isCenter ? styles.posterCardCenter : styles.posterCardSide]}>
-      <View style={styles.posterTopRow}>
-        <Text style={[styles.posterMeta, !isCenter && styles.posterMetaSide]} numberOfLines={1}>
-          {topRightLabel}
-        </Text>
-        <Text style={[styles.posterDate, !isCenter && styles.posterDateSide]} numberOfLines={1}>
-          {posterDate}
-        </Text>
-      </View>
-
-      <View style={[styles.posterPhotoFrame, !isCenter && styles.posterPhotoFrameSide]}>
-        {imageUri ? (
-          <Image
-            key={`${item.id}-${imageUri}`}
-            source={{ uri: imageUri }}
-            style={[styles.posterPhoto, !isCenter && styles.posterPhotoSide]}
-            resizeMode="cover"
-            blurRadius={isCenter ? 0 : 1.2}
-          />
-        ) : null}
-        <View style={[styles.posterGhostWordWrap, !isCenter && styles.posterGhostWordWrapSide]}>
-          <Text style={[styles.posterTitle, !isCenter && styles.posterTitleSide]} numberOfLines={2}>
-            {word}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.posterBottomBar}>
-        <Text style={[styles.posterBrand, !isCenter && styles.posterBrandSide]} numberOfLines={1}>
-          {footLabel}
-        </Text>
-        <Text style={[styles.posterBookmark, !isCenter && styles.posterActionIconSide]}>⤢</Text>
-      </View>
-
-      {!isCenter && edge ? (
-        <View style={[styles.sideHintWrap, edge === 'left' ? styles.sideHintLeft : styles.sideHintRight]}>
-          <Text style={styles.sideHintText}>{edge === 'left' ? '上一張' : '下一張'}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-const CarouselCard = React.memo(function CarouselCard({
-  item,
-  index,
-  currentIndex,
-  scrollX,
-  itemImageUri,
-  isPlaying,
-  isRecording,
-  isAnalyzing,
-  hasRecorded,
-  showFeedback,
-  pronunciationScore,
-  pronunciationFeedbackLines,
-  phonemeChips,
-  waveformValues,
-  onPlayCard,
-  onToggleRecord,
-  onPlayPreview,
-  onReset,
-  navigateToIndex,
-  snapInterval,
-  sidePeekShift,
-}: CarouselCardProps) {
-  const itemWord = item.targetWord || item.targetPhrase || '-';
-  const itemPronunciation =
-    item.phoneticTranscription || buildPronunciation(itemWord);
-  const itemPronunciationText =
-    sanitizePronunciationText(item.targetWord) ||
-    sanitizePronunciationText(item.targetPhrase) ||
-    sanitizePronunciationText(item.originalSentence) ||
-    '';
-  const itemCaption = item.partOfSpeech || item.sourceApp || 'Card';
-  const itemDisplayDate = formatCardDate(item.createdAt);
-  const isActiveCard = index === currentIndex;
-
-  const animatedCardStyle = useAnimatedStyle(() => {
-    const inputRange = [
-      (index - 1) * snapInterval,
-      index * snapInterval,
-      (index + 1) * snapInterval,
-    ];
-
-    const scale = interpolate(scrollX.value, inputRange, [0.9, 1, 0.9], Extrapolation.CLAMP);
-    const translateY = interpolate(scrollX.value, inputRange, [30, 0, 30], Extrapolation.CLAMP);
-    const translateX = interpolate(
-      scrollX.value,
-      inputRange,
-      [-sidePeekShift, 0, sidePeekShift],
-      Extrapolation.CLAMP
-    );
-    const opacity = interpolate(scrollX.value, inputRange, [0.72, 1, 0.72], Extrapolation.CLAMP);
-    const zIndex = Math.round(
-      interpolate(scrollX.value, inputRange, [0, 100, 0], Extrapolation.CLAMP)
-    );
-
-    return {
-      opacity,
-      zIndex,
-      elevation: zIndex,
-      transform: [{ scale }, { translateX }, { translateY }],
-    };
-  }, [index, scrollX, sidePeekShift, snapInterval]);
-
-  return (
-    <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
-      <View style={styles.detailCardShell}>
-        <ScrollView
-          style={styles.detailCardScroll}
-          contentContainerStyle={styles.detailCardScrollContent}
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={isActiveCard}
-        >
-          <View style={styles.detailPaper}>
-            {renderPosterCard(item, itemImageUri, 'center')}
-
-            <View style={styles.wordCard}>
-              <View style={styles.wordTopRow}>
-                <View style={styles.wordLeft}>
-                  <Text style={styles.word}>{itemWord}</Text>
-                  <View style={styles.wordMetaRow}>
-                    <View style={styles.posBadge}>
-                      <Text style={styles.posText}>{itemCaption}</Text>
-                    </View>
-                    <Text style={styles.pronunciation}>{itemPronunciation}</Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.playBtn}
-                  onPress={() => onPlayCard(itemPronunciationText, isActiveCard, index)}
-                >
-                  <Text style={styles.playBtnText}>{isActiveCard && isPlaying ? '🔊' : '🔉'}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.infoGrid}>
-                <View style={styles.infoPill}>
-                  <Text style={styles.infoPillLabel}>卡片日期</Text>
-                  <Text style={styles.infoPillValue}>{itemDisplayDate || '-'}</Text>
-                </View>
-                <View style={styles.infoPill}>
-                  <Text style={styles.infoPillLabel}>難度</Text>
-                  <Text style={styles.infoPillValue}>
-                    {item.difficultyLevel ? `Lv.${item.difficultyLevel}` : '-'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>Definition</Text>
-                <Text style={styles.sectionValue}>{item.definition || '-'}</Text>
-              </View>
-
-              {item.contextualExplanation ? (
-                <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionLabel}>Context</Text>
-                  <Text style={styles.sectionValue}>{item.contextualExplanation}</Text>
-                </View>
-              ) : null}
-
-              {item.originalSentence ? (
-                <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionLabel}>Example</Text>
-                  <Text style={styles.sectionExample}>"{item.originalSentence}"</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <PronunciationCoachUI
-              isActiveCard={isActiveCard}
-              isRecording={isRecording}
-              hasRecorded={hasRecorded}
-              showFeedback={showFeedback}
-              isAnalyzing={isAnalyzing}
-              pronunciationScore={pronunciationScore}
-              pronunciationFeedbackLines={pronunciationFeedbackLines}
-              phonemeChips={phonemeChips}
-              waveformValues={waveformValues}
-              itemWord={itemWord}
-              onReset={onReset}
-              onPrimaryAction={() => onToggleRecord(isActiveCard, index)}
-              onPlayPreview={onPlayPreview}
-            />
-
-            <View style={[styles.tipsCard, !isActiveCard && styles.inactiveDetailBlock]}>
-              <Text style={styles.tipsTitle}>Learning Tips</Text>
-              <View style={styles.tipRow}>
-                <Text style={styles.tipIcon}>💡</Text>
-                <Text style={styles.tipText}>This word is commonly used in informal American English</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Text style={styles.tipIcon}>📝</Text>
-                <Text style={styles.tipText}>Try using it in a sentence today to reinforce your memory</Text>
-              </View>
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    </Reanimated.View>
-  );
-});
-
 export default function CardDetailScreen({ navigation, route }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const cardId = route.params?.cardId;
   const routeCardIds = route.params?.cardIds;
+  const headerTitle = route.params?.headerTitle || route.params?.albumName || 'Deck';
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(true);
@@ -444,6 +211,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
   const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
+  const [isFullscreenViewerVisible, setIsFullscreenViewerVisible] = React.useState(false);
+  const [fullscreenCardIndex, setFullscreenCardIndex] = React.useState<number | null>(null);
   const [selectedAlbums, setSelectedAlbums] = React.useState<string[]>([]);
   const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
@@ -458,10 +227,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const userRecordingSoundRef = React.useRef<any | null>(null);
   const waveformPointerRef = React.useRef(0);
   const flatListRef = React.useRef<FlatList<Card> | null>(null);
+  const fullscreenListRef = React.useRef<FlatList<Card> | null>(null);
   const initialScrollDone = React.useRef(false);
   const didMountIndexRef = React.useRef(false);
   const scrollX = useSharedValue(0);
   const activeIndexUI = useSharedValue(currentIndex ?? 0);
+  const fullscreenDragY = React.useRef(new Animated.Value(0)).current;
+  const fullscreenBackdropOpacity = React.useRef(new Animated.Value(1)).current;
+  const fullscreenContentOpacity = React.useRef(new Animated.Value(1)).current;
+  const fullscreenEntryProgress = React.useRef(new Animated.Value(0)).current;
+  const fullscreenDragYValueRef = React.useRef(0);
 
   const hydrateAlbumPrefs = React.useCallback(async () => {
     const prefs = await loadDeckAlbumPreferences();
@@ -518,6 +293,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const card = currentIndex === null ? null : scopedCards[currentIndex] ?? null;
   const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
+  const markCenteredCardSeen = React.useCallback(
+    (index: number) => {
+      const targetCard = scopedCards[index];
+      if (!targetCard) return;
+      void markCardAsSeen(targetCard.id);
+    },
+    [scopedCards]
+  );
 
   React.useEffect(() => {
     if (!scopedCards.length || initialScrollDone.current) {
@@ -537,6 +320,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     activeIndexUI.value = targetIndex;
     setCurrentIndex(targetIndex);
     setDisplayIndex(targetIndex);
+    markCenteredCardSeen(targetIndex);
 
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToOffset({
@@ -544,7 +328,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         animated: false,
       });
     });
-  }, [activeIndexUI, cardId, scopedCards]);
+  }, [activeIndexUI, cardId, markCenteredCardSeen, scopedCards]);
 
   React.useEffect(() => {
     if (!scopedCards.length) {
@@ -565,19 +349,66 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     if (!scopedCards.length) return () => undefined;
 
     const resolveImages = async () => {
+      const isLocalPath = (uri: string): boolean => uri.startsWith('file://') || uri.startsWith('/');
+      const hasExistingLocalFile = async (uri: string): Promise<boolean> => {
+        if (!isLocalPath(uri)) return true;
+        try {
+          const info = await FileSystemLegacy.getInfoAsync(uri);
+          return Boolean(info.exists);
+        } catch {
+          return false;
+        }
+      };
+
+      const cachedItemById: Record<string, CachedItem> = {};
+      const cachedItemIds = Array.from(
+        new Set(
+          scopedCards
+            .map((item) => item.cachedItemId)
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+
+      await Promise.all(
+        cachedItemIds.map(async (id) => {
+          try {
+            const cachedItem = await database.get<CachedItem>('cached_items').find(id);
+            cachedItemById[id] = cachedItem;
+          } catch {
+            // 卡片可能已與快取項目解關聯，忽略即可
+          }
+        })
+      );
+
       const nextEntries = await Promise.all(
         scopedCards.map(async (item) => {
-          const uri = await resolveCardImageUri({
-            cardId: item.id,
-            remoteUri: item.imageUrl,
-          });
-          if (item.imageUrl && !uri) {
+          const cachedItem = item.cachedItemId ? cachedItemById[item.cachedItemId] : undefined;
+          const candidates = [
+            cachedItem?.mediaUri || null,
+            item.imageUrl || null,
+            cachedItem?.imageStoragePath || null,
+          ].filter((value): value is string => Boolean(value));
+
+          let resolvedUri: string | null = null;
+          for (const candidate of candidates) {
+            const uri = await resolveCardImageUri({
+              cardId: item.id,
+              remoteUri: candidate,
+            });
+            if (!uri) continue;
+            const localExists = await hasExistingLocalFile(uri);
+            if (!localExists) continue;
+            resolvedUri = uri;
+            break;
+          }
+
+          if (candidates.length > 0 && !resolvedUri) {
             console.warn('[CardDetail] card image resolve failed', {
               cardId: item.id,
-              imageUrl: item.imageUrl,
+              imageCandidates: candidates,
             });
           }
-          return [item.id, uri] as const;
+          return [item.id, resolvedUri] as const;
         })
       );
 
@@ -664,6 +495,20 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
   }, []);
 
+  const stopActiveAudio = React.useCallback(async () => {
+    setIsPlaying(false);
+    await stopUserRecordingPreview();
+    await Speech.stop();
+  }, [stopUserRecordingPreview]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        void stopActiveAudio();
+      };
+    }, [stopActiveAudio])
+  );
+
   const handlePlay = () => {
     if (!pronunciationText) {
       Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
@@ -673,11 +518,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
     setIsPlaying(true);
     Vibration.vibrate(8);
-    Speech.stop();
-    Speech.speak(pronunciationText, {
-      language: 'en-US',
-      rate: 0.95,
-      pitch: 1,
+    void speakEnglishNaturally(pronunciationText, {
       onDone: () => setIsPlaying(false),
       onStopped: () => setIsPlaying(false),
       onError: () => setIsPlaying(false),
@@ -737,8 +578,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
 
-      Speech.stop();
-      setIsPlaying(false);
+      await stopActiveAudio();
 
       const recording = new Audio.Recording();
       waveformPointerRef.current = 0;
@@ -961,19 +801,152 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
       if (!scopedCards[safeIndex]) return;
 
+      void stopActiveAudio();
       flatListRef.current?.scrollToOffset({
         offset: safeIndex * SNAP_INTERVAL,
         animated,
       });
       setDisplayIndex(safeIndex);
     },
-    [scopedCards]
+    [scopedCards, stopActiveAudio]
   );
+  const closeFullscreenViewer = React.useCallback((mode: 'tap' | 'swipe' = 'tap') => {
+    const currentDragY = fullscreenDragYValueRef.current;
+    const exitTargetY =
+      mode === 'swipe'
+        ? currentDragY + (currentDragY >= 0 ? 96 : -96)
+        : currentDragY;
+
+    Animated.parallel([
+      Animated.timing(fullscreenBackdropOpacity, {
+        toValue: 0,
+        duration: 170,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fullscreenContentOpacity, {
+        toValue: 0,
+        duration: 170,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fullscreenDragY, {
+        toValue: exitTargetY,
+        duration: 170,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      void Haptics.selectionAsync();
+      setIsFullscreenViewerVisible(false);
+      if (fullscreenCardIndex !== null) {
+        requestAnimationFrame(() => {
+          navigateToIndex(fullscreenCardIndex, false);
+        });
+      }
+    });
+  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenContentOpacity, fullscreenDragY, navigateToIndex]);
+  const handleOpenFullscreen = React.useCallback(
+    (targetIndex: number) => {
+      const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
+      if (!scopedCards[safeIndex]) return;
+      setFullscreenCardIndex(safeIndex);
+      fullscreenDragYValueRef.current = 0;
+      fullscreenDragY.setValue(0);
+      fullscreenBackdropOpacity.setValue(1);
+      fullscreenContentOpacity.setValue(1);
+      fullscreenEntryProgress.setValue(0);
+      setIsFullscreenViewerVisible(true);
+    },
+    [fullscreenBackdropOpacity, fullscreenContentOpacity, fullscreenDragY, fullscreenEntryProgress, scopedCards]
+  );
+  const fullscreenPanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx) && Math.abs(gestureState.dy) > 4,
+        onPanResponderMove: (_, gestureState) => {
+          fullscreenDragY.setValue(gestureState.dy);
+          fullscreenDragYValueRef.current = gestureState.dy;
+          const dragFactor = Math.min(1, Math.abs(gestureState.dy) / 320);
+          fullscreenBackdropOpacity.setValue(Math.max(0.3, 1 - dragFactor * 0.7));
+          fullscreenContentOpacity.setValue(Math.max(0.24, 1 - dragFactor * 0.76));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (Math.abs(gestureState.dy) > 120) {
+            closeFullscreenViewer('swipe');
+            return;
+          }
+          Animated.parallel([
+            Animated.spring(fullscreenDragY, {
+              toValue: 0,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+            Animated.spring(fullscreenBackdropOpacity, {
+              toValue: 1,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+            Animated.spring(fullscreenContentOpacity, {
+              toValue: 1,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+          ]).start();
+          fullscreenDragYValueRef.current = 0;
+        },
+        onPanResponderTerminate: () => {
+          Animated.parallel([
+            Animated.spring(fullscreenDragY, {
+              toValue: 0,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+            Animated.spring(fullscreenBackdropOpacity, {
+              toValue: 1,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+            Animated.spring(fullscreenContentOpacity, {
+              toValue: 1,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 18,
+            }),
+          ]).start();
+          fullscreenDragYValueRef.current = 0;
+        },
+      }),
+    [closeFullscreenViewer, fullscreenBackdropOpacity, fullscreenContentOpacity, fullscreenDragY]
+  );
+  const handleFullscreenMomentumEnd = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextIndex = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+      const safeIndex = Math.max(0, Math.min(nextIndex, scopedCards.length - 1));
+      setFullscreenCardIndex(safeIndex);
+    },
+    [scopedCards.length, screenWidth]
+  );
+  React.useEffect(() => {
+    if (!isFullscreenViewerVisible || fullscreenCardIndex === null) return;
+    Animated.timing(fullscreenEntryProgress, {
+      toValue: 1,
+      duration: 230,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    requestAnimationFrame(() => {
+      fullscreenListRef.current?.scrollToOffset({
+        offset: fullscreenCardIndex * screenWidth,
+        animated: false,
+      });
+    });
+  }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible, screenWidth]);
 
   const phonemeChips = phonemeFeedback.slice(0, 5);
-  const cardCaption = card?.partOfSpeech || card?.sourceApp || 'Card';
-  const displayDate = formatCardDate(card?.createdAt);
-
   const triggerHapticFeedback = React.useCallback(() => {
     if (!didMountIndexRef.current) return;
     void Haptics.selectionAsync();
@@ -982,14 +955,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const handleMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
     if (nextIndex !== currentIndex) {
+      void stopActiveAudio();
       setCurrentIndex(nextIndex);
       setDisplayIndex(nextIndex);
     }
     const targetCard = scopedCards[nextIndex];
+    markCenteredCardSeen(nextIndex);
     if (targetCard && route.params?.cardId !== targetCard.id) {
       navigation.setParams({ cardId: targetCard.id });
     }
-  }, [currentIndex, navigation, route.params?.cardId, scopedCards]);
+  }, [currentIndex, markCenteredCardSeen, navigation, route.params?.cardId, scopedCards, stopActiveAudio]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -1014,12 +989,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
       if (isPlaying) return;
       setIsPlaying(true);
-      Vibration.vibrate(8);
-      Speech.stop();
-      Speech.speak(itemPronunciationText, {
-        language: 'en-US',
-        rate: 0.95,
-        pitch: 1,
+      void speakEnglishNaturally(itemPronunciationText, {
         onDone: () => setIsPlaying(false),
         onStopped: () => setIsPlaying(false),
         onError: () => setIsPlaying(false),
@@ -1047,36 +1017,56 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, []);
 
   const renderCarouselCard = React.useCallback(
-    ({ item, index }: { item: Card; index: number }) => (
-      <CarouselCard
-        item={item}
-        index={index}
-        currentIndex={currentIndex}
-        scrollX={scrollX}
-        itemImageUri={cardImageMap[item.id] ?? null}
-        isPlaying={isPlaying}
-        isRecording={isRecording}
-        isAnalyzing={isAnalyzing}
-        hasRecorded={hasRecorded}
-        showFeedback={showFeedback}
-        pronunciationScore={pronunciationScore}
-        pronunciationFeedbackLines={pronunciationFeedbackLines}
-        phonemeChips={phonemeChips}
-        waveformValues={waveformValues}
-        onPlayCard={handlePlayCard}
-        onToggleRecord={handleToggleRecordCard}
-        onPlayPreview={() => void playUserRecordingPreview()}
-        onReset={() => void handleReset()}
-        navigateToIndex={navigateToIndex}
-        snapInterval={SNAP_INTERVAL}
-        sidePeekShift={SIDE_PEEK_SHIFT}
-      />
-    ),
+    ({ item, index }: { item: Card; index: number }) => {
+      // 判斷該卡片是否為我的最愛
+      const isThisCardFavorite =
+        item.id === card?.id
+          ? isFavorite
+          : deriveSelectedAlbums(parseTags(item.tags)).includes(FAVORITES_ALBUM_ID);
+
+      return (
+        <CardDetailCarouselCardUI
+          item={item}
+          index={index}
+          currentIndex={currentIndex}
+          scrollX={scrollX}
+          itemImageUri={cardImageMap[item.id] ?? null}
+          isPlaying={isPlaying}
+          isRecording={isRecording}
+          isAnalyzing={isAnalyzing}
+          hasRecorded={hasRecorded}
+          showFeedback={showFeedback}
+          pronunciationScore={pronunciationScore}
+          pronunciationFeedbackLines={pronunciationFeedbackLines}
+          phonemeChips={phonemeChips}
+          waveformValues={waveformValues}
+          onPlayCard={handlePlayCard}
+          onToggleRecord={handleToggleRecordCard}
+          onPlayPreview={() => void playUserRecordingPreview()}
+          onReset={() => void handleReset()}
+          onOpenFullscreen={handleOpenFullscreen}
+          cardDetailFontScale={CARD_DETAIL_FONT_SCALE}
+          snapInterval={SNAP_INTERVAL}
+          sidePeekShift={SIDE_PEEK_SHIFT}
+          sanitizePronunciationText={sanitizePronunciationText}
+          formatCardDate={formatCardDate}
+          styles={styles}
+          // 新增的屬性
+          isFavorite={isThisCardFavorite}
+          onOpenAlbumSheet={() => setShowAlbumSheet(true)}
+          onToggleFavorite={() => void toggleFavorite()}
+        />
+      );
+    },
     [
+      card?.id,
+      isFavorite,
+      toggleFavorite,
       cardImageMap,
       currentIndex,
       handlePlayCard,
       handleReset,
+      handleOpenFullscreen,
       handleToggleRecordCard,
       hasRecorded,
       isAnalyzing,
@@ -1120,26 +1110,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           style={[styles.floatingIconButton, styles.floatingBackButton, { top: floatingHeaderTop }]}
         >
           <Ionicons name="chevron-back" size={24} color="#F4EDE6" />
-          <Text style={styles.backText}>Deck</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => setShowAlbumSheet(true)}
-          style={[styles.floatingIconButton, styles.floatingHeaderAction, { top: floatingHeaderTop, right: 64 }]}
-        >
-          <Ionicons name="folder-outline" size={23} color="#F4EDE6" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => void toggleFavorite()}
-          style={[styles.floatingIconButton, styles.floatingHeaderAction, { top: floatingHeaderTop, right: 16 }]}
-        >
-          <Ionicons
-            name={isFavorite ? 'star' : 'star-outline'}
-            size={24}
-            color={isFavorite ? '#F4C542' : '#F4EDE6'}
-          />
-        </TouchableOpacity>
+        {/* 新增的置中標題與卡片計數 */}
+        <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
+          <Text style={styles.headerTitleText}>
+            {headerTitle} <Text style={styles.headerCountText}>({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})</Text>
+          </Text>
+        </View>
       </View>
 
       <View style={styles.content}>
@@ -1148,6 +1126,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           flatListRef={flatListRef}
           currentIndex={currentIndex}
           displayIndex={displayIndex}
+          extraData={cardImageMap}
           renderItem={renderCarouselCard}
           scrollHandler={scrollHandler}
           onMomentumScrollEnd={handleMomentumEnd}
@@ -1178,6 +1157,91 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }}
         onConfirm={() => void createAlbum()}
       />
+
+      <Modal
+        visible={isFullscreenViewerVisible}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={() => closeFullscreenViewer('tap')}
+      >
+        {(() => {
+          const entryTranslateY = fullscreenEntryProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-140, 0],
+            extrapolate: 'clamp',
+          });
+          const entryScale = fullscreenEntryProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.86, 1],
+            extrapolate: 'clamp',
+          });
+          const dragScale = fullscreenDragY.interpolate({
+            inputRange: [-320, 0, 320],
+            outputRange: [0.82, 1, 0.82],
+            extrapolate: 'clamp',
+          });
+          return (
+        <View style={{ flex: 1 }}>
+          <Animated.View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
+            }}
+          >
+            <View style={{ flex: 1, backgroundColor: '#000' }} />
+          </Animated.View>
+
+          <Animated.View
+            {...fullscreenPanResponder.panHandlers}
+            style={{
+              flex: 1,
+              opacity: Animated.multiply(fullscreenContentOpacity, fullscreenEntryProgress),
+              transform: [
+                { translateY: Animated.add(fullscreenDragY, entryTranslateY) },
+                { scale: Animated.multiply(dragScale, entryScale) },
+              ],
+            }}
+          >
+            <FlatList
+              ref={fullscreenListRef}
+              data={scopedCards}
+              keyExtractor={(item) => `fullscreen-${item.id}`}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              initialNumToRender={3}
+              windowSize={5}
+              getItemLayout={(_, index) => ({
+                length: screenWidth,
+                offset: screenWidth * index,
+                index,
+              })}
+              onMomentumScrollEnd={handleFullscreenMomentumEnd}
+              renderItem={({ item }) => {
+                const uri = cardImageMap[item.id] ?? null;
+                return (
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => closeFullscreenViewer('tap')}
+                    style={{ width: screenWidth, flex: 1, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {uri ? (
+                      <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    ) : (
+                      <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: '#F4EDE6', fontSize: 18, fontWeight: '700' }}>無圖片可顯示</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </Animated.View>
+        </View>
+          );
+        })()}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1208,6 +1272,28 @@ const styles = StyleSheet.create({
     left: 16,
     flexDirection: 'row',
     gap: 3,
+    // --- 新增以下兩行 ---
+    height: 40,               // 設定與標題區塊（floatingHeaderCenter）相同的高度
+    justifyContent: 'center',  // 讓箭頭在 40 像素的高度內垂直置中
+  },
+  floatingHeaderCenter: {
+    position: 'absolute',
+    left: 10,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 40,
+    zIndex: -1, 
+  },
+  headerTitleText: {
+    fontSize: 30,
+    color: '#F4EDE6',
+    fontWeight: '700',
+  },
+  headerCountText: {
+    fontSize: 25,
+    color: 'rgba(244, 237, 230, 0.6)',
+    fontWeight: '500',
   },
   floatingHeaderAction: {
     width: 40,
@@ -1268,6 +1354,172 @@ const styles = StyleSheet.create({
     elevation: 20,
     padding: 18,
     gap: 18,
+  },
+  heroMediaWrap: {
+    marginTop: -18,
+    marginHorizontal: -18,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
+  heroMedia: {
+    width: '100%',
+    height: 340,
+  },
+  heroMediaFallback: {
+    width: '100%',
+    height: 340,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECEFF5',
+  },
+  heroMediaFallbackWord: {
+    color: '#111',
+    fontSize: scaleFont(44),
+    fontWeight: '800',
+    letterSpacing: -1.2,
+  },
+  referenceWordCard: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  referenceRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  referenceWordLeft: { flex: 1, paddingRight: 8 },
+  referenceWord: {
+    color: '#111111',
+    fontSize: scaleFont(52),
+    lineHeight: scaleFont(56),
+    fontWeight: '900',
+    letterSpacing: -1.2,
+  },
+  referencePronunciation: {
+    marginTop: 6,
+    color: '#848891',
+    fontSize: scaleFont(19),
+    fontWeight: '500',
+    letterSpacing: -0.1,
+  },
+  referencePlayBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F2F3F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  referencePlayIcon: { fontSize: 19 },
+  referenceMeaningRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  referencePosBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#E7E9EF',
+  },
+  referencePosText: {
+    color: '#6B7280',
+    fontSize: scaleFont(20),
+    fontWeight: '800',
+  },
+  referenceMeaning: {
+    flex: 1,
+    color: '#111111',
+    fontSize: scaleFont(30),
+    lineHeight: scaleFont(42),
+    fontWeight: '700',
+    letterSpacing: -0.6,
+  },
+  referenceDivider: {
+    marginTop: 16,
+    marginBottom: 14,
+    height: 1,
+    backgroundColor: '#ECECF0',
+  },
+  referenceExample: {
+    flex: 1,
+    color: '#111111',
+    fontSize: scaleFont(30),
+    lineHeight: scaleFont(38),
+    fontWeight: '500',
+    letterSpacing: -0.2,
+  },
+  referenceTranslation: {
+    marginTop: 14,
+    color: '#20222A',
+    fontSize: scaleFont(25),
+    lineHeight: scaleFont(42),
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  referenceSubSection: {
+    marginTop: 14,
+  },
+  referenceSubLabel: {
+    color: '#8A8E97',
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  referenceSubText: {
+    color: '#232733',
+    fontSize: scaleFont(20),
+    lineHeight: scaleFont(30),
+    fontWeight: '500',
+  },
+  referenceCollocationSection: {
+    marginTop: 18,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#ECECF0',
+    gap: 8,
+  },
+  referenceCollocationTitle: {
+    color: '#8A8E97',
+    fontSize: scaleFont(20),
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  referenceCollocationItem: {
+    color: '#1E2430',
+    fontSize: scaleFont(25),
+    lineHeight: scaleFont(28),
+    fontWeight: '600',
+  },
+  referenceFooterRow: {
+    marginTop: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  referenceFooterText: {
+    color: '#B2B6BF',
+    fontSize: scaleFont(20),
+    fontWeight: '600',
+  },
+  referenceActionBadge: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#EEF0FF',
+  },
+  referenceActionText: {
+    color: '#1F2230',
+    fontSize: scaleFont(24),
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   posterCard: {
     flex: 1,
@@ -1622,10 +1874,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(247,240,234,0.08)',
   },
-  tipsTitle: { fontSize: 17, fontWeight: '700', color: '#F8F2EC', marginBottom: 12 },
+  tipsTitle: { fontSize: scaleFont(17), fontWeight: '700', color: '#F8F2EC', marginBottom: 12 },
   tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
   tipIcon: { fontSize: 16, marginTop: 1 },
-  tipText: { flex: 1, color: '#D1BDAF', fontSize: 15, lineHeight: 22 },
+  tipText: { flex: 1, color: '#D1BDAF', fontSize: scaleFont(15), lineHeight: scaleFont(22) },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheetContainer: {
     backgroundColor: '#FAF7F3',

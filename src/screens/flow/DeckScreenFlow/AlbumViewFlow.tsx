@@ -1,5 +1,6 @@
 import React from 'react';
 import { Alert, Animated, Easing, TextInput } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -7,6 +8,7 @@ import { resolveCardImageUri } from '@services/media/cardImage';
 import CardViewUI from '../../../components/UI/DeckScreenUI/CardViewUI';
 import AlbumSortModalUI from '../../../components/UI/DeckScreenUI/AlbumSortModalUI';
 import CardActionModalUI from '../../../components/UI/DeckScreenUI/CardActionModalUI';
+import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 
 type Album = {
   id: string;
@@ -37,24 +39,26 @@ function getDefaultAlbum(cards: Card[]): Album {
   };
 }
 
-function getLearningStatus(card: Card): { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string } {
-  const reps = Number(card.repetitions || 0);
-  if (reps >= 2) {
+function getLearningStatus(
+  card: Card,
+  seenCardIds: Set<string>
+): { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string } {
+  if (!seenCardIds.has(card.id)) {
     return {
-      label: 'LEARNING',
-      icon: '◌',
-      bgColor: '#702459',
+      label: 'NEW',
+      icon: '✦',
+      bgColor: '#2D3748',
     };
   }
   return {
-    label: 'NEW',
-    icon: '✦',
-    bgColor: '#2D3748',
+    label: 'LEARNING',
+    icon: '◌',
+    bgColor: '#702459',
   };
 }
 
 function getWordText(card: Card): string {
-  return (card.targetWord || card.targetPhrase || card.definition || 'WORD').toUpperCase();
+  return card.targetWord || card.targetPhrase || card.definition || 'WORD';
 }
 
 function withHexAlpha(color: string, alphaHex: string): string {
@@ -71,6 +75,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const [isSearchVisible, setIsSearchVisible] = React.useState(false);
   const [showCardActionModal, setShowCardActionModal] = React.useState(false);
   const [selectedCard, setSelectedCard] = React.useState<Card | null>(null);
+  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
 
@@ -133,6 +138,24 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     const sub = queryCards.observe().subscribe((data) => setAllCards(data));
     return () => sub.unsubscribe();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+
+      const hydrateSeenCards = async () => {
+        const nextSeenCardIds = await loadSeenCardIds();
+        if (active) {
+          setSeenCardIds(nextSeenCardIds);
+        }
+      };
+
+      void hydrateSeenCards();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const album = React.useMemo(() => {
     return route.params?.album ?? getDefaultAlbum(allCards);
@@ -250,12 +273,14 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
           navigation.navigate('CardDetail', {
             cardId: item.id,
             cardIds: processedCards.map((card) => card.id),
+            albumName: album.name || 'Made for You',
+            headerTitle: album.name || 'Made for You',
           })
         }
         onPressMoreCard={openCardActionModal}
         cardImageMap={cardImageMap}
         getWordText={getWordText}
-        getLearningStatus={getLearningStatus}
+        getLearningStatus={(card) => getLearningStatus(card, seenCardIds)}
         withHexAlpha={withHexAlpha}
       />
 

@@ -1,5 +1,9 @@
 import { supabase } from '@services/supabase/client';
-import { getLocalCardImageUri } from './localCardImageStore';
+import {
+  getLocalCardImageUri,
+  persistLocalCardImage,
+  persistRemoteCardImage,
+} from './localCardImageStore';
 
 function toSignedUrlCandidatePath(rawUri: string): string | null {
   const uri = rawUri.trim();
@@ -31,6 +35,7 @@ export async function resolveCardImageUri(params: {
   cardId?: string | null;
   remoteUri?: string | null;
 }): Promise<string | null> {
+  const normalizedCardId = (params.cardId || '').trim();
   const localUri = await getLocalCardImageUri(params.cardId);
   if (localUri) {
     return localUri;
@@ -38,6 +43,15 @@ export async function resolveCardImageUri(params: {
 
   const uri = (params.remoteUri || '').trim();
   if (!uri) return null;
+
+  // If caller passes a local path directly, keep it and also persist mapping for stability.
+  if (uri.startsWith('file://') || uri.startsWith('/')) {
+    if (normalizedCardId) {
+      const persisted = await persistLocalCardImage(normalizedCardId, uri);
+      return persisted || uri;
+    }
+    return uri;
+  }
 
   const signPath = toSignedUrlCandidatePath(uri);
   if (!signPath) return uri;
@@ -47,6 +61,10 @@ export async function resolveCardImageUri(params: {
     .createSignedUrl(signPath, 60 * 60);
 
   if (!error && data?.signedUrl) {
+    if (normalizedCardId) {
+      const cached = await persistRemoteCardImage(normalizedCardId, data.signedUrl);
+      if (cached) return cached;
+    }
     return data.signedUrl;
   }
   if (error) {
@@ -60,6 +78,10 @@ export async function resolveCardImageUri(params: {
   const { data: publicData } = supabase.storage.from('cached-images').getPublicUrl(signPath);
   const publicUrl = (publicData?.publicUrl || '').trim();
   if (/^https?:\/\//i.test(publicUrl)) {
+    if (normalizedCardId) {
+      const cached = await persistRemoteCardImage(normalizedCardId, publicUrl);
+      if (cached) return cached;
+    }
     return publicUrl;
   }
 
