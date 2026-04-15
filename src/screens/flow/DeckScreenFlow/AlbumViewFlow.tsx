@@ -9,6 +9,12 @@ import CardViewUI from '../../../components/UI/DeckScreenUI/CardViewUI';
 import AlbumSortModalUI from '../../../components/UI/DeckScreenUI/AlbumSortModalUI';
 import CardActionModalUI from '../../../components/UI/DeckScreenUI/CardActionModalUI';
 import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
+import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
+import {
+  DEFAULT_ALBUM_REVIEW_PREFERENCES,
+  loadAlbumReviewPreferences,
+  saveAlbumReviewPreferences,
+} from '../../../features/deck/reviewPreferences';
 
 type Album = {
   id: string;
@@ -74,8 +80,12 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const [showSortModal, setShowSortModal] = React.useState(false);
   const [isSearchVisible, setIsSearchVisible] = React.useState(false);
   const [showCardActionModal, setShowCardActionModal] = React.useState(false);
+  const [showReviewTuningModal, setShowReviewTuningModal] = React.useState(false);
   const [selectedCard, setSelectedCard] = React.useState<Card | null>(null);
   const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
+  const [reviewQuestionCount, setReviewQuestionCount] = React.useState(
+    DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
+  );
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
 
@@ -139,6 +149,11 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     return () => sub.unsubscribe();
   }, []);
 
+  const album = React.useMemo(() => {
+    return route.params?.album ?? getDefaultAlbum(allCards);
+  }, [allCards, route.params?.album]);
+  const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
+
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
@@ -157,10 +172,23 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     }, [])
   );
 
-  const album = React.useMemo(() => {
-    return route.params?.album ?? getDefaultAlbum(allCards);
-  }, [allCards, route.params?.album]);
-  const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+
+      const hydrateReviewPreferences = async () => {
+        const prefs = await loadAlbumReviewPreferences(album.id);
+        if (active) {
+          setReviewQuestionCount(prefs.questionCount);
+        }
+      };
+
+      void hydrateReviewPreferences();
+      return () => {
+        active = false;
+      };
+    }, [album.id])
+  );
 
   const albumCards = React.useMemo(() => {
     if (!album.cardIds.length) return [];
@@ -251,6 +279,30 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     return 'Recently added';
   }, [sortMode]);
 
+  const handleChangeQuestionCount = React.useCallback(
+    (nextCount: number) => {
+      setReviewQuestionCount(nextCount);
+      void saveAlbumReviewPreferences(album.id, { questionCount: nextCount });
+    },
+    [album.id]
+  );
+
+  const handlePressPlay = React.useCallback(() => {
+    const sourceCards = processedCards.length > 0 ? processedCards : albumCards;
+    if (!sourceCards.length) {
+      Alert.alert('沒有可測驗的字卡', '這個資料夾目前沒有可用題目。');
+      return;
+    }
+
+    navigation.navigate('CardReview', {
+      albumId: album.id,
+      albumName: album.name || 'Made for You',
+      cardIds: sourceCards.map((card) => card.id),
+      questionCount: reviewQuestionCount,
+      themeColor,
+    });
+  }, [album.id, album.name, albumCards, navigation, processedCards, reviewQuestionCount, themeColor]);
+
   return (
     <>
       <CardViewUI
@@ -269,6 +321,8 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
           requestAnimationFrame(() => searchInputRef.current?.focus());
         }}
         onPressSort={() => setShowSortModal(true)}
+        onPressPlay={handlePressPlay}
+        onPressReviewTuning={() => setShowReviewTuningModal(true)}
         onPressCard={(item) =>
           navigation.navigate('CardDetail', {
             cardId: item.id,
@@ -300,6 +354,13 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         title={selectedCard ? getWordText(selectedCard) : 'Card Action'}
         onClose={closeCardActionModal}
         onDelete={handleDeleteCard}
+      />
+
+      <ReviewTuningModalUI
+        visible={showReviewTuningModal}
+        questionCount={reviewQuestionCount}
+        onClose={() => setShowReviewTuningModal(false)}
+        onChangeQuestionCount={handleChangeQuestionCount}
       />
     </>
   );

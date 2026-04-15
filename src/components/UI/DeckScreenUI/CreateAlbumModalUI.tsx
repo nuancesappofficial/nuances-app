@@ -18,26 +18,33 @@ export default function CreateAlbumModalUI({
 }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>新增相簿</Text>
+      <View style={styles.backdrop}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onCancel} />
 
-          <TextInput
-            style={styles.modalInput}
-            placeholder="請輸入相簿名稱"
-            placeholderTextColor="#8E8E93"
-            value={albumName}
-            onChangeText={onChangeAlbumName}
-            autoFocus
-          />
+        <View style={styles.sheet}>
+          <Text style={styles.eyebrow}>NEW ALBUM</Text>
+          <Text style={styles.title}>Create a new album</Text>
+          <Text style={styles.subtitle}>Give this collection a name so it feels like its own space.</Text>
 
-          <View style={styles.modalButtonGroup}>
-            <TouchableOpacity style={styles.modalButtonCancel} onPress={onCancel}>
-              <Text style={styles.modalButtonTextCancel}>取消</Text>
+          <View style={styles.inputCard}>
+            <Text style={styles.inputLabel}>Album name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Type album name"
+              placeholderTextColor="#737B88"
+              value={albumName}
+              onChangeText={onChangeAlbumName}
+              autoFocus
+            />
+          </View>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+              <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.modalButtonConfirm} onPress={onConfirm}>
-              <Text style={styles.modalButtonTextConfirm}>確認</Text>
+            <TouchableOpacity style={styles.confirmButton} onPress={onConfirm}>
+              <Text style={styles.confirmText}>Create</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -47,61 +54,92 @@ export default function CreateAlbumModalUI({
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end', 
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 350, // 增加這個數值，Modal 就會垂直往上平移
   },
-  modalContainer: {
-    width: '80%',
-    maxWidth: 320,
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111111',
-    marginBottom: 12,
-  },
-  modalInput: {
+  sheet: {
+    borderRadius: 24,
+    backgroundColor: '#111318',
     borderWidth: 1,
-    borderColor: '#D1D1D6',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: '#111111',
-    marginBottom: 14,
+    borderColor: 'rgba(255,255,255,0.08)',
+    //minHeight: 700,
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 32,
+    gap: 16,
   },
-  modalButtonGroup: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  modalButtonCancel: {
-    borderRadius: 10,
-    backgroundColor: '#E5E5EA',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  modalButtonConfirm: {
-    borderRadius: 10,
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  modalButtonTextCancel: {
-    color: '#111111',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalButtonTextConfirm: {
-    color: '#FFFFFF',
-    fontSize: 14,
+  eyebrow: {
+    color: '#8D93A1',
+    fontSize: 12,
     fontWeight: '700',
+    letterSpacing: 1.6,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  subtitle: {
+    color: '#B4BBC8',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  inputCard: {
+    borderRadius: 20,
+    backgroundColor: '#181C23',
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  inputLabel: {
+    color: '#97A0AF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#111318',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  cancelButton: {
+    flex: 1,
+    borderRadius: 18,
+    backgroundColor: '#1A1E27',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  confirmText: {
+    color: '#111111',
+    fontSize: 16,
+    fontWeight: '800',
   },
 });

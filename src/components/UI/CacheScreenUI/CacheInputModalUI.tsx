@@ -134,6 +134,9 @@ export default function CacheInputModalUI({
       <Pressable style={styles.modalBackdrop} onPress={onClose} />
       <View style={styles.modalSheet}>
         <View style={styles.sheetHandle} />
+        <Text style={styles.eyebrow}>ADD TO CACHE</Text>
+        <Text style={styles.title}>Capture a new phrase</Text>
+        <Text style={styles.subtitle}>Choose text or image, then turn it into cards from the same flow.</Text>
 
         <View style={styles.tabRow}>
           <TouchableOpacity
@@ -184,44 +187,65 @@ export default function CacheInputModalUI({
 const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   modalSheet: {
-    backgroundColor: '#fff',
+    backgroundColor: '#111318',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 16,
-    minHeight: 420,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    minHeight: 520,
   },
   sheetHandle: {
     width: 42,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#C8C8CD',
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignSelf: 'center',
     marginBottom: 14,
   },
+  eyebrow: {
+    color: '#8D93A1',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.6,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '800',
+    marginTop: 10,
+  },
+  subtitle: {
+    color: '#B4BBC8',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+    marginBottom: 16,
+  },
   tabRow: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 12,
+    backgroundColor: '#1A1E27',
+    borderRadius: 16,
     padding: 4,
     flexDirection: 'row',
     marginBottom: 16,
   },
   tabBtn: {
     flex: 1,
-    borderRadius: 9,
+    borderRadius: 12,
     paddingVertical: 10,
     alignItems: 'center',
   },
   tabBtnActive: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
   tabText: {
-    color: '#8E8E93',
-    fontWeight: '600',
+    color: '#8D93A1',
+    fontWeight: '700',
     fontSize: 15,
   },
   tabTextActive: {
@@ -238,16 +262,15 @@ const styles = StyleSheet.create({
     width: '50%',
   },
   cancelBtn: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 12,
+    marginTop: 14,
+    borderRadius: 18,
+    backgroundColor: '#1A1E27',
     alignItems: 'center',
-    paddingVertical: 13,
+    paddingVertical: 14,
   },
   cancelBtnText: {
-    color: '#007AFF',
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontWeight: '800',
     fontSize: 16,
   },
 });

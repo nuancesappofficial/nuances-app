@@ -262,21 +262,21 @@ function CardDetailCarouselCardUI({
 
                 {/* ----- 第一頁底部操作列 ----- */}
                 <View style={localStyles.cardActionRow}>
-                  <TouchableOpacity style={localStyles.actionBtn} onPress={onOpenAlbumSheet}>
-                    <Ionicons name="folder-outline" size={20} color="#6B7280" />
-                    <Text style={localStyles.actionBtnText}>分類</Text>
+                  <TouchableOpacity style={[localStyles.actionBtn, localStyles.actionBtnFolder]} onPress={onOpenAlbumSheet}>
+                    <Ionicons name="folder-outline" size={20} color="#FFFFFF" />
+                    <Text style={[localStyles.actionBtnText, localStyles.actionBtnTextOnColor]}>分類</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    style={[localStyles.actionBtn, isFavorite && localStyles.actionBtnFavoriteActive]} 
+                    style={[localStyles.actionBtn, localStyles.actionBtnFavorite]} 
                     onPress={onToggleFavorite}
                   >
                     <Ionicons 
                       name={isFavorite ? 'star' : 'star-outline'} 
                       size={20} 
-                      color={isFavorite ? '#F5A623' : '#6B7280'} 
+                      color="#F5A623"
                     />
-                    <Text style={[localStyles.actionBtnText, isFavorite && localStyles.actionBtnTextActive]}>
+                    <Text style={localStyles.actionBtnTextStar}>
                       收藏
                     </Text>
                   </TouchableOpacity>
@@ -373,15 +373,23 @@ const localStyles = StyleSheet.create({
     borderRadius: 20,
     gap: 6,
   },
-  actionBtnFavoriteActive: {
-    backgroundColor: '#FFF8E6',
+  actionBtnFolder: {
+    backgroundColor: '#8B5E3C',
+  },
+  actionBtnFavorite: {
+    backgroundColor: '#FFF7DB',
   },
   actionBtnText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#6B7280',
   },
-  actionBtnTextActive: {
+  actionBtnTextOnColor: {
+    color: '#FFFFFF',
+  },
+  actionBtnTextStar: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#F5A623',
   },
 });

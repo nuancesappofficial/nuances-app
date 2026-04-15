@@ -21,11 +21,11 @@ type Props = {
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
+  hoveredAction: SharedValue<'none' | 'edit' | 'delete' | 'sort'>;
   activeAlbumId: string | null;
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
-  onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => void;
+  onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete' | 'sort' ) => void;
 };
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
@@ -106,18 +106,23 @@ export default function AlbumIconItemUI({
       const editY = startY.value;
       const deleteX = startX.value + MENU_BUTTON_OFFSET_X;
       const deleteY = startY.value;
+      // 新增：第三個按鈕的座標（置於 Edit 與 Delete 的中央上方）
+      const sortX = startX.value;
+      const sortY = startY.value - MENU_BUTTON_OFFSET_X;
       const radius = 40;
 
       const editDistance = Math.hypot(e.absoluteX - editX, e.absoluteY - editY);
       const deleteDistance = Math.hypot(e.absoluteX - deleteX, e.absoluteY - deleteY);
+      const sortDistance = Math.hypot(e.absoluteX - sortX, e.absoluteY - sortY);
 
-      let nextAction: 'none' | 'edit' | 'delete' = 'none';
+      let nextAction: 'none' | 'edit' | 'delete' | 'sort' = 'none';
       if (editDistance <= radius) nextAction = 'edit';
       if (deleteDistance <= radius) nextAction = 'delete';
+      if (sortDistance <= radius) nextAction = 'sort'; // 判定 sort
 
       if (nextAction !== hoveredAction.value) {
         hoveredAction.value = nextAction;
-        if (nextAction === 'edit' || nextAction === 'delete') {
+        if (nextAction === 'edit' || nextAction === 'delete'|| nextAction === 'sort') {
           runOnJS(triggerSelectionHaptic)();
         }
       }
@@ -183,7 +188,7 @@ export function MenuSymbol({
   color,
   fallback,
 }: {
-  name: 'square.and.pencil' | 'trash.fill';
+  name: 'square.and.pencil' | 'trash.fill' | 'arrow.up.arrow.down';
   color: string;
   fallback: string;
 }) {

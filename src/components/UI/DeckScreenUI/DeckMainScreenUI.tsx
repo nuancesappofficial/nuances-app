@@ -18,11 +18,11 @@ type Props = {
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
+  hoveredAction: SharedValue<'none' | 'sort' | 'edit' | 'delete'>;
   activeAlbumId: string | null;
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
-  onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => void;
+  onActionEnd: (album: DeckAlbum, action: 'none' | 'sort' | 'edit' | 'delete') => void;
 };
 
 export default function DeckMainScreenUI({

@@ -1,593 +1,780 @@
 import React from 'react';
 import {
   Alert,
-  ScrollView,
+  Animated,
+  FlatList,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import {
+  loadAlbumReviewPreferences,
+  saveAlbumReviewPreferences,
+} from '../../../features/deck/reviewPreferences';
 
 type Props = {
   navigation: any;
-};
-
-type ReviewCard = {
-  id: string;
-  word: string;
-  partOfSpeech: string;
-  definition: string;
-  cultural: string;
-  context: string;
-  collocations: string[];
-};
-
-type RecordingState = 'idle' | 'recording' | 'analyzing' | 'done';
-
-type WordScore = {
-  word: string;
-  score: 'good' | 'ok' | 'bad';
-};
-
-type Rating = 'again' | 'hard' | 'good' | 'easy';
-
-function parseCollocations(raw: string | undefined): string[] {
-  if (!raw?.trim()) return [];
-  return raw
-    .split(/[\n,;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 6);
-}
-
-function toReviewCard(card: Card): ReviewCard {
-  return {
-    id: card.id,
-    word: card.targetWord || card.targetPhrase || '-',
-    partOfSpeech: card.partOfSpeech || 'unknown',
-    definition: card.definition || 'No definition',
-    cultural: card.contextualExplanation || 'No cultural note yet.',
-    context: card.originalSentence || card.definition || '-',
-    collocations: parseCollocations(card.frequentCollocations),
+  route: {
+    params?: {
+      albumId?: string;
+      albumName?: string;
+      cardIds?: string[];
+      questionCount?: number;
+      themeColor?: string;
+    };
   };
+};
+
+type ReviewQuestion = {
+  id: string;
+  cardId: string;
+  prompt: string;
+  correctAnswer: string;
+  options: string[];
+  sentence: string;
+  sourceSentence: string;
+};
+
+type ReviewSlide =
+  | { id: string; type: 'question'; question: ReviewQuestion }
+  | { id: 'summary'; type: 'summary' };
+
+const OPTION_COLORS = ['#FF7A7A', '#7D8CFF', '#5BCB96', '#F4B942'];
+
+function shuffleArray<T>(items: T[]): T[] {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
 }
 
-function analyzeSentence(sentence: string): WordScore[] {
-  const words = sentence.split(/\s+/).filter(Boolean);
-  const scores: Array<'good' | 'ok' | 'bad'> = [
-    'good',
-    'good',
-    'ok',
-    'good',
-    'bad',
-    'good',
-    'good',
-    'good',
-    'ok',
-    'good',
-    'good',
-    'good',
-    'good',
-  ];
-  return words.map((word, i) => ({
-    word,
-    score: scores[i % scores.length],
-  }));
+function looksLikeEnglishAnswer(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^[A-Za-z][A-Za-z0-9\s'’\-.,!?/()]*$/.test(trimmed);
 }
 
-function calcSrsUpdate(card: Card, rating: Rating): {
-  repetitions: number;
-  intervalDays: number;
-  easeFactor: number;
-  nextReviewAt: Date;
-} {
-  const now = new Date();
-  const prevEase = Math.max(1.3, Number(card.easeFactor || 2.5));
-  const prevInterval = Math.max(1, Number(card.intervalDays || 1));
-  const prevReps = Math.max(0, Number(card.repetitions || 0));
+function pickEnglishAnswer(card: Card): string {
+  const candidates = [card.targetWord, card.targetPhrase]
+    .map((value) => (value || '').trim())
+    .filter(Boolean)
+    .filter(looksLikeEnglishAnswer);
 
-  let repetitions = prevReps;
-  let intervalDays = prevInterval;
-  let easeFactor = prevEase;
+  return candidates[0] || '-';
+}
 
-  if (rating === 'again') {
-    repetitions = 0;
-    intervalDays = 1;
-    easeFactor = Math.max(1.3, prevEase - 0.2);
-  } else if (rating === 'hard') {
-    repetitions = prevReps + 1;
-    intervalDays = Math.max(1, Math.round(prevInterval * 1.2));
-    easeFactor = Math.max(1.3, prevEase - 0.15);
-  } else if (rating === 'good') {
-    repetitions = prevReps + 1;
-    if (prevReps === 0) intervalDays = 1;
-    else if (prevReps === 1) intervalDays = 3;
-    else intervalDays = Math.max(1, Math.round(prevInterval * prevEase));
-  } else {
-    repetitions = prevReps + 1;
-    if (prevReps === 0) intervalDays = 2;
-    else if (prevReps === 1) intervalDays = 4;
-    else intervalDays = Math.max(1, Math.round(prevInterval * prevEase * 1.3));
-    easeFactor = Math.max(1.3, prevEase + 0.1);
+function pickDisplayAnswer(card: Card): string {
+  return pickEnglishAnswer(card);
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildMaskedSentence(card: Card): string {
+  const target = (card.targetPhrase || card.targetWord || '').trim();
+  const baseSentence = (card.originalSentence || '').trim();
+
+  if (!baseSentence) {
+    return `_____`;
   }
 
-  const nextReviewAt = new Date(now);
-  nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
+  if (!target) {
+    return baseSentence;
+  }
 
-  return {
-    repetitions,
-    intervalDays,
-    easeFactor,
-    nextReviewAt,
-  };
+  const matcher = new RegExp(escapeRegex(target), 'i');
+  if (matcher.test(baseSentence)) {
+    return baseSentence.replace(matcher, '_____');
+  }
+
+  return `${baseSentence}\n\nMissing word: _____`;
 }
 
-export default function ReviewScreen({ navigation }: Props) {
+function buildOptionPool(allCards: Card[], currentCard: Card): string[] {
+  const correct = pickDisplayAnswer(currentCard).toLowerCase();
+  const seen = new Set<string>();
+  const pool: string[] = [];
+
+  allCards.forEach((card) => {
+    const candidates = [card.targetWord, card.targetPhrase];
+    candidates.forEach((candidate) => {
+      const value = (candidate || '').trim();
+      if (!value) return;
+      if (!looksLikeEnglishAnswer(value)) return;
+      const key = value.toLowerCase();
+      if (key === correct || seen.has(key)) return;
+      seen.add(key);
+      pool.push(value);
+    });
+  });
+
+  return shuffleArray(pool);
+}
+
+function buildReviewQuestions(
+  sourceCards: Card[],
+  allCards: Card[],
+  questionCount: number,
+  pinnedCardIds: string[]
+): ReviewQuestion[] {
+  const sourceById = new Map(sourceCards.map((card) => [card.id, card] as const));
+  const pinnedCards = pinnedCardIds.map((id) => sourceById.get(id)).filter((card): card is Card => Boolean(card));
+  const pinnedSet = new Set(pinnedCards.map((card) => card.id));
+  const randomPool = shuffleArray(sourceCards.filter((card) => !pinnedSet.has(card.id)));
+  const totalCount = Math.min(sourceCards.length, Math.max(questionCount, pinnedCards.length));
+  const selected = [...pinnedCards, ...randomPool].slice(0, totalCount);
+
+  return selected.map((card) => {
+    const correctAnswer = pickDisplayAnswer(card);
+    const distractors = buildOptionPool(allCards, card).slice(0, 3);
+
+    while (distractors.length < 3) {
+      distractors.push(`${correctAnswer} ${distractors.length + 1}`);
+    }
+
+    return {
+      id: card.id,
+      cardId: card.id,
+      prompt: (card.partOfSpeech || 'word').trim(),
+      correctAnswer,
+      options: shuffleArray([correctAnswer, ...distractors]),
+      sentence: buildMaskedSentence(card),
+      sourceSentence: (card.originalSentence || card.definition || '').trim(),
+    };
+  });
+}
+
+function getFlipValue(
+  mapRef: React.MutableRefObject<Map<string, Animated.Value>>,
+  questionId: string
+): Animated.Value {
+  const existing = mapRef.current.get(questionId);
+  if (existing) return existing;
+  const created = new Animated.Value(0);
+  mapRef.current.set(questionId, created);
+  return created;
+}
+
+export default function ReviewFlow({ navigation, route }: Props) {
+  const { width } = useWindowDimensions();
+  const albumId = route.params?.albumId || 'all-cards';
+  const albumName = route.params?.albumName || 'Review';
+  const requestedQuestionCount = route.params?.questionCount;
+  const themeColor = route.params?.themeColor || '#8B5CF6';
+  const routeCardIds = route.params?.cardIds || [];
+
   const [allCards, setAllCards] = React.useState<Card[]>([]);
-  const [cardIndex, setCardIndex] = React.useState(0);
-  const [revealed, setRevealed] = React.useState(false);
-  const [recordingState, setRecordingState] = React.useState<RecordingState>('idle');
-  const [overallScore, setOverallScore] = React.useState<number | null>(null);
-  const [wordScores, setWordScores] = React.useState<WordScore[]>([]);
-  const [showCollocations, setShowCollocations] = React.useState(false);
-  const [recordProgress, setRecordProgress] = React.useState(0);
+  const [questions, setQuestions] = React.useState<ReviewQuestion[]>([]);
+  const [currentIndex, setCurrentIndex] = React.useState(0);
+  const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
+  const [results, setResults] = React.useState<Record<string, boolean>>({});
+  const [pinnedCardIds, setPinnedCardIds] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
+  const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
 
   React.useEffect(() => {
     const queryCards = database
       .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('next_review_at', Q.asc));
+      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
 
-    const load = async () => {
+    const loadCards = async () => {
       try {
         const data = await queryCards.fetch();
         setAllCards(data);
       } catch (error) {
-        console.error('[Review] load cards failed:', error);
+        console.error('[ReviewFlow] load cards failed:', error);
         setAllCards([]);
       }
     };
 
-    void load();
+    void loadCards();
     const sub = queryCards.observe().subscribe((data) => setAllCards(data));
     return () => sub.unsubscribe();
   }, []);
 
-  const reviewCards = React.useMemo<ReviewCard[]>(() => {
-    if (!allCards.length) return [];
-    const now = Date.now();
-    const due = allCards.filter((card) => new Date(card.nextReviewAt).getTime() <= now);
-    const source = due.length > 0 ? due : allCards;
-    return source.map(toReviewCard);
-  }, [allCards]);
+  const sourceCards = React.useMemo(() => {
+    if (!routeCardIds.length) return allCards;
+    const allowed = new Set(routeCardIds);
+    return routeCardIds
+      .map((id) => allCards.find((card) => card.id === id) || null)
+      .filter((card): card is Card => Boolean(card && allowed.has(card.id)));
+  }, [allCards, routeCardIds]);
+
+  const buildSession = React.useCallback(async () => {
+    setLoading(true);
+    const prefs = await loadAlbumReviewPreferences(albumId);
+    const nextPinned = prefs.pinnedCardIds.filter((id) => sourceCards.some((card) => card.id === id));
+    const effectiveCount = requestedQuestionCount ?? prefs.questionCount;
+
+    setPinnedCardIds(nextPinned);
+    setSelectedAnswers({});
+    setResults({});
+    setCurrentIndex(0);
+    flipValuesRef.current = new Map();
+    setQuestions(buildReviewQuestions(sourceCards, allCards, effectiveCount, nextPinned));
+    setLoading(false);
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+  }, [albumId, allCards, requestedQuestionCount, sourceCards]);
 
   React.useEffect(() => {
-    if (cardIndex < reviewCards.length) return;
-    setCardIndex(Math.max(0, reviewCards.length - 1));
-  }, [cardIndex, reviewCards.length]);
-
-  const card = reviewCards[cardIndex] || null;
-
-  const resetPerCardUi = React.useCallback(() => {
-    setRevealed(false);
-    setRecordingState('idle');
-    setOverallScore(null);
-    setWordScores([]);
-    setShowCollocations(false);
-    setRecordProgress(0);
-  }, []);
-
-  const startRecording = () => {
-    if (!card) return;
-    setRecordingState('recording');
-    setRecordProgress(0);
-
-    const int = setInterval(() => {
-      setRecordProgress((p) => {
-        if (p >= 100) {
-          clearInterval(int);
-          setRecordingState('analyzing');
-          setTimeout(() => {
-            setOverallScore(72);
-            setWordScores(analyzeSentence(card.context));
-            setRecordingState('done');
-          }, 2000);
-          return 100;
-        }
-        return p + 4;
-      });
-    }, 80);
-  };
-
-  const applyRating = async (rating: Rating) => {
-    if (!card) return;
-    try {
-      const record = await database.get<Card>('cards').find(card.id);
-      const next = calcSrsUpdate(record, rating);
-      await database.write(async () => {
-        await record.update((item) => {
-          item.repetitions = next.repetitions;
-          item.intervalDays = next.intervalDays;
-          item.easeFactor = next.easeFactor;
-          item.lastReviewedAt = new Date();
-          item.nextReviewAt = next.nextReviewAt;
-        });
-      });
-    } catch (error) {
-      console.error('[Review] apply rating failed:', error);
-      Alert.alert('更新失敗', '無法儲存複習結果，請稍後再試。');
+    if (!allCards.length || !sourceCards.length) {
+      if (!sourceCards.length) {
+        setQuestions([]);
+        setLoading(false);
+      }
       return;
     }
 
-    if (cardIndex >= reviewCards.length - 1) {
-      Alert.alert('完成', '本輪複習已完成。', [
-        {
-          text: '確定',
-          onPress: () => {
-            if (navigation.canGoBack()) navigation.goBack();
-            else navigation.navigate('Deck');
-          },
-        },
-      ]);
-      return;
-    }
+    void buildSession();
+  }, [allCards.length, buildSession, sourceCards.length]);
 
-    setCardIndex((i) => i + 1);
-    resetPerCardUi();
-  };
+  const slides = React.useMemo<ReviewSlide[]>(
+    () => [...questions.map((question) => ({ id: question.id, type: 'question', question }) as const), { id: 'summary', type: 'summary' }],
+    [questions]
+  );
 
-  const scoreColor = { good: '#1A8A3A', ok: '#CC6600', bad: '#CC3333' };
-  const scoreBg = { good: '#C8F0D8', ok: '#FFD9AA', bad: '#FFCCCC' };
-  const progress = reviewCards.length > 0 ? ((cardIndex + 1) / reviewCards.length) * 100 : 0;
+  const correctCount = React.useMemo(
+    () => Object.values(results).filter(Boolean).length,
+    [results]
+  );
+
+  const answerQuestion = React.useCallback((question: ReviewQuestion, option: string) => {
+    if (selectedAnswers[question.id]) return;
+
+    const isCorrect = option === question.correctAnswer;
+    setSelectedAnswers((prev) => ({ ...prev, [question.id]: option }));
+    setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
+
+    const flipValue = getFlipValue(flipValuesRef, question.id);
+    Animated.timing(flipValue, {
+      toValue: 1,
+      duration: 380,
+      useNativeDriver: true,
+    }).start();
+  }, [selectedAnswers]);
+
+  const goToSlide = React.useCallback((index: number) => {
+    setCurrentIndex(index);
+    listRef.current?.scrollToOffset({ offset: index * width, animated: true });
+  }, [width]);
+
+  const handleTogglePinned = React.useCallback(async (cardId: string) => {
+    const nextPinned = pinnedCardIds.includes(cardId)
+      ? pinnedCardIds.filter((id) => id !== cardId)
+      : [...pinnedCardIds, cardId];
+
+    setPinnedCardIds(nextPinned);
+    await saveAlbumReviewPreferences(albumId, { pinnedCardIds: nextPinned });
+  }, [albumId, pinnedCardIds]);
+
+  const handleNext = React.useCallback(() => {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= slides.length) return;
+    goToSlide(nextIndex);
+  }, [currentIndex, goToSlide, slides.length]);
+
+  const handleReplay = React.useCallback(() => {
+    void buildSession();
+  }, [buildSession]);
+
+  const renderQuestionCard = React.useCallback((question: ReviewQuestion) => {
+    const flipValue = getFlipValue(flipValuesRef, question.id);
+    const frontRotate = flipValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '180deg'],
+    });
+    const backRotate = flipValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['180deg', '360deg'],
+    });
+    const selectedAnswer = selectedAnswers[question.id];
+    const isCorrect = results[question.id];
+    const isPinned = pinnedCardIds.includes(question.cardId);
+
+    return (
+      <View style={[styles.slide, { width }]}>
+        <View style={styles.cardShell}>
+          <Animated.View
+            style={[
+              styles.cardFace,
+              styles.frontFace,
+              {
+                transform: [{ perspective: 1200 }, { rotateY: frontRotate }],
+              },
+            ]}
+          >
+            <Text style={styles.questionEyebrow}>{question.prompt.toUpperCase()}</Text>
+            <Text style={styles.sentenceText}>{question.sentence}</Text>
+
+            <View style={styles.optionsGrid}>
+              {question.options.map((option, index) => {
+                const wasChosen = selectedAnswer === option;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[
+                      styles.optionCard,
+                      { backgroundColor: OPTION_COLORS[index % OPTION_COLORS.length] },
+                      selectedAnswer && !wasChosen && styles.optionCardDisabled,
+                    ]}
+                    activeOpacity={0.92}
+                    disabled={Boolean(selectedAnswer)}
+                    onPress={() => answerQuestion(question, option)}
+                  >
+                    <Text style={styles.optionText}>{option}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          <Animated.View
+            pointerEvents={selectedAnswer ? 'auto' : 'none'}
+            style={[
+              styles.cardFace,
+              styles.backFace,
+              {
+                transform: [{ perspective: 1200 }, { rotateY: backRotate }],
+              },
+            ]}
+          >
+            <View style={styles.resultBadgeRow}>
+              <View
+                style={[
+                  styles.resultBadge,
+                  { backgroundColor: isCorrect ? 'rgba(91,203,150,0.16)' : 'rgba(255,122,122,0.16)' },
+                ]}
+              >
+                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#5BCB96' : '#FF7A7A' }]}>
+                  {isCorrect ? 'Correct' : 'Not quite'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.answerTitle}>{question.correctAnswer}</Text>
+            {!isCorrect ? (
+              <Text style={styles.answerSubTitle}>
+                Your answer: {selectedAnswer}
+              </Text>
+            ) : null}
+            {question.sourceSentence ? (
+              <Text style={styles.answerSentence}>{question.sourceSentence}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.nextTimeButton, isPinned && styles.nextTimeButtonActive]}
+              onPress={() => void handleTogglePinned(question.cardId)}
+            >
+              <Ionicons
+                name={isPinned ? 'bookmark' : 'bookmark-outline'}
+                size={16}
+                color={isPinned ? '#101010' : '#FFFFFF'}
+              />
+              <Text style={[styles.nextTimeText, isPinned && styles.nextTimeTextActive]}>
+                test me next time
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+              <Text style={styles.nextButtonText}>Next</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }, [answerQuestion, handleNext, handleTogglePinned, pinnedCardIds, results, selectedAnswers, width]);
+
+  const renderSummaryCard = React.useCallback(() => {
+    const total = questions.length;
+    const percentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+
+    return (
+      <View style={[styles.slide, { width }]}>
+        <View style={[styles.cardShell, styles.summaryShell]}>
+          <Text style={styles.summaryEyebrow}>SESSION COMPLETE</Text>
+          <Text style={styles.summaryScore}>{correctCount}/{total}</Text>
+          <Text style={styles.summaryPercent}>{percentage}% correct</Text>
+          <Text style={styles.summaryBody}>
+            Nice run. You can play again right away, or head back to the album.
+          </Text>
+
+          <TouchableOpacity style={[styles.summaryPrimaryButton, { backgroundColor: themeColor }]} onPress={handleReplay}>
+            <Text style={styles.summaryPrimaryText}>Play Again</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.summarySecondaryButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.summarySecondaryText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }, [correctCount, handleReplay, navigation, questions.length, themeColor, width]);
+
+  const renderItem = React.useCallback(
+    ({ item }: { item: ReviewSlide }) => {
+      if (item.type === 'summary') {
+        return renderSummaryCard();
+      }
+      return renderQuestionCard(item.question);
+    },
+    [renderQuestionCard, renderSummaryCard]
+  );
+
+  const handleMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+    setCurrentIndex(nextIndex);
+  }, [width]);
+
+  const headerProgressLabel =
+    currentIndex >= questions.length
+      ? 'Final score'
+      : `Card ${Math.min(currentIndex + 1, questions.length)} of ${questions.length}`;
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.centerState}>
+          <Text style={styles.centerStateText}>Preparing your review…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!questions.length) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.headerTitle}>{albumName}</Text>
+            <Text style={styles.headerSubTitle}>No cards available</Text>
+          </View>
+        </View>
+        <View style={styles.centerState}>
+          <Text style={styles.centerStateText}>This album does not have enough cards to build a quiz yet.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => {
-            if (navigation.canGoBack()) navigation.goBack();
-            else navigation.navigate('Deck');
-          }}
-          style={styles.backButton}
-        >
-          <Text style={styles.backButtonText}>‹</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Review</Text>
-          <Text style={styles.headerSubTitle}>
-            {reviewCards.length > 0 ? `Card ${cardIndex + 1} of ${reviewCards.length}` : 'No cards to review'}
-          </Text>
+
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.headerTitle}>{albumName}</Text>
+          <Text style={styles.headerSubTitle}>{headerProgressLabel}</Text>
         </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+
+        <View style={styles.scoreChip}>
+          <Text style={styles.scoreChipText}>{correctCount}</Text>
         </View>
       </View>
 
-      {card ? (
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.flashCard}>
-            <View style={styles.wordSide}>
-              <Text style={styles.wordTitle}>{card.word}</Text>
-              <Text style={styles.partTag}>{card.partOfSpeech}</Text>
-            </View>
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${((Math.min(currentIndex, questions.length - 1) + 1) / questions.length) * 100}%`, backgroundColor: themeColor },
+          ]}
+        />
+      </View>
 
-            {!revealed ? (
-              <TouchableOpacity style={styles.revealBtn} onPress={() => setRevealed(true)}>
-                <Text style={styles.revealText}>Tap to reveal</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <View style={styles.sectionBorder}>
-                  <Text style={styles.definitionText}>{card.definition}</Text>
-                </View>
-                <View style={styles.sectionBorder}>
-                  <View style={styles.noteTitleRow}>
-                    <Text style={styles.noteSparkle}>✦</Text>
-                    <Text style={styles.noteTitle}>Cultural Note</Text>
-                  </View>
-                  <Text style={styles.noteBody}>{card.cultural}</Text>
-                </View>
-                <View style={styles.sectionBox}>
-                  <Text style={styles.contextLabel}>Your Context</Text>
-                  <Text style={styles.contextBody}>"{card.context}"</Text>
-                </View>
-              </>
-            )}
-          </View>
-
-          {revealed ? (
-            <View style={styles.coachCard}>
-              <View style={styles.coachHeader}>
-                <Text style={styles.coachTitle}>Pronunciation Coach</Text>
-                <Text style={styles.coachSub}>
-                  {recordingState === 'idle'
-                    ? 'Record yourself reading the sentence'
-                    : recordingState === 'recording'
-                    ? 'Recording...'
-                    : recordingState === 'analyzing'
-                    ? 'Analyzing your pronunciation...'
-                    : `Score: ${overallScore}/100`}
-                </Text>
-              </View>
-
-              <View style={styles.coachBody}>
-                {recordingState === 'done' && wordScores.length > 0 ? (
-                  <View style={styles.scoreWordsWrap}>
-                    {wordScores.map((ws, i) => (
-                      <View
-                        key={`${ws.word}-${i}`}
-                        style={[styles.scoreWordChip, { backgroundColor: scoreBg[ws.score] }]}
-                      >
-                        <Text
-                          style={[
-                            styles.scoreWordText,
-                            { color: scoreColor[ws.score], fontWeight: ws.score === 'bad' ? '700' : '500' },
-                          ]}
-                        >
-                          {ws.word}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.quoteSentence}>"{card.context}"</Text>
-                )}
-
-                {recordingState === 'analyzing' ? (
-                  <View style={styles.analysisWrap}>
-                    <View style={styles.analysisRow}>
-                      <View style={styles.analysisDot} />
-                      <Text style={styles.analysisText}>Analyzing pronunciation...</Text>
-                    </View>
-                    <View style={styles.analysisTrack}>
-                      <View style={[styles.analysisFill, { width: '60%' }]} />
-                    </View>
-                  </View>
-                ) : null}
-
-                {recordingState === 'recording' ? (
-                  <View style={styles.recordTrack}>
-                    <View style={[styles.recordFill, { width: `${recordProgress}%` }]} />
-                  </View>
-                ) : null}
-
-                {recordingState === 'done' && overallScore !== null ? (
-                  <View style={styles.finalScoreRow}>
-                    <View style={styles.finalScoreWrap}>
-                      <Text
-                        style={[
-                          styles.finalScore,
-                          {
-                            color:
-                              overallScore >= 80 ? '#1A8A3A' : overallScore >= 60 ? '#CC6600' : '#CC3333',
-                          },
-                        ]}
-                      >
-                        {overallScore}
-                      </Text>
-                      <Text style={styles.finalScoreOutOf}>/100</Text>
-                    </View>
-
-                    <View style={styles.legendWrap}>
-                      <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#C8F0D8' }]} />
-                        <Text style={styles.legendText}>Good</Text>
-                      </View>
-                      <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#FFD9AA' }]} />
-                        <Text style={styles.legendText}>OK</Text>
-                      </View>
-                      <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#FFCCCC' }]} />
-                        <Text style={styles.legendText}>Retry</Text>
-                      </View>
-                    </View>
-                  </View>
-                ) : null}
-
-                {(recordingState === 'idle' || recordingState === 'done') && (
-                  <TouchableOpacity
-                    onPress={startRecording}
-                    style={[
-                      styles.recordBtn,
-                      recordingState === 'done' ? styles.recordBtnRetry : styles.recordBtnNormal,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.recordBtnText,
-                        recordingState === 'done' ? styles.recordBtnTextRetry : styles.recordBtnTextNormal,
-                      ]}
-                    >
-                      {recordingState === 'done' ? '↺ Try Again' : '🎤 Record'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          ) : null}
-
-          {revealed ? (
-            <View style={styles.collocationCard}>
-              <TouchableOpacity
-                style={styles.collocationHeader}
-                onPress={() => setShowCollocations((prev) => !prev)}
-              >
-                <Text style={styles.collocationTitle}>Collocations</Text>
-                <Text style={styles.collocationArrow}>{showCollocations ? '⌃' : '⌄'}</Text>
-              </TouchableOpacity>
-              {showCollocations ? (
-                <View style={styles.collocationBody}>
-                  {card.collocations.length > 0 ? (
-                    card.collocations.map((c, i) => (
-                      <View key={`${c}-${i}`} style={styles.collocationItem}>
-                        <Text style={styles.collocationItemText}>{c}</Text>
-                      </View>
-                    ))
-                  ) : (
-                    <View style={styles.collocationItem}>
-                      <Text style={styles.collocationItemText}>No collocations</Text>
-                    </View>
-                  )}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          {revealed ? (
-            <View>
-              <Text style={styles.ratingTitle}>How well did you know this?</Text>
-              <View style={styles.ratingGrid}>
-                {[
-                  { key: 'again', label: 'Again', color: '#FFCCCC', text: '#CC3333' },
-                  { key: 'hard', label: 'Hard', color: '#FFD9AA', text: '#CC6600' },
-                  { key: 'good', label: 'Good', color: '#D4EAFF', text: '#1A5FA6' },
-                  { key: 'easy', label: 'Easy', color: '#C8F0D8', text: '#1A8A3A' },
-                ].map((btn) => (
-                  <TouchableOpacity
-                    key={btn.key}
-                    onPress={() => void applyRating(btn.key as Rating)}
-                    style={[styles.ratingBtn, { backgroundColor: btn.color }]}
-                  >
-                    <Text style={[styles.ratingBtnText, { color: btn.text }]}>{btn.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
-        </ScrollView>
-      ) : (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyTitle}>No cards to review</Text>
-          <Text style={styles.emptySubTitle}>Create cards first, then come back for review.</Text>
-          <TouchableOpacity
-            style={styles.emptyBtn}
-            onPress={() => {
-              if (navigation.canGoBack()) navigation.goBack();
-              else navigation.navigate('Deck');
-            }}
-          >
-            <Text style={styles.emptyBtnText}>Back</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      <FlatList
+        ref={listRef}
+        data={slides}
+        keyExtractor={(item) => item.id}
+        horizontal
+        pagingEnabled
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}
+        renderItem={renderItem}
+        onMomentumScrollEnd={handleMomentumEnd}
+        getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+        removeClippedSubviews={false}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F7F9' },
+  container: {
+    flex: 1,
+    backgroundColor: '#07080B',
+  },
   header: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 6,
     paddingBottom: 14,
   },
   backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F2F2F5',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backButtonText: { fontSize: 24, color: '#0D0D0D', marginTop: -2 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0D0D0D' },
-  headerSubTitle: { fontSize: 12, color: '#9A9AAA' },
-  progressTrack: { width: 80, height: 6, borderRadius: 999, backgroundColor: '#F2F2F5', overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#0D0D0D', borderRadius: 999 },
-  content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 24, gap: 12 },
-  flashCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
-  wordSide: { paddingHorizontal: 16, paddingTop: 22, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: '#F5F5F8', alignItems: 'center' },
-  wordTitle: { fontSize: 36, fontWeight: '800', letterSpacing: -1, color: '#0D0D0D' },
-  partTag: {
-    marginTop: 8,
-    backgroundColor: '#F0F0F4',
-    borderRadius: 999,
+  headerTextWrap: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 12,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  headerSubTitle: {
+    marginTop: 2,
+    color: '#9AA2AF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scoreChip: {
+    minWidth: 36,
+    height: 36,
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    fontSize: 12,
-    color: '#8A8A9A',
-    fontWeight: '500',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreChipText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  progressTrack: {
+    height: 4,
+    marginHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
-  revealBtn: { paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
-  revealText: { fontSize: 14, color: '#9A9AAA', fontWeight: '500' },
-  sectionBorder: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F8' },
-  sectionBox: { paddingHorizontal: 16, paddingVertical: 12 },
-  definitionText: { fontSize: 15, color: '#0D0D0D', lineHeight: 24 },
-  noteTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  noteSparkle: { fontSize: 12, color: '#9A7FCC' },
-  noteTitle: {
-    fontSize: 11,
-    color: '#9A7FCC',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
   },
-  noteBody: { fontSize: 13, color: '#444455', lineHeight: 22 },
-  contextLabel: {
-    fontSize: 11,
-    color: '#9A9AAA',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
+  slide: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 28,
   },
-  contextBody: { fontSize: 13, color: '#444455', fontStyle: 'italic', lineHeight: 22 },
-  coachCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
-  coachHeader: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F8' },
-  coachTitle: { fontSize: 14, fontWeight: '700', color: '#0D0D0D' },
-  coachSub: { fontSize: 12, color: '#9A9AAA', marginTop: 2 },
-  coachBody: { paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
-  quoteSentence: { fontSize: 14, color: '#444455', lineHeight: 22, fontStyle: 'italic' },
-  scoreWordsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  scoreWordChip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
-  scoreWordText: { fontSize: 14 },
-  analysisWrap: { gap: 8 },
-  analysisRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  analysisDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#9A7FCC' },
-  analysisText: { fontSize: 12, color: '#9A7FCC' },
-  analysisTrack: { height: 6, borderRadius: 999, backgroundColor: '#F2F2F5', overflow: 'hidden' },
-  analysisFill: { height: '100%', borderRadius: 999, backgroundColor: '#9A7FCC' },
-  recordTrack: { height: 6, borderRadius: 999, backgroundColor: '#F2F2F5', overflow: 'hidden' },
-  recordFill: { height: '100%', borderRadius: 999, backgroundColor: '#0D0D0D' },
-  finalScoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  finalScoreWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  finalScore: { fontSize: 28, fontWeight: '800' },
-  finalScoreOutOf: { fontSize: 14, color: '#9A9AAA' },
-  legendWrap: { flexDirection: 'row', gap: 8 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  legendDot: { width: 10, height: 10, borderRadius: 3 },
-  legendText: { fontSize: 11, color: '#7A7A8A' },
-  recordBtn: { borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
-  recordBtnNormal: { backgroundColor: '#0D0D0D' },
-  recordBtnRetry: { backgroundColor: '#F2F2F5' },
-  recordBtnText: { fontSize: 14, fontWeight: '600' },
-  recordBtnTextNormal: { color: '#fff' },
-  recordBtnTextRetry: { color: '#6A6A7A' },
-  collocationCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
-  collocationHeader: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  collocationTitle: { fontSize: 14, fontWeight: '600', color: '#0D0D0D' },
-  collocationArrow: { fontSize: 15, color: '#9A9AAA' },
-  collocationBody: { borderTopWidth: 1, borderTopColor: '#F5F5F8', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, gap: 8 },
-  collocationItem: { borderRadius: 10, backgroundColor: '#F7F7F9', paddingHorizontal: 10, paddingVertical: 9 },
-  collocationItemText: { fontSize: 13, color: '#0D0D0D', fontWeight: '600' },
-  ratingTitle: { textAlign: 'center', fontSize: 12, color: '#9A9AAA', marginBottom: 10, fontWeight: '500' },
-  ratingGrid: { flexDirection: 'row', gap: 8 },
-  ratingBtn: { flex: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
-  ratingBtnText: { fontSize: 13, fontWeight: '700' },
-  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 8 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#0D0D0D' },
-  emptySubTitle: { fontSize: 14, color: '#8A8A9A', textAlign: 'center' },
-  emptyBtn: { marginTop: 10, backgroundColor: '#0D0D0D', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
-  emptyBtnText: { color: '#fff', fontWeight: '700' },
+  cardShell: {
+    flex: 1,
+    position: 'relative',
+  },
+  cardFace: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 28,
+    backgroundColor: '#F6F6F3',
+    padding: 22,
+    backfaceVisibility: 'hidden',
+  },
+  frontFace: {
+    justifyContent: 'space-between',
+  },
+  backFace: {
+    justifyContent: 'flex-start',
+  },
+  questionEyebrow: {
+    color: '#727985',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  sentenceText: {
+    color: '#101218',
+    fontSize: 31,
+    lineHeight: 40,
+    fontWeight: '700',
+    marginTop: 18,
+    flex: 1,
+  },
+  optionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  optionCard: {
+    width: '48%',
+    minHeight: 112,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    justifyContent: 'center',
+  },
+  optionCardDisabled: {
+    opacity: 0.4,
+  },
+  optionText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '800',
+  },
+  resultBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  resultBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  resultBadgeText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  answerTitle: {
+    marginTop: 22,
+    color: '#0F1115',
+    fontSize: 34,
+    fontWeight: '800',
+  },
+  answerSubTitle: {
+    marginTop: 8,
+    color: '#5C6470',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  answerSentence: {
+    marginTop: 18,
+    color: '#1D2128',
+    fontSize: 20,
+    lineHeight: 30,
+    fontWeight: '600',
+  },
+  nextTimeButton: {
+    marginTop: 'auto',
+    minHeight: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#101010',
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  nextTimeButtonActive: {
+    backgroundColor: '#E5FF4F',
+    borderColor: '#E5FF4F',
+  },
+  nextTimeText: {
+    color: '#101010',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  nextTimeTextActive: {
+    color: '#101010',
+  },
+  nextButton: {
+    marginTop: 12,
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: '#12151B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextButtonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  summaryShell: {
+    borderRadius: 28,
+    backgroundColor: '#101217',
+    paddingHorizontal: 26,
+    paddingVertical: 28,
+    justifyContent: 'center',
+  },
+  summaryEyebrow: {
+    color: '#9AA2AF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  summaryScore: {
+    marginTop: 18,
+    color: '#FFFFFF',
+    fontSize: 72,
+    fontWeight: '900',
+  },
+  summaryPercent: {
+    marginTop: 8,
+    color: '#E5FF4F',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  summaryBody: {
+    marginTop: 18,
+    color: '#B2B9C5',
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  summaryPrimaryButton: {
+    marginTop: 28,
+    minHeight: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryPrimaryText: {
+    color: '#101010',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  summarySecondaryButton: {
+    marginTop: 12,
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summarySecondaryText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  centerState: {
+    flex: 1,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerStateText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 28,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });

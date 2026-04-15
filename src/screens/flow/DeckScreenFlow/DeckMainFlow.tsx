@@ -47,7 +47,7 @@ export default function DeckMainFlow({ navigation }: Props) {
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
-  const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
+  const hoveredAction = useSharedValue<'none' | 'sort' | 'edit' | 'delete'>('none');
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -291,7 +291,7 @@ export default function DeckMainFlow({ navigation }: Props) {
   }, [customAlbums]);
 
   const handleActionEnd = React.useCallback(
-    (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
+    (album: DeckAlbum, action: 'none' | 'sort' | 'edit' | 'delete') => {
       if (action === 'edit') {
         openAlbumSettings(album);
         return;

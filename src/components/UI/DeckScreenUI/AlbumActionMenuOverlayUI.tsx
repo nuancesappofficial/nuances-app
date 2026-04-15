@@ -10,7 +10,7 @@ type Props = {
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
+  hoveredAction: SharedValue<'none' | 'edit' | 'delete'| 'sort'>;
   activeAlbum: DeckAlbum | null;
   activeLayout: { x: number; y: number; width: number; height: number } | null;
 };
@@ -53,6 +53,13 @@ export default function AlbumActionMenuOverlayUI({
     top: startY.value - MENU_BUTTON_HALF_SIZE,
   }));
 
+  const sortButtonStyle = useAnimatedStyle(() => ({
+    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
+    transform: [{ scale: withSpring(hoveredAction.value === 'sort' ? 1.5 : 1, ELEGANT_SPRING) }],
+    left: startX.value - MENU_BUTTON_HALF_SIZE,
+    top: startY.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
+  }));
+
   const cloneStyle = useAnimatedStyle(() => ({
     opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
     transform: [{ scale: withSpring(isMenuVisible.value ? 1.06 : 1, ELEGANT_SPRING) }],
@@ -91,6 +98,19 @@ export default function AlbumActionMenuOverlayUI({
           />
         </Reanimated.View>
       ) : null}
+
+      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
+        <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
+      </Reanimated.View>
+
+      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, deleteButtonStyle]}>
+        <MenuSymbol name="trash.fill" color="#FF3B30" fallback="🗑️" />
+      </Reanimated.View>
+
+      {/* 新增第三個按鈕（排序） */}
+      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, sortButtonStyle]}>
+        <MenuSymbol name="arrow.up.arrow.down" color="#007AFF" fallback="↕️" />
+      </Reanimated.View>
 
       <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
         <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />

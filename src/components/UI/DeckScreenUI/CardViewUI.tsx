@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
 
 type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
@@ -28,6 +29,8 @@ type Props = {
   onPressBack: () => void;
   onPressSearch: () => void;
   onPressSort: () => void;
+  onPressPlay: () => void;
+  onPressReviewTuning: () => void;
   onPressCard: (card: Card) => void;
   onPressMoreCard: (card: Card) => void;
   cardImageMap: Record<string, string>;
@@ -49,6 +52,8 @@ export default function CardViewUI({
   onPressBack,
   onPressSearch,
   onPressSort,
+  onPressPlay,
+  onPressReviewTuning,
   onPressCard,
   onPressMoreCard,
   cardImageMap,
@@ -97,13 +102,20 @@ export default function CardViewUI({
       </View>
 
       <View style={styles.actionButtonsRow}>
-        <TouchableOpacity style={[styles.actionButton, { backgroundColor: themeColor }]} activeOpacity={0.9}>
-          <Text style={styles.actionButtonIcon}>▥</Text>
-          <Text style={styles.actionButtonText}>Review words</Text>
+        <TouchableOpacity
+          style={[styles.playButton, { backgroundColor: themeColor }]}
+          activeOpacity={0.9}
+          onPress={onPressPlay}
+        >
+          <Ionicons name="play" size={16} color="#FFFFFF" />
+          <Text style={styles.actionButtonText}>Play</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionButton, { backgroundColor: themeColor }]} activeOpacity={0.9}>
-          <Text style={styles.actionButtonIcon}>☰</Text>
-          <Text style={styles.actionButtonText}>Personalize</Text>
+        <TouchableOpacity
+          style={[styles.tuningButton, { backgroundColor: themeColor }]}
+          activeOpacity={0.9}
+          onPress={onPressReviewTuning}
+        >
+          <Ionicons name="options-outline" size={18} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
     </View>
@@ -283,7 +295,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 12,
   },
-  actionButton: {
+  playButton: {
     flex: 1,
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -293,10 +305,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  actionButtonIcon: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 16,
+  tuningButton: {
+    width: 52,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionButtonText: {
     color: '#FFFFFF',
