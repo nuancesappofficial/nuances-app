@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Dimensions, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -29,6 +30,7 @@ type Props = {
   itemId: string;
   imageUri?: string;
   text: string;
+  detectedPreview?: string;
   sourceLabel: string;
   importedAtLabel: string;
   index: number;
@@ -39,6 +41,7 @@ type Props = {
     itemId: string;
     direction: 'left' | 'right';
   } | null;
+  onImageError: (itemId: string) => void;
   restoreSeed: number;
   onSwipe: (itemId: string, direction: 'left' | 'right') => void;
   animationSeed: number;
@@ -48,12 +51,14 @@ export default function CacheCardUI({
   itemId,
   imageUri,
   text,
+  detectedPreview,
   sourceLabel,
   importedAtLabel,
   index,
   isTopCard,
   topCardDragX,
   swipeTrigger,
+  onImageError,
   restoreSeed,
   onSwipe,
   animationSeed,
@@ -72,6 +77,13 @@ export default function CacheCardUI({
   const isPressed = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
   const lastSwipeTriggerSeq = React.useRef<number | null>(null);
+  const lastEntranceSeedRef = React.useRef<number | null>(null);
+
+  const triggerSwipeHaptic = React.useCallback((direction: 'left' | 'right') => {
+    void Haptics.impactAsync(
+      direction === 'left' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    );
+  }, []);
 
   const commitSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
@@ -83,7 +95,17 @@ export default function CacheCardUI({
   );
 
   React.useEffect(() => {
+    const shouldRunEntrance = lastEntranceSeedRef.current !== animationSeed;
+    lastEntranceSeedRef.current = animationSeed;
     isPressed.value = false;
+
+    if (!shouldRunEntrance) {
+      x.value = 0;
+      y.value = toY;
+      scale.value = 1;
+      rot.value = targetRot;
+      return;
+    }
 
     if (isDropMode) {
       x.value = 0;
@@ -149,6 +171,7 @@ export default function CacheCardUI({
         if (isTopCard) {
           topCardDragX.value = width * 2 * dir;
         }
+        runOnJS(triggerSwipeHaptic)(dir > 0 ? 'right' : 'left');
         runOnJS(commitSwipe)(dir > 0 ? 'right' : 'left');
       } else {
         isPressed.value = false;
@@ -198,8 +221,17 @@ export default function CacheCardUI({
           </View>
 
           <View style={styles.mainContentContainer}>
-            {imageUri ? <CacheImageCardFace imageUri={imageUri} fallbackText={text} /> : <CacheTextCardFace text={text} />}
-            <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} />
+            {imageUri ? (
+              <CacheImageCardFace
+                imageUri={imageUri}
+                fallbackText={text}
+                detectedPreview={detectedPreview}
+                onImageError={() => onImageError(itemId)}
+              />
+            ) : (
+              <CacheTextCardFace text={text} />
+            )}
+            {!imageUri ? <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} /> : null}
           </View>
         </View>
       </Animated.View>

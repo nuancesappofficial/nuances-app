@@ -19,9 +19,6 @@ import DayViewFlow from '../screens/flow/DeckScreenFlow/DayViewFlow';
 import DeckMainFlow from '../screens/flow/DeckScreenFlow/DeckMainFlow';
 import ProfileMainFlow from '../screens/flow/ProfileScreenFlow/ProfileMainFlow';
 import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
-import { database } from '@database/index';
-import type CachedItem from '@database/models/CachedItem';
-import { Q } from '@nozbe/watermelondb';
 
 const CacheStackNav = createNativeStackNavigator();
 const CardsStackNav = createNativeStackNavigator();
@@ -229,7 +226,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const lastHapticAtRef = React.useRef(0);
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
-  const [initialTabIndex, setInitialTabIndex] = React.useState<number | null>(null);
   const [isPaginationEnabled, setIsPaginationEnabled] = React.useState(true);
   const [tabRootBarVisible, setTabRootBarVisible] = React.useState<Record<number, boolean>>({
     0: true,
@@ -243,36 +239,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   });
   const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
   const tabBarOpacity = React.useRef(new Animated.Value(1)).current;
-
-  React.useEffect(() => {
-    let active = true;
-    const resolveInitialTab = async () => {
-      try {
-        const cacheCount = await database
-          .get<CachedItem>('cached_items')
-          .query(Q.where('deleted_at', null))
-          .fetchCount();
-        const nextIndex = cacheCount > 0 ? 0 : 1;
-        if (!active) return;
-        currentIndexRef.current = nextIndex;
-        targetIndexRef.current = null;
-        setSelectedTabIndex(nextIndex);
-        setInitialTabIndex(nextIndex);
-      } catch (error) {
-        console.error('[RootNavigator] resolve initial tab failed:', error);
-        if (!active) return;
-        currentIndexRef.current = 0;
-        targetIndexRef.current = null;
-        setSelectedTabIndex(0);
-        setInitialTabIndex(0);
-      }
-    };
-
-    void resolveInitialTab();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
     cacheSwipeExclusionRangeRef.current = range;
@@ -410,10 +376,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     ]).start();
   }, [isTabBarVisible, tabBarOpacity, tabBarTranslateY]);
 
-  if (initialTabIndex === null) {
-    return <View style={styles.container} />;
-  }
-
   return (
     <TabSwipeContext.Provider
       value={{
@@ -429,7 +391,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         <PagerView
           ref={pagerRef}
           style={styles.pager}
-          initialPage={initialTabIndex}
+          initialPage={0}
           scrollEnabled={pagerSwipeEnabled}
           onPageScroll={handlePageScroll}
           onPageSelected={handlePageSelected}

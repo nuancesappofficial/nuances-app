@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, Text, Pressable } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import CacheCardUI from './CacheCardUI';
 
@@ -8,6 +9,7 @@ type CacheStackItem = {
   id: string;
   imageUri?: string;
   text: string;
+  detectedPreview?: string;
   sourceLabel: string;
   importedAtLabel: string;
 };
@@ -17,9 +19,10 @@ type Props = {
   animationSeed: number;
   restoreSeed: number;
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
+  onCardImageError: (itemId: string) => void;
 };
 
-export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCardSwipe }: Props) {
+export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCardSwipe, onCardImageError }: Props) {
   const topCardDragX = useSharedValue(0);
   const swipeSeqRef = React.useRef(0);
   const [swipeTrigger, setSwipeTrigger] = React.useState<{
@@ -66,6 +69,9 @@ export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCard
   const triggerTopCardSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
       if (!topCard) return;
+      void Haptics.impactAsync(
+        direction === 'left' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+      );
       swipeSeqRef.current += 1;
       setSwipeTrigger({
         seq: swipeSeqRef.current,
@@ -102,16 +108,18 @@ export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCard
       ) : null}
       {cards.map((item, index) => (
         <CacheCardUI
-          key={`${animationSeed}-${item.id}`}
+          key={item.id}
           itemId={item.id}
           imageUri={item.imageUri}
           text={item.text}
+          detectedPreview={item.detectedPreview}
           sourceLabel={item.sourceLabel}
           importedAtLabel={item.importedAtLabel}
           index={index}
           isTopCard={index === cards.length - 1}
           topCardDragX={topCardDragX}
           swipeTrigger={swipeTrigger}
+          onImageError={onCardImageError}
           restoreSeed={restoreSeed}
           onSwipe={onCardSwipe}
           animationSeed={animationSeed}

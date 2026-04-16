@@ -2,15 +2,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Alert, AppState, type AppStateStatus } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
-import { syncWithRetry } from '@services/sync';
+import { extractTextFromImage, isOCRAvailable, type OCRBlock } from '@services/ocr';
+import { supabase } from '@services/supabase/client';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
@@ -26,12 +30,17 @@ type CacheCardRecord = {
   id: string;
   imageUri?: string;
   text: string;
+  detectedPreview?: string;
   sourceLabel: string;
   importedAtLabel: string;
   cachedItem: CachedItem;
 };
 
 type CropperFlowTarget = 'quick-add' | 'swipe-image';
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 function toSourceLabel(sourceApp?: string | null): string {
   const value = (sourceApp || '').trim().toLowerCase();
@@ -76,6 +85,33 @@ function toRelativeImportTime(createdAt?: Date | null): string {
   return `${year} yr ago`;
 }
 
+function getDetectedPreview(annotations: unknown): string | undefined {
+  let rows: Array<{ text?: string }> = [];
+
+  if (Array.isArray(annotations)) {
+    rows = annotations as Array<{ text?: string }>;
+  } else if (typeof annotations === 'string') {
+    try {
+      const parsed = JSON.parse(annotations);
+      if (Array.isArray(parsed)) {
+        rows = parsed as Array<{ text?: string }>;
+      }
+    } catch {
+      rows = [];
+    }
+  }
+
+  const words = rows
+    .flatMap((item) => (item?.text || '').split(/\s+/))
+    .map((word) => word.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').trim())
+    .filter(Boolean);
+
+  if (words.length === 0) return 'No text recognized';
+  const compact = Array.from(new Set(words.map((word) => word.toLowerCase()))).slice(0, 4);
+  const display = compact.map((word) => word.charAt(0).toUpperCase() + word.slice(1));
+  return `Detected words: ${display.join(', ')}${words.length > compact.length ? '...' : ''}`;
+}
+
 export default function CacheScreenFlow({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
@@ -100,6 +136,10 @@ export default function CacheScreenFlow({ navigation }: Props) {
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
   const deletingItemIdsRef = React.useRef(new Set<string>());
   const hasFocusedOnceRef = React.useRef(false);
+  const invalidCleanupRunningRef = React.useRef(false);
+  const ocrProcessingIdsRef = React.useRef(new Set<string>());
+  const ocrSettledIdsRef = React.useRef(new Set<string>());
+  const [liveDetectedPreviewById, setLiveDetectedPreviewById] = useState<Record<string, string>>({});
 
   const openAddModal = React.useCallback(() => {
     setShowAddModal(true);
@@ -166,6 +206,9 @@ export default function CacheScreenFlow({ navigation }: Props) {
           item.imageStoragePath ||
           item.mediaUri ||
           (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
+        const detectedPreview = imageUri
+          ? liveDetectedPreviewById[item.id] ?? getDetectedPreview(item.imageAnnotations)
+          : undefined;
 
         const hasText = text.length > 0;
         const hasImageSource = Boolean(imageUri);
@@ -177,19 +220,21 @@ export default function CacheScreenFlow({ navigation }: Props) {
           id: item.id,
           imageUri,
           text: hasText ? text : 'Image unavailable',
+          detectedPreview,
           sourceLabel: toSourceLabel(item.sourceApp),
           importedAtLabel: toRelativeImportTime(item.createdAt),
           cachedItem: item,
         });
         return acc;
       }, []);
-  }, [cacheItems]);
+  }, [cacheItems, liveDetectedPreviewById]);
 
   const stackCards = useMemo(() => {
     return cards.map((item) => ({
       id: item.id,
       imageUri: item.imageUri,
       text: item.text,
+      detectedPreview: item.detectedPreview,
       sourceLabel: item.sourceLabel,
       importedAtLabel: item.importedAtLabel,
     }));
@@ -218,6 +263,138 @@ export default function CacheScreenFlow({ navigation }: Props) {
     }
   }, [manualText]);
 
+  const normalizeImageUriForCache = React.useCallback(async (imageUri: string): Promise<string> => {
+    if (!imageUri) return imageUri;
+    //if (imageUri.startsWith('file://')) return imageUri;
+    try {
+      const normalized = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [],
+        { compress: 0.98, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      return normalized.uri || imageUri;
+    } catch (error) {
+      console.warn('[CacheList] normalize image uri failed, fallback to original:', error);
+      return imageUri;
+    }
+  }, []);
+
+  const runLocalOCRForPreview = React.useCallback(async (imageUri: string): Promise<OCRBlock[] | undefined> => {
+    if (!imageUri || !isOCRAvailable()) return undefined;
+    try {
+      const result = await extractTextFromImage(imageUri);
+      if (!Array.isArray(result.blocks) || result.blocks.length === 0) return undefined;
+      return result.blocks;
+    } catch (error) {
+      console.warn('[CacheList] quick cache OCR failed:', error);
+      return undefined;
+    }
+  }, []);
+
+  const hasOCRAnnotations = React.useCallback((annotations: unknown): boolean => {
+    if (annotations == null) return false;
+
+    if (Array.isArray(annotations)) {
+      return annotations.length > 0;
+    }
+    if (typeof annotations === 'string') {
+      try {
+        const parsed = JSON.parse(annotations);
+        return Array.isArray(parsed) && parsed.length > 0;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }, []);
+
+  React.useEffect(() => {
+    const activeIds = new Set(cacheItems.map((item) => item.id));
+    for (const id of Array.from(ocrSettledIdsRef.current)) {
+      if (!activeIds.has(id)) ocrSettledIdsRef.current.delete(id);
+    }
+    for (const id of Array.from(ocrProcessingIdsRef.current)) {
+      if (!activeIds.has(id)) ocrProcessingIdsRef.current.delete(id);
+    }
+    setLiveDetectedPreviewById((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const key of Object.keys(next)) {
+        if (!activeIds.has(key)) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [cacheItems]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const runBackfillOCR = async () => {
+      const targets = cacheItems
+        .filter((item) => {
+        const imageUri =
+          item.imageStoragePath ||
+          item.mediaUri ||
+          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
+        if (!imageUri) return false;
+        if (hasOCRAnnotations(item.imageAnnotations)) return false;
+        if (ocrProcessingIdsRef.current.has(item.id)) return false;
+        if (ocrSettledIdsRef.current.has(item.id)) return false;
+        return true;
+      })
+        .sort((a, b) => {
+          const aTs = a.createdAt?.getTime?.() ?? 0;
+          const bTs = b.createdAt?.getTime?.() ?? 0;
+          return bTs - aTs;
+        });
+
+      for (const item of targets) {
+        if (cancelled) return;
+        const baseUri =
+          item.imageStoragePath ||
+          item.mediaUri ||
+          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
+        if (!baseUri) continue;
+
+        ocrProcessingIdsRef.current.add(item.id);
+        setLiveDetectedPreviewById((prev) => ({ ...prev, [item.id]: 'text scanning...' }));
+        try {
+          const normalizedUri = await normalizeImageUriForCache(baseUri);
+          const ocrBlocks = await runLocalOCRForPreview(normalizedUri);
+          if (cancelled) return;
+
+          const detectedPreview = getDetectedPreview(ocrBlocks);
+          setLiveDetectedPreviewById((prev) => ({
+            ...prev,
+            [item.id]: detectedPreview || 'No text recognized',
+          }));
+
+          await database.write(async () => {
+            await item.update((record) => {
+              if ((!record.imageStoragePath || !record.imageStoragePath.startsWith('file://')) && normalizedUri) {
+                record.imageStoragePath = normalizedUri;
+              }
+              record.imageAnnotations = (ocrBlocks || []) as any; 
+            });
+          });
+        } catch (error) {
+          console.warn('[CacheList] backfill OCR failed:', error);
+        } finally {
+          ocrProcessingIdsRef.current.delete(item.id);
+          ocrSettledIdsRef.current.add(item.id);
+        }
+      }
+    };
+
+    void runBackfillOCR();
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheItems, hasOCRAnnotations, normalizeImageUriForCache, runLocalOCRForPreview]);
+
   const createQuickImageCachedItems = React.useCallback(
     async (imageUris: string[]): Promise<number> => {
       const userId = await getCurrentAuthUserId();
@@ -244,6 +421,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
             item.userKeywords = undefined;
             item.aiAnalysisCompleted = false;
             item.convertedToCard = false;
+            item.imageAnnotations = undefined;
 
             const expiresAt = new Date();
             expiresAt.setMinutes(expiresAt.getMinutes() + 10);
@@ -386,6 +564,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
           item.userKeywords = undefined;
           item.aiAnalysisCompleted = false;
           item.convertedToCard = false;
+          item.imageAnnotations = undefined;
 
           const expiresAt = new Date();
           expiresAt.setMinutes(expiresAt.getMinutes() + 10);
@@ -432,7 +611,6 @@ export default function CacheScreenFlow({ navigation }: Props) {
             cachedItem: quickItem,
             croppedImageUri: croppedUri,
             originalImageUri: originalUri,
-            runOcrOnLoad: true,
           });
         } catch (error) {
           console.error('[CacheList] create quick image item failed:', error);
@@ -462,23 +640,123 @@ export default function CacheScreenFlow({ navigation }: Props) {
     }
   }, [pendingOpenCropperAfterAddDismiss, pendingOriginalImageUri, suppressAddModalAnimation]);
 
-  const deleteCacheItemPermanently = React.useCallback(async (item: CachedItem) => {
+  const deleteCacheItemPermanently = React.useCallback(async (
+    item: CachedItem,
+    options?: { silent?: boolean }
+  ) => {
     if (deletingItemIdsRef.current.has(item.id)) return;
     deletingItemIdsRef.current.add(item.id);
     try {
-      await database.write(async () => {
-        await item.markAsDeleted();
-      });
-      const syncResult = await syncWithRetry(2);
-      if (!syncResult.success) {
-        console.error('[CacheList] delete sync failed:', syncResult.message || syncResult.error);
+      const userId = item.userId || (await getCurrentAuthUserId());
+      if (!userId) {
+        throw new Error('Missing user id for deletion');
       }
+
+      // Some legacy/local-only rows may use non-UUID ids and cannot exist in Supabase UUID PK.
+      // In that case, skip remote delete and only hard-delete locally.
+      if (isUuid(item.id)) {
+        const { error: remoteDeleteError } = await supabase
+          .from('cached_items')
+          .delete()
+          .eq('id', item.id)
+          .eq('user_id', userId);
+        if (remoteDeleteError) {
+          throw remoteDeleteError;
+        }
+      }
+
+      await database.write(async () => {
+        await item.destroyPermanently();
+      });
     } catch (error) {
       console.error('[CacheList] delete cache item failed:', error);
+      if (!options?.silent) {
+        Alert.alert('刪除失敗', '無法同步刪除到後端，請稍後再試。');
+      }
     } finally {
       deletingItemIdsRef.current.delete(item.id);
     }
   }, []);
+
+  useEffect(() => {
+    if (cacheItems.length === 0) return;
+    if (invalidCleanupRunningRef.current) return;
+
+    let cancelled = false;
+    invalidCleanupRunningRef.current = true;
+    const runInvalidImageCleanup = async () => {
+      try {
+        const invalidItems: CachedItem[] = [];
+
+        for (const item of cacheItems) {
+          if (item.contentType !== 'image') continue;
+          if (deletingItemIdsRef.current.has(item.id)) continue;
+
+          const imageSource =
+            item.imageStoragePath?.trim() ||
+            item.mediaUri?.trim() ||
+            item.contentUrl?.trim() ||
+            '';
+
+          if (!imageSource) {
+            invalidItems.push(item);
+            continue;
+          }
+
+          const lower = imageSource.toLowerCase();
+          const isHttpRemote = lower.startsWith('http://') || lower.startsWith('https://');
+          const isLocalPath =
+            lower.startsWith('file://') ||
+            imageSource.startsWith('/') ||
+            lower.startsWith('content://') ||
+            lower.startsWith('ph://');
+
+          if (!isHttpRemote && !isLocalPath) {
+            invalidItems.push(item);
+            continue;
+          }
+
+          const needsLocalExistenceCheck = lower.startsWith('file://') || imageSource.startsWith('/');
+          if (!needsLocalExistenceCheck) continue;
+
+          const normalizedLocalPath = imageSource.startsWith('file://')
+            ? imageSource
+            : `file://${imageSource}`;
+          try {
+            const info = await FileSystem.getInfoAsync(normalizedLocalPath);
+            if (!info.exists) {
+              invalidItems.push(item);
+            }
+          } catch {
+            invalidItems.push(item);
+          }
+        }
+
+        if (cancelled || invalidItems.length === 0) return;
+        for (const item of invalidItems) {
+          if (cancelled) return;
+          // eslint-disable-next-line no-await-in-loop
+          await deleteCacheItemPermanently(item, { silent: true });
+        }
+      } finally {
+        invalidCleanupRunningRef.current = false;
+      }
+    };
+
+    void runInvalidImageCleanup();
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheItems, deleteCacheItemPermanently]);
+
+  const handleCardImageError = React.useCallback(
+    (itemId: string) => {
+      const target = cards.find((card) => card.id === itemId);
+      if (!target) return;
+      void deleteCacheItemPermanently(target.cachedItem, { silent: true });
+    },
+    [cards, deleteCacheItemPermanently]
+  );
 
   const handleCardSwipe = React.useCallback(
     (itemId: string, direction: 'left' | 'right') => {
@@ -520,6 +798,24 @@ export default function CacheScreenFlow({ navigation }: Props) {
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        {/* 底層：深邃的午夜藍到純黑 */}
+        <LinearGradient
+          colors={['#0F1322', '#0A0B10', '#000000']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* 新增：跨平台相容的底部溫潤光暈 (Orb) */}
+        <View style={styles.glowCenter}>
+          <View style={[styles.orbLayer, { width: 400, height: 400, borderRadius: 200, opacity: 0.04 }]} />
+          <View style={[styles.orbLayer, { width: 300, height: 300, borderRadius: 150, opacity: 0.08 }]} />
+          <View style={[styles.orbLayer, { width: 200, height: 200, borderRadius: 100, opacity: 0.12 }]} />
+          <View style={[styles.orbLayer, { width: 100, height: 100, borderRadius: 50, opacity: 0.15 }]} />
+        </View>
+      </View>
+
       <View pointerEvents="none" style={[styles.brandWrap, { top: insets.top + 6 }]}>
         <Text style={styles.brandText}>Nuances</Text>
       </View>
@@ -529,6 +825,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
         animationSeed={animationSeed}
         restoreSeed={restoreSeed}
         onCardSwipe={handleCardSwipe}
+        onCardImageError={handleCardImageError}
       />
 
       <CacheInputModalUI
@@ -585,5 +882,20 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: 0.4,
+  },
+  // --- 新增的 Orb 樣式 ---
+  glowCenter: {
+    position: 'absolute',
+    bottom: -80, // 控制光暈在螢幕底部的位置
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orbLayer: {
+    position: 'absolute',
+    backgroundColor: '#5882FF', // 溫潤的藍紫色光芒
+    shadowColor: '#5882FF',
+    shadowOpacity: 0.5,
+    shadowRadius: 30, // 讓 iOS 表現更好，Android 則靠著 opacity 疊加來過渡
   },
 });
