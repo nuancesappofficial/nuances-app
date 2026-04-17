@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Alert, AppState, type AppStateStatus } from 'react-native';
+import { View, Text, StyleSheet, Alert, AppState, TouchableOpacity, type AppStateStatus } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -7,7 +7,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
@@ -24,6 +23,7 @@ import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
 
 type Props = {
   navigation: any;
+  onRequestClose?: () => void;
 };
 
 type CacheCardRecord = {
@@ -112,7 +112,7 @@ function getDetectedPreview(annotations: unknown): string | undefined {
   return `Detected words: ${display.join(', ')}${words.length > compact.length ? '...' : ''}`;
 }
 
-export default function CacheScreenFlow({ navigation }: Props) {
+export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
@@ -140,6 +140,7 @@ export default function CacheScreenFlow({ navigation }: Props) {
   const ocrProcessingIdsRef = React.useRef(new Set<string>());
   const ocrSettledIdsRef = React.useRef(new Set<string>());
   const [liveDetectedPreviewById, setLiveDetectedPreviewById] = useState<Record<string, string>>({});
+  const previousCardCountRef = React.useRef<number | null>(null);
 
   const openAddModal = React.useCallback(() => {
     setShowAddModal(true);
@@ -173,15 +174,28 @@ export default function CacheScreenFlow({ navigation }: Props) {
     return () => sub.unsubscribe();
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useEffect(() => {
+    const handleFocused = () => {
       if (hasFocusedOnceRef.current) {
         setRestoreSeed((prev) => prev + 1);
       } else {
         hasFocusedOnceRef.current = true;
       }
-    }, [])
-  );
+    };
+
+    if (navigation?.isFocused?.() ?? true) {
+      handleFocused();
+    }
+
+    if (!navigation?.addListener) {
+      return;
+    }
+
+    const unsubscribe = navigation.addListener('focus', handleFocused);
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigation]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -239,6 +253,15 @@ export default function CacheScreenFlow({ navigation }: Props) {
       importedAtLabel: item.importedAtLabel,
     }));
   }, [cards]);
+
+  useEffect(() => {
+    if (!onRequestClose) return;
+    const prev = previousCardCountRef.current;
+    if (prev !== null && prev > 0 && cards.length === 0) {
+      onRequestClose();
+    }
+    previousCardCountRef.current = cards.length;
+  }, [cards.length, onRequestClose]);
 
   const handleQuickAddText = React.useCallback(async () => {
     const trimmed = manualText.trim();
@@ -828,6 +851,14 @@ export default function CacheScreenFlow({ navigation }: Props) {
         onCardImageError={handleCardImageError}
       />
 
+      <TouchableOpacity
+        style={[styles.addFab, { bottom: Math.max(insets.bottom, 10) + 22 }]}
+        activeOpacity={0.86}
+        onPress={openAddModal}
+      >
+        <Text style={styles.addFabLabel}>＋</Text>
+      </TouchableOpacity>
+
       <CacheInputModalUI
         visible={showAddModal}
         suppressAnimation={suppressAddModalAnimation}
@@ -882,6 +913,30 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: 0.4,
+  },
+  addFab: {
+    position: 'absolute',
+    right: 18,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+    shadowColor: '#000000',
+    shadowOpacity: 0.26,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  addFabLabel: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '300',
+    lineHeight: 32,
   },
   // --- 新增的 Orb 樣式 ---
   glowCenter: {

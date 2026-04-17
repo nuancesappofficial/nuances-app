@@ -21,9 +21,11 @@ import {
 
 type Props = {
   navigation: any;
+  onPressAvatar?: () => void;
+  onPressCacheFab?: () => void;
 };
 
-export default function DeckMainFlow({ navigation }: Props) {
+export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFab }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [imageReloadSeed, setImageReloadSeed] = React.useState(0);
@@ -316,12 +318,30 @@ export default function DeckMainFlow({ navigation }: Props) {
     setActiveLayout(null);
   }, []);
 
+  const handleAvatarPress = React.useCallback(() => {
+    if (onPressAvatar) {
+      onPressAvatar();
+      return;
+    }
+    console.log('[DeckHub] Avatar pressed');
+  }, [onPressAvatar]);
+
+  const handleCacheFabPress = React.useCallback(() => {
+    if (onPressCacheFab) {
+      onPressCacheFab();
+      return;
+    }
+    console.log('[DeckHub] Cache FAB pressed');
+  }, [onPressCacheFab]);
+
   return (
     <>
       <DeckMainScreenUI
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onClearSearch={() => setSearchQuery('')}
+        onPressAvatar={handleAvatarPress}
+        onPressCacheFab={handleCacheFabPress}
         onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
         sortOrder={sortOrder}
         onToggleSort={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}

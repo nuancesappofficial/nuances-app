@@ -1,4 +1,5 @@
 import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
@@ -9,6 +10,8 @@ type Props = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
+  onPressAvatar: () => void;
+  onPressCacheFab: () => void;
   onOpenCreateAlbum: () => void;
   sortOrder: 'desc' | 'asc';
   onToggleSort: () => void;
@@ -29,6 +32,8 @@ export default function DeckMainScreenUI({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  onPressAvatar,
+  onPressCacheFab,
   onOpenCreateAlbum,
   sortOrder,
   onToggleSort,
@@ -46,25 +51,27 @@ export default function DeckMainScreenUI({
 }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputWrap}>
-          <Text style={styles.searchIcon}>⌕</Text>
-          <TextInput
-            value={searchQuery}
-            onChangeText={onSearchChange}
-            placeholder="搜尋卡片關鍵字"
-            placeholderTextColor="#8E8E93"
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          <TouchableOpacity style={styles.clearSearchButton} activeOpacity={0.8} onPress={onClearSearch}>
-            <Text style={styles.clearSearchButtonText}>×</Text>
+      <View style={styles.topBarWrap}>
+        <View style={styles.topBarPill}>
+          <View style={styles.searchSlot}>
+            <Text style={styles.searchIcon}>⌕</Text>
+            <TextInput
+              value={searchQuery}
+              onChangeText={onSearchChange}
+              placeholder="搜尋卡片關鍵字"
+              placeholderTextColor="#9EA0A7"
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            <TouchableOpacity style={styles.clearSearchButton} activeOpacity={0.8} onPress={onClearSearch}>
+              <Text style={styles.clearSearchButtonText}>×</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.avatarButton} activeOpacity={0.85} onPress={onPressAvatar}>
+            <Text style={styles.avatarLabel}>N</Text>
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={styles.addAlbumButton} activeOpacity={0.85} onPress={onOpenCreateAlbum}>
-          <Text style={styles.addAlbumText}>＋</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -72,6 +79,11 @@ export default function DeckMainScreenUI({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterRow}
       >
+        <TouchableOpacity style={styles.createAlbumPill} activeOpacity={0.85} onPress={onOpenCreateAlbum}>
+          <Text style={styles.createAlbumPillIcon}>＋</Text>
+          <Text style={styles.createAlbumPillText}>新增相簿</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.sortPill} activeOpacity={0.85} onPress={onToggleSort}>
           <Text style={styles.sortPillText}>↕︎</Text>
           <Text style={styles.sortPillChevron}>{sortOrder === 'desc' ? '新→舊' : '舊→新'}</Text>
@@ -106,6 +118,10 @@ export default function DeckMainScreenUI({
           />
         )}
       />
+
+      <TouchableOpacity style={styles.cacheFab} activeOpacity={0.86} onPress={onPressCacheFab}>
+        <Ionicons name="albums-outline" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -115,26 +131,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0A0A',
   },
-  searchRow: {
+  topBarWrap: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    paddingBottom: 8,
   },
-  searchInputWrap: {
-    flex: 1,
-    height: 44,
-    borderRadius: 14,
+  topBarPill: {
+    minHeight: 56,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    backgroundColor: '#0B0B0F',
+    borderColor: 'rgba(255,255,255,0.26)',
+    backgroundColor: 'rgba(18,20,25,0.94)',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingLeft: 14,
+    paddingRight: 8,
+    shadowColor: '#000000',
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 6,
+  },
+  searchSlot: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   searchIcon: {
-    color: '#FFFFFF',
+    color: '#D1D4DB',
     fontSize: 16,
     marginRight: 8,
   },
@@ -148,10 +172,10 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.20)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
+    marginHorizontal: 8,
   },
   clearSearchButtonText: {
     color: '#FFFFFF',
@@ -159,27 +183,48 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 14,
   },
-  addAlbumButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  avatarButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: 'rgba(255,255,255,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0B0B0F',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  addAlbumText: {
+  avatarLabel: {
     color: '#FFFFFF',
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: '300',
+    fontSize: 14,
+    fontWeight: '700',
   },
   filterRow: {
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 10,
     paddingBottom: 10,
     gap: 8,
+  },
+  createAlbumPill: {
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: '#151922',
+    gap: 5,
+  },
+  createAlbumPillIcon: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '300',
+    lineHeight: 16,
+  },
+  createAlbumPillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   sortPill: {
     height: 34,
@@ -219,10 +264,28 @@ const styles = StyleSheet.create({
   albumGridContent: {
     paddingHorizontal: 16,
     paddingTop: 6,
-    paddingBottom: 120,
+    paddingBottom: 150,
     gap: 16,
   },
   albumRow: {
     justifyContent: 'space-between',
+  },
+  cacheFab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.26,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 9,
   },
 });

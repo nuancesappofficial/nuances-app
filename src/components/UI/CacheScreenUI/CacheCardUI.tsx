@@ -20,9 +20,11 @@ import CacheImageCardFace from './CacheImageCardFace';
 const { width } = Dimensions.get('window');
 
 const ELEGANT_SPRING = {
-  damping: 30,
-  stiffness: 80,
-  mass: 1,
+  damping: 32,
+  stiffness: 64,
+  mass: 1.12,
+  restDisplacementThreshold: 0.4,
+  restSpeedThreshold: 0.4,
 };
 const SWIPE_COMMIT_DELAY_MS = 180;
 
@@ -65,7 +67,7 @@ export default function CacheCardUI({
 }: Props) {
   const toY = index * -4;
   const targetRot = React.useMemo(() => -10 + Math.random() * 20, [animationSeed]);
-  const delay = index * 100;
+  const delay = index * 140;
 
   const isDropMode = animationSeed % 2 === 0;
   const side = index % 2 === 0 ? 1 : -1;
@@ -109,7 +111,7 @@ export default function CacheCardUI({
 
     if (isDropMode) {
       x.value = 0;
-      y.value = -1000;
+      y.value = -920;
       scale.value = 1.5;
       y.value = withDelay(delay, withSpring(toY, ELEGANT_SPRING));
       scale.value = withDelay(delay, withSpring(1, ELEGANT_SPRING));

@@ -34,6 +34,7 @@ export type HeatMapMonth = {
 };
 
 type Props = {
+  overlayMode?: boolean;
   title: string;
   subtitle: string;
   profileImageUri?: string | null;
@@ -166,6 +167,7 @@ function HeatMapCircle({
 }
 
 export default function ProfileMainScreenUI({
+  overlayMode = false,
   title,
   subtitle,
   profileImageUri,
@@ -242,9 +244,12 @@ export default function ProfileMainScreenUI({
   }, [initialMonthIndex, monthsWithCalendarItems.length, pagerHeight]);
 
   return (
-    <View style={styles.root}>
-      <Image source={PROFILE_SCREEN_BG} style={styles.backgroundImage} resizeMode="cover" />
-      <View style={styles.backgroundFilter} pointerEvents="none" />
+    <View style={[styles.root, overlayMode && styles.rootOverlay]}>
+      {!overlayMode ? <Image source={PROFILE_SCREEN_BG} style={styles.backgroundImage} resizeMode="cover" /> : null}
+      <View
+        style={[styles.backgroundFilter, overlayMode && styles.overlayBackgroundFilter]}
+        pointerEvents="none"
+      />
 
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.headerContainer}>
@@ -371,6 +376,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BASE_BG,
   },
+  rootOverlay: {
+    backgroundColor: 'transparent',
+  },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
@@ -379,6 +387,9 @@ const styles = StyleSheet.create({
   backgroundFilter: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 20, 35, 0.4)',
+  },
+  overlayBackgroundFilter: {
+    backgroundColor: 'rgba(12, 16, 28, 0.18)',
   },
   container: {
     flex: 1,

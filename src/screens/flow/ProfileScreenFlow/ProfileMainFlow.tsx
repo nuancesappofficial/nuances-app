@@ -1,6 +1,5 @@
 import React from 'react';
 import { Alert } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Q } from '@nozbe/watermelondb';
 import * as ImagePicker from 'expo-image-picker';
 import { database } from '@database/index';
@@ -20,6 +19,8 @@ import { resolveCardImageUri } from '@services/media/cardImage';
 
 type Props = {
   navigation: any;
+  overlayMode?: boolean;
+  onRequestClose?: () => void;
 };
 
 function getDateKey(input: Date | string): string {
@@ -145,7 +146,7 @@ function getSinceSourceDate(profile: Profile | null, cards: Card[]): Date {
   return new Date();
 }
 
-export default function ProfileMainFlow({ navigation }: Props) {
+export default function ProfileMainFlow({ navigation, overlayMode = false, onRequestClose }: Props) {
   const [cards, setCards] = React.useState<Card[]>([]);
   const [profile, setProfile] = React.useState<Profile | null>(null);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
@@ -247,11 +248,9 @@ export default function ProfileMainFlow({ navigation }: Props) {
     }
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      void refreshEntitlementMode();
-    }, [refreshEntitlementMode])
-  );
+  React.useEffect(() => {
+    void refreshEntitlementMode();
+  }, [refreshEntitlementMode]);
 
   const handleToggleEntitlementMode = React.useCallback(async () => {
     if (savingEntitlement) return;
@@ -329,6 +328,7 @@ export default function ProfileMainFlow({ navigation }: Props) {
   return (
     <>
       <ProfileMainScreenUI
+        overlayMode={overlayMode}
         title={title}
         subtitle={subtitle}
         profileImageUri={selectedProfilePhotoUri}
@@ -344,6 +344,10 @@ export default function ProfileMainFlow({ navigation }: Props) {
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
         onPressBack={() => {
+          if (overlayMode && onRequestClose) {
+            onRequestClose();
+            return;
+          }
           if (navigation.canGoBack?.()) {
             navigation.goBack();
           }
