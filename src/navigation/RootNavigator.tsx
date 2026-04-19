@@ -65,8 +65,9 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const deckNavigationRef = React.useRef<any>(null);
   const swipeLockRef = React.useRef(false);
-  const [isProfileOverlayMounted, setIsProfileOverlayMounted] = React.useState(false);
-  const [isCacheOverlayMounted, setIsCacheOverlayMounted] = React.useState(false);
+  const [isProfileOverlayVisible, setIsProfileOverlayVisible] = React.useState(false);
+  const [isCacheOverlayVisible, setIsCacheOverlayVisible] = React.useState(false);
+  const [cacheOverlayEntryToken, setCacheOverlayEntryToken] = React.useState(0);
   const cacheVaultProgress = useSharedValue(0);
   const cacheDragY = useSharedValue(0);
   const profileOverlayProgress = useSharedValue(0);
@@ -84,7 +85,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   }, []);
 
   const openProfileOverlay = React.useCallback(() => {
-    setIsProfileOverlayMounted(true);
+    setIsProfileOverlayVisible(true);
     profileOverlayProgress.value = 0;
     profileOverlayProgress.value = withSpring(1, PROFILE_SPRING);
   }, [profileOverlayProgress]);
@@ -92,7 +93,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const closeProfileOverlay = React.useCallback(() => {
     profileOverlayProgress.value = withSpring(0, PROFILE_SPRING, (finished) => {
       if (!finished) return;
-      runOnJS(setIsProfileOverlayMounted)(false);
+      runOnJS(setIsProfileOverlayVisible)(false);
     });
   }, [profileOverlayProgress]);
 
@@ -104,14 +105,15 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       console.warn('[CacheVault] haptic trigger failed:', error);
     }
     cacheDragY.value = 0;
-    setIsCacheOverlayMounted(true);
+    setCacheOverlayEntryToken((prev) => prev + 1);
+    setIsCacheOverlayVisible(true);
     cacheVaultProgress.value = withSpring(1, VAULT_SPRING);
   }, [cacheDragY, cacheVaultProgress, closeProfileOverlay]);
 
   const closeCacheVault = React.useCallback(() => {
     cacheVaultProgress.value = withSpring(0, VAULT_SPRING, (finished) => {
       if (!finished) return;
-      runOnJS(setIsCacheOverlayMounted)(false);
+      runOnJS(setIsCacheOverlayVisible)(false);
     });
   }, [cacheVaultProgress]);
 
@@ -275,8 +277,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           </NavigationContainer>
         </Animated.View>
 
-        {isCacheOverlayMounted ? (
-          <View style={styles.cacheOverlayRoot} pointerEvents="box-none">
+        <View style={styles.cacheOverlayRoot} pointerEvents={isCacheOverlayVisible ? 'auto' : 'none'}>
             <Animated.View style={[styles.cacheDim, cacheDimAnimatedStyle]} />
 
             <Animated.View style={[styles.cacheVaultWrap, cachePanelAnimatedStyle]}>
@@ -289,18 +290,23 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
               </View>
 
               <View style={styles.cacheVaultContent}>
-                <CacheScreenFlow navigation={cacheOverlayNavigation} onRequestClose={closeCacheVault} />
+                <CacheScreenFlow
+                  navigation={cacheOverlayNavigation}
+                  onRequestClose={closeCacheVault}
+                  entryAnimationToken={cacheOverlayEntryToken}
+                />
               </View>
 
               <TouchableOpacity style={styles.cacheVaultCloseButton} activeOpacity={0.82} onPress={closeCacheVault}>
                 <Text style={styles.cacheVaultCloseLabel}>✕</Text>
               </TouchableOpacity>
             </Animated.View>
-          </View>
-        ) : null}
+        </View>
 
-        {isProfileOverlayMounted ? (
-          <Animated.View style={[styles.profileOverlayRoot, profileOverlayRootStyle]} pointerEvents="box-none">
+        <Animated.View
+          style={[styles.profileOverlayRoot, profileOverlayRootStyle]}
+          pointerEvents={isProfileOverlayVisible ? 'auto' : 'none'}
+        >
             <BlurView intensity={78} tint="dark" style={styles.profileOverlayBlur} />
             <View style={styles.profileOverlayTint} />
 
@@ -319,8 +325,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
             >
               <Text style={styles.profileOverlayCloseLabel}>✕</Text>
             </TouchableOpacity>
-          </Animated.View>
-        ) : null}
+        </Animated.View>
       </View>
     </TabSwipeContext.Provider>
   );

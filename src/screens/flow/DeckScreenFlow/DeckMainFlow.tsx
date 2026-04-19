@@ -337,6 +337,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   return (
     <>
       <DeckMainScreenUI
+        heroStatusText={allCards.length > 0 ? "Cache isn't empty" : 'Cache is empty'}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onClearSearch={() => setSearchQuery('')}

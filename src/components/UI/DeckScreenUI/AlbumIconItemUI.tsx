@@ -18,6 +18,7 @@ import type { DeckAlbum } from './deckTypes';
 type Props = {
   item: DeckAlbum;
   onPress: (album: DeckAlbum) => void;
+  layout?: 'grid' | 'carousel' | 'compact';
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
@@ -41,6 +42,7 @@ function triggerSelectionHaptic() {
 export default function AlbumIconItemUI({
   item,
   onPress,
+  layout = 'grid',
   isMenuVisible,
   startX,
   startY,
@@ -150,7 +152,11 @@ export default function AlbumIconItemUI({
     <GestureDetector gesture={gesture}>
       <Reanimated.View
         ref={cardRef}
-        style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
+        style={[
+          layout === 'carousel' ? styles.carouselItem : layout === 'compact' ? styles.compactItem : styles.albumItem,
+          albumContainerStyle,
+          activeAlbumId === item.id ? styles.activeAlbumHidden : null,
+        ]}
       >
         <TouchableOpacity
           style={styles.albumPressArea}
@@ -166,6 +172,7 @@ export default function AlbumIconItemUI({
             latestCards={item.latestCards}
             iconEmoji={item.emoji}
             coverColor={item.color}
+            showMeta={layout !== 'compact'}
             style={styles.folderIcon}
           />
         </TouchableOpacity>
@@ -211,6 +218,14 @@ export function MenuSymbol({
 const styles = StyleSheet.create({
   albumItem: {
     width: '48.3%',
+    overflow: 'visible',
+  },
+  carouselItem: {
+    width: 190,
+    overflow: 'visible',
+  },
+  compactItem: {
+    width: 82,
     overflow: 'visible',
   },
   albumPressArea: {

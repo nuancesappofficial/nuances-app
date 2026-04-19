@@ -24,6 +24,7 @@ import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
 type Props = {
   navigation: any;
   onRequestClose?: () => void;
+  entryAnimationToken?: number;
 };
 
 type CacheCardRecord = {
@@ -112,7 +113,7 @@ function getDetectedPreview(annotations: unknown): string | undefined {
   return `Detected words: ${display.join(', ')}${words.length > compact.length ? '...' : ''}`;
 }
 
-export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
+export default function CacheScreenFlow({ navigation, onRequestClose, entryAnimationToken }: Props) {
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
@@ -136,6 +137,8 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
   const deletingItemIdsRef = React.useRef(new Set<string>());
   const hasFocusedOnceRef = React.useRef(false);
+  const handledOverlayTokenRef = React.useRef<number | null>(null);
+  const overlayAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const invalidCleanupRunningRef = React.useRef(false);
   const ocrProcessingIdsRef = React.useRef(new Set<string>());
   const ocrSettledIdsRef = React.useRef(new Set<string>());
@@ -175,7 +178,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   }, []);
 
   useEffect(() => {
+    if (entryAnimationToken != null) return;
+
     const handleFocused = () => {
+      setAnimationSeed((prev) => prev + 1);
+
       if (hasFocusedOnceRef.current) {
         setRestoreSeed((prev) => prev + 1);
       } else {
@@ -195,7 +202,44 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     return () => {
       unsubscribe?.();
     };
-  }, [navigation]);
+  }, [entryAnimationToken, navigation]);
+
+  useEffect(() => {
+    if (entryAnimationToken == null) return;
+    if (handledOverlayTokenRef.current === entryAnimationToken) return;
+
+    const play = () => {
+      if (overlayAnimationTimerRef.current) {
+        clearTimeout(overlayAnimationTimerRef.current);
+      }
+      overlayAnimationTimerRef.current = setTimeout(() => {
+        setAnimationSeed((prev) => prev + 1);
+        handledOverlayTokenRef.current = entryAnimationToken;
+        overlayAnimationTimerRef.current = null;
+      }, 420);
+    };
+
+    if (cacheItems.length > 0) {
+      play();
+      return;
+    }
+
+    return () => {
+      if (overlayAnimationTimerRef.current) {
+        clearTimeout(overlayAnimationTimerRef.current);
+        overlayAnimationTimerRef.current = null;
+      }
+    };
+  }, [cacheItems.length, entryAnimationToken]);
+
+  useEffect(() => {
+    return () => {
+      if (overlayAnimationTimerRef.current) {
+        clearTimeout(overlayAnimationTimerRef.current);
+        overlayAnimationTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {

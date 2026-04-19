@@ -16,6 +16,7 @@ type FolderIconProps = {
   accentColor?: string;
   iconEmoji?: string;
   coverColor?: string;
+  showMeta?: boolean;
 };
 
 function canUseSFSymbolsOnDevice() {
@@ -58,6 +59,7 @@ export function FolderIcon({
   accentColor = '#FFFFFF',
   iconEmoji,
   coverColor,
+  showMeta = true,
 }: FolderIconProps) {
   void latestCards;
   const theme = getCoverTheme(title);
@@ -94,10 +96,14 @@ export function FolderIcon({
         </View>
       </View>
 
-      <Text style={[styles.title, { color: accentColor }]} numberOfLines={1}>
-        {title}
-      </Text>
-      <Text style={styles.subtitle}>{countLabel}</Text>
+      {showMeta ? (
+        <>
+          <Text style={[styles.title, { color: accentColor }]} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.subtitle}>{countLabel}</Text>
+        </>
+      ) : null}
     </View>
   );
 }
