@@ -521,7 +521,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#07080B',
+    backgroundColor: '#87CEFA',
   },
   header: {
     flexDirection: 'row',

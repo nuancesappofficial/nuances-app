@@ -5,6 +5,9 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import CacheCardUI from './CacheCardUI';
 
+// 調整「Skip + Add + Cache Stack」整組的垂直位移（負值往上、正值往下）
+const CACHE_STACK_GROUP_OFFSET_Y = -50;
+
 type CacheStackItem = {
   id: string;
   imageUri?: string;
@@ -134,7 +137,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: 40 }]
+    transform: [{ translateY: 40 + CACHE_STACK_GROUP_OFFSET_Y }],
   },
   floatingActionsRow: {
     position: 'absolute',

@@ -130,7 +130,7 @@ export default function CardViewUI({
               withHexAlpha(themeColor, 'F0'),
               withHexAlpha(themeColor, '8C'),
               withHexAlpha(themeColor, '2E'),
-              'rgba(0,0,0,0)',
+              'rgba(173,216,230,0)',
             ]}
             locations={[0, 0.2, 0.46, 1]}
             start={{ x: 0.5, y: 0 }}
@@ -138,7 +138,7 @@ export default function CardViewUI({
             style={styles.topThemeGradient}
           />
           <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.74)', 'rgba(0,0,0,1)']}
+            colors={['rgba(173,216,230,0)', 'rgba(173,216,230,0.75)', 'rgba(173,216,230,1)']}
             locations={[0, 0.56, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#ADD8E6',
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,

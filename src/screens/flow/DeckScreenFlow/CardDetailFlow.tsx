@@ -1189,7 +1189,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
             }}
           >
-            <View style={{ flex: 1, backgroundColor: '#000' }} />
+            <View style={{ flex: 1, backgroundColor: '#ADD8E6' }} />
           </Animated.View>
 
           <Animated.View
@@ -1247,8 +1247,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050505' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#050505' },
+  container: { flex: 1, backgroundColor: '#87CEFA' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#87CEFA' },
   errorText: { color: '#F4EDE6', fontSize: 16, fontWeight: '600' },
   errorBackBtn: {
     marginTop: 10,

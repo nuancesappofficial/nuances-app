@@ -60,7 +60,7 @@ const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const TAB_BAR_CLEARANCE = 100;
-const BASE_BG = '#0A0A0A';
+const BASE_BG = '#ADD8E6';
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;

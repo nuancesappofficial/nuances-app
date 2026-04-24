@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dimensions, Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SymbolView } from 'expo-symbols';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -32,12 +32,7 @@ const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
 const MENU_BUTTON_HALF_SIZE = 25;
 const MENU_BUTTON_OFFSET_X = 45;
 const MENU_MIN_TOP = 72;
-const WINDOW_WIDTH = Dimensions.get('window').width || 390;
-const GRID_COLUMNS = 3;
-const GRID_HORIZONTAL_PADDING = 16;
-const GRID_COLUMN_GAP = 10;
-const GRID_ITEM_WIDTH =
-  (WINDOW_WIDTH - GRID_HORIZONTAL_PADDING * 2 - GRID_COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
+const WINDOW_WIDTH = 390;
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync();
@@ -216,7 +211,7 @@ export function MenuSymbol({
 
 const styles = StyleSheet.create({
   albumItem: {
-    width: GRID_ITEM_WIDTH,
+    width: '100%',
     overflow: 'visible',
   },
   albumPressArea: {

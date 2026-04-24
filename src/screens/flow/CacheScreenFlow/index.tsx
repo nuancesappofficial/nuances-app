@@ -8,7 +8,6 @@ import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
@@ -865,28 +864,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        {/* 底層：深邃的午夜藍到純黑 */}
-        <LinearGradient
-          colors={['#0F1322', '#0A0B10', '#000000']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-
-        {/* 新增：跨平台相容的底部溫潤光暈 (Orb) */}
-        <View style={styles.glowCenter}>
-          <View style={[styles.orbLayer, { width: 400, height: 400, borderRadius: 200, opacity: 0.04 }]} />
-          <View style={[styles.orbLayer, { width: 300, height: 300, borderRadius: 150, opacity: 0.08 }]} />
-          <View style={[styles.orbLayer, { width: 200, height: 200, borderRadius: 100, opacity: 0.12 }]} />
-          <View style={[styles.orbLayer, { width: 100, height: 100, borderRadius: 50, opacity: 0.15 }]} />
-        </View>
-      </View>
-
-      <View pointerEvents="none" style={[styles.brandWrap, { top: insets.top + 6 }]}>
-        <Text style={styles.brandText}>Nuances</Text>
-      </View>
-
       <CacheStackUI
         cards={stackCards}
         animationSeed={animationSeed}
@@ -896,11 +873,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
       />
 
       <TouchableOpacity
-        style={[styles.addFab, { bottom: Math.max(insets.bottom, 10) + 22 }]}
+        style={[styles.uploadBarButton, { bottom: Math.max(insets.bottom, 8) + 60 }]}
         activeOpacity={0.86}
         onPress={openAddModal}
       >
-        <Text style={styles.addFabLabel}>＋</Text>
+        <Text style={styles.uploadBarButtonLabel}>＋ Upload Cache</Text>
       </TouchableOpacity>
 
       <CacheInputModalUI
@@ -943,30 +920,17 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#ADD8E6',
   },
-  brandWrap: {
+  uploadBarButton: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 12,
-    alignItems: 'center',
-  },
-  brandText: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-  },
-  addFab: {
-    position: 'absolute',
-    right: 18,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    left: 16,
+    right: 16,
+    height: 50,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 30,
@@ -976,25 +940,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
   },
-  addFabLabel: {
+  uploadBarButtonLabel: {
     color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '300',
-    lineHeight: 32,
-  },
-  // --- 新增的 Orb 樣式 ---
-  glowCenter: {
-    position: 'absolute',
-    bottom: -80, // 控制光暈在螢幕底部的位置
-    alignSelf: 'center',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orbLayer: {
-    position: 'absolute',
-    backgroundColor: '#5882FF', // 溫潤的藍紫色光芒
-    shadowColor: '#5882FF',
-    shadowOpacity: 0.5,
-    shadowRadius: 30, // 讓 iOS 表現更好，Android 則靠著 opacity 疊加來過渡
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 });

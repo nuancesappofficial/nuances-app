@@ -1,14 +1,25 @@
 import React from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
 
+const ALBUMS_PER_PAGE = 9;
+const GRID_COLUMNS = 3;
+const GRID_GAP = 6;
+const GRID_HORIZONTAL_PADDING = 12;
+const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
+// 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
+const ALBUM_GROUP_OFFSET_Y = -180;
+
 type Props = {
+  heroStatusText?: string;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
+  onPressAvatar?: () => void;
+  onPressCacheFab?: () => void;
   onOpenCreateAlbum: () => void;
   sortOrder: 'desc' | 'asc';
   onToggleSort: () => void;
@@ -44,6 +55,90 @@ export default function DeckMainScreenUI({
   onMenuFinish,
   onActionEnd,
 }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
+  const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
+  const albumItemWidth = Math.max(
+    0,
+    (albumPageWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS
+  );
+  const [currentPage, setCurrentPage] = React.useState(0);
+
+  const albumPages = React.useMemo(() => {
+    if (albums.length <= ALBUMS_PER_PAGE) return [albums];
+    const pages: DeckAlbum[][] = [];
+    for (let i = 0; i < albums.length; i += ALBUMS_PER_PAGE) {
+      pages.push(albums.slice(i, i + ALBUMS_PER_PAGE));
+    }
+    return pages;
+  }, [albums]);
+
+  React.useEffect(() => {
+    const lastPage = Math.max(0, albumPages.length - 1);
+    if (currentPage > lastPage) {
+      setCurrentPage(lastPage);
+    }
+  }, [albumPages.length, currentPage]);
+
+  const renderAlbumPage = React.useCallback(
+    (pageAlbums: DeckAlbum[], pageIndex: number) => {
+      const rowCount = albumPages.length > 1 ? 3 : Math.max(1, Math.ceil(pageAlbums.length / GRID_COLUMNS));
+
+      return (
+        <View style={[styles.page, { width: albumPageWidth }]}>
+          <View style={styles.albumGridContent}>
+            {Array.from({ length: rowCount }).map((_, rowIndex) => {
+              const rowAlbums = pageAlbums.slice(rowIndex * GRID_COLUMNS, (rowIndex + 1) * GRID_COLUMNS);
+              return (
+                <View
+                  key={`page-${pageIndex}-row-${rowIndex}`}
+                  style={[styles.albumRow, rowIndex === rowCount - 1 ? styles.albumRowLast : null]}
+                >
+                  {Array.from({ length: GRID_COLUMNS }).map((__, colIndex) => {
+                    const item = rowAlbums[colIndex];
+                    return (
+                      <View key={`cell-${pageIndex}-${rowIndex}-${colIndex}`} style={{ width: albumItemWidth }}>
+                        {item ? (
+                          <AlbumIconItemUI
+                            item={item}
+                            onPress={onPressAlbum}
+                            isMenuVisible={isMenuVisible}
+                            startX={startX}
+                            startY={startY}
+                            hoveredAction={hoveredAction}
+                            activeAlbumId={activeAlbumId}
+                            onMenuStart={onMenuStart}
+                            onMenuFinish={onMenuFinish}
+                            onActionEnd={onActionEnd}
+                          />
+                        ) : (
+                          <View style={styles.albumCellPlaceholder} />
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      );
+    },
+    [
+      albumPageWidth,
+      albumPages.length,
+      onPressAlbum,
+      isMenuVisible,
+      startX,
+      startY,
+      hoveredAction,
+      activeAlbumId,
+      onMenuStart,
+      onMenuFinish,
+      onActionEnd,
+      albumItemWidth,
+    ]
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.searchRow}>
@@ -84,29 +179,35 @@ export default function DeckMainScreenUI({
         ))}
       </ScrollView>
 
-      <FlatList
-        data={albums}
-        key="deck-grid-3"
-        numColumns={3}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.albumGridContent}
-        columnWrapperStyle={styles.albumRow}
-        renderItem={({ item }) => (
-          <AlbumIconItemUI
-            item={item}
-            onPress={onPressAlbum}
-            isMenuVisible={isMenuVisible}
-            startX={startX}
-            startY={startY}
-            hoveredAction={hoveredAction}
-            activeAlbumId={activeAlbumId}
-            onMenuStart={onMenuStart}
-            onMenuFinish={onMenuFinish}
-            onActionEnd={onActionEnd}
-          />
-        )}
-      />
+      <View style={styles.albumGroup}>
+        <FlatList
+          data={albumPages}
+          horizontal
+          pagingEnabled
+          style={styles.albumPager}
+          keyExtractor={(_, index) => `album-page-${index}`}
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          bounces={false}
+        onMomentumScrollEnd={(event) => {
+          const offsetX = event.nativeEvent.contentOffset.x;
+          const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
+          setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
+        }}
+          renderItem={({ item, index }) => renderAlbumPage(item, index)}
+        />
+
+        {albumPages.length > 1 ? (
+          <View style={styles.paginationDots}>
+            {albumPages.map((_, index) => (
+              <View
+                key={`dot-${index}`}
+                style={[styles.paginationDot, index === currentPage ? styles.paginationDotActive : null]}
+              />
+            ))}
+          </View>
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 }
@@ -114,7 +215,7 @@ export default function DeckMainScreenUI({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#ADD8E6',
   },
   searchRow: {
     paddingHorizontal: 16,
@@ -217,13 +318,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  albumGroup: {
+    alignSelf: 'center',
+    marginHorizontal: ALBUM_GROUP_HORIZONTAL_MARGIN,
+    borderRadius: 24,
+    backgroundColor: '#7BA8C7',
+    overflow: 'hidden',
+    transform: [{ translateY: ALBUM_GROUP_OFFSET_Y }],
+  },
   albumGridContent: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 120,
+    paddingHorizontal: GRID_HORIZONTAL_PADDING,
+    paddingTop: 10,
+    paddingBottom: 32,
+  },
+  page: {
+    width: '100%',
+  },
+  albumPager: {
+    flexGrow: 0,
+    backgroundColor: '#7BA8C7',
   },
   albumRow: {
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    flexDirection: 'row',
+    gap: GRID_GAP,
+    marginBottom: 8,
+  },
+  albumRowLast: {
+    marginBottom: 0,
+  },
+  albumCellPlaceholder: {
+    width: '100%',
+    aspectRatio: 1,
+  },
+  paginationDots: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paginationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  paginationDotActive: {
+    backgroundColor: '#FFFFFF',
   },
 });

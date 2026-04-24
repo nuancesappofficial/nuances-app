@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, StyleSheet, TouchableOpacity, View } from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -9,7 +9,7 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LiquidTabBar as NativeLiquidTabBar } from 'liquid-tab-bar';
+import { Ionicons } from '@expo/vector-icons';
 import CacheScreenFlow from '../screens/flow/CacheScreenFlow';
 import AddCacheItemFlow from '../screens/flow/CacheScreenFlow/AddCacheItemFlow';
 import CreateCardFlow from '../screens/flow/CacheScreenFlow/CreateCardFlow';
@@ -25,7 +25,13 @@ const CacheStackNav = createNativeStackNavigator();
 const CardsStackNav = createNativeStackNavigator();
 const ProfileStackNav = createNativeStackNavigator();
 const MAIN_TAB_ORDER = ['Deck', 'Cache', 'Profile'] as const;
-const CACHE_TAB_INDEX = 1;
+const TAB_BAR_SIDE_PADDING = 14;
+const TAB_CAPSULE_INSET = 0;
+const TAB_BAR_HEIGHT = 65;
+const TAB_BAR_VERTICAL_INSET = 5;
+const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
+const TAB_CAPSULE_HEIGHT = TAB_BAR_HEIGHT - TAB_BAR_VERTICAL_INSET * 2;
+const TAB_CAPSULE_RADIUS = TAB_CAPSULE_HEIGHT / 2;
 
 const ACTIVE_COLOR = '#D4FF00';
 
@@ -33,8 +39,8 @@ const APP_DARK_THEME = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: '#000000',
-    card: '#000000',
+    background: '#ADD8E6',
+    card: '#ADD8E6',
     text: '#FFFFFF',
     border: '#1A1A1A',
     primary: ACTIVE_COLOR,
@@ -57,9 +63,18 @@ function CacheStack({
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
 }) {
+  const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+  const syncSwipeEnabled = React.useCallback(() => {
+    const state = cacheNavigationRef.getRootState();
+    const routeName = getActiveRouteName(state);
+    const isRootRoute = routeName === 'CacheList';
+    onSwipeEnabledChange(isRootRoute);
+  }, [cacheNavigationRef, onSwipeEnabledChange]);
+
   return (
     <NavigationIndependentTree>
       <NavigationContainer
+        ref={cacheNavigationRef}
         theme={APP_DARK_THEME}
         onReady={() => {
           onSwipeEnabledChange(true);
@@ -70,7 +85,14 @@ function CacheStack({
           onSwipeEnabledChange(isRootRoute);
         }}
       >
-        <CacheStackNav.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}>
+        <CacheStackNav.Navigator
+          screenOptions={{ headerShown: false, gestureEnabled: false }}
+          screenListeners={{
+            transitionStart: () => {
+              syncSwipeEnabled();
+            },
+          }}
+        >
           <CacheStackNav.Screen name="CacheList" component={CacheScreenFlow} />
           <CacheStackNav.Screen
             name="AddCacheItem"
@@ -110,6 +132,13 @@ function CardsStack({
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
 }) {
+  const syncSwipeEnabled = React.useCallback(() => {
+    const state = navigationRef.getRootState();
+    const routeName = getActiveRouteName(state);
+    const isDeckScreen = routeName === 'CardsList' || routeName === 'Deck';
+    onSwipeEnabledChange(isDeckScreen);
+  }, [navigationRef, onSwipeEnabledChange]);
+
   return (
     <NavigationIndependentTree>
       <NavigationContainer
@@ -120,8 +149,8 @@ function CardsStack({
         }}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
-          const isRootRoute = routeName === 'CardsList' || routeName === 'Deck';
-          onSwipeEnabledChange(isRootRoute);
+          const isDeckScreen = routeName === 'CardsList' || routeName === 'Deck';
+          onSwipeEnabledChange(isDeckScreen);
         }}
       >
         <CardsStackNav.Navigator
@@ -130,6 +159,11 @@ function CardsStack({
             gestureEnabled: true,
             fullScreenGestureEnabled: true,
             animation: 'ios_from_right',
+          }}
+          screenListeners={{
+            transitionStart: () => {
+              syncSwipeEnabled();
+            },
           }}
         >
           <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
@@ -164,9 +198,18 @@ function ProfileStack({
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
 }) {
+  const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+  const syncSwipeEnabled = React.useCallback(() => {
+    const state = profileNavigationRef.getRootState();
+    const routeName = getActiveRouteName(state);
+    const isRootRoute = routeName === 'ProfileHome';
+    onSwipeEnabledChange(isRootRoute);
+  }, [onSwipeEnabledChange, profileNavigationRef]);
+
   return (
     <NavigationIndependentTree>
       <NavigationContainer
+        ref={profileNavigationRef}
         theme={APP_DARK_THEME}
         onReady={() => {
           onSwipeEnabledChange(true);
@@ -177,7 +220,14 @@ function ProfileStack({
           onSwipeEnabledChange(isRootRoute);
         }}
       >
-        <ProfileStackNav.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}>
+        <ProfileStackNav.Navigator
+          screenOptions={{ headerShown: false, gestureEnabled: false }}
+          screenListeners={{
+            transitionStart: () => {
+              syncSwipeEnabled();
+            },
+          }}
+        >
           <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
           <ProfileStackNav.Screen
             name="CardDetail"
@@ -196,48 +246,97 @@ type RootNavigatorProps = {
 
 function LiquidTabBar({
   selectedTabIndex,
-  showsAddButton,
   onSelectTab,
-  onAddPress,
 }: {
   selectedTabIndex: number;
-  showsAddButton: boolean;
   onSelectTab: (index: number) => void;
-  onAddPress: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 8);
+  const [tabBarWidth, setTabBarWidth] = React.useState(0);
+  const activeIndex = React.useRef(new Animated.Value(selectedTabIndex)).current;
+
+  React.useEffect(() => {
+    Animated.spring(activeIndex, {
+      toValue: selectedTabIndex,
+      useNativeDriver: false,
+      tension: 220,
+      friction: 22,
+    }).start();
+  }, [activeIndex, selectedTabIndex]);
+
+  const innerTrackWidth = Math.max(0, tabBarWidth - TAB_BAR_SIDE_PADDING * 2);
+  const slotWidth = innerTrackWidth > 0 ? innerTrackWidth / 3 : 0;
+  const capsuleWidth = Math.max(0, slotWidth - TAB_CAPSULE_INSET * 2);
 
   return (
     <View style={styles.tabBarOuter}>
-      <NativeLiquidTabBar
-        style={[styles.nativeLiquidBar, { height: 64 + Math.max(insets.bottom, 8) }]}
-        selectedTabIndex={selectedTabIndex}
-        showsAddButton={showsAddButton}
-        onTabSelect={(index) => onSelectTab(index)}
-        onAddPress={onAddPress}
-      />
-      <View style={styles.tabTouchOverlay}>
+      <View
+        style={[styles.rnTabBarWrap, { marginBottom: bottomInset }]}
+        onLayout={(event) => {
+          const width = Math.round(event.nativeEvent.layout.width);
+          if (width > 0 && width !== tabBarWidth) {
+            setTabBarWidth(width);
+          }
+        }}
+      >
+        {slotWidth > 0 ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.rnActiveCapsule,
+              {
+                width: capsuleWidth,
+                transform: [
+                  {
+                    translateX: activeIndex.interpolate({
+                      inputRange: [0, 1, 2],
+                      outputRange: [
+                        TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET,
+                        TAB_BAR_SIDE_PADDING + slotWidth + TAB_CAPSULE_INSET,
+                        TAB_BAR_SIDE_PADDING + slotWidth * 2 + TAB_CAPSULE_INSET,
+                      ],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+        ) : null}
+
         <TouchableOpacity
-          style={styles.tabTouchZone}
-          activeOpacity={1}
+          style={styles.rnTabButton}
+          activeOpacity={0.9}
           onPress={() => onSelectTab(0)}
-          accessibilityRole="button"
-          accessibilityLabel="Deck tab"
-        />
+        >
+          <Ionicons
+            name={selectedTabIndex === 0 ? 'albums' : 'albums-outline'}
+            size={25}
+            color={selectedTabIndex === 0 ? '#2FA7FF' : '#FFFFFF'}
+          />
+        </TouchableOpacity>
         <TouchableOpacity
-          style={styles.tabTouchZone}
-          activeOpacity={1}
+          style={styles.rnTabButton}
+          activeOpacity={0.9}
           onPress={() => onSelectTab(1)}
-          accessibilityRole="button"
-          accessibilityLabel="Cache tab"
-        />
+        >
+          <Ionicons
+            name={selectedTabIndex === 1 ? 'archive' : 'archive-outline'}
+            size={25}
+            color={selectedTabIndex === 1 ? '#2FA7FF' : '#FFFFFF'}
+          />
+        </TouchableOpacity>
         <TouchableOpacity
-          style={styles.tabTouchZone}
-          activeOpacity={1}
+          style={styles.rnTabButton}
+          activeOpacity={0.9}
           onPress={() => onSelectTab(2)}
-          accessibilityRole="button"
-          accessibilityLabel="Profile tab"
-        />
+        >
+          <Ionicons
+            name={selectedTabIndex === 2 ? 'person-circle' : 'person-circle-outline'}
+            size={25}
+            color={selectedTabIndex === 2 ? '#2FA7FF' : '#FFFFFF'}
+          />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -246,10 +345,14 @@ function LiquidTabBar({
 export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
-  const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const swipeLockRef = React.useRef(false);
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
+  const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({
+    0: true,
+    1: true,
+    2: true,
+  });
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
     cacheSwipeExclusionRangeRef.current = range;
@@ -292,21 +395,24 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     setPaginationEnabled(enabled);
   }, [setPaginationEnabled]);
 
-  const setCacheAddActionHandler = React.useCallback((handler: (() => void) | null) => {
-    cacheAddActionHandlerRef.current = handler;
-  }, []);
-
   const setTabSwipeRouteEnabled = React.useCallback((_tabIndex: number, _enabled: boolean) => {
-    // Page swipe is globally disabled; keep callback for compatibility with child stacks.
+    setTabRootRouteEnabledMap((prev) => {
+      if (prev[_tabIndex] === _enabled) return prev;
+      return { ...prev, [_tabIndex]: _enabled };
+    });
   }, []);
 
-  const handleAddPress = React.useCallback(() => {
-    if (selectedTabIndex !== CACHE_TAB_INDEX) return;
-    const invoke = () => {
-      cacheAddActionHandlerRef.current?.();
-    };
-    invoke();
-  }, [selectedTabIndex]);
+  const shouldShowTabBar = tabRootRouteEnabledMap[selectedTabIndex] ?? true;
+  const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    Animated.timing(tabBarTranslateY, {
+      toValue: shouldShowTabBar ? 0 : 140,
+      duration: shouldShowTabBar ? 210 : 320,
+      easing: shouldShowTabBar ? Easing.out(Easing.exp) : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [shouldShowTabBar, tabBarTranslateY]);
 
   return (
     <TabSwipeContext.Provider
@@ -316,7 +422,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         setPaginationEnabled,
         setPagerScrollEnabled,
         goToTab,
-        setCacheAddActionHandler,
+        setCacheAddActionHandler: () => {},
       }}
     >
       <View style={styles.container}>
@@ -344,24 +450,15 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           </View>
         </View>
 
-        <View style={styles.tabBarAnimatedWrap}>
+        <Animated.View
+          pointerEvents={shouldShowTabBar ? 'auto' : 'none'}
+          style={[styles.tabBarAnimatedWrap, { transform: [{ translateY: tabBarTranslateY }] }]}
+        >
           <LiquidTabBar
             selectedTabIndex={selectedTabIndex}
-            showsAddButton={false}
             onSelectTab={handleTabSelect}
-            onAddPress={handleAddPress}
           />
-        </View>
-
-        {selectedTabIndex === CACHE_TAB_INDEX ? (
-          <TouchableOpacity
-            style={styles.floatingCacheAddButton}
-            activeOpacity={0.9}
-            onPress={handleAddPress}
-          >
-            <Text style={styles.floatingCacheAddButtonText}>＋</Text>
-          </TouchableOpacity>
-        ) : null}
+        </Animated.View>
       </View>
     </TabSwipeContext.Provider>
   );
@@ -370,7 +467,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#ADD8E6',
   },
   pager: {
     flex: 1,
@@ -394,55 +491,45 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    alignItems: 'center',
     zIndex: 200,
   },
   tabBarAnimatedWrap: {
     position: 'absolute',
-    bottom: 0,
+    bottom: -15,
     left: 0,
     right: 0,
     zIndex: 200,
   },
-  floatingCacheAddButton: {
-    position: 'absolute',
-    right: 18,
-    bottom: 92,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#151515',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
+  rnTabBarWrap: {
+    width: '75%',
+    maxWidth: 360,
+    minWidth: 250,
+    height: TAB_BAR_HEIGHT,
+    paddingHorizontal: TAB_BAR_SIDE_PADDING,
+    borderRadius: TAB_BAR_RADIUS,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 300,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    elevation: 12,
+    backgroundColor: 'rgba(10,12,18,0.90)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
   },
-  floatingCacheAddButtonText: {
-    color: '#FFFFFF',
-    fontSize: 30,
-    lineHeight: 30,
-    fontWeight: '300',
-    marginTop: -1,
-  },
-  nativeLiquidBar: {
-    width: '100%',
-    height: 82,
-    backgroundColor: 'transparent',
-  },
-  tabTouchOverlay: {
+  rnActiveCapsule: {
     position: 'absolute',
     left: 0,
-    right: 0,
-    bottom: 0,
-    height: 64,
-    flexDirection: 'row',
+    top: TAB_BAR_VERTICAL_INSET,
+    height: TAB_CAPSULE_HEIGHT,
+    borderRadius: TAB_CAPSULE_RADIUS,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  tabTouchZone: {
+  rnTabButton: {
     flex: 1,
+    height: TAB_CAPSULE_HEIGHT,
+    borderRadius: TAB_CAPSULE_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
 });

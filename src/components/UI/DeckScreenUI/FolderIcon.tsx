@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type PreviewCard = {
   imageUrl?: string;
@@ -18,6 +19,10 @@ type FolderIconProps = {
   coverColor?: string;
   compact?: boolean;
 };
+
+const COVER_RADIUS = 24;
+const INNER_INSET_REGULAR = 6;
+const INNER_INSET_COMPACT = 5;
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;
@@ -97,13 +102,28 @@ export function FolderIcon({
               <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
             )}
           </View>
+          {compact ? (
+            <LinearGradient
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.12)', 'rgba(0,0,0,0.30)']}
+              locations={[0, 0.55, 1]}
+              style={styles.bottomShade}
+            >
+              <Text style={styles.bottomTitle} numberOfLines={1}>
+                {title}
+              </Text>
+            </LinearGradient>
+          ) : null}
         </View>
       </View>
 
-      <Text style={[styles.title, compact ? styles.titleCompact : null, { color: accentColor }]} numberOfLines={1}>
-        {title}
-      </Text>
-      <Text style={[styles.subtitle, compact ? styles.subtitleCompact : null]}>{countLabel}</Text>
+      {!compact ? (
+        <>
+          <Text style={[styles.title, { color: accentColor }]} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.subtitle}>{countLabel}</Text>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -121,7 +141,7 @@ const styles = StyleSheet.create({
   },
   iconLayer: {
     position: 'absolute',
-    borderRadius: 24,
+    borderRadius: COVER_RADIUS,
   },
   iconLayerBack2: {
     top: 8,
@@ -152,20 +172,20 @@ const styles = StyleSheet.create({
   },
   iconInnerStroke: {
     position: 'absolute',
-    top: 6,
-    left: 6,
-    right: 6,
-    bottom: 6,
-    borderRadius: 20,
+    top: INNER_INSET_REGULAR,
+    left: INNER_INSET_REGULAR,
+    right: INNER_INSET_REGULAR,
+    bottom: INNER_INSET_REGULAR,
+    borderRadius: COVER_RADIUS - INNER_INSET_REGULAR,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
   iconInnerStrokeCompact: {
-    top: 5,
-    left: 5,
-    right: 5,
-    bottom: 5,
-    borderRadius: 14,
+    top: INNER_INSET_COMPACT,
+    left: INNER_INSET_COMPACT,
+    right: INNER_INSET_COMPACT,
+    bottom: INNER_INSET_COMPACT,
+    borderRadius: COVER_RADIUS - INNER_INSET_COMPACT,
   },
   symbolWrap: {
     width: 68,
@@ -194,15 +214,29 @@ const styles = StyleSheet.create({
     fontSize: 34,
     lineHeight: 38,
   },
+  bottomShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 44,
+    paddingHorizontal: 8,
+    justifyContent: 'flex-end',
+    paddingBottom: 6,
+    borderBottomLeftRadius: COVER_RADIUS,
+    borderBottomRightRadius: COVER_RADIUS,
+  },
+  bottomTitle: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
   title: {
     marginTop: 8,
     fontSize: 18,
     fontWeight: '700',
     textAlign: 'left',
-  },
-  titleCompact: {
-    marginTop: 6,
-    fontSize: 13,
   },
   subtitle: {
     marginTop: 4,
@@ -210,9 +244,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'left',
-  },
-  subtitleCompact: {
-    marginTop: 2,
-    fontSize: 11,
   },
 });
