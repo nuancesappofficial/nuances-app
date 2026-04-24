@@ -18,7 +18,6 @@ import type { DeckAlbum } from './deckTypes';
 type Props = {
   item: DeckAlbum;
   onPress: (album: DeckAlbum) => void;
-  layout?: 'grid' | 'carousel' | 'compact';
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
@@ -34,6 +33,11 @@ const MENU_BUTTON_HALF_SIZE = 25;
 const MENU_BUTTON_OFFSET_X = 45;
 const MENU_MIN_TOP = 72;
 const WINDOW_WIDTH = Dimensions.get('window').width || 390;
+const GRID_COLUMNS = 3;
+const GRID_HORIZONTAL_PADDING = 16;
+const GRID_COLUMN_GAP = 10;
+const GRID_ITEM_WIDTH =
+  (WINDOW_WIDTH - GRID_HORIZONTAL_PADDING * 2 - GRID_COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
 
 function triggerSelectionHaptic() {
   void Haptics.selectionAsync();
@@ -42,7 +46,6 @@ function triggerSelectionHaptic() {
 export default function AlbumIconItemUI({
   item,
   onPress,
-  layout = 'grid',
   isMenuVisible,
   startX,
   startY,
@@ -152,11 +155,7 @@ export default function AlbumIconItemUI({
     <GestureDetector gesture={gesture}>
       <Reanimated.View
         ref={cardRef}
-        style={[
-          layout === 'carousel' ? styles.carouselItem : layout === 'compact' ? styles.compactItem : styles.albumItem,
-          albumContainerStyle,
-          activeAlbumId === item.id ? styles.activeAlbumHidden : null,
-        ]}
+        style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
       >
         <TouchableOpacity
           style={styles.albumPressArea}
@@ -172,7 +171,7 @@ export default function AlbumIconItemUI({
             latestCards={item.latestCards}
             iconEmoji={item.emoji}
             coverColor={item.color}
-            showMeta={layout !== 'compact'}
+            compact
             style={styles.folderIcon}
           />
         </TouchableOpacity>
@@ -217,15 +216,7 @@ export function MenuSymbol({
 
 const styles = StyleSheet.create({
   albumItem: {
-    width: '48.3%',
-    overflow: 'visible',
-  },
-  carouselItem: {
-    width: 190,
-    overflow: 'visible',
-  },
-  compactItem: {
-    width: 82,
+    width: GRID_ITEM_WIDTH,
     overflow: 'visible',
   },
   albumPressArea: {

@@ -1,9 +1,16 @@
 import SwiftUI
+import UIKit
 
-private struct LiquidTabItem: Identifiable {
-  let id: Int
-  let title: String
-  let symbol: String
+// 1. 新增此擴充功能來處理 iOS 版本的相容性
+extension View {
+  @ViewBuilder
+  func hideTabBarBackgroundIfAvailable() -> some View {
+    if #available(iOS 16.0, *) {
+      self.toolbarBackground(.hidden, for: .tabBar)
+    } else {
+      self
+    }
+  }
 }
 
 public struct LiquidTabBarView: View {
@@ -11,18 +18,6 @@ public struct LiquidTabBarView: View {
   let onTabSelect: (Int) -> Void
   let onAddPress: () -> Void
   let showsAddButton: Bool
-
-  @State private var isExpanded: Bool = true
-  @State private var collapseTask: Task<Void, Never>?
-
-  private let tabButtonSize: CGFloat = 64
-  private let tabInnerPadding: CGFloat = 6
-
-  private let liquidTabs: [LiquidTabItem] = [
-    .init(id: 0, title: "Cache", symbol: "rectangle.portrait.on.rectangle.portrait.angled"),
-    .init(id: 1, title: "Card", symbol: "tray.full"),
-    .init(id: 2, title: "Profile", symbol: "person.circle")
-  ]
 
   public init(
     selectedTabIndex: Binding<Int>,
@@ -37,174 +32,62 @@ public struct LiquidTabBarView: View {
   }
 
   public var body: some View {
-    GeometryReader { proxy in
-      let totalWidth = max(proxy.size.width, tabButtonSize * 4)
-      let expandedSlotWidth = totalWidth / 4
-      let leftClusterExpandedWidth = showsAddButton ? expandedSlotWidth * 3 : totalWidth
-      let leftWidth = showsAddButton
-        ? (isExpanded ? expandedSlotWidth * 3 : tabButtonSize)
-        : (isExpanded ? totalWidth : tabButtonSize)
-      let addSlotWidth = isExpanded ? expandedSlotWidth : tabButtonSize
-      let horizontalGap: CGFloat = isExpanded ? 0 : 16
-
-      HStack(alignment: .bottom, spacing: horizontalGap) {
-        leftCluster(expandedWidth: leftClusterExpandedWidth)
-          .frame(width: leftWidth, height: tabButtonSize, alignment: .leading)
-
-        if showsAddButton && !isExpanded {
-          Spacer(minLength: 0)
-        }
-
-        if showsAddButton {
-          addButton
-            .frame(width: addSlotWidth, height: tabButtonSize, alignment: .center)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .frame(height: tabButtonSize)
-    .frame(maxWidth: .infinity)
-    .padding(.horizontal, 20)
-    .padding(.bottom, 30)
-    .animation(.spring(response: 0.36, dampingFraction: 0.78), value: selectedTabIndex)
-    .animation(.spring(response: 0.36, dampingFraction: 0.78), value: isExpanded)
-    .onAppear {
-      let clamped = clamp(selectedTabIndex)
-      if selectedTabIndex != clamped { selectedTabIndex = clamped }
-      resetIdleTimer()
-    }
-    .onChange(of: selectedTabIndex) { newValue in
-      let clamped = clamp(newValue)
-      if clamped != newValue { selectedTabIndex = clamped }
-      if isExpanded {
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-          isExpanded = true
-        }
-        resetIdleTimer()
-      }
-    }
-    .onDisappear {
-      collapseTask?.cancel()
-      collapseTask = nil
-    }
-  }
-
-  private func leftCluster(expandedWidth: CGFloat) -> some View {
-    ZStack(alignment: .leading) {
-      Capsule()
-        .fill(.ultraThinMaterial)
-        .environment(\.colorScheme, .dark)
-        .overlay(
-          Capsule()
-            .stroke(Color.white.opacity(0.26), lineWidth: 0.55)
-        )
-        .overlay(
-          Capsule()
-            .stroke(
-              LinearGradient(
-                colors: [Color.white.opacity(0.30), Color.white.opacity(0.02)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-              ),
-              lineWidth: 0.8
-            )
-            .padding(1.5)
-        )
-        .shadow(color: .black.opacity(0.20), radius: 10, y: 5)
-        .overlay(alignment: .leading) {
-          Capsule()
-            .fill(
-              LinearGradient(
-                colors: [Color.white.opacity(0.34), Color.white.opacity(0.16)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-              )
-            )
-            .frame(width: indicatorWidth(expandedWidth: expandedWidth), height: tabButtonSize - 12)
-            .offset(x: indicatorOffsetX(expandedWidth: expandedWidth))
-            .blur(radius: isExpanded ? 0.6 : 0.9)
-            .shadow(color: .white.opacity(0.10), radius: 4, y: 0)
-            .allowsHitTesting(false)
-        }
-        .compositingGroup()
-
-      if isExpanded {
-        HStack(spacing: 0) {
-          ForEach(liquidTabs) { item in
-            let isActive = item.id == selectedTabIndex
-
-            Button(action: {
-              if !isActive {
-                select(item.id)
-              }
-              resetIdleTimer()
-            }) {
-              VStack(spacing: 0) {
-                Image(systemName: item.symbol)
-                  .font(.system(size: 20, weight: isActive ? .bold : .medium))
-              }
-              .foregroundColor(isActive ? .white : .white.opacity(0.62))
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+    ZStack(alignment: .topTrailing) {
+      TabView(selection: $selectedTabIndex) {
+        Color.clear
+          .tag(0)
+          .tabItem {
+            Image(systemName: "tray.full")
           }
-        }
-        .padding(tabInnerPadding)
-      } else {
+
+        Color.clear
+          .tag(1)
+          .tabItem {
+            Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled")
+          }
+
+        Color.clear
+          .tag(2)
+          .tabItem {
+            Image(systemName: "person.circle")
+          }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .tabViewStyle(.automatic)
+      .background(Color.clear)
+      .hideTabBarBackgroundIfAvailable()
+      .environment(\.colorScheme, .dark)
+
+      if showsAddButton {
         Button(action: {
-          withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-            isExpanded = true
-          }
-          resetIdleTimer()
+          onAddPress()
         }) {
-          Image(systemName: liquidTabs[clamp(selectedTabIndex)].symbol)
-            .font(.system(size: 22, weight: .bold))
-            .foregroundColor(.white)
-            .frame(width: tabButtonSize, height: tabButtonSize)
-            .contentShape(Rectangle())
+          Image(systemName: "plus")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(.regularMaterial, in: Circle())
         }
+        .padding(.trailing, 18)
+        .padding(.top, 6)
         .buttonStyle(.plain)
       }
     }
-    .frame(width: isExpanded ? expandedWidth : tabButtonSize, height: tabButtonSize, alignment: .leading)
-  }
-
-  private var addButton: some View {
-    Button(action: {
-      onAddPress()
-      resetIdleTimer()
-    }) {
-      Image(systemName: "plus")
-        .font(.system(size: 24, weight: .semibold))
-        .foregroundColor(.white)
-        .frame(width: tabButtonSize, height: tabButtonSize)
-        .background(.ultraThinMaterial, in: Circle())
-        .environment(\.colorScheme, .dark)
-        .overlay(
-          Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.55)
-        )
-        .overlay(
-          Circle()
-            .stroke(
-              LinearGradient(
-                colors: [Color.white.opacity(0.28), Color.white.opacity(0.03)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-              ),
-              lineWidth: 0.8
-            )
-            .padding(1.5)
-        )
-        .shadow(color: .black.opacity(0.20), radius: 10, y: 5)
+    .frame(height: 86)
+    .background(Color.clear)
+    .ignoresSafeArea(.container, edges: .bottom)
+    .hideTabBarBackgroundIfAvailable()
+    .onAppear {
+      configureTransparentTabBarAppearance()
+      let clamped = clamp(selectedTabIndex)
+      if selectedTabIndex != clamped { selectedTabIndex = clamped }
     }
-    .buttonStyle(.plain)
-  }
-
-  private func select(_ index: Int) {
-    let clamped = clamp(index)
-    if selectedTabIndex != clamped {
-      selectedTabIndex = clamped
+    .onChange(of: selectedTabIndex) { newValue in
+      let clamped = clamp(newValue)
+      if clamped != newValue {
+        selectedTabIndex = clamped
+        return
+      }
       onTabSelect(clamped)
     }
   }
@@ -213,33 +96,32 @@ public struct LiquidTabBarView: View {
     min(2, max(0, index))
   }
 
-  private func indicatorWidth(expandedWidth: CGFloat) -> CGFloat {
-    if isExpanded {
-      let slotWidth = (expandedWidth - tabInnerPadding * 2) / CGFloat(liquidTabs.count)
-      return max(slotWidth - 8, tabButtonSize - 12)
-    }
-    return tabButtonSize - 12
-  }
+  private func configureTransparentTabBarAppearance() {
+    let appearance = UITabBarAppearance()
+    appearance.configureWithTransparentBackground()
+    appearance.backgroundColor = .clear
+    appearance.backgroundEffect = nil
+    appearance.shadowImage = UIImage()
+    appearance.shadowColor = .clear
+    let itemAppearance = UITabBarItemAppearance()
+    itemAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
+    itemAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.clear]
+    itemAppearance.normal.titlePositionAdjustment = UIOffset(horizontal: 0, vertical: 10)
+    itemAppearance.selected.titlePositionAdjustment = UIOffset(horizontal: 0, vertical: 10)
+    appearance.stackedLayoutAppearance = itemAppearance
+    appearance.inlineLayoutAppearance = itemAppearance
+    appearance.compactInlineLayoutAppearance = itemAppearance
 
-  private func indicatorOffsetX(expandedWidth: CGFloat) -> CGFloat {
-    if isExpanded {
-      let slotWidth = (expandedWidth - tabInnerPadding * 2) / CGFloat(liquidTabs.count)
-      return tabInnerPadding + slotWidth * CGFloat(clamp(selectedTabIndex)) + (slotWidth - indicatorWidth(expandedWidth: expandedWidth)) / 2
-    }
-    // Collapse to the left-most icon coordinate.
-    return 6
-  }
-
-  private func resetIdleTimer() {
-    collapseTask?.cancel()
-    collapseTask = Task {
-      try? await Task.sleep(nanoseconds: 2_000_000_000)
-      if Task.isCancelled { return }
-      await MainActor.run {
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-          isExpanded = false
-        }
-      }
+    let tabBar = UITabBar.appearance()
+    tabBar.isTranslucent = true
+    tabBar.backgroundImage = UIImage()
+    tabBar.shadowImage = UIImage()
+    tabBar.backgroundColor = .clear
+    tabBar.barTintColor = .clear
+    tabBar.isOpaque = false
+    tabBar.standardAppearance = appearance
+    if #available(iOS 15.0, *) {
+      tabBar.scrollEdgeAppearance = appearance
     }
   }
 }

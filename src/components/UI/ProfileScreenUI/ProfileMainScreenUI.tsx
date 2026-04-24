@@ -188,7 +188,6 @@ export default function ProfileMainScreenUI({
 }: Props) {
   const insets = useSafeAreaInsets();
   const listRef = React.useRef<FlatList<any> | null>(null);
-  const lastAppliedScrollKeyRef = React.useRef<string | null>(null);
   const [pagerHeight, setPagerHeight] = React.useState<number>(420);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -227,21 +226,8 @@ export default function ProfileMainScreenUI({
     [heatMapMonths]
   );
 
-  React.useEffect(() => {
-    if (!monthsWithCalendarItems.length) return;
-    if (!pagerHeight || pagerHeight <= 0) return;
-    const safeIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
-    const scrollKey = `${safeIndex}-${pagerHeight}`;
-    if (lastAppliedScrollKeyRef.current === scrollKey) return;
-
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({
-        offset: pagerHeight * safeIndex,
-        animated: false,
-      });
-      lastAppliedScrollKeyRef.current = scrollKey;
-    });
-  }, [initialMonthIndex, monthsWithCalendarItems.length, pagerHeight]);
+  // 計算安全的初始索引，避免超出陣列範圍
+  const safeInitialIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
 
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay]}>
@@ -292,6 +278,7 @@ export default function ProfileMainScreenUI({
           <FlatList
             ref={listRef}
             data={monthsWithCalendarItems}
+            initialScrollIndex={safeInitialIndex}
             keyExtractor={(item) => item.key}
             renderItem={({ item }) => (
               <View style={[styles.monthPage, { height: pagerHeight }]}>
@@ -348,13 +335,13 @@ export default function ProfileMainScreenUI({
             snapToInterval={pagerHeight}
             snapToAlignment="start"
             showsVerticalScrollIndicator={false}
-            style={styles.heatMapScroller}
             contentContainerStyle={styles.heatMapContent}
             getItemLayout={(_, index) => ({
               length: pagerHeight,
               offset: pagerHeight * index,
               index,
             })}
+            style={styles.heatMapScroller}
           />
         </View>
       </SafeAreaView>

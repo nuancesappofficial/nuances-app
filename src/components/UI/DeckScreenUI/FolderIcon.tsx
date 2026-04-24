@@ -16,7 +16,7 @@ type FolderIconProps = {
   accentColor?: string;
   iconEmoji?: string;
   coverColor?: string;
-  showMeta?: boolean;
+  compact?: boolean;
 };
 
 function canUseSFSymbolsOnDevice() {
@@ -59,7 +59,7 @@ export function FolderIcon({
   accentColor = '#FFFFFF',
   iconEmoji,
   coverColor,
-  showMeta = true,
+  compact = false,
 }: FolderIconProps) {
   void latestCards;
   const theme = getCoverTheme(title);
@@ -76,34 +76,34 @@ export function FolderIcon({
         <View style={[styles.iconLayer, styles.iconLayerBack2, { backgroundColor: backColor2 }]} />
         <View style={[styles.iconLayer, styles.iconLayerBack1, { backgroundColor: backColor1 }]} />
         <View style={[styles.iconLayer, styles.iconLayerFront, { backgroundColor: frontColor }]}>
-          <View style={styles.iconInnerStroke} />
-          <View style={styles.symbolWrap}>
+          <View style={[styles.iconInnerStroke, compact ? styles.iconInnerStrokeCompact : null]} />
+          <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
             {iconEmoji ? (
-              <Text style={styles.emojiIcon}>{iconEmoji}</Text>
+              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
             ) : canUseSymbols ? (
               <SymbolView
                 name={theme.symbol}
-                size={56}
+                size={compact ? 42 : 56}
                 tintColor="#F4F7FF"
                 type="monochrome"
-                style={{ width: 56, height: 56 }}
-                fallback={<Text style={styles.fallbackIcon}>{theme.fallback}</Text>}
+                style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
+                fallback={
+                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
+                    {theme.fallback}
+                  </Text>
+                }
               />
             ) : (
-              <Text style={styles.fallbackIcon}>{theme.fallback}</Text>
+              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
             )}
           </View>
         </View>
       </View>
 
-      {showMeta ? (
-        <>
-          <Text style={[styles.title, { color: accentColor }]} numberOfLines={1}>
-            {title}
-          </Text>
-          <Text style={styles.subtitle}>{countLabel}</Text>
-        </>
-      ) : null}
+      <Text style={[styles.title, compact ? styles.titleCompact : null, { color: accentColor }]} numberOfLines={1}>
+        {title}
+      </Text>
+      <Text style={[styles.subtitle, compact ? styles.subtitleCompact : null]}>{countLabel}</Text>
     </View>
   );
 }
@@ -160,21 +160,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
+  iconInnerStrokeCompact: {
+    top: 5,
+    left: 5,
+    right: 5,
+    bottom: 5,
+    borderRadius: 14,
+  },
   symbolWrap: {
     width: 68,
     height: 68,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  symbolWrapCompact: {
+    width: 50,
+    height: 50,
+  },
   fallbackIcon: {
     color: '#F4F7FF',
     fontSize: 48,
     fontWeight: '600',
   },
+  fallbackIconCompact: {
+    fontSize: 34,
+  },
   emojiIcon: {
     color: '#F4F7FF',
     fontSize: 48,
     lineHeight: 52,
+  },
+  emojiIconCompact: {
+    fontSize: 34,
+    lineHeight: 38,
   },
   title: {
     marginTop: 8,
@@ -182,11 +200,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'left',
   },
+  titleCompact: {
+    marginTop: 6,
+    fontSize: 13,
+  },
   subtitle: {
     marginTop: 4,
     color: '#8E8E93',
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'left',
+  },
+  subtitleCompact: {
+    marginTop: 2,
+    fontSize: 11,
   },
 });

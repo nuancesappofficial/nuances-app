@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import * as ImagePicker from 'expo-image-picker';
+import { InteractionManager } from 'react-native';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type Profile from '@database/models/Profile';
@@ -106,7 +107,7 @@ function buildHeatMapMonths(
 ): HeatMapMonth[] {
   const cardsByDate = buildCardsByDate(cards);
   const currentMonth = getMonthStart(currentDate);
-  const monthOffsets = [-6, -5, -4, -3, -2, -1, 0, 1];
+  const monthOffsets = [0];
 
   return monthOffsets.map((offset) => {
     const monthDate = shiftMonth(currentMonth, offset);
@@ -119,7 +120,30 @@ function buildHeatMapMonths(
   });
 }
 
+function collectHeatMapPrimaryCardIds(cards: Card[], currentDate: Date): string[] {
+  const cardsByDate = buildCardsByDate(cards);
+  const currentMonth = getMonthStart(currentDate);
+  const monthOffsets = [0];
+  const required = new Set<string>();
+
+  monthOffsets.forEach((offset) => {
+    const monthDate = shiftMonth(currentMonth, offset);
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const lastDate = new Date(year, month + 1, 0).getDate();
+
+    for (let day = 1; day <= lastDate; day += 1) {
+      const key = getDateKey(new Date(year, month, day));
+      const primaryCard = cardsByDate.get(key)?.[0];
+      if (primaryCard?.id) required.add(primaryCard.id);
+    }
+  });
+
+  return [...required];
+}
+
 function findCurrentMonthIndex(months: HeatMapMonth[], currentDate: Date): number {
+  if (months.length <= 1) return 0;
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const index = months.findIndex(
@@ -160,6 +184,10 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     height: number;
   } | null>(null);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
+  const heatMapPrimaryCardIds = React.useMemo(
+    () => collectHeatMapPrimaryCardIds(cards, currentDate),
+    [cards, currentDate]
+  );
 
   React.useEffect(() => {
     const now = new Date();
@@ -218,26 +246,30 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
 
   React.useEffect(() => {
     let cancelled = false;
-    const loadCardImages = async () => {
-      const nextMap: Record<string, string | undefined> = {};
-      await Promise.all(
-        cards.map(async (card) => {
-          const uri = await resolveCardImageUri({
-            cardId: card.id,
-            remoteUri: card.imageUrl,
-          });
-          nextMap[card.id] = uri || undefined;
-        })
-      );
-      if (!cancelled) {
-        setCardImageMap(nextMap);
-      }
-    };
-    void loadCardImages();
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const idSet = new Set(heatMapPrimaryCardIds);
+        const targets = cards.filter((card) => idSet.has(card.id));
+        const nextMap: Record<string, string | undefined> = {};
+        await Promise.all(
+          targets.map(async (card) => {
+            const uri = await resolveCardImageUri({
+              cardId: card.id,
+              remoteUri: card.imageUrl,
+            });
+            nextMap[card.id] = uri || undefined;
+          })
+        );
+        if (!cancelled) {
+          setCardImageMap(nextMap);
+        }
+      })();
+    });
     return () => {
       cancelled = true;
+      task.cancel();
     };
-  }, [cards]);
+  }, [cards, heatMapPrimaryCardIds]);
 
   const refreshEntitlementMode = React.useCallback(async () => {
     try {
