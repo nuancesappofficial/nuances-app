@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Alert, AppState, TouchableOpacity, type AppStateStatus } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  AppState,
+  TouchableOpacity,
+  Animated,
+  type AppStateStatus,
+} from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -115,6 +124,7 @@ function getDetectedPreview(annotations: unknown): string | undefined {
 export default function CacheScreenFlow({ navigation, onRequestClose, entryAnimationToken }: Props) {
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const addButtonScale = React.useRef(new Animated.Value(1)).current;
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
   const [animationSeed, setAnimationSeed] = useState(0);
   const [restoreSeed, setRestoreSeed] = useState(0);
@@ -862,6 +872,18 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     [cards, deleteCacheItemPermanently, navigation]
   );
 
+  const animateAddButtonPress = React.useCallback(
+    (toValue: number) => {
+      Animated.spring(addButtonScale, {
+        toValue,
+        useNativeDriver: true,
+        speed: 24,
+        bounciness: 4,
+      }).start();
+    },
+    [addButtonScale]
+  );
+
   return (
     <GestureHandlerRootView style={styles.container}>
       <CacheStackUI
@@ -872,13 +894,22 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
         onCardImageError={handleCardImageError}
       />
 
-      <TouchableOpacity
-        style={[styles.uploadBarButton, { bottom: Math.max(insets.bottom, 8) + 60 }]}
-        activeOpacity={0.86}
-        onPress={openAddModal}
+      <Animated.View
+        style={[
+          styles.uploadBarButtonWrap,
+          { bottom: Math.max(insets.bottom, 8) + 60, transform: [{ scale: addButtonScale }] },
+        ]}
       >
-        <Text style={styles.uploadBarButtonLabel}>＋ Upload Cache</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.uploadBarButton}
+          activeOpacity={0.9}
+          onPressIn={() => animateAddButtonPress(0.95)}
+          onPressOut={() => animateAddButtonPress(1)}
+          onPress={openAddModal}
+        >
+          <Text style={styles.uploadBarButtonLabel}>＋ Upload Cache</Text>
+        </TouchableOpacity>
+      </Animated.View>
 
       <CacheInputModalUI
         visible={showAddModal}
@@ -922,23 +953,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ADD8E6',
   },
-  uploadBarButton: {
+  uploadBarButtonWrap: {
     position: 'absolute',
     left: 16,
     right: 16,
+    zIndex: 30,
+  },
+  uploadBarButton: {
     height: 50,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: '#2A628F',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 30,
     shadowColor: '#000000',
-    shadowOpacity: 0.26,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 9,
   },
   uploadBarButtonLabel: {
     color: '#FFFFFF',

@@ -100,6 +100,24 @@ function shiftMonth(base: Date, offset: number): Date {
   return new Date(base.getFullYear(), base.getMonth() + offset, 1);
 }
 
+function getMonthDiff(from: Date, to: Date): number {
+  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+}
+
+function buildHeatMapMonthOffsets(cards: Card[], currentDate: Date): number[] {
+  const currentMonth = getMonthStart(currentDate);
+  const oldestCard = cards[cards.length - 1];
+
+  if (!oldestCard?.createdAt) return [-1, 0, 1];
+
+  const oldestMonth = getMonthStart(new Date(oldestCard.createdAt));
+  const diff = Math.max(0, getMonthDiff(oldestMonth, currentMonth));
+  const historyOffsets = Array.from({ length: diff + 1 }, (_, index) => index - diff);
+
+  if (historyOffsets.length >= 3) return historyOffsets;
+  return [-1, 0, 1];
+}
+
 function buildHeatMapMonths(
   cards: Card[],
   cardImageMap: Record<string, string | undefined>,
@@ -107,7 +125,7 @@ function buildHeatMapMonths(
 ): HeatMapMonth[] {
   const cardsByDate = buildCardsByDate(cards);
   const currentMonth = getMonthStart(currentDate);
-  const monthOffsets = [0];
+  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate);
 
   return monthOffsets.map((offset) => {
     const monthDate = shiftMonth(currentMonth, offset);
@@ -123,7 +141,7 @@ function buildHeatMapMonths(
 function collectHeatMapPrimaryCardIds(cards: Card[], currentDate: Date): string[] {
   const cardsByDate = buildCardsByDate(cards);
   const currentMonth = getMonthStart(currentDate);
-  const monthOffsets = [0];
+  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate);
   const required = new Set<string>();
 
   monthOffsets.forEach((offset) => {

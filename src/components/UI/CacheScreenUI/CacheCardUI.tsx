@@ -200,14 +200,41 @@ export default function CacheCardUI({
 
   const activeOpacity = useDerivedValue(() => (isPressed.value ? 1 : 0));
 
-  const overlayStyle = useAnimatedStyle(() => {
+  const rightMaskStyle = useAnimatedStyle(() => {
     const alpha = activeOpacity.value;
-    const green = interpolate(x.value, [0, width * 0.4], [0, 0.16], Extrapolate.CLAMP);
-    const red = interpolate(x.value, [-width * 0.4, 0], [0.16, 0], Extrapolate.CLAMP);
+    const progress = interpolate(x.value, [0, width * 0.42], [0, 1], Extrapolate.CLAMP);
     return {
-      backgroundColor: x.value > 0
-        ? `rgba(76, 175, 80, ${alpha * green})`
-        : `rgba(244, 67, 54, ${alpha * red})`,
+      opacity: alpha * progress,
+      backgroundColor: '#33A65D',
+    };
+  });
+
+  const leftMaskStyle = useAnimatedStyle(() => {
+    const alpha = activeOpacity.value;
+    const progress = interpolate(x.value, [-width * 0.42, 0], [1, 0], Extrapolate.CLAMP);
+    return {
+      opacity: alpha * progress,
+      backgroundColor: '#E43E3E',
+    };
+  });
+
+  const rightIconStyle = useAnimatedStyle(() => {
+    const alpha = activeOpacity.value;
+    const progress = interpolate(x.value, [0, width * 0.42], [0, 1], Extrapolate.CLAMP);
+    const scaleValue = interpolate(progress, [0, 1], [0.82, 1.08], Extrapolate.CLAMP);
+    return {
+      opacity: alpha * progress,
+      transform: [{ scale: scaleValue }],
+    };
+  });
+
+  const leftIconStyle = useAnimatedStyle(() => {
+    const alpha = activeOpacity.value;
+    const progress = interpolate(x.value, [-width * 0.42, 0], [1, 0], Extrapolate.CLAMP);
+    const scaleValue = interpolate(progress, [0, 1], [0.82, 1.08], Extrapolate.CLAMP);
+    return {
+      opacity: alpha * progress,
+      transform: [{ scale: scaleValue }],
     };
   });
 
@@ -233,7 +260,20 @@ export default function CacheCardUI({
             ) : (
               <CacheTextCardFace text={text} />
             )}
-            {!imageUri ? <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]} /> : null}
+            <Animated.View style={[StyleSheet.absoluteFillObject, styles.dragMaskLayer, rightMaskStyle]} />
+            <Animated.View style={[StyleSheet.absoluteFillObject, styles.dragMaskLayer, leftMaskStyle]} />
+
+            <Animated.View style={[styles.dragIconWrap, rightIconStyle]}>
+              <View style={[styles.dragIconBadge, styles.dragIconBadgeRight]}>
+                <Ionicons name="checkmark" size={44} color="#FFFFFF" />
+              </View>
+            </Animated.View>
+
+            <Animated.View style={[styles.dragIconWrap, leftIconStyle]}>
+              <View style={[styles.dragIconBadge, styles.dragIconBadgeLeft]}>
+                <Ionicons name="close" size={44} color="#FFFFFF" />
+              </View>
+            </Animated.View>
           </View>
         </View>
       </Animated.View>
@@ -289,7 +329,35 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
   },
-  overlay: {
+  dragMaskLayer: {
     zIndex: 1,
+  },
+  dragIconWrap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  dragIconBadge: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  dragIconBadgeRight: {
+    backgroundColor: 'rgba(18, 100, 52, 0.82)',
+    borderColor: 'rgba(169, 255, 205, 0.8)',
+  },
+  dragIconBadgeLeft: {
+    backgroundColor: 'rgba(126, 20, 20, 0.82)',
+    borderColor: 'rgba(255, 178, 178, 0.8)',
   },
 });

@@ -1,7 +1,8 @@
 import React from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
 
@@ -11,7 +12,7 @@ const GRID_GAP = 6;
 const GRID_HORIZONTAL_PADDING = 12;
 const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
 // 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
-const ALBUM_GROUP_OFFSET_Y = -180;
+const ALBUM_GROUP_OFFSET_Y = 0;
 
 type Props = {
   heroStatusText?: string;
@@ -56,6 +57,8 @@ export default function DeckMainScreenUI({
   onActionEnd,
 }: Props) {
   const { width: screenWidth } = useWindowDimensions();
+  const searchInputRef = React.useRef<TextInput | null>(null);
+  const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
   const albumItemWidth = Math.max(
     0,
@@ -139,74 +142,82 @@ export default function DeckMainScreenUI({
     ]
   );
 
+  const handleOpenSearch = React.useCallback(() => {
+    setIsSearchExpanded(true);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+
+  const handleSearchSecondaryAction = React.useCallback(() => {
+    if (searchQuery.trim().length > 0) {
+      onClearSearch();
+      return;
+    }
+    setIsSearchExpanded(false);
+  }, [onClearSearch, searchQuery]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.searchRow}>
-        <View style={styles.searchInputWrap}>
-          <Text style={styles.searchIcon}>⌕</Text>
-          <TextInput
-            value={searchQuery}
-            onChangeText={onSearchChange}
-            placeholder="搜尋卡片關鍵字"
-            placeholderTextColor="#8E8E93"
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          <TouchableOpacity style={styles.clearSearchButton} activeOpacity={0.8} onPress={onClearSearch}>
-            <Text style={styles.clearSearchButtonText}>×</Text>
+      <View style={styles.topRightRow}>
+        {isSearchExpanded ? (
+          <View style={styles.searchInputWrap}>
+            <Ionicons name="search" size={22} color="#FFFFFF" style={styles.searchLeadingIcon} />
+            <TextInput
+              ref={searchInputRef}
+              value={searchQuery}
+              onChangeText={onSearchChange}
+              placeholder="搜尋卡片關鍵字"
+              placeholderTextColor="#8E8E93"
+              style={styles.searchInput}
+              returnKeyType="search"
+              onBlur={() => {
+                if (!searchQuery.trim()) setIsSearchExpanded(false);
+              }}
+            />
+            <TouchableOpacity style={styles.clearSearchButton} activeOpacity={0.8} onPress={handleSearchSecondaryAction}>
+              <Ionicons name="close" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={handleOpenSearch}>
+            <Ionicons name="search" size={32} color="#0E1117" />
           </TouchableOpacity>
-        </View>
+        )}
 
-        <TouchableOpacity style={styles.addAlbumButton} activeOpacity={0.85} onPress={onOpenCreateAlbum}>
-          <Text style={styles.addAlbumText}>＋</Text>
+        <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={onOpenCreateAlbum}>
+          <Ionicons name="add" size={38} color="#0E1117" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        <TouchableOpacity style={styles.sortPill} activeOpacity={0.85} onPress={onToggleSort}>
-          <Text style={styles.sortPillText}>↕︎</Text>
-          <Text style={styles.sortPillChevron}>{sortOrder === 'desc' ? '新→舊' : '舊→新'}</Text>
-        </TouchableOpacity>
+      <View style={styles.albumGroupShadow}>
+        <View style={styles.albumGroup}>
+          <FlatList
+            data={albumPages}
+            horizontal
+            pagingEnabled
+            style={styles.albumPager}
+            keyExtractor={(_, index) => `album-page-${index}`}
+            showsHorizontalScrollIndicator={false}
+            decelerationRate="fast"
+            bounces={false}
+          onMomentumScrollEnd={(event) => {
+            const offsetX = event.nativeEvent.contentOffset.x;
+            const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
+            setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
+          }}
+            renderItem={({ item, index }) => renderAlbumPage(item, index)}
+          />
 
-        {filterPills.map((pill) => (
-          <TouchableOpacity key={pill} style={styles.filterPill} activeOpacity={0.85}>
-            <Text style={styles.filterPillText}>{pill}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <View style={styles.albumGroup}>
-        <FlatList
-          data={albumPages}
-          horizontal
-          pagingEnabled
-          style={styles.albumPager}
-          keyExtractor={(_, index) => `album-page-${index}`}
-          showsHorizontalScrollIndicator={false}
-          decelerationRate="fast"
-          bounces={false}
-        onMomentumScrollEnd={(event) => {
-          const offsetX = event.nativeEvent.contentOffset.x;
-          const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
-          setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
-        }}
-          renderItem={({ item, index }) => renderAlbumPage(item, index)}
-        />
-
-        {albumPages.length > 1 ? (
-          <View style={styles.paginationDots}>
-            {albumPages.map((_, index) => (
-              <View
-                key={`dot-${index}`}
-                style={[styles.paginationDot, index === currentPage ? styles.paginationDotActive : null]}
-              />
-            ))}
-          </View>
-        ) : null}
+          {albumPages.length > 1 ? (
+            <View style={styles.paginationDots}>
+              {albumPages.map((_, index) => (
+                <View
+                  key={`dot-${index}`}
+                  style={[styles.paginationDot, index === currentPage ? styles.paginationDotActive : null]}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -217,28 +228,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ADD8E6',
   },
-  searchRow: {
+  topRightRow: {
     paddingHorizontal: 16,
     paddingTop: 8,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 10,
+  },
+  rawIconButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   searchInputWrap: {
     flex: 1,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',
     backgroundColor: '#0B0B0F',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
   },
-  searchIcon: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginRight: 8,
+  searchLeadingIcon: {
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
@@ -247,84 +265,29 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   clearSearchButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
-  clearSearchButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 14,
-  },
-  addAlbumButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0B0B0F',
-  },
-  addAlbumText: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: '300',
-  },
-  filterRow: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  sortPill: {
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    backgroundColor: '#111317',
-    gap: 6,
-  },
-  sortPillText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  sortPillChevron: {
-    color: '#C7C7CC',
-    fontSize: 12,
-  },
-  filterPill: {
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  filterPillText: {
-    color: '#F2F2F7',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  albumGroup: {
+  albumGroupShadow: {
     alignSelf: 'center',
     marginHorizontal: ALBUM_GROUP_HORIZONTAL_MARGIN,
+    marginTop: 12,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 8,
+    transform: [{ translateY: ALBUM_GROUP_OFFSET_Y }],
+  },
+  albumGroup: {
     borderRadius: 24,
     backgroundColor: '#7BA8C7',
     overflow: 'hidden',
-    transform: [{ translateY: ALBUM_GROUP_OFFSET_Y }],
   },
   albumGridContent: {
     paddingHorizontal: GRID_HORIZONTAL_PADDING,

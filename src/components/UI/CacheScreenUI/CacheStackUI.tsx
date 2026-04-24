@@ -38,43 +38,80 @@ export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCard
   const skipActionStyle = useAnimatedStyle(() => {
     const progress = interpolate(topCardDragX.value, [-140, 0], [1, 0], Extrapolate.CLAMP);
     return {
-      opacity: 0.35 + progress * 0.65,
-      transform: [{ scale: 1 + progress * 0.08 }],
-      backgroundColor: '#FFEEEE',
-      borderColor: `rgba(204, 51, 51, ${0.18 + progress * 0.32})`,
+      opacity: 0.78 + progress * 0.22,
+      transform: [{ scale: 1 + progress * 0.07 }],
+      backgroundColor: '#E1E5EC',
+      borderColor: `rgba(255, 132, 132, ${0.2 + progress * 0.35})`,
     };
   });
 
   const createActionStyle = useAnimatedStyle(() => {
     const progress = interpolate(topCardDragX.value, [0, 140], [0, 1], Extrapolate.CLAMP);
     return {
-      opacity: 0.35 + progress * 0.65,
-      transform: [{ scale: 1 + progress * 0.08 }],
-      backgroundColor: '#E6F9EF',
-      borderColor: `rgba(26, 138, 58, ${0.18 + progress * 0.32})`,
+      opacity: 0.78 + progress * 0.22,
+      transform: [{ scale: 1 + progress * 0.07 }],
+      backgroundColor: '#E1E5EC',
+      borderColor: `rgba(119, 229, 157, ${0.2 + progress * 0.35})`,
     };
   });
 
   const skipTintStyle = useAnimatedStyle(() => {
     const progress = interpolate(topCardDragX.value, [-180, 0], [1, 0], Extrapolate.CLAMP);
     return {
-      backgroundColor: `rgba(244, 67, 54, ${0.12 + progress * 0.28})`,
+      backgroundColor: `rgba(228, 62, 62, ${0.1 + progress * 0.22})`,
     };
   });
 
   const createTintStyle = useAnimatedStyle(() => {
     const progress = interpolate(topCardDragX.value, [0, 180], [0, 1], Extrapolate.CLAMP);
     return {
-      backgroundColor: `rgba(76, 175, 80, ${0.12 + progress * 0.28})`,
+      backgroundColor: `rgba(51, 166, 93, ${0.1 + progress * 0.22})`,
     };
   });
+
+  const skipShellStyle = useAnimatedStyle(() => {
+    const progress = interpolate(topCardDragX.value, [-180, 0], [1, 0], Extrapolate.CLAMP);
+    return {
+      transform: [{ translateY: -progress * 1.5 }],
+      shadowOpacity: 0.12 + progress * 0.16,
+      shadowRadius: 8 + progress * 4,
+      elevation: 5 + progress * 3,
+    };
+  });
+
+  const createShellStyle = useAnimatedStyle(() => {
+    const progress = interpolate(topCardDragX.value, [0, 180], [0, 1], Extrapolate.CLAMP);
+    return {
+      transform: [{ translateY: -progress * 1.5 }],
+      shadowOpacity: 0.12 + progress * 0.16,
+      shadowRadius: 8 + progress * 4,
+      elevation: 5 + progress * 3,
+    };
+  });
+
+  const skipGlowStyle = useAnimatedStyle(() => {
+    const progress = interpolate(topCardDragX.value, [-190, 0], [1, 0], Extrapolate.CLAMP);
+    return {
+      opacity: 0.1 + progress * 0.5,
+    };
+  });
+
+  const createGlowStyle = useAnimatedStyle(() => {
+    const progress = interpolate(topCardDragX.value, [0, 190], [0, 1], Extrapolate.CLAMP);
+    return {
+      opacity: 0.1 + progress * 0.5,
+    };
+  });
+
+  const triggerActionTapHaptic = React.useCallback((direction: 'left' | 'right') => {
+    void Haptics.impactAsync(
+      direction === 'left' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    );
+  }, []);
 
   const triggerTopCardSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
       if (!topCard) return;
-      void Haptics.impactAsync(
-        direction === 'left' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-      );
       swipeSeqRef.current += 1;
       setSwipeTrigger({
         seq: swipeSeqRef.current,
@@ -89,22 +126,47 @@ export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCard
     <View style={styles.stackContainer}>
       {cards.length > 0 ? (
         <View style={styles.floatingActionsRow}>
-          <Pressable onPress={() => triggerTopCardSwipe('left')} style={styles.actionPressTarget}>
-            <Animated.View style={[styles.floatingActionBtn, styles.skipActionBtn, skipActionStyle]}>
-              <Animated.View style={[StyleSheet.absoluteFill, skipTintStyle]} />
-              <View style={styles.actionContentRow}>
-                <Ionicons name="close" size={14} color="#D75454" />
-                <Text style={styles.skipActionText}>Skip</Text>
-              </View>
+          <Pressable
+            onPress={() => {
+              triggerActionTapHaptic('left');
+              triggerTopCardSwipe('left');
+            }}
+            style={styles.actionPressTarget}
+          >
+            <Animated.View style={[styles.actionShell, styles.skipActionShell, skipShellStyle]}>
+              <Animated.View style={[styles.floatingActionBtn, styles.skipActionBtn, skipActionStyle]}>
+                <View style={styles.metalTopHighlight} pointerEvents="none" />
+                <View style={styles.metalBottomShade} pointerEvents="none" />
+                <Animated.View style={[StyleSheet.absoluteFill, styles.actionTintLayer, skipTintStyle]} pointerEvents="none" />
+                <Animated.View style={[styles.actionGlow, styles.skipGlow, skipGlowStyle]} pointerEvents="none" />
+                <View style={styles.actionContentRow}>
+                  <Ionicons name="close" size={14} color="#C93E3E" />
+                  <Text style={styles.skipActionText}>Skip</Text>
+                </View>
+              </Animated.View>
             </Animated.View>
           </Pressable>
-          <Pressable onPress={() => triggerTopCardSwipe('right')} style={styles.actionPressTarget}>
-            <Animated.View style={[styles.floatingActionBtn, styles.createActionBtn, createActionStyle]}>
-              <Animated.View style={[StyleSheet.absoluteFill, createTintStyle]} />
-              <View style={styles.actionContentRow}>
-                <Text style={styles.createActionText}>Create</Text>
-                <Ionicons name="sparkles" size={12} color="#44A764" />
-              </View>
+          <Pressable
+            onPress={() => {
+              triggerActionTapHaptic('right');
+              triggerTopCardSwipe('right');
+            }}
+            style={styles.actionPressTarget}
+          >
+            <Animated.View style={[styles.actionShell, styles.createActionShell, createShellStyle]}>
+              <Animated.View style={[styles.floatingActionBtn, styles.createActionBtn, createActionStyle]}>
+                <View style={styles.metalTopHighlight} pointerEvents="none" />
+                <View style={styles.metalBottomShade} pointerEvents="none" />
+                <Animated.View
+                  style={[StyleSheet.absoluteFill, styles.actionTintLayer, createTintStyle]}
+                  pointerEvents="none"
+                />
+                <Animated.View style={[styles.actionGlow, styles.createGlow, createGlowStyle]} pointerEvents="none" />
+                <View style={styles.actionContentRow}>
+                  <Text style={styles.createActionText}>Create</Text>
+                  <Ionicons name="sparkles" size={12} color="#2F8B53" />
+                </View>
+              </Animated.View>
             </Animated.View>
           </Pressable>
         </View>
@@ -149,36 +211,87 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   floatingActionBtn: {
-    height: 32,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    minWidth: 94,
+    height: 38,
+    borderRadius: 13,
+    paddingHorizontal: 14,
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.2,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E1E5EC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   actionPressTarget: {
-    borderRadius: 12,
+    borderRadius: 14,
+  },
+  actionShell: {
+    position: 'relative',
+    borderRadius: 14,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  skipActionShell: {
+    shadowColor: 'rgba(182, 54, 54, 1)',
+  },
+  createActionShell: {
+    shadowColor: 'rgba(46, 122, 78, 1)',
   },
   skipActionBtn: {
-    borderColor: 'rgba(204, 51, 51, 0.2)',
+    borderColor: 'rgba(204, 51, 51, 0.25)',
   },
   createActionBtn: {
-    borderColor: 'rgba(26, 138, 58, 0.2)',
+    borderColor: 'rgba(26, 138, 58, 0.25)',
   },
   actionContentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    zIndex: 4,
+  },
+  actionTintLayer: {
+    zIndex: 1,
+  },
+  metalTopHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '46%',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    zIndex: 2,
+  },
+  metalBottomShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '42%',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    zIndex: 2,
+  },
+  actionGlow: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+  },
+  skipGlow: {
+    backgroundColor: 'rgba(255, 106, 106, 0.35)',
+  },
+  createGlow: {
+    backgroundColor: 'rgba(90, 224, 138, 0.35)',
   },
   skipActionText: {
-    color: '#D75454',
-    fontSize: 12,
-    fontWeight: '700',
+    color: '#B83939',
+    fontSize: 12.5,
+    fontWeight: '800',
   },
   createActionText: {
-    color: '#44A764',
-    fontSize: 12,
-    fontWeight: '700',
+    color: '#2D8150',
+    fontSize: 12.5,
+    fontWeight: '800',
   },
 });

@@ -2,20 +2,18 @@ import React from 'react';
 import {
   FlatList,
   Image,
-  ImageBackground,
   LayoutChangeEvent,
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import type Card from '@database/models/Card';
 import ProfileSettingsModalUI from './ProfileSettingsModalUI';
-
-const PROFILE_SCREEN_BG = require('../../../../assets/ProfileScreenBG.png');
 
 export type HeatMapDay = {
   key: string;
@@ -57,10 +55,11 @@ type Props = {
 const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
 const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const DAY_TILE_RADIUS = 14;
+const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
-const TAB_BAR_CLEARANCE = 100;
 const BASE_BG = '#ADD8E6';
+const PANEL_BG = '#7BA8C7';
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;
@@ -132,14 +131,15 @@ function HeatMapCircle({
   const circleStyle = {
     width: GRID_SIZE,
     height: GRID_SIZE,
-    borderRadius: GRID_SIZE / 2,
+    borderRadius: DAY_TILE_RADIUS,
   } as const;
 
   const content = item.imageUri ? (
-    <ImageBackground source={{ uri: item.imageUri }} style={[styles.dayCircle, circleStyle]} imageStyle={circleStyle}>
+    <View style={[styles.dayCircle, circleStyle]}>
+      <Image source={{ uri: item.imageUri }} style={[styles.dayCircleImage, circleStyle]} resizeMode="cover" />
       <View style={styles.dayImageOverlay} />
       <Text style={styles.dayNumber}>{item.dayNumber}</Text>
-    </ImageBackground>
+    </View>
   ) : (
     <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle]}>
       <Text style={styles.dayNumber}>{item.dayNumber}</Text>
@@ -186,13 +186,14 @@ export default function ProfileMainScreenUI({
   onPressMenu,
   onPressDay,
 }: Props) {
-  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
-  const [pagerHeight, setPagerHeight] = React.useState<number>(420);
+  const [pagerWidth, setPagerWidth] = React.useState<number>(0);
+  const [currentMonthIndex, setCurrentMonthIndex] = React.useState<number>(0);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
-    const nextHeight = Math.max(320, Math.round(event.nativeEvent.layout.height));
-    setPagerHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+    const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width));
+    setPagerWidth((prev) => (prev === nextWidth ? prev : nextWidth));
   }, []);
 
   const monthsWithCalendarItems = React.useMemo(
@@ -228,121 +229,177 @@ export default function ProfileMainScreenUI({
 
   // 計算安全的初始索引，避免超出陣列範圍
   const safeInitialIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
+  const fallbackPagerWidth = Math.max(1, screenWidth - 32);
+  const effectivePagerWidth = pagerWidth > 1 ? pagerWidth : fallbackPagerWidth;
+  const maxUsedRowCount = React.useMemo(
+    () => monthsWithCalendarItems.reduce((acc, month) => Math.max(acc, month.usedRowCount), 1),
+    [monthsWithCalendarItems]
+  );
+  const heatMapPanelHeight = 28 + 16 + maxUsedRowCount * GRID_ROW_HEIGHT + 6;
+
+  React.useEffect(() => {
+    setCurrentMonthIndex(safeInitialIndex);
+  }, [safeInitialIndex]);
+
+  const activeMonth = monthsWithCalendarItems[currentMonthIndex] ?? monthsWithCalendarItems[safeInitialIndex];
+  const activeMonthDate = activeMonth?.monthDate ?? new Date();
+  const monthTitle = `${activeMonthDate.getMonth() + 1}月`;
+  const monthButtonLabel = `${activeMonthDate.getFullYear()}年 ${activeMonthDate.getMonth() + 1}月`;
+
+  const scrollToMonth = React.useCallback(
+    (index: number) => {
+      const total = monthsWithCalendarItems.length;
+      if (!total) return;
+      const wrapped = ((index % total) + total) % total;
+      listRef.current?.scrollToOffset({ offset: wrapped * effectivePagerWidth, animated: true });
+      setCurrentMonthIndex(wrapped);
+    },
+    [monthsWithCalendarItems.length, effectivePagerWidth]
+  );
 
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay]}>
-      {!overlayMode ? <Image source={PROFILE_SCREEN_BG} style={styles.backgroundImage} resizeMode="cover" /> : null}
-      <View
-        style={[styles.backgroundFilter, overlayMode && styles.overlayBackgroundFilter]}
-        pointerEvents="none"
-      />
-
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.headerContainer}>
-          <View style={styles.coverArea}>
-            <View style={styles.headerOverlay}>
-              <View style={styles.avatarWrap}>
-                {profileImageUri ? (
-                  <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <IconSymbol name="person.crop.circle.fill" fallback="◉" size={192} color="#FFFFFF" />
-                  </View>
-                )}
+        <View style={styles.profilePanel}>
+          <View style={styles.avatarWrap}>
+            {profileImageUri ? (
+              <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <IconSymbol name="person.crop.circle.fill" fallback="◉" size={192} color="#FFFFFF" />
               </View>
+            )}
+          </View>
 
-              <View style={styles.titleBlock}>
-                <Text style={styles.subtitle}>{subtitle}</Text>
-                <Text style={styles.title} numberOfLines={1}>
-                  {title}
-                </Text>
-              </View>
+          <View style={styles.titleBlock}>
+            <Text style={styles.subtitle}>{subtitle}</Text>
+            <Text style={styles.title} numberOfLines={1}>
+              {title}
+            </Text>
+          </View>
 
-              <View style={styles.actionsRow}>
-                <HeaderAction
-                  label="Recaps"
-                  icon={<IconSymbol name="clock.arrow.circlepath" fallback="↺" size={22} color="#FFFFFF" />}
-                  onPress={onPressRecaps}
-                />
-                <HeaderAction
-                  label="Settings"
-                  icon={<IconSymbol name="gearshape" fallback="⚙" size={22} color="#FFFFFF" />}
-                  onPress={onPressSettings}
-                />
-              </View>
-            </View>
+          <View style={styles.actionsRow}>
+            <HeaderAction
+              label="Recaps"
+              icon={<IconSymbol name="clock.arrow.circlepath" fallback="↺" size={22} color="#FFFFFF" />}
+              onPress={onPressRecaps}
+            />
+            <HeaderAction
+              label="Settings"
+              icon={<IconSymbol name="gearshape" fallback="⚙" size={22} color="#FFFFFF" />}
+              onPress={onPressSettings}
+            />
           </View>
         </View>
 
-        <View style={styles.heatMapPagerWrap} onLayout={handlePagerLayout}>
-          <FlatList
-            ref={listRef}
-            data={monthsWithCalendarItems}
-            initialScrollIndex={safeInitialIndex}
-            keyExtractor={(item) => item.key}
-            renderItem={({ item }) => (
-              <View style={[styles.monthPage, { height: pagerHeight }]}>
-                <View
-                  style={[
-                    styles.monthPageInner,
-                    { paddingBottom: TAB_BAR_CLEARANCE + Math.max(insets.bottom, 8) },
-                  ]}
-                >
-                  <View style={styles.calendarBlock}>
-                    <Text style={styles.monthLabel}>{item.monthLabel}</Text>
+        <View style={styles.monthHeaderRow}>
+          <Text style={styles.monthTitleOutside}>{monthTitle}</Text>
+          <View style={styles.monthControlRow}>
+            <TouchableOpacity
+              style={styles.monthNavButton}
+              activeOpacity={0.85}
+              onPress={() => scrollToMonth(currentMonthIndex - 1)}
+            >
+              <Text style={styles.monthNavButtonText}>‹</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.monthSelectButton}
+              activeOpacity={0.85}
+              onPress={() => scrollToMonth((currentMonthIndex + 1) % Math.max(1, monthsWithCalendarItems.length))}
+            >
+              <Text style={styles.monthSelectButtonText}>{monthButtonLabel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.monthNavButton}
+              activeOpacity={0.85}
+              onPress={() => scrollToMonth(currentMonthIndex + 1)}
+            >
+              <Text style={styles.monthNavButtonText}>›</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-                    <View style={styles.weekdayRow}>
-                      {WEEKDAY_LABELS.map((label) => (
-                        <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
-                          <Text style={styles.weekdayText}>{label}</Text>
-                        </View>
-                      ))}
-                    </View>
-
-                    <View style={styles.calendarGridArea}>
-                      <View
-                        style={[
-                          styles.gridWrap,
-                          { height: GRID_ROW_HEIGHT * item.usedRowCount },
-                        ]}
-                      >
-                        {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
-                          'isPlaceholder' in calendarItem ? (
-                            <View key={calendarItem.key} style={styles.gridCell}>
-                              <View style={styles.placeholderCell} />
-                            </View>
-                          ) : (
-                            <View key={calendarItem.key} style={styles.gridCell}>
-                              <HeatMapCircle
-                                item={calendarItem}
-                                isToday={calendarItem.key === todayDateKey}
-                                onPressDay={onPressDay}
-                              />
-                            </View>
-                          )
+        <View style={[styles.heatMapPanelShadow, { height: heatMapPanelHeight }]}>
+          <View style={styles.heatMapPanel}>
+            <View style={styles.heatMapPagerWrap} onLayout={handlePagerLayout}>
+            <FlatList
+              ref={listRef}
+              data={monthsWithCalendarItems}
+              initialScrollIndex={safeInitialIndex}
+              keyExtractor={(item) => item.key}
+              renderItem={({ item }) => (
+                <View style={[styles.monthPage, { height: heatMapPanelHeight, width: effectivePagerWidth }]}>
+                  <View
+                    style={[
+                      styles.monthPageInner,
+                      { paddingBottom: 2 },
+                    ]}
+                  >
+                    <View style={styles.calendarBlock}>
+                      <View style={styles.weekdayRow}>
+                        {WEEKDAY_LABELS.map((label) => (
+                          <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
+                            <Text style={styles.weekdayText}>{label}</Text>
+                          </View>
                         ))}
+                      </View>
+
+                      <View style={styles.calendarGridArea}>
+                        <View
+                          style={[
+                            styles.gridWrap,
+                            { height: GRID_ROW_HEIGHT * item.usedRowCount },
+                          ]}
+                        >
+                          {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
+                            'isPlaceholder' in calendarItem ? (
+                              <View key={calendarItem.key} style={styles.gridCell}>
+                                <View style={styles.placeholderCell} />
+                              </View>
+                            ) : (
+                              <View key={calendarItem.key} style={styles.gridCell}>
+                                <HeatMapCircle
+                                  item={calendarItem}
+                                  isToday={calendarItem.key === todayDateKey}
+                                  onPressDay={onPressDay}
+                                />
+                              </View>
+                            )
+                          ))}
+                        </View>
                       </View>
                     </View>
                   </View>
                 </View>
-              </View>
-            )}
-            pagingEnabled
-            bounces={false}
-            alwaysBounceVertical={false}
-            disableIntervalMomentum
-            decelerationRate="fast"
-            snapToInterval={pagerHeight}
-            snapToAlignment="start"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.heatMapContent}
-            getItemLayout={(_, index) => ({
-              length: pagerHeight,
-              offset: pagerHeight * index,
-              index,
-            })}
-            style={styles.heatMapScroller}
-          />
+              )}
+              horizontal
+              pagingEnabled
+              bounces
+              alwaysBounceHorizontal={false}
+              alwaysBounceVertical={false}
+              disableIntervalMomentum
+              decelerationRate="fast"
+              snapToAlignment="start"
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.heatMapContent}
+              getItemLayout={(_, index) => ({
+                length: effectivePagerWidth,
+                offset: effectivePagerWidth * index,
+                index,
+              })}
+              onScrollToIndexFailed={(info) => {
+                listRef.current?.scrollToOffset({ offset: info.index * effectivePagerWidth, animated: true });
+              }}
+              onMomentumScrollEnd={(event) => {
+                const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
+                const next = Math.round(event.nativeEvent.contentOffset.x / width);
+                setCurrentMonthIndex(Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1)));
+              }}
+              style={styles.heatMapScroller}
+            />
+            </View>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -366,50 +423,34 @@ const styles = StyleSheet.create({
   rootOverlay: {
     backgroundColor: 'transparent',
   },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  backgroundFilter: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 20, 35, 0.4)',
-  },
-  overlayBackgroundFilter: {
-    backgroundColor: 'rgba(12, 16, 28, 0.18)',
-  },
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
-  },
-  headerContainer: {
-    backgroundColor: 'transparent',
-    marginBottom: -65,
-    zIndex: 2,
-  },
-  coverArea: {
-    height: 286,
-    width: '100%',
-    position: 'relative',
-    backgroundColor: 'transparent',
+    backgroundColor: BASE_BG,
   },
   topNavRow: {
     display: 'none',
   },
-  headerOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -90,
-    paddingHorizontal: 24,
+  profilePanel: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 28,
+    backgroundColor: PANEL_BG,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 8,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
     alignItems: 'center',
   },
   avatarWrap: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 8,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.72)',
     backgroundColor: 'rgba(255,255,255,0.18)',
@@ -436,7 +477,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
     flexShrink: 1,
@@ -444,9 +485,9 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 40,
-    marginTop: 22,
-    paddingBottom: 24,
+    gap: 30,
+    marginTop: 12,
+    paddingBottom: 2,
   },
   headerAction: {
     alignItems: 'center',
@@ -454,14 +495,19 @@ const styles = StyleSheet.create({
     minWidth: 72,
   },
   headerActionIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.22)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
   },
   headerActionLabel: {
     color: '#FFFFFF',
@@ -476,9 +522,27 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     backgroundColor: 'transparent',
   },
+  heatMapPanelShadow: {
+    marginTop: 6,
+    marginHorizontal: 16,
+    borderRadius: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 8,
+  },
   heatMapPagerWrap: {
-    flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: 'transparent',
+  },
+  heatMapPanel: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 28,
+    backgroundColor: PANEL_BG,
+    overflow: 'hidden',
   },
   monthPage: {
     width: '100%',
@@ -487,23 +551,61 @@ const styles = StyleSheet.create({
   },
   monthPageInner: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
     backgroundColor: 'transparent',
   },
   calendarBlock: {
     backgroundColor: 'transparent',
   },
-  monthLabel: {
-    textAlign: 'center',
+  monthHeaderRow: {
+    marginTop: 2,
+    marginHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  monthTitleOutside: {
+    color: '#FFFFFF',
+    fontSize: 46,
+    fontWeight: '800',
+  },
+  monthControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  monthNavButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+  },
+  monthNavButtonText: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    lineHeight: 34,
+    fontWeight: '500',
+    marginTop: -2,
+  },
+  monthSelectButton: {
+    minHeight: 48,
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+  },
+  monthSelectButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 20,
   },
   weekdayRow: {
     flexDirection: 'row',
     width: '100%',
+    marginTop: 14,
     marginBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: 'transparent',
@@ -543,7 +645,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: GRID_SIZE + 18,
     height: GRID_SIZE + 18,
-    borderRadius: (GRID_SIZE + 18) / 2,
+    borderRadius: DAY_TILE_RADIUS + 9,
     backgroundColor: 'rgba(255, 179, 102, 0.14)',
     shadowColor: '#FFB36B',
     shadowOpacity: 0.6,
@@ -555,7 +657,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: GRID_SIZE + 10,
     height: GRID_SIZE + 10,
-    borderRadius: (GRID_SIZE + 10) / 2,
+    borderRadius: DAY_TILE_RADIUS + 5,
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: 'rgba(255, 205, 138, 0.95)',
@@ -571,6 +673,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     backgroundColor: 'rgba(50, 65, 110, 0.5)',
+  },
+  dayCircleImage: {
+    ...StyleSheet.absoluteFillObject,
   },
   dayCircleEmpty: {
     backgroundColor: 'rgba(50, 65, 110, 0.25)',
