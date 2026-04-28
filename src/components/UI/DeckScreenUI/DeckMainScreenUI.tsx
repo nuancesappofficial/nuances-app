@@ -328,7 +328,9 @@ export default function DeckMainScreenUI({
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.topRightRow}>
-        <Image source={require('../../../../assets/NUANCES_ICON6.png')} style={styles.brandIcon} resizeMode="cover" />
+        <TouchableOpacity style={styles.brandIconButton} activeOpacity={0.8} onPress={onPressCacheFab}>
+          <Image source={require('../../../../assets/icon_cutout.png')} style={styles.brandIcon} resizeMode="contain" />
+        </TouchableOpacity>
         <View style={styles.topActionsRow}>
           <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
             <Animated.View
@@ -539,6 +541,12 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 8,
+  },
+  brandIconButton: {
+    width: 60,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchAnimatedWrap: {
     height: 44,
