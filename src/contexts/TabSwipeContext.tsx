@@ -12,6 +12,7 @@ export type TabSwipeContextValue = {
   setPagerScrollEnabled: (enabled: boolean) => void;
   goToTab: (index: number) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
+  triggerCacheAddAction: () => void;
 };
 
 export const TabSwipeContext = React.createContext<TabSwipeContextValue | null>(null);

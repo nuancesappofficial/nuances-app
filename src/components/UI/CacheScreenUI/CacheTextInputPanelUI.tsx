@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    minHeight: 118,
+    minHeight: 92,
     borderRadius: 20,
     backgroundColor: '#181C23',
     borderWidth: 1,

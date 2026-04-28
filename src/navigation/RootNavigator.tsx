@@ -410,6 +410,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     1: true,
     2: true,
   });
+  const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
     cacheSwipeExclusionRangeRef.current = range;
@@ -474,6 +475,14 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     });
   }, []);
 
+  const setCacheAddActionHandler = React.useCallback((handler: (() => void) | null) => {
+    cacheAddActionHandlerRef.current = handler;
+  }, []);
+
+  const triggerCacheAddAction = React.useCallback(() => {
+    cacheAddActionHandlerRef.current?.();
+  }, []);
+
   const shouldShowTabBar = tabRootRouteEnabledMap[selectedTabIndex] ?? true;
   const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
 
@@ -514,7 +523,8 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         setPaginationEnabled,
         setPagerScrollEnabled,
         goToTab,
-        setCacheAddActionHandler: () => {},
+        setCacheAddActionHandler,
+        triggerCacheAddAction,
       }}
     >
       <View style={styles.container}>

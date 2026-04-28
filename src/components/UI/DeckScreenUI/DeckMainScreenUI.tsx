@@ -47,6 +47,7 @@ export default function DeckMainScreenUI({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  onPressCacheFab,
   onOpenCreateAlbum,
   sortOrder,
   onToggleSort,
@@ -328,7 +329,11 @@ export default function DeckMainScreenUI({
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.topRightRow}>
-        <TouchableOpacity style={styles.brandIconButton} activeOpacity={0.8} onPress={onPressCacheFab}>
+        <TouchableOpacity
+          style={styles.brandIconButton}
+          activeOpacity={0.8}
+          onPress={() => onPressCacheFab?.()}
+        >
           <Image source={require('../../../../assets/icon_cutout.png')} style={styles.brandIcon} resizeMode="contain" />
         </TouchableOpacity>
         <View style={styles.topActionsRow}>

@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
+import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -34,6 +35,7 @@ type Props = {
 };
 
 export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFab }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [imageReloadSeed, setImageReloadSeed] = React.useState(0);
@@ -484,8 +486,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       onPressCacheFab();
       return;
     }
-    console.log('[DeckHub] Cache FAB pressed');
-  }, [onPressCacheFab]);
+    tabSwipeContext?.goToTab(1);
+    setTimeout(() => {
+      tabSwipeContext?.triggerCacheAddAction();
+    }, 280);
+  }, [onPressCacheFab, tabSwipeContext]);
 
   const handlePressWordPopItem = React.useCallback(
     (item: { cardId: string; text: string; imageUri?: string }) => {

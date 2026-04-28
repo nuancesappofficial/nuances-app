@@ -405,9 +405,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(193,204,224,0.42)',
   },
   addBtn: {
-    backgroundColor: '#2F8B53',
+    backgroundColor: '#D97706',
     borderWidth: 1,
-    borderColor: 'rgba(200,241,216,0.62)',
+    borderColor: 'rgba(255,214,153,0.75)',
   },
   actionBtnDisabled: {
     opacity: 0.45,
