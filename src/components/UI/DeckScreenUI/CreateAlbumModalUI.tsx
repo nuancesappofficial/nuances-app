@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
   visible: boolean;
@@ -118,28 +119,28 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: '#1A1E27',
-    paddingVertical: 14,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   confirmButton: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   confirmText: {
     color: '#111111',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
 });

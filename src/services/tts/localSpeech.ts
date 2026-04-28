@@ -1,4 +1,5 @@
 import * as Speech from 'expo-speech';
+import { Platform } from 'react-native';
 
 type CachedVoice = {
   identifier: string;
@@ -17,8 +18,18 @@ async function getPreferredEnglishVoice(): Promise<CachedVoice | null> {
   try {
     const voices = await Speech.getAvailableVoicesAsync();
     const englishVoices = voices.filter((voice) => /^en(-|$)/i.test(voice.language));
+    const iosHighQualityVoices =
+      Platform.OS === 'ios'
+        ? englishVoices.filter(
+            (voice) =>
+              voice.quality === 'Enhanced' ||
+              /premium|enhanced|siri/i.test(voice.name) ||
+              /premium|enhanced|siri/i.test(voice.identifier)
+          )
+        : [];
+    const candidateVoices = iosHighQualityVoices.length > 0 ? iosHighQualityVoices : englishVoices;
 
-    const ranked = [...englishVoices].sort((a, b) => {
+    const ranked = [...candidateVoices].sort((a, b) => {
       const score = (voice: { language: string; quality: string; name: string }) => {
         let value = 0;
         if (/^en-US$/i.test(voice.language)) value += 8;
@@ -33,6 +44,17 @@ async function getPreferredEnglishVoice(): Promise<CachedVoice | null> {
     });
 
     cachedEnglishVoice = ranked[0] ?? null;
+    if (__DEV__) {
+      console.log('[TTS] preferred voice selected:', {
+        platform: Platform.OS,
+        identifier: cachedEnglishVoice?.identifier ?? null,
+        name: cachedEnglishVoice?.name ?? null,
+        language: cachedEnglishVoice?.language ?? null,
+        quality: cachedEnglishVoice?.quality ?? null,
+        highQualityPoolSize: iosHighQualityVoices.length,
+        englishPoolSize: englishVoices.length,
+      });
+    }
     return cachedEnglishVoice;
   } catch {
     cachedEnglishVoice = null;

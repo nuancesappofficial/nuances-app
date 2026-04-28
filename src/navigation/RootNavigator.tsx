@@ -10,6 +10,7 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Q } from '@nozbe/watermelondb';
 import CacheScreenFlow from '../screens/flow/CacheScreenFlow';
 import AddCacheItemFlow from '../screens/flow/CacheScreenFlow/AddCacheItemFlow';
 import CreateCardFlow from '../screens/flow/CacheScreenFlow/CreateCardFlow';
@@ -20,6 +21,8 @@ import DayViewFlow from '../screens/flow/DeckScreenFlow/DayViewFlow';
 import DeckMainFlow from '../screens/flow/DeckScreenFlow/DeckMainFlow';
 import ProfileMainFlow from '../screens/flow/ProfileScreenFlow/ProfileMainFlow';
 import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
+import { database } from '../database';
+import type CachedItem from '../database/models/CachedItem';
 
 const CacheStackNav = createNativeStackNavigator();
 const CardsStackNav = createNativeStackNavigator();
@@ -33,15 +36,29 @@ const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
 const TAB_CAPSULE_HEIGHT = TAB_BAR_HEIGHT - TAB_BAR_VERTICAL_INSET * 2;
 const TAB_CAPSULE_RADIUS = TAB_CAPSULE_HEIGHT / 2;
 
-const ACTIVE_COLOR = '#D4FF00';
+const ACTIVE_COLOR = '#F56B6B';
+const TAB_ITEMS = [
+  {
+    activeIcon: 'library',
+    inactiveIcon: 'library-outline',
+  },
+  {
+    activeIcon: 'layers',
+    inactiveIcon: 'layers-outline',
+  },
+  {
+    activeIcon: 'person-circle',
+    inactiveIcon: 'person-circle-outline',
+  },
+] as const;
 
 const APP_DARK_THEME = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: '#ADD8E6',
-    card: '#ADD8E6',
-    text: '#FFFFFF',
+    background: '#02213D',
+    card: '#02213D',
+    text: '#FBFBFB',
     border: '#1A1A1A',
     primary: ACTIVE_COLOR,
   },
@@ -119,6 +136,17 @@ function CacheStack({
             component={CreateCardFlow}
             options={{ presentation: 'modal' }}
           />
+          <CacheStackNav.Screen
+            name="CardDetail"
+            component={CardDetailFlow}
+            options={{
+              presentation: 'card',
+              animation: 'ios_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: { start: 28 },
+            }}
+          />
         </CacheStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>
@@ -157,7 +185,7 @@ function CardsStack({
           screenOptions={{
             headerShown: false,
             gestureEnabled: true,
-            fullScreenGestureEnabled: true,
+            fullScreenGestureEnabled: false,
             animation: 'ios_from_right',
           }}
           screenListeners={{
@@ -183,6 +211,9 @@ function CardsStack({
             options={{
               presentation: 'card',
               animation: 'ios_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: { start: 28 },
             }}
           />
           <CardsStackNav.Screen name="DayView" component={DayViewFlow} options={{ presentation: 'card' }} />
@@ -232,7 +263,13 @@ function ProfileStack({
           <ProfileStackNav.Screen
             name="CardDetail"
             component={CardDetailFlow}
-            options={{ presentation: 'card' }}
+            options={{
+              presentation: 'card',
+              animation: 'ios_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: { start: 28 },
+            }}
           />
         </ProfileStackNav.Navigator>
       </NavigationContainer>
@@ -247,14 +284,17 @@ type RootNavigatorProps = {
 function LiquidTabBar({
   selectedTabIndex,
   onSelectTab,
+  cacheBadgeCount,
 }: {
   selectedTabIndex: number;
   onSelectTab: (index: number) => void;
+  cacheBadgeCount: number;
 }) {
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
   const activeIndex = React.useRef(new Animated.Value(selectedTabIndex)).current;
+  const pressScales = React.useRef(TAB_ITEMS.map(() => new Animated.Value(1))).current;
 
   React.useEffect(() => {
     Animated.spring(activeIndex, {
@@ -264,10 +304,25 @@ function LiquidTabBar({
       friction: 22,
     }).start();
   }, [activeIndex, selectedTabIndex]);
-
   const innerTrackWidth = Math.max(0, tabBarWidth - TAB_BAR_SIDE_PADDING * 2);
   const slotWidth = innerTrackWidth > 0 ? innerTrackWidth / 3 : 0;
   const capsuleWidth = Math.max(0, slotWidth - TAB_CAPSULE_INSET * 2);
+  const handlePressIn = React.useCallback((index: number) => {
+    Animated.spring(pressScales[index], {
+      toValue: 0.92,
+      useNativeDriver: true,
+      speed: 26,
+      bounciness: 0,
+    }).start();
+  }, [pressScales]);
+  const handlePressOut = React.useCallback((index: number) => {
+    Animated.spring(pressScales[index], {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 22,
+      bounciness: 6,
+    }).start();
+  }, [pressScales]);
 
   return (
     <View style={styles.tabBarOuter}>
@@ -304,39 +359,36 @@ function LiquidTabBar({
           />
         ) : null}
 
-        <TouchableOpacity
-          style={styles.rnTabButton}
-          activeOpacity={0.9}
-          onPress={() => onSelectTab(0)}
-        >
-          <Ionicons
-            name={selectedTabIndex === 0 ? 'albums' : 'albums-outline'}
-            size={25}
-            color={selectedTabIndex === 0 ? '#2FA7FF' : '#FFFFFF'}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.rnTabButton}
-          activeOpacity={0.9}
-          onPress={() => onSelectTab(1)}
-        >
-          <Ionicons
-            name={selectedTabIndex === 1 ? 'archive' : 'archive-outline'}
-            size={25}
-            color={selectedTabIndex === 1 ? '#2FA7FF' : '#FFFFFF'}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.rnTabButton}
-          activeOpacity={0.9}
-          onPress={() => onSelectTab(2)}
-        >
-          <Ionicons
-            name={selectedTabIndex === 2 ? 'person-circle' : 'person-circle-outline'}
-            size={25}
-            color={selectedTabIndex === 2 ? '#2FA7FF' : '#FFFFFF'}
-          />
-        </TouchableOpacity>
+        {TAB_ITEMS.map((item, index) => {
+          const active = selectedTabIndex === index;
+          return (
+            <TouchableOpacity
+              key={`tab-item-${index}`}
+              style={styles.rnTabButton}
+              activeOpacity={1}
+              onPressIn={() => handlePressIn(index)}
+              onPressOut={() => handlePressOut(index)}
+              onPress={() => onSelectTab(index)}
+            >
+              <Animated.View style={{ transform: [{ scale: pressScales[index] }] }}>
+                <View style={styles.tabIconWrap}>
+                  <Ionicons
+                    name={active ? item.activeIcon : item.inactiveIcon}
+                    size={27}
+                    color={active ? '#8FD4FF' : '#E6EEF7'}
+                  />
+                  {index === 1 && cacheBadgeCount > 0 ? (
+                    <View style={styles.cacheBadge}>
+                      <Animated.Text style={styles.cacheBadgeText}>
+                        {cacheBadgeCount > 99 ? '99+' : String(cacheBadgeCount)}
+                      </Animated.Text>
+                    </View>
+                  ) : null}
+                </View>
+              </Animated.View>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -348,6 +400,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const swipeLockRef = React.useRef(false);
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
+  const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
+  const [tabTransitionFromIndex, setTabTransitionFromIndex] = React.useState(0);
+  const [tabTransitionToIndex, setTabTransitionToIndex] = React.useState(0);
+  const [isTabTransitioning, setIsTabTransitioning] = React.useState(false);
+  const tabSceneProgress = React.useRef(new Animated.Value(1)).current;
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({
     0: true,
     1: true,
@@ -366,9 +423,24 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     (index: number) => {
       const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
       if (nextIndex === selectedTabIndex) return;
+      setTabTransitionFromIndex(selectedTabIndex);
+      setTabTransitionToIndex(nextIndex);
+      setIsTabTransitioning(true);
+      tabSceneProgress.stopAnimation();
+      tabSceneProgress.setValue(0);
       setSelectedTabIndex(nextIndex);
+      Animated.timing(tabSceneProgress, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (!finished) return;
+        setIsTabTransitioning(false);
+        setTabTransitionFromIndex(nextIndex);
+      });
     },
-    [selectedTabIndex]
+    [selectedTabIndex, tabSceneProgress]
   );
 
   const popDeckToRoot = React.useCallback(() => {
@@ -406,6 +478,26 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
+    const query = database
+      .get<CachedItem>('cached_items')
+      .query(Q.where('deleted_at', null));
+
+    const load = async () => {
+      try {
+        const items = await query.fetch();
+        setCacheBadgeCount(items.length);
+      } catch (error) {
+        console.error('[RootNavigator] load cache badge count failed:', error);
+        setCacheBadgeCount(0);
+      }
+    };
+
+    void load();
+    const sub = query.observe().subscribe((items: CachedItem[]) => setCacheBadgeCount(items.length));
+    return () => sub.unsubscribe();
+  }, []);
+
+  React.useEffect(() => {
     Animated.timing(tabBarTranslateY, {
       toValue: shouldShowTabBar ? 0 : 140,
       duration: shouldShowTabBar ? 210 : 320,
@@ -427,27 +519,93 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     >
       <View style={styles.container}>
         <View style={styles.pager}>
-          <View
-            style={[styles.tabScene, selectedTabIndex === 0 ? styles.tabSceneActive : styles.tabSceneHidden]}
+          {/*
+            只讓 from/to 兩個 scene 參與 cross-fade，避免 0 <-> 2 時閃現中間頁。
+          */}
+          <Animated.View
+            style={[
+              styles.tabScene,
+              {
+                opacity:
+                  isTabTransitioning && tabTransitionFromIndex === 0
+                    ? tabSceneProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0],
+                        extrapolate: 'clamp',
+                      })
+                    : isTabTransitioning && tabTransitionToIndex === 0
+                      ? tabSceneProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                          extrapolate: 'clamp',
+                        })
+                      : selectedTabIndex === 0
+                        ? 1
+                        : 0,
+                zIndex: selectedTabIndex === 0 ? 3 : isTabTransitioning && tabTransitionFromIndex === 0 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}
           >
             <CardsStack
               navigationRef={cardsNavigationRef}
               onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(0, enabled)}
             />
-          </View>
-          <View
-            style={[styles.tabScene, selectedTabIndex === 1 ? styles.tabSceneActive : styles.tabSceneHidden]}
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.tabScene,
+              {
+                opacity:
+                  isTabTransitioning && tabTransitionFromIndex === 1
+                    ? tabSceneProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0],
+                        extrapolate: 'clamp',
+                      })
+                    : isTabTransitioning && tabTransitionToIndex === 1
+                      ? tabSceneProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                          extrapolate: 'clamp',
+                        })
+                      : selectedTabIndex === 1
+                        ? 1
+                        : 0,
+                zIndex: selectedTabIndex === 1 ? 3 : isTabTransitioning && tabTransitionFromIndex === 1 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}
           >
             <CacheStack onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(1, enabled)} />
-          </View>
-          <View
-            style={[styles.tabScene, selectedTabIndex === 2 ? styles.tabSceneActive : styles.tabSceneHidden]}
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.tabScene,
+              {
+                opacity:
+                  isTabTransitioning && tabTransitionFromIndex === 2
+                    ? tabSceneProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0],
+                        extrapolate: 'clamp',
+                      })
+                    : isTabTransitioning && tabTransitionToIndex === 2
+                      ? tabSceneProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                          extrapolate: 'clamp',
+                        })
+                      : selectedTabIndex === 2
+                        ? 1
+                        : 0,
+                zIndex: selectedTabIndex === 2 ? 3 : isTabTransitioning && tabTransitionFromIndex === 2 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}
           >
             <ProfileStack onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(2, enabled)} />
-          </View>
+          </Animated.View>
         </View>
 
         <Animated.View
@@ -457,6 +615,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           <LiquidTabBar
             selectedTabIndex={selectedTabIndex}
             onSelectTab={handleTabSelect}
+            cacheBadgeCount={cacheBadgeCount}
           />
         </Animated.View>
       </View>
@@ -467,7 +626,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ADD8E6',
+    backgroundColor: '#02213D',
   },
   pager: {
     flex: 1,
@@ -477,14 +636,6 @@ const styles = StyleSheet.create({
   },
   tabScene: {
     ...StyleSheet.absoluteFillObject,
-  },
-  tabSceneActive: {
-    opacity: 1,
-    zIndex: 2,
-  },
-  tabSceneHidden: {
-    opacity: 0,
-    zIndex: 1,
   },
   tabBarOuter: {
     position: 'absolute',
@@ -511,10 +662,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(10,12,18,0.90)',
+    backgroundColor: 'rgba(11,29,50,0.82)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    overflow: 'hidden',
+    borderColor: 'rgba(176,222,255,0.22)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.34,
+    shadowRadius: 20,
+    elevation: 16,
+    overflow: 'visible',
   },
   rnActiveCapsule: {
     position: 'absolute',
@@ -522,7 +678,14 @@ const styles = StyleSheet.create({
     top: TAB_BAR_VERTICAL_INSET,
     height: TAB_CAPSULE_HEIGHT,
     borderRadius: TAB_CAPSULE_RADIUS,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(150,210,255,0.23)',
+    borderWidth: 1,
+    borderColor: 'rgba(194,232,255,0.52)',
+    shadowColor: '#89CCFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 6,
   },
   rnTabButton: {
     flex: 1,
@@ -531,5 +694,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  tabIconWrap: {
+    position: 'relative',
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cacheBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: 999,
+    backgroundColor: '#FF2D55',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cacheBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 });

@@ -4,4 +4,5 @@ export interface AIPersonalizationOptions {
   proficiencyLevel?: string;
   domain?: string;
   tone?: string;
+  replyLanguage?: 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko';
 }

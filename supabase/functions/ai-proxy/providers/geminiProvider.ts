@@ -150,7 +150,11 @@ export async function callGeminiLegacy(params: {
   }
 
   const usage = (data as any)?.usageMetadata;
-  const rawContent = candidate?.content?.parts?.[0]?.text || '';
+  const rawContent = Array.isArray(candidate?.content?.parts)
+    ? candidate.content.parts
+      .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('')
+    : '';
   
   // 即使不強制 JSON Mode，我們依然呼叫 stripMarkdownFences 來清理頭尾
   const cleanedContent = params.jsonMode

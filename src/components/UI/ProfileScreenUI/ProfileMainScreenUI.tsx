@@ -1,19 +1,27 @@
 import React from 'react';
 import {
+  Animated,
+  Easing,
   FlatList,
   Image,
   LayoutChangeEvent,
+  Modal,
   Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
+import Svg, { Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
+import * as Haptics from 'expo-haptics';
 import type Card from '@database/models/Card';
 import ProfileSettingsModalUI from './ProfileSettingsModalUI';
+import type { AIReplyLanguage } from '@services/settings/userSettings';
 
 export type HeatMapDay = {
   key: string;
@@ -41,12 +49,13 @@ type Props = {
   initialMonthIndex: number;
   entitlementMode: 'guest' | 'premium';
   savingEntitlement: boolean;
+  aiReplyLanguage: AIReplyLanguage;
   settingsVisible: boolean;
-  onPressRecaps: () => void;
   onPressSettings: () => void;
   onCloseSettings: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
+  onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
@@ -58,8 +67,65 @@ const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const DAY_TILE_RADIUS = 14;
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
-const BASE_BG = '#ADD8E6';
-const PANEL_BG = '#7BA8C7';
+const BASE_BG = '#02213D';
+const PANEL_BG = '#8FD2FA';
+const TEXT_PRIMARY = '#111111';
+const TEXT_SECONDARY = '#2C2C2E';
+const TEXT_MUTED = '#8E8E93';
+const TEXT_ON_BASE = '#EAF3FF';
+const HEATMAP_TOP_PADDING = 28;
+const HEATMAP_WEEKDAY_AND_GAP = 16;
+const HEATMAP_BOTTOM_PADDING = 6;
+const MONTH_PICKER_ROW_HEIGHT = 44;
+const MONTH_PICKER_WHEEL_HEIGHT = 156;
+const MONTH_PICKER_WHEEL_SIDE_PADDING = (MONTH_PICKER_WHEEL_HEIGHT - MONTH_PICKER_ROW_HEIGHT) / 2;
+const MONTH_PICKER_ANIM_DURATION = 240;
+
+type MonthPickerItem = {
+  index: number;
+  year: number;
+  month: number;
+};
+
+function getHeatMapPanelHeight(usedRowCount: number): number {
+  return HEATMAP_TOP_PADDING + HEATMAP_WEEKDAY_AND_GAP + usedRowCount * GRID_ROW_HEIGHT + HEATMAP_BOTTOM_PADDING;
+}
+
+function normalizeStickerText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function getVisualTextLength(value: string): number {
+  let score = 0;
+  for (const char of value) {
+    if (/\s/.test(char)) {
+      score += 0.35;
+    } else if (/[A-Z]/.test(char)) {
+      score += 0.75;
+    } else if (/[a-z0-9]/.test(char)) {
+      score += 0.62;
+    } else {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+function getHeatmapStickerLabels(item: HeatMapDay, limit = 2): string[] {
+  if (!item.cards?.length) return [];
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const card of item.cards) {
+    const text = normalizeStickerText((card.targetPhrase || card.targetWord || '').trim());
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(text);
+    if (labels.length >= limit) break;
+  }
+  return labels;
+}
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;
@@ -74,7 +140,7 @@ function IconSymbol({
   name,
   fallback,
   size = 22,
-  color = '#FFFFFF',
+  color = TEXT_PRIMARY,
 }: {
   name:
     | 'chevron.left'
@@ -102,23 +168,6 @@ function IconSymbol({
   );
 }
 
-function HeaderAction({
-  label,
-  icon,
-  onPress,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity style={styles.headerAction} activeOpacity={0.85} onPress={onPress}>
-      <View style={styles.headerActionIcon}>{icon}</View>
-      <Text style={styles.headerActionLabel}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
 function HeatMapCircle({
   item,
   isToday,
@@ -134,11 +183,69 @@ function HeatMapCircle({
     borderRadius: DAY_TILE_RADIUS,
   } as const;
 
-  const content = item.imageUri ? (
-    <View style={[styles.dayCircle, circleStyle]}>
-      <Image source={{ uri: item.imageUri }} style={[styles.dayCircleImage, circleStyle]} resizeMode="cover" />
-      <View style={styles.dayImageOverlay} />
-      <Text style={styles.dayNumber}>{item.dayNumber}</Text>
+  const hasCards = item.cards.length > 0;
+  const stickerLabels = getHeatmapStickerLabels(item, 2);
+  const hasTwoStickers = stickerLabels.length > 1;
+
+  const renderSticker = (label: string, index: number) => {
+    const capped = label.length > 16 ? `${label.slice(0, 16)}…` : label;
+    const visualLength = getVisualTextLength(capped);
+    const dynamicWidth = GRID_SIZE + 14;
+    const textHorizontalPadding = 4;
+    const usableWidth = Math.max(22, GRID_SIZE - textHorizontalPadding * 2);
+    // Approximate sticker text width ~= visualLength * fontSize * factor
+    const widthFactor = 0.66;
+    const solvedFontSize = usableWidth / Math.max(1.2, visualLength * widthFactor);
+    // Short words should scale up more aggressively to fill the container width.
+    const shortWordBoost = visualLength <= 4 ? 1.34 : visualLength <= 6 ? 1.16 : 1;
+    const boostedFontSize = solvedFontSize * shortWordBoost;
+    const maxFontSize = hasTwoStickers ? 18 : 20;
+    const fontSize = Math.max(7.5, Math.min(maxFontSize, boostedFontSize));
+    const strokeWidth = Math.max(2, Math.min(3.2, fontSize * 0.23));
+    const rowStyle = index === 0 ? styles.dayStickerTokenTop : styles.dayStickerTokenBottom;
+    return (
+      <View
+        key={`${item.key}-sticker-${index}`}
+        style={[styles.dayStickerToken, rowStyle]}
+      >
+        <Svg width={dynamicWidth} height={26} viewBox={`0 0 ${dynamicWidth} 26`} style={styles.dayStickerSvg}>
+          <SvgText
+            x={dynamicWidth / 2}
+            y={18}
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth={strokeWidth}
+            strokeLinejoin="round"
+            fontSize={fontSize}
+            fontWeight="900"
+            fontFamily="MarkerFelt-Wide"
+            textAnchor="middle"
+            letterSpacing={-0.4}
+          >
+            {capped}
+          </SvgText>
+          <SvgText
+            x={dynamicWidth / 2}
+            y={18}
+            fill="#050505"
+            fontSize={fontSize}
+            fontWeight="900"
+            fontFamily="MarkerFelt-Wide"
+            textAnchor="middle"
+            letterSpacing={-0.4}
+          >
+            {capped}
+          </SvgText>
+        </Svg>
+      </View>
+    );
+  };
+
+  const content = hasCards ? (
+    <View style={[styles.dayCircle, styles.dayCircleSticker, circleStyle]}>
+      <View style={styles.dayStickerCloud}>
+        {stickerLabels.map((label, index) => renderSticker(label, index))}
+      </View>
     </View>
   ) : (
     <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle]}>
@@ -149,9 +256,9 @@ function HeatMapCircle({
   return (
     <TouchableOpacity
       style={styles.dayWrap}
-      activeOpacity={item.cards.length ? 0.88 : 1}
+      activeOpacity={hasCards ? 0.88 : 1}
       onPress={() => {
-        if (!item.cards.length) return;
+        if (!hasCards) return;
         onPressDay(item);
       }}
     >
@@ -176,20 +283,32 @@ export default function ProfileMainScreenUI({
   initialMonthIndex,
   entitlementMode,
   savingEntitlement,
+  aiReplyLanguage,
   settingsVisible,
-  onPressRecaps,
   onPressSettings,
   onCloseSettings,
   onPressUploadProfilePic,
   onToggleEntitlement,
+  onChangeAIReplyLanguage,
   onPressBack,
   onPressMenu,
   onPressDay,
 }: Props) {
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
   const [currentMonthIndex, setCurrentMonthIndex] = React.useState<number>(0);
+  const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
+  const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
+  const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
+  const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
+  const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
+  const currentMonthIndexRef = React.useRef<number>(0);
+  const pendingTargetIndexRef = React.useRef<number | null>(null);
+  const yearWheelRef = React.useRef<FlatList<number> | null>(null);
+  const monthWheelRef = React.useRef<FlatList<number> | null>(null);
+  const edgePullX = React.useRef(new Animated.Value(0)).current;
+  const edgeBounceAnimRef = React.useRef<Animated.CompositeAnimation | null>(null);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
     const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width));
@@ -235,27 +354,251 @@ export default function ProfileMainScreenUI({
     () => monthsWithCalendarItems.reduce((acc, month) => Math.max(acc, month.usedRowCount), 1),
     [monthsWithCalendarItems]
   );
-  const heatMapPanelHeight = 28 + 16 + maxUsedRowCount * GRID_ROW_HEIGHT + 6;
-
+  const stableMonthPageHeight = React.useMemo(
+    () => getHeatMapPanelHeight(maxUsedRowCount),
+    [maxUsedRowCount]
+  );
+  const initialPanelHeight = React.useMemo(() => {
+    const initialMonth = monthsWithCalendarItems[safeInitialIndex];
+    const rows = initialMonth?.usedRowCount ?? 1;
+    return getHeatMapPanelHeight(rows);
+  }, [monthsWithCalendarItems, safeInitialIndex]);
+  const panelHeightAnim = React.useRef(new Animated.Value(initialPanelHeight)).current;
   React.useEffect(() => {
     setCurrentMonthIndex(safeInitialIndex);
+    currentMonthIndexRef.current = safeInitialIndex;
+    pendingTargetIndexRef.current = null;
   }, [safeInitialIndex]);
+
+  React.useEffect(
+    () => () => {
+      edgeBounceAnimRef.current?.stop();
+    },
+    []
+  );
 
   const activeMonth = monthsWithCalendarItems[currentMonthIndex] ?? monthsWithCalendarItems[safeInitialIndex];
   const activeMonthDate = activeMonth?.monthDate ?? new Date();
+  const activeUsedRowCount = activeMonth?.usedRowCount ?? 1;
+  const heatMapPanelHeight = React.useMemo(
+    () => getHeatMapPanelHeight(activeUsedRowCount),
+    [activeUsedRowCount]
+  );
   const monthTitle = `${activeMonthDate.getMonth() + 1}月`;
   const monthButtonLabel = `${activeMonthDate.getFullYear()}年 ${activeMonthDate.getMonth() + 1}月`;
+  const monthPickerSheetHeight = Math.max(240, Math.round(screenHeight * 0.33));
+  const monthPickerItems = React.useMemo<MonthPickerItem[]>(
+    () =>
+      monthsWithCalendarItems.map((month, index) => ({
+        index,
+        year: month.monthDate.getFullYear(),
+        month: month.monthDate.getMonth() + 1,
+      })),
+    [monthsWithCalendarItems]
+  );
+  const monthPickerYears = React.useMemo<number[]>(
+    () => Array.from(new Set(monthPickerItems.map((item) => item.year))).sort((a, b) => a - b),
+    [monthPickerItems]
+  );
+  const monthPickerMonthsInYear = React.useMemo<number[]>(
+    () =>
+      monthPickerItems
+        .filter((item) => item.year === monthPickerYear)
+        .map((item) => item.month)
+        .sort((a, b) => a - b),
+    [monthPickerItems, monthPickerYear]
+  );
+
+  const closeMonthPicker = React.useCallback(() => {
+    Animated.parallel([
+      Animated.timing(monthPickerOverlayOpacity, {
+        toValue: 0,
+        duration: MONTH_PICKER_ANIM_DURATION - 40,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(monthPickerSheetTranslateY, {
+        toValue: 40,
+        duration: MONTH_PICKER_ANIM_DURATION,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) {
+        setMonthPickerVisible(false);
+      }
+    });
+  }, [monthPickerOverlayOpacity, monthPickerSheetTranslateY]);
+
+  const openMonthPicker = React.useCallback(() => {
+    const activeYear = activeMonthDate.getFullYear();
+    const activeMonth = activeMonthDate.getMonth() + 1;
+    setMonthPickerYear(activeYear);
+    setMonthPickerMonth(activeMonth);
+    setMonthPickerVisible(true);
+    monthPickerOverlayOpacity.setValue(0);
+    monthPickerSheetTranslateY.setValue(40);
+    requestAnimationFrame(() => {
+      const yearIndex = Math.max(0, monthPickerYears.findIndex((value) => value === activeYear));
+      const months = monthPickerItems
+        .filter((item) => item.year === activeYear)
+        .map((item) => item.month)
+        .sort((a, b) => a - b);
+      const monthIndex = Math.max(0, months.findIndex((value) => value === activeMonth));
+      yearWheelRef.current?.scrollToOffset({
+        offset: yearIndex * MONTH_PICKER_ROW_HEIGHT,
+        animated: false,
+      });
+      monthWheelRef.current?.scrollToOffset({
+        offset: monthIndex * MONTH_PICKER_ROW_HEIGHT,
+        animated: false,
+      });
+      Animated.parallel([
+        Animated.timing(monthPickerOverlayOpacity, {
+          toValue: 1,
+          duration: MONTH_PICKER_ANIM_DURATION - 20,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(monthPickerSheetTranslateY, {
+          toValue: 0,
+          duration: MONTH_PICKER_ANIM_DURATION,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, [
+    activeMonthDate,
+    monthPickerItems,
+    monthPickerOverlayOpacity,
+    monthPickerSheetTranslateY,
+    monthPickerYears,
+  ]);
+
+  React.useEffect(() => {
+    panelHeightAnim.stopAnimation();
+    Animated.timing(panelHeightAnim, {
+      toValue: heatMapPanelHeight,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [heatMapPanelHeight, panelHeightAnim]);
 
   const scrollToMonth = React.useCallback(
     (index: number) => {
       const total = monthsWithCalendarItems.length;
       if (!total) return;
-      const wrapped = ((index % total) + total) % total;
-      listRef.current?.scrollToOffset({ offset: wrapped * effectivePagerWidth, animated: true });
-      setCurrentMonthIndex(wrapped);
+      const clamped = Math.max(0, Math.min(index, total - 1));
+      pendingTargetIndexRef.current = clamped;
+      listRef.current?.scrollToOffset({ offset: clamped * effectivePagerWidth, animated: true });
+      setCurrentMonthIndex(clamped);
+      currentMonthIndexRef.current = clamped;
     },
     [monthsWithCalendarItems.length, effectivePagerWidth]
   );
+
+  const runEdgeBounce = React.useCallback(
+    (direction: 'left' | 'right') => {
+      const amplitude = direction === 'left' ? 26 : -26;
+      edgeBounceAnimRef.current?.stop();
+      edgePullX.stopAnimation(() => {
+        edgePullX.setValue(0);
+        requestAnimationFrame(() => {
+          const anim = Animated.sequence([
+            Animated.timing(edgePullX, {
+              toValue: amplitude,
+              duration: 120,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.spring(edgePullX, {
+              toValue: 0,
+              stiffness: 230,
+              damping: 18,
+              mass: 0.8,
+              useNativeDriver: true,
+            }),
+          ]);
+          edgeBounceAnimRef.current = anim;
+          anim.start(() => {
+            edgeBounceAnimRef.current = null;
+            edgePullX.setValue(0);
+          });
+        });
+      });
+    },
+    [edgePullX]
+  );
+
+  const handleMonthNavPress = React.useCallback(
+    (nextIndex: number) => {
+      const total = monthsWithCalendarItems.length;
+      if (!total) return;
+
+      const current = currentMonthIndexRef.current;
+      const isLeftBoundaryHit = current <= 0 && nextIndex < 0;
+      const isRightBoundaryHit = current >= total - 1 && nextIndex > total - 1;
+
+      if (isLeftBoundaryHit) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        runEdgeBounce('left');
+        return;
+      }
+
+      if (isRightBoundaryHit) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        runEdgeBounce('right');
+        return;
+      }
+
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      scrollToMonth(nextIndex);
+    },
+    [monthsWithCalendarItems.length, runEdgeBounce, scrollToMonth]
+  );
+
+  const handleSelectMonthFromMenu = React.useCallback(
+    (index: number) => {
+      closeMonthPicker();
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      scrollToMonth(index);
+    },
+    [closeMonthPicker, scrollToMonth]
+  );
+
+  React.useEffect(() => {
+    if (!monthPickerVisible) return;
+    if (monthPickerMonthsInYear.length === 0) return;
+    if (!monthPickerMonthsInYear.includes(monthPickerMonth)) {
+      const next = monthPickerMonthsInYear[0];
+      setMonthPickerMonth(next);
+      requestAnimationFrame(() => {
+        monthWheelRef.current?.scrollToOffset({
+          offset: 0,
+          animated: true,
+        });
+      });
+    }
+  }, [monthPickerMonth, monthPickerMonthsInYear, monthPickerVisible]);
+
+  const handleConfirmMonthPicker = React.useCallback(() => {
+    const matched = monthPickerItems.find(
+      (item) => item.year === monthPickerYear && item.month === monthPickerMonth
+    );
+    if (!matched) {
+      closeMonthPicker();
+      return;
+    }
+    handleSelectMonthFromMenu(matched.index);
+  }, [
+    closeMonthPicker,
+    handleSelectMonthFromMenu,
+    monthPickerItems,
+    monthPickerMonth,
+    monthPickerYear,
+  ]);
 
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay]}>
@@ -266,31 +609,24 @@ export default function ProfileMainScreenUI({
               <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatarFallback}>
-                <IconSymbol name="person.crop.circle.fill" fallback="◉" size={192} color="#FFFFFF" />
+                <IconSymbol name="person.crop.circle.fill" fallback="👤" size={88} color="#B8BDC6" />
               </View>
             )}
           </View>
-
           <View style={styles.titleBlock}>
             <Text style={styles.subtitle}>{subtitle}</Text>
             <Text style={styles.title} numberOfLines={1}>
               {title}
             </Text>
           </View>
-
-          <View style={styles.actionsRow}>
-            <HeaderAction
-              label="Recaps"
-              icon={<IconSymbol name="clock.arrow.circlepath" fallback="↺" size={22} color="#FFFFFF" />}
-              onPress={onPressRecaps}
-            />
-            <HeaderAction
-              label="Settings"
-              icon={<IconSymbol name="gearshape" fallback="⚙" size={22} color="#FFFFFF" />}
-              onPress={onPressSettings}
-            />
-          </View>
         </View>
+
+        <TouchableOpacity style={styles.settingsPillButton} activeOpacity={0.88} onPress={onPressSettings}>
+          <View style={styles.settingsPillIconCircle}>
+            <IconSymbol name="gearshape" fallback="⚙" size={18} color={TEXT_PRIMARY} />
+          </View>
+          <Text style={styles.settingsPillLabel}>Settings</Text>
+        </TouchableOpacity>
 
         <View style={styles.monthHeaderRow}>
           <Text style={styles.monthTitleOutside}>{monthTitle}</Text>
@@ -298,37 +634,40 @@ export default function ProfileMainScreenUI({
             <TouchableOpacity
               style={styles.monthNavButton}
               activeOpacity={0.85}
-              onPress={() => scrollToMonth(currentMonthIndex - 1)}
+              onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
             >
               <Text style={styles.monthNavButtonText}>‹</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.monthSelectButton}
               activeOpacity={0.85}
-              onPress={() => scrollToMonth((currentMonthIndex + 1) % Math.max(1, monthsWithCalendarItems.length))}
+              onPress={openMonthPicker}
             >
-              <Text style={styles.monthSelectButtonText}>{monthButtonLabel}</Text>
+              <Text style={styles.monthSelectButtonText}>{monthButtonLabel} ▾</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.monthNavButton}
               activeOpacity={0.85}
-              onPress={() => scrollToMonth(currentMonthIndex + 1)}
+              onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
             >
               <Text style={styles.monthNavButtonText}>›</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={[styles.heatMapPanelShadow, { height: heatMapPanelHeight }]}>
+        <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
           <View style={styles.heatMapPanel}>
-            <View style={styles.heatMapPagerWrap} onLayout={handlePagerLayout}>
+            <Animated.View
+              style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
+              onLayout={handlePagerLayout}
+            >
             <FlatList
               ref={listRef}
               data={monthsWithCalendarItems}
               initialScrollIndex={safeInitialIndex}
               keyExtractor={(item) => item.key}
               renderItem={({ item }) => (
-                <View style={[styles.monthPage, { height: heatMapPanelHeight, width: effectivePagerWidth }]}>
+                <View style={[styles.monthPage, { height: stableMonthPageHeight, width: effectivePagerWidth }]}>
                   <View
                     style={[
                       styles.monthPageInner,
@@ -374,7 +713,7 @@ export default function ProfileMainScreenUI({
               )}
               horizontal
               pagingEnabled
-              bounces
+              bounces={false}
               alwaysBounceHorizontal={false}
               alwaysBounceVertical={false}
               disableIntervalMomentum
@@ -394,22 +733,152 @@ export default function ProfileMainScreenUI({
               onMomentumScrollEnd={(event) => {
                 const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
                 const next = Math.round(event.nativeEvent.contentOffset.x / width);
-                setCurrentMonthIndex(Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1)));
+                const clamped = Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1));
+                const pendingTarget = pendingTargetIndexRef.current;
+
+                // 快速連點時，會收到前一次動畫的 momentum 事件：
+                // 若不是最後一次目標，就忽略並對齊到最後目標，避免月份回跳閃現。
+                if (pendingTarget != null && clamped !== pendingTarget) {
+                  listRef.current?.scrollToOffset({
+                    offset: pendingTarget * width,
+                    animated: false,
+                  });
+                  setCurrentMonthIndex(pendingTarget);
+                  currentMonthIndexRef.current = pendingTarget;
+                  return;
+                }
+
+                if (pendingTarget != null && clamped === pendingTarget) {
+                  pendingTargetIndexRef.current = null;
+                }
+                setCurrentMonthIndex(clamped);
+                currentMonthIndexRef.current = clamped;
               }}
               style={styles.heatMapScroller}
             />
-            </View>
+            </Animated.View>
           </View>
-        </View>
+        </Animated.View>
       </SafeAreaView>
+
+      <Modal
+        visible={monthPickerVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeMonthPicker}
+      >
+        <Animated.View style={[styles.monthPickerBackdrop, { opacity: monthPickerOverlayOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeMonthPicker} />
+          <View style={styles.monthPickerSheetContainer} pointerEvents="box-none">
+              <Animated.View
+                style={[
+                  styles.monthPickerSheet,
+                  { height: monthPickerSheetHeight, transform: [{ translateY: monthPickerSheetTranslateY }] },
+                ]}
+              >
+            <View style={styles.monthPickerHandle} />
+            <View style={styles.monthPickerTopBar}>
+              <TouchableOpacity style={styles.monthPickerDoneButton} activeOpacity={0.9} onPress={handleConfirmMonthPicker}>
+                <Text style={styles.monthPickerDoneText}>完成</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.monthPickerWheelsCard}>
+              <View style={styles.monthPickerSelectionHighlight} pointerEvents="none" />
+
+              <View style={styles.monthPickerWheelColumn}>
+                <FlatList
+                  ref={yearWheelRef}
+                  data={monthPickerYears}
+                  keyExtractor={(item) => `year-${item}`}
+                  scrollEnabled
+                  nestedScrollEnabled
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  decelerationRate="fast"
+                  snapToInterval={MONTH_PICKER_ROW_HEIGHT}
+                  contentContainerStyle={styles.monthPickerWheelContent}
+                  getItemLayout={(_, index) => ({
+                    length: MONTH_PICKER_ROW_HEIGHT,
+                    offset: MONTH_PICKER_ROW_HEIGHT * index,
+                    index,
+                  })}
+                  onMomentumScrollEnd={(event) => {
+                    const next = Math.round(event.nativeEvent.contentOffset.y / MONTH_PICKER_ROW_HEIGHT);
+                    const clamped = Math.max(0, Math.min(next, monthPickerYears.length - 1));
+                    setMonthPickerYear(monthPickerYears[clamped]);
+                  }}
+                  renderItem={({ item }) => (
+                    <View style={styles.monthPickerWheelRow}>
+                      <Text
+                        style={[
+                          styles.monthPickerWheelText,
+                          item === monthPickerYear && styles.monthPickerWheelTextActive,
+                        ]}
+                      >
+                        {item.toLocaleString('en-US')}
+                      </Text>
+                    </View>
+                  )}
+                />
+              </View>
+
+              <View style={styles.monthPickerWheelDivider} />
+
+              <View style={styles.monthPickerWheelColumn}>
+                <FlatList
+                  ref={monthWheelRef}
+                  data={monthPickerMonthsInYear}
+                  key={`month-wheel-${monthPickerYear}`}
+                  keyExtractor={(item) => `month-${monthPickerYear}-${item}`}
+                  scrollEnabled
+                  nestedScrollEnabled
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  decelerationRate="fast"
+                  snapToInterval={MONTH_PICKER_ROW_HEIGHT}
+                  contentContainerStyle={styles.monthPickerWheelContent}
+                  getItemLayout={(_, index) => ({
+                    length: MONTH_PICKER_ROW_HEIGHT,
+                    offset: MONTH_PICKER_ROW_HEIGHT * index,
+                    index,
+                  })}
+                  onMomentumScrollEnd={(event) => {
+                    const next = Math.round(event.nativeEvent.contentOffset.y / MONTH_PICKER_ROW_HEIGHT);
+                    const clamped = Math.max(0, Math.min(next, monthPickerMonthsInYear.length - 1));
+                    setMonthPickerMonth(monthPickerMonthsInYear[clamped]);
+                  }}
+                  renderItem={({ item }) => (
+                    <View style={styles.monthPickerWheelRow}>
+                      <Text
+                        style={[
+                          styles.monthPickerWheelText,
+                          item === monthPickerMonth && styles.monthPickerWheelTextActive,
+                        ]}
+                      >
+                        {item}
+                      </Text>
+                    </View>
+                  )}
+                />
+              </View>
+            </View>
+              </Animated.View>
+          </View>
+        </Animated.View>
+      </Modal>
 
       <ProfileSettingsModalUI
         visible={settingsVisible}
         entitlementMode={entitlementMode}
         savingEntitlement={savingEntitlement}
+        aiReplyLanguage={aiReplyLanguage}
         onClose={onCloseSettings}
         onPressUploadProfilePic={onPressUploadProfilePic}
         onToggleEntitlement={onToggleEntitlement}
+        onChangeAIReplyLanguage={onChangeAIReplyLanguage}
       />
     </View>
   );
@@ -452,8 +921,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 8,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.72)',
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: '#F2F2F7',
   },
   avatarImage: {
     width: '100%',
@@ -463,56 +932,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#F2F2F7',
   },
   titleBlock: {
     alignItems: 'center',
     marginTop: 0,
   },
   subtitle: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: TEXT_MUTED,
     fontSize: 12,
     marginBottom: 6,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   title: {
-    color: '#FFFFFF',
+    color: TEXT_PRIMARY,
     fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
     flexShrink: 1,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 30,
-    marginTop: 12,
-    paddingBottom: 2,
-  },
-  headerAction: {
-    alignItems: 'center',
-    gap: 8,
-    minWidth: 72,
-  },
-  headerActionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  headerActionLabel: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
   },
   heatMapScroller: {
     flex: 1,
@@ -565,7 +1002,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   monthTitleOutside: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BASE,
     fontSize: 46,
     fontWeight: '800',
   },
@@ -575,19 +1012,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   monthNavButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   monthNavButtonText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    lineHeight: 34,
+    color: TEXT_ON_BASE,
+    fontSize: 28,
+    lineHeight: 30,
     fontWeight: '500',
-    marginTop: -2,
+    marginTop: -1,
   },
   monthSelectButton: {
     minHeight: 48,
@@ -595,11 +1032,108 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   monthSelectButtonText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BASE,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  monthPickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.26)',
+    justifyContent: 'flex-end',
+  },
+  monthPickerSheetContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: 8,
+  },
+  monthPickerSheet: {
+    marginHorizontal: 14,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  monthPickerHandle: {
+    alignSelf: 'center',
+    width: 54,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.14)',
+    marginBottom: 10,
+  },
+  monthPickerTopBar: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 8,
+  },
+  monthPickerDoneButton: {
+    minWidth: 82,
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F2F2F7',
+  },
+  monthPickerDoneText: {
+    color: '#7B6A4B',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  monthPickerWheelsCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+    backgroundColor: '#FFFFFF',
+    height: MONTH_PICKER_WHEEL_HEIGHT + 10,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+  },
+  monthPickerSelectionHighlight: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    top: MONTH_PICKER_WHEEL_SIDE_PADDING + 5,
+    height: MONTH_PICKER_ROW_HEIGHT,
+    borderRadius: 18,
+    backgroundColor: '#F2F2F7',
+    zIndex: 1,
+  },
+  monthPickerWheelColumn: {
+    flex: 1,
+    zIndex: 2,
+  },
+  monthPickerWheelDivider: {
+    width: 1,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    marginVertical: 16,
+  },
+  monthPickerWheelContent: {
+    paddingTop: MONTH_PICKER_WHEEL_SIDE_PADDING,
+    paddingBottom: MONTH_PICKER_WHEEL_SIDE_PADDING,
+  },
+  monthPickerWheelRow: {
+    height: MONTH_PICKER_ROW_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthPickerWheelText: {
+    color: TEXT_PRIMARY,
+    fontSize: 26,
+    fontWeight: '500',
+    opacity: 0.4,
+  },
+  monthPickerWheelTextActive: {
+    opacity: 1,
     fontWeight: '700',
   },
   weekdayRow: {
@@ -616,9 +1150,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   weekdayText: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#6F8FAF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   calendarGridArea: {
     justifyContent: 'flex-end',
@@ -671,25 +1205,78 @@ const styles = StyleSheet.create({
   dayCircle: {
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    backgroundColor: 'rgba(50, 65, 110, 0.5)',
+    overflow: 'visible',
+    backgroundColor: BASE_BG,
+  },
+  dayCircleSticker: {
+    backgroundColor: BASE_BG,
+    overflow: 'visible',
   },
   dayCircleImage: {
     ...StyleSheet.absoluteFillObject,
   },
   dayCircleEmpty: {
-    backgroundColor: 'rgba(50, 65, 110, 0.25)',
-  },
-  dayImageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10, 12, 18, 0.34)',
+    backgroundColor: BASE_BG,
   },
   dayNumber: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BASE,
     fontSize: 14,
+    fontWeight: '500',
+  },
+  dayStickerSvg: {
+    overflow: 'visible',
+  },
+  dayStickerCloud: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    overflow: 'visible',
+  },
+  dayStickerToken: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  dayStickerTokenTop: {
+    top: 0,
+  },
+  dayStickerTokenBottom: {
+    bottom: 0,
+  },
+  settingsPillButton: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 20,
+    backgroundColor: PANEL_BG,
+    minHeight: 62,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 7,
+  },
+  settingsPillIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsPillLabel: {
+    color: TEXT_PRIMARY,
+    fontSize: 20,
     fontWeight: '700',
-    textShadowColor: 'rgba(0, 0, 0, 0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    letterSpacing: 0.2,
   },
 });

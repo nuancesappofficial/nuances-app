@@ -44,6 +44,20 @@ function ShareExtensionSync({
   return <>{children}</>;
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function AuthGate({ onPressGoogle, loading }: { onPressGoogle: () => void; loading: boolean }) {
   return (
     <View style={styles.authContainer}>
@@ -66,6 +80,7 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [allowOfflineAccess, setAllowOfflineAccess] = useState(false);
   const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
 
@@ -79,9 +94,9 @@ export default function App() {
         console.log('✅ Running in Expo Go mode');
       }
 
-      const { session } = await getCurrentSession();
+      const { session } = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
       if (session?.access_token) {
-        const { user } = await getCurrentUser();
+        const { user } = await withTimeout(getCurrentUser(), 6000, 'getCurrentUser');
         setUserId(user?.id ?? null);
       } else {
         setUserId(null);
@@ -90,6 +105,17 @@ export default function App() {
       setIsReady(true);
     } catch (error) {
       console.error('Initialization error:', error);
+      // 網路不可用時不要卡在 Loading/Auth Gate，先讓使用者進離線模式瀏覽本機資料。
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const isNetworkTimeout =
+        message.includes('timed out') ||
+        message.includes('network request failed') ||
+        message.includes('network request timed out') ||
+        message.includes('authretryablefetcherror');
+      if (isNetworkTimeout) {
+        setAllowOfflineAccess(true);
+      }
+      setUserId(null);
       setIsReady(true); // Continue anyway
     }
   };
@@ -209,7 +235,7 @@ export default function App() {
       <SafeAreaProvider>
         <ShareExtensionProvider>
           <ShareExtensionSync userId={userId}>
-            {userId ? (
+            {userId || allowOfflineAccess ? (
               <RootNavigator isExpoGo={isExpoGo} />
             ) : (
               <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />

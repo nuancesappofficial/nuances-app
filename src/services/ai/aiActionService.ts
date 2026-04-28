@@ -115,9 +115,15 @@ export async function analyzeText(
 export async function generateCardContent(
   targetWord: string,
   originalSentence: string,
-  _personalization?: AIPersonalizationOptions
+  personalization?: AIPersonalizationOptions
 ): Promise<{
   normalizedTargetWord: string;
+  meaningInContext?: string;
+  isLikelyTypo?: boolean;
+  correctedTargetWord?: string;
+  typoReason?: string;
+  isPartOfPhrase?: boolean;
+  detectedPhrase?: string;
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
@@ -127,6 +133,7 @@ export async function generateCardContent(
   tags: string[];
 }> {
   try {
+    const replyLanguage = normalizeOptionalString(personalization?.replyLanguage);
     const localPhonetic = await getLocalPhoneticTranscription(targetWord);
     console.log(
       `[Phonetic] generate_card target="${targetWord}" source=${localPhonetic ? 'local' : 'api_fallback'}`
@@ -136,10 +143,16 @@ export async function generateCardContent(
         targetWord: string;
         originalSentence: string;
         includePronunciation?: boolean;
+        replyLanguage?: string;
       },
       {
         normalizedTargetWord?: string;
+        meaningInContext?: string;
+        isLikelyTypo?: boolean;
         correctedTargetWord?: string;
+        typoReason?: string;
+        isPartOfPhrase?: boolean;
+        detectedPhrase?: string;
         lemma?: string;
         targetWord?: string;
         keyword?: string;
@@ -160,6 +173,7 @@ export async function generateCardContent(
       targetWord,
       originalSentence,
       includePronunciation: !localPhonetic,
+      replyLanguage,
     });
 
     const resolvedHeadword = normalizeOptionalString(
@@ -172,6 +186,12 @@ export async function generateCardContent(
 
     return {
       normalizedTargetWord: resolvedHeadword,
+      meaningInContext: normalizeOptionalString(result.meaningInContext),
+      isLikelyTypo: Boolean(result.isLikelyTypo),
+      correctedTargetWord: normalizeOptionalString(result.correctedTargetWord),
+      typoReason: normalizeOptionalString(result.typoReason),
+      isPartOfPhrase: Boolean(result.isPartOfPhrase),
+      detectedPhrase: normalizeOptionalString(result.detectedPhrase),
       definition: result.definition || '',
       partOfSpeech:
         result.partOfSpeech || result['part of speech'] || '',
@@ -212,7 +232,7 @@ export async function analyzeAndGenerateCard(
   phoneticTranscription: string | null;
   tags: string[];
 }> {
-  void personalization;
+  const replyLanguage = normalizeOptionalString(personalization?.replyLanguage);
   const normalizedKeywords = normalizeOptionalString(userKeywords);
   const targetWord = normalizeOptionalString(userKeywords);
   if (!targetWord) {
@@ -224,6 +244,7 @@ export async function analyzeAndGenerateCard(
       targetWord: string;
       originalSentence: string;
       includePronunciation: boolean;
+      replyLanguage?: string;
     },
     {
       normalizedTargetWord?: string;
@@ -248,6 +269,7 @@ export async function analyzeAndGenerateCard(
     targetWord,
     originalSentence: text,
     includePronunciation: true,
+    replyLanguage,
   });
 
   const resolvedHeadword = normalizeOptionalString(

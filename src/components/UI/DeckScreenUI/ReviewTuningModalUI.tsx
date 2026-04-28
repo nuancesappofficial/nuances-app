@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
   visible: boolean;
@@ -82,9 +83,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderRadius: 24,
-    backgroundColor: '#111318',
+    backgroundColor: '#02213D',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.14)',
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 22,
@@ -116,7 +117,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: '#1E232D',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -128,7 +129,7 @@ const styles = StyleSheet.create({
   counterValueWrap: {
     flex: 1,
     borderRadius: 20,
-    backgroundColor: '#181C23',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -150,9 +151,9 @@ const styles = StyleSheet.create({
   },
   quickChip: {
     flex: 1,
-    borderRadius: 14,
-    backgroundColor: '#1A1E27',
-    paddingVertical: 12,
+    borderRadius: BUTTON_TOKENS.radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    minHeight: BUTTON_TOKENS.height.regular,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -161,23 +162,23 @@ const styles = StyleSheet.create({
   },
   quickChipText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   quickChipTextActive: {
     color: '#101010',
   },
   doneButton: {
     marginTop: 4,
-    borderRadius: 18,
+    borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   doneText: {
     color: '#111111',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
 });

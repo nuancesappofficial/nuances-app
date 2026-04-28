@@ -67,17 +67,20 @@ async function getAuthHeader(): Promise<{ Authorization: string }> {
   }
 
   const accessToken = session?.access_token;
-  if (!accessToken) {
-    throw new AIAuthError('Authentication required: please sign in first');
-  }
-  const normalizedToken = accessToken.trim().replace(/^"(.+)"$/, '$1');
-  if (!normalizedToken) {
-    throw new AIAuthError('Authentication required: please sign in first');
+  const normalizedToken = accessToken?.trim().replace(/^"(.+)"$/, '$1') || '';
+  if (normalizedToken) {
+    return {
+      Authorization: `Bearer ${normalizedToken}`,
+    };
   }
 
-  return {
-    Authorization: `Bearer ${normalizedToken}`,
-  };
+  // 某些情況下 getSession 可能暫時拿不到 access token（例如冷啟後 state 還未恢復），
+  // 先嘗試 refresh 再判定為未登入，避免請求在本機端就被攔下且 Supabase 無任何 log。
+  const refreshed = await refreshAuthHeader();
+  if (refreshed?.Authorization) {
+    return refreshed;
+  }
+  throw new AIAuthError('Authentication required: please sign in first');
 }
 
 async function refreshAuthHeader(): Promise<{ Authorization: string } | null> {

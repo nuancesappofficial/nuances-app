@@ -19,6 +19,7 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { generateContentForWord } from '@services/ai';
+import { DEFAULT_USER_SETTINGS, loadUserSettings } from '@services/settings/userSettings';
 import { extractTextFromImage } from '@services/ocr/ocrService';
 import { supabase } from '@services/supabase/client';
 import { persistLocalCardImage } from '@services/media/localCardImageStore';
@@ -93,7 +94,28 @@ function extractWords(text: string): string[] {
 }
 
 function normalizeWord(raw: string): string {
-  return raw.toLowerCase().replace(/[^a-z'-]/g, '').trim();
+  const normalized = (raw || '')
+    .normalize('NFKC')
+    .replace(/[’‘]/g, "'")
+    .replace(/[‐‑‒–—]/g, '-')
+    .trim();
+  if (!normalized) return '';
+  const pieces = normalized.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || [];
+  return pieces.join('');
+}
+
+function normalizeDisplayWord(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim();
+}
+
+function tokenizeSourceText(text: string): string[] {
+  const normalized = (text || '').normalize('NFKC');
+  if (!normalized.trim()) return [];
+  const tokens =
+    normalized.match(
+      /[\p{Script=Han}]{1,6}|[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+|[A-Za-z][A-Za-z'’-]*|[0-9]+/gu
+    ) || [];
+  return tokens.map((token) => token.trim()).filter(Boolean);
 }
 
 function collocationsFromText(raw: string): CollocationItem[] {
@@ -121,9 +143,14 @@ function pickSentenceContainingWord(text: string, word: string): string {
     .filter(Boolean);
   if (!sentences.length) return source;
 
-  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const reg = new RegExp(`\\b${escaped}\\b`, 'i');
-  const matched = sentences.find((sentence) => reg.test(sentence));
+  const hasLatinOrDigit = /[a-z0-9]/i.test(target);
+  const matched = hasLatinOrDigit
+    ? (() => {
+      const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const reg = new RegExp(`\\b${escaped}\\b`, 'i');
+      return sentences.find((sentence) => reg.test(sentence));
+    })()
+    : sentences.find((sentence) => sentence.includes(target));
   return matched || sentences[0] || source;
 }
 
@@ -219,12 +246,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [ocrSourceText, setOcrSourceText] = React.useState('');
   const [isOcrRunning, setIsOcrRunning] = React.useState(false);
   const [ocrError, setOcrError] = React.useState<string | null>(null);
+  const [aiReplyLanguage, setAiReplyLanguage] = React.useState(DEFAULT_USER_SETTINGS.aiReplyLanguage);
   const sourceText = React.useMemo(
     () => (ocrSourceText.trim() ? ocrSourceText : baseSourceText),
     [baseSourceText, ocrSourceText]
   );
   const sourceTokens = React.useMemo(() => {
-    const fromText = sourceText.trim() ? sourceText.trim().split(/\s+/) : [];
+    const fromText = sourceText.trim() ? tokenizeSourceText(sourceText) : [];
     if (fromText.length > 0) return fromText;
 
     const highlights = Array.isArray(cachedItem.aiHighlightedTerms)
@@ -234,6 +262,23 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
     return ['example', 'word'];
   }, [cachedItem.aiHighlightedTerms, sourceText]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await loadUserSettings();
+        if (!cancelled) {
+          setAiReplyLanguage(settings.aiReplyLanguage);
+        }
+      } catch (error) {
+        console.error('[CreateCard] load ai reply language failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [selectedWords, setSelectedWords] = React.useState<string[]>([]);
   const [hasStarted, setHasStarted] = React.useState(false);
@@ -324,8 +369,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       startProgressTimer(word);
       try {
         const sentenceForAI = pickSentenceContainingWord(sourceText, word) || sourceText || word;
-        const generated = await generateContentForWord(word, sentenceForAI);
-        const resolvedDisplayWord = normalizeWord(generated.suggestedWord || word) || word;
+        const generated = await generateContentForWord(word, sentenceForAI, {
+          replyLanguage: aiReplyLanguage,
+        });
+        const resolvedDisplayWord =
+          normalizeDisplayWord(generated.suggestedWord || word) || word;
         const card: CompletedCard = {
           word,
           displayWord: resolvedDisplayWord,
@@ -335,7 +383,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           aiExampleSentence: generated.exampleSentence || '',
           collocations: collocationsFromText(generated.frequentCollocations || ''),
           note: '',
-          addedToDeck: false,
+          addedToDeck: true,
         };
 
         stopProgressTimer(word);
@@ -365,13 +413,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             aiExampleSentence: '',
             collocations: [{ phrase: word, example: `Example of ${word}.` }],
             note: '',
-            addedToDeck: false,
+            addedToDeck: true,
           },
         ]);
         setGeneratedWords((prev) => new Set([...prev, word]));
       }
     },
-    [sourceText]
+    [aiReplyLanguage, sourceText]
   );
 
   const handleGenerate = async () => {
@@ -503,12 +551,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         );
       }
 
-      Alert.alert('完成', `已建立 ${cardsToSave.length} 張卡片`, [
-        {
-          text: '確定',
-          onPress: goToCacheHome,
-        },
-      ]);
+      goToCacheHome();
     } catch (error) {
       console.error('[CreateCard] save failed:', error);
       const message = error instanceof Error ? error.message : '儲存卡片失敗，請稍後再試。';

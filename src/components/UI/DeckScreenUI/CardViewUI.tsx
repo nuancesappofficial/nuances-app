@@ -7,12 +7,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
 
@@ -61,36 +63,127 @@ export default function CardViewUI({
   getLearningStatus,
   withHexAlpha,
 }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
+  const searchExpandProgress = React.useRef(new Animated.Value(isSearchVisible ? 1 : 0)).current;
+  const maxSearchWidth = Math.max(160, screenWidth - 16 * 2 - 40 - 10);
+  const searchAnimatedWidth = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [40, maxSearchWidth],
+  });
+  const searchFieldOpacity = searchExpandProgress.interpolate({
+    inputRange: [0, 0.22, 1],
+    outputRange: [0, 0, 1],
+  });
+  const searchFieldTranslateX = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [14, 0],
+  });
+  const searchIconOpacity = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const closeIconOpacity = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const backOpacity = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const backWidth = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [40, 0],
+  });
+  const shellBorderColor = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(78,175,244,0)', 'rgba(78,175,244,0.45)'],
+  });
+  const shellBackgroundColor = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(18,29,45,0)', 'rgba(18,29,45,0)'],
+  });
+  const shellBorderWidth = searchExpandProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  React.useEffect(() => {
+    Animated.timing(searchExpandProgress, {
+      toValue: isSearchVisible ? 1 : 0,
+      duration: 240,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      if (isSearchVisible) {
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      } else {
+        searchInputRef.current?.blur();
+      }
+    });
+  }, [isSearchVisible, searchExpandProgress, searchInputRef]);
+
   const listHeader = (
     <View style={styles.headerWrap}>
       <View style={styles.topNavRow}>
-        <TouchableOpacity onPress={onPressBack} style={styles.iconHitArea}>
-          <Text style={styles.navIcon}>‹</Text>
-        </TouchableOpacity>
+        <Animated.View
+          style={[styles.backAnimatedWrap, { width: backWidth, opacity: backOpacity }]}
+          pointerEvents={isSearchVisible ? 'none' : 'auto'}
+        >
+          <TouchableOpacity onPress={onPressBack} style={styles.iconHitArea}>
+            <Ionicons name="chevron-back" size={30} color="#FFFFFF" />
+          </TouchableOpacity>
+        </Animated.View>
 
         <View style={styles.topNavRightRow}>
-          <TouchableOpacity style={styles.iconHitArea} onPress={onPressSearch}>
-            <Text style={styles.navIcon}>⌕</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconHitArea} onPress={onPressSort}>
-            <Text style={styles.navIcon}>⇅</Text>
+          <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
+            <Animated.View
+              style={[
+                styles.searchShell,
+                {
+                  borderColor: shellBorderColor,
+                  borderWidth: shellBorderWidth,
+                  backgroundColor: shellBackgroundColor,
+                },
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.searchFieldWrap,
+                  {
+                    opacity: searchFieldOpacity,
+                    transform: [{ translateX: searchFieldTranslateX }],
+                  },
+                ]}
+                pointerEvents={isSearchVisible ? 'auto' : 'none'}
+              >
+                <Ionicons name="search" size={20} color="#FBFBFB" style={styles.searchLeadingIcon} />
+                <TextInput
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChangeText={onChangeSearchQuery}
+                  placeholder="Search words"
+                  placeholderTextColor="#8DA0BE"
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                />
+              </Animated.View>
+
+              <TouchableOpacity style={styles.searchToggleButton} activeOpacity={0.82} onPress={onPressSearch}>
+                <Animated.View style={[styles.iconLayer, { opacity: searchIconOpacity }]}>
+                  <Ionicons name="search" size={30} color="#FFFFFF" />
+                </Animated.View>
+                <Animated.View style={[styles.iconLayer, styles.iconLayerOverlay, { opacity: closeIconOpacity }]}>
+                  <Ionicons name="close" size={30} color="#FFFFFF" />
+                </Animated.View>
+              </TouchableOpacity>
+            </Animated.View>
+          </Animated.View>
+
+          <TouchableOpacity style={styles.rawIconButton} onPress={onPressSort}>
+            <Ionicons name="swap-vertical" size={30} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </View>
-
-      {isSearchVisible ? (
-        <View style={styles.searchWrap}>
-          <TextInput
-            ref={searchInputRef}
-            value={searchQuery}
-            onChangeText={onChangeSearchQuery}
-            placeholder="Search words"
-            placeholderTextColor="#8DA0BE"
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-        </View>
-      ) : null}
 
       <Text style={styles.titleText} numberOfLines={1}>
         {albumName || 'Made for You'}
@@ -130,7 +223,7 @@ export default function CardViewUI({
               withHexAlpha(themeColor, 'F0'),
               withHexAlpha(themeColor, '8C'),
               withHexAlpha(themeColor, '2E'),
-              'rgba(173,216,230,0)',
+              'rgba(2,33,61,0)',
             ]}
             locations={[0, 0.2, 0.46, 1]}
             start={{ x: 0.5, y: 0 }}
@@ -138,7 +231,7 @@ export default function CardViewUI({
             style={styles.topThemeGradient}
           />
           <LinearGradient
-            colors={['rgba(173,216,230,0)', 'rgba(173,216,230,0.75)', 'rgba(173,216,230,1)']}
+            colors={['rgba(2,33,61,0)', 'rgba(2,33,61,0.75)', 'rgba(2,33,61,1)']}
             locations={[0, 0.56, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -214,7 +307,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#ADD8E6',
+    backgroundColor: '#02213D',
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -235,14 +328,19 @@ const styles = StyleSheet.create({
   },
   topNavRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     marginBottom: 12,
   },
+  backAnimatedWrap: {
+    overflow: 'hidden',
+  },
   topNavRightRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    justifyContent: 'flex-end',
+    gap: 10,
   },
   iconHitArea: {
     minWidth: 36,
@@ -250,22 +348,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  navIcon: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    lineHeight: 26,
+  searchAnimatedWrap: {
+    height: 44,
   },
-  searchWrap: {
-    marginBottom: 12,
+  rawIconButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  searchShell: {
+    width: '100%',
+    height: 44,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    paddingRight: 6,
+  },
+  searchFieldWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  searchLeadingIcon: {
+    marginRight: 8,
   },
   searchInput: {
+    flex: 1,
     height: 42,
-    borderRadius: 10,
-    backgroundColor: '#121D2D',
-    borderWidth: 1,
-    borderColor: '#2A3D5D',
     color: '#FFFFFF',
-    paddingHorizontal: 12,
+    paddingVertical: 0,
+  },
+  searchToggleButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconLayer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconLayerOverlay: {
+    position: 'absolute',
   },
   titleText: {
     color: '#F7F8FA',
@@ -314,8 +443,8 @@ const styles = StyleSheet.create({
   },
   actionButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   cardRow: {
     flexDirection: 'row',

@@ -10,6 +10,7 @@ export type DeckAlbum = {
   name: string;
   emoji: string;
   color: string;
+  coverImageUri?: string;
   cardIds: string[];
   wordCount: number;
   latestCards: AlbumPreviewCard[];

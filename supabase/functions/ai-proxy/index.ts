@@ -54,6 +54,7 @@ type GenerateCardPayload = {
   targetWord: string;
   originalSentence: string;
   includePronunciation?: boolean;
+  replyLanguage?: string;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
   proficiencyStandard?: string;
   proficiencyLevel?: string;
@@ -120,6 +121,16 @@ const BILLABLE_ACTIONS = new Set<Action>([
   'generate_card',
   'pronunciation_assess',
 ]);
+const LOG_RAW_GEMINI = String(Deno.env.get('AI_LOG_RAW_GEMINI') || '').toLowerCase() === 'true';
+const GENERATE_CARD_MODEL =
+  sanitizeText(Deno.env.get('AI_GENERATE_CARD_MODEL') || '', 120) ||
+  'gemini-3.1-flash-lite-preview';
+const GENERATE_CARD_FALLBACK_MODELS = String(
+  Deno.env.get('AI_GENERATE_CARD_FALLBACK_MODELS') || 'gemini-2.5-flash,gemini-2.0-flash-lite'
+)
+  .split(',')
+  .map((item) => sanitizeText(item, 120))
+  .filter(Boolean);
 
 type ModelRoute = {
   model: string;
@@ -151,6 +162,105 @@ function normalizeHeadword(input: unknown, fallback: string): string {
     .toLowerCase()
     .replace(/[^a-z'\-]/g, '')
     .trim();
+}
+
+function resolveReplyLanguageMeta(input: unknown): {
+  code: 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko';
+  label: string;
+} {
+  const normalized = sanitizeText(input, 20).toLowerCase();
+  if (normalized === 'zh-cn' || normalized === 'zh_hans' || normalized === 'zh-hans' || normalized === 'cn') {
+    return { code: 'zh-CN', label: 'Simplified Chinese' };
+  }
+  if (normalized === 'en' || normalized === 'en-us' || normalized === 'en-gb') {
+    return { code: 'en', label: 'English' };
+  }
+  if (normalized === 'ja' || normalized === 'ja-jp' || normalized === 'jp') {
+    return { code: 'ja', label: 'Japanese' };
+  }
+  if (normalized === 'ko' || normalized === 'ko-kr' || normalized === 'kr') {
+    return { code: 'ko', label: 'Korean' };
+  }
+  return { code: 'zh-TW', label: 'Traditional Chinese' };
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function shouldTrustModelNormalizedWord(
+  originalSentence: string,
+  targetWord: string,
+  modelNormalizedWord: string
+): boolean {
+  if (!modelNormalizedWord) return false;
+  const targetNormalized = normalizeHeadword(targetWord, targetWord);
+  if (!targetNormalized) return true;
+  if (modelNormalizedWord === targetNormalized) return true;
+
+  const sentence = originalSentence.toLowerCase();
+  const tokenRegex = new RegExp(`(^|[^a-z'])${escapeRegExp(targetNormalized)}([^a-z']|$)`, 'i');
+  const targetAppearsVerbatim = tokenRegex.test(sentence);
+  const obviousInflection =
+    modelNormalizedWord.startsWith(targetNormalized) ||
+    targetNormalized.startsWith(modelNormalizedWord);
+
+  if (!targetAppearsVerbatim) return true;
+  return obviousInflection;
+}
+
+function parseBooleanLike(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === 'yes' || normalized === '1';
+  }
+  if (typeof value === 'number') return value === 1;
+  return false;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const aa = a.toLowerCase();
+  const bb = b.toLowerCase();
+  const rows = aa.length + 1;
+  const cols = bb.length + 1;
+  const dp: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
+  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[rows - 1][cols - 1];
+}
+
+function shouldApplyTypoCorrection(
+  originalSentence: string,
+  targetWord: string,
+  correction: string
+): boolean {
+  const target = normalizeHeadword(targetWord, targetWord);
+  const corrected = normalizeHeadword(correction, '');
+  if (!target || !corrected || target === corrected) return false;
+
+  const sentence = originalSentence.toLowerCase();
+  const tokenRegex = new RegExp(`(^|[^a-z'])${escapeRegExp(target)}([^a-z']|$)`, 'i');
+  const targetAppearsVerbatim = tokenRegex.test(sentence);
+  const distance = levenshteinDistance(target, corrected);
+  const shortToken = target.length <= 3;
+
+  if (shortToken && distance > 1) return false;
+  if (!shortToken && distance > 2) return false;
+  if (targetAppearsVerbatim && distance > 1) return false;
+  return true;
 }
 
 function compactMessages(messages: LegacyRequestBody['messages']): { role: string; content: string }[] {
@@ -230,6 +340,9 @@ function validateGenerateCardPayload(payload: unknown): string[] {
   }
   if (payload.tone !== undefined && typeof payload.tone !== 'string') {
     errors.push('payload.tone must be a string when provided');
+  }
+  if (payload.replyLanguage !== undefined && typeof payload.replyLanguage !== 'string') {
+    errors.push('payload.replyLanguage must be a string when provided');
   }
   return errors;
 }
@@ -493,56 +606,71 @@ async function getUsageSummary(
 async function handleGenerateCard(payload: GenerateCardPayload): Promise<Response> {
   const targetWord = sanitizeText(payload.targetWord, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
+  const replyLanguage = resolveReplyLanguageMeta(payload.replyLanguage);
 
   if (!targetWord || !originalSentence) {
     return jsonResponse({ error: 'targetWord and originalSentence are required' }, 400);
   }
 
-  const prompt = `Create a vocabulary learning card for "${targetWord}" in the context of this sentence:
-"${originalSentence}"
+  const prompt = `
+Analyze the word "${targetWord}" within this sentence: "${originalSentence}".
+Output a JSON object with the following exact keys:
+- "normalizedTargetWord": The base form of the word.
+- "partOfSpeech": The grammatical role in the sentence.
+- "definition": The primary meaning in this specific context (in ${replyLanguage.label}).
+- "contextualExplanation": Explain why it means this, citing sentence context or cultural slang usage (in ${replyLanguage.label}).
+- "example": Provide another example sentence using this exact meaning (in ${replyLanguage.label}).
+- "tags": Array of strings (e.g., ["slang", "hip-hop", "noun"]).
+`;
 
-Critical semantic rules:
-1. If "${targetWord}" looks like a typo or OCR error, GUESS the correct intended word.
-2. In "frequentCollocations", you MUST provide 1-3 distinct common collocations. 
-3. Every collocation must include Traditional Chinese translation. Format: English（繁中）.
-4. "normalizedTargetWord" must be the corrected lemma/base form in lowercase.
-5. If input is an inflected verb (e.g. went, studying), return base verb (go, study).
-6. For "contextualExplanation", first output the ORIGINAL English sentence with the target word enclosed in double quotes (""). Then, add a newline character (\\n), followed by the Traditional Chinese translation of the entire sentence with the translated target word enclosed in Chinese quotation marks (「」).
-7. For "example", create a new English example sentence that explicitly uses ONE of the generated "frequentCollocations".
+  const generateCardSystemInstruction = [
+    'You are a multilingual, slang-aware lexicography assistant.',
+    'Be fluent in contemporary internet and youth-culture language, including emergent slang and second-culture usage across English, Chinese, Korean, and Japanese.',
+    'Prioritize in-context meaning over traditional dictionary defaults when sentence context indicates slang, meme, gaming, music, social media, or community-specific usage.',
+    'Apply your knowledge of modern cultural references even if the provided sentence is short or lacks explicit context.',
+    `Use ${replyLanguage.label} for natural-language output fields (especially definition/contextualExplanation/example) unless the user explicitly requests another language.`,
+    'If meaning is ambiguous, explicitly mark uncertainty and provide concise alternatives.',
+    'Return strict JSON only matching the requested schema. Keep each field concise.'
+  ].join(' ');
 
-Return JSON only:
-{
-  "normalizedTargetWord":"corrected lemma/base word",
-  "partOfSpeech":"noun/verb/etc.",
-  "definition":"Traditional Chinese definition of the target word.",
-  "contextualExplanation":"The original English sentence with "target word".\\nTraditional Chinese translation with 「翻譯單字」.",
-  "example":"A natural English example sentence utilizing one of the generated collocations.",
-  "frequentCollocations":"collocation 1（繁中）, collocation 2（繁中）",
-  "tags":["Vocabulary"]
-}`;
-
-  // 🚀 Hardcode the ultra-fast preview model 
-  const modelName = 'gemini-3.1-flash-lite-preview';
-  //const modelName = 'gemini-2.5-flash';
+  const modelCandidates = Array.from(
+    new Set([GENERATE_CARD_MODEL, ...GENERATE_CARD_FALLBACK_MODELS])
+  );
   let parsed: any = null;
   let aiResponse: any = null;
   let lastErrorMsg = '';
+  let usedModel = modelCandidates[0] || GENERATE_CARD_MODEL;
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= modelCandidates.length; attempt++) {
+    const modelName = modelCandidates[attempt - 1] || GENERATE_CARD_MODEL;
     try {
       aiResponse = await callGeminiLegacy({
         model: modelName,
         messages: [
           {
             role: 'system',
-            content: 'You are an expert bilingual English teacher. Return strict JSON only. Keep each field concise.',
+            content: generateCardSystemInstruction,
           },
           { role: 'user', content: prompt },
         ],
         maxTokens: MAX_TOKENS_GENERATE,
-        temperature: attempt === 1 ? 0.3 : 0.7,
+        temperature: 0.6,
         jsonMode: true,
       });
+      usedModel = modelName;
+
+      if (LOG_RAW_GEMINI) {
+        const rawBody = String(aiResponse.content || '');
+        console.log('[ai-proxy][generate_card][raw]', {
+          attempt,
+          model: modelName,
+          targetWord,
+          originalSentence,
+          replyLanguage: replyLanguage.code,
+          rawContentLength: rawBody.length,
+          rawContentPreview: rawBody.slice(0, 2500),
+        });
+      }
 
       // Robust JSON extraction matching `{...}`
       const rawContent = aiResponse.content.trim();
@@ -559,9 +687,11 @@ Return JSON only:
 
   // 🚀 Explicit UI messages for Quota limits
   if (!parsed) {
-    const isOutOfQuota = lastErrorMsg.toLowerCase().includes('quota') || 
+    const loweredError = lastErrorMsg.toLowerCase();
+    const isOutOfQuota = loweredError.includes('quota') || 
                          lastErrorMsg.includes('429') || 
                          lastErrorMsg.includes('limit');
+    const isHighDemand = loweredError.includes('high demand');
 
     return jsonResponse({
       result: {
@@ -570,6 +700,8 @@ Return JSON only:
         definition: isOutOfQuota ? '⚠️ 目前 AI 額度已用盡' : `${targetWord}（AI 暫時無法分析）`,
         contextualExplanation: isOutOfQuota 
           ? '請稍後再試，或聯絡開發者增加 API 額度。' 
+          : isHighDemand
+            ? 'AI 服務目前繁忙，已自動嘗試備援模型但仍失敗，請稍後重試。'
           : `發生錯誤：${lastErrorMsg.slice(0, 50)}... 請檢查網路連線。`,
         example: originalSentence,
         frequentCollocations: '',
@@ -588,13 +720,105 @@ Return JSON only:
       parsed.keyword,
     targetWord
   );
+  const baseSafeNormalizedTargetWord = shouldTrustModelNormalizedWord(
+    originalSentence,
+    targetWord,
+    normalizedTargetWord
+  )
+    ? normalizedTargetWord
+    : normalizeHeadword(targetWord, targetWord);
+  const isLikelyTypo = parseBooleanLike(
+    parsed.isLikelyTypo ?? parsed.hasTypo ?? parsed.typo
+  );
+  const typoCorrection = normalizeHeadword(
+    parsed.correctedTargetWord || parsed.correctedWord || '',
+    ''
+  );
+  const isPartOfPhrase = parseBooleanLike(
+    parsed.isPartOfPhrase ?? parsed.partOfPhrase ?? parsed.inPhrase
+  );
+  const detectedPhraseRaw = sanitizeText(
+    parsed.detectedPhrase || parsed.phrase || parsed.mwe || '',
+    160
+  );
+  const detectedPhrase = normalizeWhitespace(detectedPhraseRaw).toLowerCase();
+  const confidence = Math.max(
+    0,
+    Math.min(
+      1,
+      typeof parsed.confidence === 'number'
+        ? parsed.confidence
+        : Number(parsed.confidence || 0)
+    )
+  );
+  const alternatives = Array.isArray(parsed.alternatives)
+    ? parsed.alternatives
+      .filter((item: unknown) => typeof item === 'string')
+      .map((item: string) => sanitizeText(item, 120))
+      .filter(Boolean)
+      .slice(0, 3)
+    : [];
+  const targetTokenInPhrase = detectedPhrase
+    ? new RegExp(`(^|\\s)${escapeRegExp(targetWord.toLowerCase())}(\\s|$)`, 'i').test(detectedPhrase)
+    : false;
+  const normalizedTarget = normalizeHeadword(targetWord, targetWord);
+  const isShortTarget = normalizedTarget.length > 0 && normalizedTarget.length <= 3;
+  const wordCount = originalSentence.trim().split(/\s+/).filter(Boolean).length;
+  const isLowContext = wordCount <= 4;
+  const shouldForceAmbiguousOutput =
+    isShortTarget &&
+    isLowContext &&
+    !isLikelyTypo &&
+    confidence > 0 &&
+    confidence < 0.78;
+
+  let safeNormalizedTargetWord = baseSafeNormalizedTargetWord;
+  if (isLikelyTypo && typoCorrection && shouldApplyTypoCorrection(originalSentence, targetWord, typoCorrection)) {
+    safeNormalizedTargetWord = typoCorrection;
+  }
+  if (isPartOfPhrase && detectedPhrase && targetTokenInPhrase) {
+    safeNormalizedTargetWord = detectedPhrase;
+  }
+  const ambiguousHint = alternatives.length
+    ? `可能義項：${alternatives.join(' / ')}`
+    : '需要更多上下文才能判定唯一意思';
+  const safeDefinition = shouldForceAmbiguousOutput
+    ? `此縮寫在此句脈絡可能有多種意思，${ambiguousHint}。`
+    : sanitizeText(parsed.definition || '', 2000);
+  const safeContextualExplanation = shouldForceAmbiguousOutput
+    ? sanitizeText(
+      `${originalSentence.replace(new RegExp(escapeRegExp(targetWord), 'ig'), `"${targetWord}"`)}\n此句語境不足，建議提供前後句以判定「${targetWord}」精確語意。`,
+      2000
+    )
+    : sanitizeText(parsed.contextualExplanation || parsed['explanation'] || '', 2000);
+
+  console.log('[ai-proxy][generate_card] disambiguation', {
+    targetWord,
+    modelNormalizedTargetWord: normalizedTargetWord,
+    isLikelyTypo,
+    typoCorrection,
+    isPartOfPhrase,
+    detectedPhrase,
+    confidence,
+    alternatives,
+    shouldForceAmbiguousOutput,
+    finalHeadword: safeNormalizedTargetWord,
+  });
 
   return jsonResponse({
     result: {
-      normalizedTargetWord,
+      normalizedTargetWord: safeNormalizedTargetWord,
+      meaningInContext: sanitizeText(parsed.meaningInContext || parsed.contextMeaning || '', 400),
+      isLikelyTypo,
+      correctedTargetWord: typoCorrection || '',
+      typoReason: sanitizeText(parsed.typoReason || parsed.correctionReason || '', 200),
+      isPartOfPhrase,
+      detectedPhrase: detectedPhrase || '',
+      confidence,
+      alternatives,
       partOfSpeech: sanitizeText(parsed.partOfSpeech || parsed['part of speech'] || parsed['pos'] || '', 80),
-      definition: sanitizeText(parsed.definition || '', 2000),
-      contextualExplanation: sanitizeText(parsed.contextualExplanation || parsed['explanation'] || '', 2000),
+      definition: safeDefinition,
+      contextualExplanation: safeContextualExplanation,
       example: sanitizeText(parsed.example || '', 1200),
       frequentCollocations: sanitizeText(
         parsed.frequentCollocations || 
@@ -608,7 +832,7 @@ Return JSON only:
         : null,
       tags: Array.isArray(parsed.tags) ? parsed.tags : ['Vocabulary'],
     },
-    meta: { modelUsed: modelName, metrics: aiResponse?.metrics },
+    meta: { modelUsed: usedModel, metrics: aiResponse?.metrics },
   });
 }
 // ==========================================

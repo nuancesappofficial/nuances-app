@@ -1,21 +1,17 @@
 import React from 'react';
-import { Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, TextInput, StyleSheet, View } from 'react-native';
 
 type Props = {
   manualText: string;
   onChangeManualText: (value: string) => void;
-  onSubmit: () => void;
 };
 
 export default function CacheTextInputPanelUI({
   manualText,
   onChangeManualText,
-  onSubmit,
 }: Props) {
-  const disabled = !manualText.trim();
-
   return (
-    <>
+    <View style={styles.container}>
       <Text style={styles.inputLabel}>Paste or type text</Text>
       <TextInput
         value={manualText}
@@ -25,18 +21,14 @@ export default function CacheTextInputPanelUI({
         placeholder="Paste a sentence containing slang, idioms, or expressions..."
         placeholderTextColor="#9CA3AF"
       />
-      <TouchableOpacity
-        style={[styles.primaryAction, disabled && styles.primaryActionDisabled]}
-        disabled={disabled}
-        onPress={onSubmit}
-      >
-        <Text style={styles.primaryActionText}>Add Card</Text>
-      </TouchableOpacity>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   inputLabel: {
     fontSize: 13,
     fontWeight: '700',
@@ -44,7 +36,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   textInput: {
-    minHeight: 210,
+    flex: 1,
+    minHeight: 118,
     borderRadius: 20,
     backgroundColor: '#181C23',
     borderWidth: 1,
@@ -53,21 +46,5 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     color: '#FFFFFF',
     textAlignVertical: 'top',
-    marginBottom: 14,
-  },
-  primaryAction: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    alignItems: 'center',
-    height: 56,
-    justifyContent: 'center',
-  },
-  primaryActionDisabled: {
-    opacity: 0.5,
-  },
-  primaryActionText: {
-    color: '#111111',
-    fontWeight: '800',
-    fontSize: 16,
   },
 });

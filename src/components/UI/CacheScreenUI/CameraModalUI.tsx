@@ -67,13 +67,13 @@ export default function CameraModalUI({
 const styles = StyleSheet.create({
   cameraContainer: {
     flex: 1,
-    backgroundColor: '#ADD8E6',
+    backgroundColor: '#02213D',
   },
   cameraPermissionFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ADD8E6',
+    backgroundColor: '#02213D',
   },
   cameraPermissionText: {
     color: '#fff',

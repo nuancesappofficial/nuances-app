@@ -1,5 +1,6 @@
 import React from 'react';
 import { Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
@@ -10,6 +11,7 @@ import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumM
 import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreenUI';
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
 import AlbumActionMenuOverlayUI from '../../../components/UI/DeckScreenUI/AlbumActionMenuOverlayUI';
+import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   buildDeckAlbums,
@@ -18,6 +20,12 @@ import {
   saveDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
+import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
+import {
+  DEFAULT_ALBUM_REVIEW_PREFERENCES,
+  loadAlbumReviewPreferences,
+  saveAlbumReviewPreferences,
+} from '../../../features/deck/reviewPreferences';
 
 type Props = {
   navigation: any;
@@ -37,6 +45,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
+  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [isAlbumPrefsHydrated, setIsAlbumPrefsHydrated] = React.useState(false);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
@@ -44,14 +53,28 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [settingsName, setSettingsName] = React.useState('');
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
   const [settingsColor, setSettingsColor] = React.useState('#4A67D8');
+  const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState<string | undefined>(undefined);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
+  const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] = React.useState(false);
+  const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
+    DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
+  );
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const hoveredAction = useSharedValue<'none' | 'sort' | 'edit' | 'delete'>('none');
 
   const filterPills = ['群組', '隱私', '已封存'];
+
+  const toDayKey = React.useCallback((input: Date | string) => {
+    const date = new Date(input);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }, []);
 
   const hydrateAlbumPrefs = React.useCallback(async () => {
     try {
@@ -60,6 +83,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides(prefs.albumNameOverrides);
       setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
       setAlbumColorOverrides(prefs.albumColorOverrides);
+      setAlbumCoverOverrides(prefs.albumCoverOverrides);
       setDeletedAlbumIds(prefs.deletedAlbumIds);
     } finally {
       setIsAlbumPrefsHydrated(true);
@@ -83,6 +107,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       albumNameOverrides,
       albumEmojiOverrides,
       albumColorOverrides,
+      albumCoverOverrides,
       deletedAlbumIds,
     };
     saveDeckAlbumPreferences(payload).catch((error) => {
@@ -94,6 +119,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     albumNameOverrides,
     albumEmojiOverrides,
     albumColorOverrides,
+    albumCoverOverrides,
     deletedAlbumIds,
   ]);
 
@@ -120,6 +146,44 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   useFocusEffect(
     React.useCallback(() => {
       setImageReloadSeed((prev) => prev + 1);
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      const hydrateSeenCards = async () => {
+        try {
+          const nextSeen = await loadSeenCardIds();
+          if (active) setSeenCardIds(nextSeen);
+        } catch (error) {
+          console.warn('[DeckMain] load seen cards failed:', error);
+          if (active) setSeenCardIds(new Set());
+        }
+      };
+      void hydrateSeenCards();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      const hydrateTodayReviewPreferences = async () => {
+        try {
+          const prefs = await loadAlbumReviewPreferences('today-added');
+          if (active) setTodayReviewQuestionCount(prefs.questionCount);
+        } catch (error) {
+          console.warn('[DeckMain] load today review preferences failed:', error);
+          if (active) setTodayReviewQuestionCount(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
+        }
+      };
+      void hydrateTodayReviewPreferences();
+      return () => {
+        active = false;
+      };
     }, [])
   );
 
@@ -177,9 +241,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         albumNameOverrides,
         albumEmojiOverrides,
         albumColorOverrides,
+        albumCoverOverrides,
         deletedAlbumIds,
       }),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
   );
 
   const processedAlbums = React.useMemo(() => {
@@ -206,6 +271,60 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
     return result;
   }, [mergedAlbums, searchQuery, sortOrder]);
+
+  const slideshowItems = React.useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ cardId: string; text: string; imageUri?: string }> = [];
+
+    allCards.forEach((card) => {
+      const phrase = (card.targetPhrase || '').trim();
+      const word = (card.targetWord || '').trim();
+      const candidate = phrase || word;
+      if (!candidate) return;
+      const key = candidate.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({
+        cardId: card.id,
+        text: candidate,
+        imageUri: cardImageMap[card.id],
+      });
+    });
+
+    return list;
+  }, [allCards, cardImageMap]);
+
+  const todayCardIds = React.useMemo(() => {
+    const todayKey = toDayKey(new Date());
+    return allCards
+      .filter((card) => !!card.createdAt && toDayKey(card.createdAt) === todayKey)
+      .map((card) => card.id);
+  }, [allCards, toDayKey]);
+
+  const todayUnreviewedCount = React.useMemo(
+    () => todayCardIds.filter((id) => !seenCardIds.has(id)).length,
+    [todayCardIds, seenCardIds]
+  );
+
+  const handlePressTodayReview = React.useCallback(() => {
+    if (todayCardIds.length === 0) {
+      Alert.alert('今天還沒有新增單字', '先新增幾張卡片，再開始今日複習。');
+      return;
+    }
+
+    navigation.navigate('CardReview', {
+      albumId: 'today-added',
+      albumName: 'Today Review',
+      cardIds: todayCardIds,
+      questionCount: todayReviewQuestionCount,
+      themeColor: '#2D9E66',
+    });
+  }, [navigation, todayCardIds, todayReviewQuestionCount]);
+
+  const handleChangeTodayReviewQuestionCount = React.useCallback((nextCount: number) => {
+    setTodayReviewQuestionCount(nextCount);
+    void saveAlbumReviewPreferences('today-added', { questionCount: nextCount });
+  }, []);
 
   const handleAddAlbum = React.useCallback(() => {
     const trimmedName = newAlbumName.trim();
@@ -234,7 +353,31 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     setSettingsName(album.name);
     setSettingsEmoji(album.emoji || '📁');
     setSettingsColor(album.color || '#4A67D8');
+    setSettingsCoverImageUri(album.coverImageUri);
     setSettingsVisible(true);
+  }, []);
+
+  const handlePickAlbumCoverImage = React.useCallback(async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('需要相簿權限', '請允許相簿權限後再選擇相簿封面。');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.95,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const picked = result.assets[0];
+      if (!picked?.uri) return;
+      setSettingsCoverImageUri(picked.uri);
+    } catch (error) {
+      console.error('[DeckMain] pick album cover failed:', error);
+      Alert.alert('選圖失敗', '無法讀取相簿圖片，請稍後再試。');
+    }
   }, []);
 
   const handleSaveAlbumSettings = React.useCallback(() => {
@@ -255,7 +398,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setCustomAlbums((prev) =>
         prev.map((it) =>
           it.id === settingsAlbum.id
-            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor }
+            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor, coverImageUri: settingsCoverImageUri }
             : it
         )
       );
@@ -263,11 +406,21 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
       setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
       setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
+      if (settingsCoverImageUri) {
+        setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsCoverImageUri }));
+      } else {
+        setAlbumCoverOverrides((prev) => {
+          const next = { ...prev };
+          delete next[settingsAlbum.id];
+          return next;
+        });
+      }
     }
 
     setSettingsVisible(false);
     setSettingsAlbum(null);
-  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor]);
+    setSettingsCoverImageUri(undefined);
+  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
 
   const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
     if (album.isDefault) {
@@ -334,6 +487,25 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     console.log('[DeckHub] Cache FAB pressed');
   }, [onPressCacheFab]);
 
+  const handlePressWordPopItem = React.useCallback(
+    (item: { cardId: string; text: string; imageUri?: string }) => {
+      if (!item?.cardId) return;
+      const scopedCardIds = allCards.map((card) => card.id);
+      if (scopedCardIds.length === 0) {
+        Alert.alert('目前沒有可開啟的卡片', '請先新增或同步卡片後再試。');
+        return;
+      }
+      const targetCardId = scopedCardIds.includes(item.cardId) ? item.cardId : scopedCardIds[0];
+      navigation.navigate('CardDetail', {
+        cardId: targetCardId,
+        cardIds: scopedCardIds,
+        albumName: 'All cards',
+        headerTitle: 'All cards',
+      });
+    },
+    [allCards, navigation]
+  );
+
   return (
     <>
       <DeckMainScreenUI
@@ -347,6 +519,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         sortOrder={sortOrder}
         onToggleSort={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
         filterPills={filterPills}
+        todayReviewTotalCount={todayCardIds.length}
+        todayReviewPendingCount={todayUnreviewedCount}
+        onPressTodayReview={handlePressTodayReview}
+        onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
+        slideshowItems={slideshowItems}
+        onPressSlideshowItem={handlePressWordPopItem}
         albums={processedAlbums}
         onPressAlbum={handleAlbumPress}
         isMenuVisible={isMenuVisible}
@@ -357,6 +535,13 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onMenuStart={handleMenuStart}
         onMenuFinish={handleMenuFinish}
         onActionEnd={handleActionEnd}
+      />
+
+      <ReviewTuningModalUI
+        visible={showTodayReviewTuningModal}
+        questionCount={todayReviewQuestionCount}
+        onClose={() => setShowTodayReviewTuningModal(false)}
+        onChangeQuestionCount={handleChangeTodayReviewQuestionCount}
       />
 
       <CreateAlbumModalUI
@@ -378,9 +563,13 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onChangeName={setSettingsName}
         onChangeEmoji={setSettingsEmoji}
         onChangeColor={setSettingsColor}
+        settingsCoverImageUri={settingsCoverImageUri}
+        onPickCoverImage={handlePickAlbumCoverImage}
+        onRemoveCoverImage={() => setSettingsCoverImageUri(undefined)}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
+          setSettingsCoverImageUri(undefined);
         }}
         onSave={handleSaveAlbumSettings}
       />

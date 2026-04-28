@@ -166,6 +166,7 @@ export default function AlbumIconItemUI({
             latestCards={item.latestCards}
             iconEmoji={item.emoji}
             coverColor={item.color}
+            coverImageUri={item.coverImageUri}
             compact
             style={styles.folderIcon}
           />

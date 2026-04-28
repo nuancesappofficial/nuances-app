@@ -8,11 +8,17 @@ import {
   Text,
   Animated,
   PanResponder,
+  Keyboard,
+  Platform,
+  Easing,
+  useWindowDimensions,
   type LayoutChangeEvent,
+  type EmitterSubscription,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import CacheTextInputPanelUI from './CacheTextInputPanelUI';
 import CacheImageInputPanelUI from './CacheImageInputPanelUI';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
   visible: boolean;
@@ -25,9 +31,16 @@ type Props = {
   onTabChange: (nextTab: 'text' | 'image') => void;
   onManualTextChange: (value: string) => void;
   onSubmitText: () => void;
+  textPrimaryAction: 'paste' | 'clear';
+  onPressPaste: () => void;
+  onPressClearText: () => void;
+  pasteEnabled: boolean;
   onUploadImage: () => void;
   onCaptureImage: () => void;
 };
+
+const SHEET_TOP_SAFE_MARGIN = 72;
+const KEYBOARD_EXTRA_GAP = 8;
 
 export default function CacheInputModalUI({
   visible,
@@ -40,11 +53,20 @@ export default function CacheInputModalUI({
   onTabChange,
   onManualTextChange,
   onSubmitText,
+  textPrimaryAction,
+  onPressPaste,
+  onPressClearText,
+  pasteEnabled,
   onUploadImage,
   onCaptureImage,
 }: Props) {
+  const { height: windowHeight } = useWindowDimensions();
   const [panelWidth, setPanelWidth] = React.useState(0);
+  const [sheetHeight, setSheetHeight] = React.useState(0);
   const slideX = React.useRef(new Animated.Value(0)).current;
+  const entranceY = React.useRef(new Animated.Value(36)).current;
+  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+  const keyboardLift = React.useRef(new Animated.Value(0)).current;
   const currentOffsetRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -123,20 +145,101 @@ export default function CacheInputModalUI({
     [addTab, onTabChange, panelWidth, slideX]
   );
 
+  React.useEffect(() => {
+    if (!visible) {
+      entranceY.setValue(36);
+      backdropOpacity.setValue(0);
+      keyboardLift.setValue(0);
+      return;
+    }
+
+    if (suppressAnimation) {
+      entranceY.setValue(0);
+      backdropOpacity.setValue(1);
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(entranceY, {
+        toValue: 0,
+        duration: 230,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, entranceY, keyboardLift, suppressAnimation, visible]);
+
+  React.useEffect(() => {
+    if (!visible) return;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = (event: any) => {
+      const kbHeight = Math.max(0, event?.endCoordinates?.height ?? 0);
+      const requestedLift = kbHeight + KEYBOARD_EXTRA_GAP;
+      const maxAllowedLift = Math.max(0, windowHeight - Math.max(sheetHeight, 360) - SHEET_TOP_SAFE_MARGIN);
+      const nextLift = Math.min(requestedLift, maxAllowedLift);
+      const duration = typeof event?.duration === 'number' ? event.duration : 220;
+      Animated.timing(keyboardLift, {
+        toValue: nextLift,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const onHide = (event: any) => {
+      const duration = typeof event?.duration === 'number' ? event.duration : 200;
+      Animated.timing(keyboardLift, {
+        toValue: 0,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const subs: EmitterSubscription[] = [
+      Keyboard.addListener(showEvent, onShow),
+      Keyboard.addListener(hideEvent, onHide),
+    ];
+
+    return () => {
+      subs.forEach((sub) => sub.remove());
+    };
+  }, [keyboardLift, sheetHeight, visible, windowHeight]);
+
+  const sheetTransform = React.useMemo(
+    () => Animated.add(entranceY, Animated.multiply(keyboardLift, -1)),
+    [entranceY, keyboardLift]
+  );
+
   return (
     <Modal
       visible={visible}
-      animationType={suppressAnimation ? 'none' : 'slide'}
+      animationType="none"
       transparent
       onRequestClose={onClose}
       onDismiss={onDismiss}
     >
-      <Pressable style={styles.modalBackdrop} onPress={onClose} />
-      <View style={styles.modalSheet}>
+      <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View
+        style={[styles.modalSheet, { transform: [{ translateY: sheetTransform }] }]}
+        onLayout={(event) => {
+          const nextHeight = Math.round(event.nativeEvent.layout.height);
+          setSheetHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+        }}
+      >
         <View style={styles.sheetHandle} />
         <Text style={styles.eyebrow}>ADD TO CACHE</Text>
-        <Text style={styles.title}>Capture a new phrase</Text>
-        <Text style={styles.subtitle}>Choose text or image, then turn it into cards from the same flow.</Text>
 
         <View style={styles.tabRow}>
           <TouchableOpacity
@@ -163,7 +266,6 @@ export default function CacheInputModalUI({
               <CacheTextInputPanelUI
                 manualText={manualText}
                 onChangeManualText={onManualTextChange}
-                onSubmit={onSubmitText}
               />
             </View>
             <View style={styles.panelPage}>
@@ -176,10 +278,38 @@ export default function CacheInputModalUI({
           </Animated.View>
         </View>
 
-        <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-          <Text style={styles.cancelBtnText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
+        {addTab === 'text' ? (
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                textPrimaryAction === 'clear' ? styles.clearBtn : styles.pasteBtn,
+                textPrimaryAction === 'paste' && !pasteEnabled && styles.actionBtnDisabled,
+              ]}
+              disabled={textPrimaryAction === 'paste' ? !pasteEnabled : false}
+              onPress={textPrimaryAction === 'clear' ? onPressClearText : onPressPaste}
+            >
+              <Text
+                style={[
+                  styles.actionBtnText,
+                  textPrimaryAction === 'clear' ? styles.clearBtnText : styles.pasteBtnText,
+                ]}
+              >
+                {textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.addBtn, !manualText.trim() && styles.actionBtnDisabled]}
+              disabled={!manualText.trim()}
+              onPress={onSubmitText}
+            >
+              <Text style={[styles.actionBtnText, styles.addBtnText]}>Add</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={[styles.actionRow, styles.actionRowGhost]} />
+        )}
+      </Animated.View>
     </Modal>
   );
 }
@@ -196,9 +326,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 24,
-    minHeight: 520,
+    paddingTop: 10,
+    paddingBottom: 16,
+    minHeight: 320,
+    maxHeight: '66%',
   },
   sheetHandle: {
     width: 42,
@@ -206,33 +337,21 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.22)',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   eyebrow: {
     color: '#8D93A1',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1.6,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
-    marginTop: 10,
-  },
-  subtitle: {
-    color: '#B4BBC8',
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 4,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   tabRow: {
     backgroundColor: '#1A1E27',
     borderRadius: 16,
     padding: 4,
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tabBtn: {
     flex: 1,
@@ -253,6 +372,7 @@ const styles = StyleSheet.create({
   },
   panelViewport: {
     overflow: 'hidden',
+    minHeight: 280,
   },
   panelTrack: {
     width: '200%',
@@ -261,16 +381,52 @@ const styles = StyleSheet.create({
   panelPage: {
     width: '50%',
   },
-  cancelBtn: {
-    marginTop: 14,
-    borderRadius: 18,
-    backgroundColor: '#1A1E27',
-    alignItems: 'center',
-    paddingVertical: 14,
+  actionRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    gap: 10,
   },
-  cancelBtnText: {
+  actionBtn: {
+    flex: 1,
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: BUTTON_TOKENS.height.prominent,
+    overflow: 'hidden',
+  },
+  pasteBtn: {
+    backgroundColor: '#3F6DFF',
+    borderWidth: 1,
+    borderColor: 'rgba(178,201,255,0.7)',
+  },
+  clearBtn: {
+    backgroundColor: '#3B4353',
+    borderWidth: 1,
+    borderColor: 'rgba(193,204,224,0.42)',
+  },
+  addBtn: {
+    backgroundColor: '#2F8B53',
+    borderWidth: 1,
+    borderColor: 'rgba(200,241,216,0.62)',
+  },
+  actionBtnDisabled: {
+    opacity: 0.45,
+  },
+  actionRowGhost: {
+    opacity: 0,
+  },
+  actionBtnText: {
+    fontWeight: BUTTON_TOKENS.weight.regular,
+    fontSize: BUTTON_TOKENS.text.strong,
+    zIndex: 2,
+  },
+  pasteBtnText: {
     color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 16,
+  },
+  clearBtnText: {
+    color: '#FFFFFF',
+  },
+  addBtnText: {
+    color: '#FFFFFF',
   },
 });

@@ -26,6 +26,7 @@ type VisionOCRModuleType = {
     options?: {
       languages?: string[];
       usesLanguageCorrection?: boolean;
+      automaticallyDetectsLanguage?: boolean;
     }
   ) => Promise<VisionOCRResult>;
 };
@@ -44,6 +45,7 @@ export async function recognizeTextWithVision(
   options?: {
     languages?: string[];
     usesLanguageCorrection?: boolean;
+    automaticallyDetectsLanguage?: boolean;
   }
 ): Promise<VisionOCRResult> {
   const nativeModule = getNativeModule();

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -20,6 +21,7 @@ import {
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
 } from '../../../features/deck/reviewPreferences';
+import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
 
 type Props = {
   navigation: any;
@@ -42,6 +44,9 @@ type ReviewQuestion = {
   options: string[];
   sentence: string;
   sourceSentence: string;
+  partOfSpeech: string;
+  definition: string;
+  contextualExplanation: string;
 };
 
 type ReviewSlide =
@@ -152,11 +157,25 @@ function buildReviewQuestions(
       options: shuffleArray([correctAnswer, ...distractors]),
       sentence: buildMaskedSentence(card),
       sourceSentence: (card.originalSentence || card.definition || '').trim(),
+      partOfSpeech: (card.partOfSpeech || 'word').trim(),
+      definition: (card.definition || '').trim(),
+      contextualExplanation: (card.contextualExplanation || '').trim(),
     };
   });
 }
 
 function getFlipValue(
+  mapRef: React.MutableRefObject<Map<string, Animated.Value>>,
+  questionId: string
+): Animated.Value {
+  const existing = mapRef.current.get(questionId);
+  if (existing) return existing;
+  const created = new Animated.Value(0);
+  mapRef.current.set(questionId, created);
+  return created;
+}
+
+function getCelebrationValue(
   mapRef: React.MutableRefObject<Map<string, Animated.Value>>,
   questionId: string
 ): Animated.Value {
@@ -184,6 +203,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [loading, setLoading] = React.useState(true);
   const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
   const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
+  const celebrationValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
 
   React.useEffect(() => {
     const queryCards = database
@@ -260,13 +280,32 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const isCorrect = option === question.correctAnswer;
     setSelectedAnswers((prev) => ({ ...prev, [question.id]: option }));
     setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
+    void markCardAsSeen(question.cardId);
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
     Animated.timing(flipValue, {
       toValue: 1,
       duration: 380,
       useNativeDriver: true,
-    }).start();
+    }).start(({ finished }) => {
+      if (!finished || !isCorrect) return;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const celebrate = getCelebrationValue(celebrationValuesRef, question.id);
+      celebrate.setValue(0);
+      Animated.sequence([
+        Animated.timing(celebrate, {
+          toValue: 1,
+          duration: 260,
+          useNativeDriver: true,
+        }),
+        Animated.delay(260),
+        Animated.timing(celebrate, {
+          toValue: 0,
+          duration: 380,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
   }, [selectedAnswers]);
 
   const goToSlide = React.useCallback((index: number) => {
@@ -302,6 +341,23 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const backRotate = flipValue.interpolate({
       inputRange: [0, 1],
       outputRange: ['180deg', '360deg'],
+    });
+    const celebrationValue = getCelebrationValue(celebrationValuesRef, question.id);
+    const celebrationScale = celebrationValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 1.16],
+    });
+    const celebrationIconOpacity = celebrationValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 1],
+    });
+    const celebrationOverlayOpacity = celebrationValue.interpolate({
+      inputRange: [0, 0.15, 1],
+      outputRange: [0, 0.3, 0],
+    });
+    const celebrationFloat = celebrationValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [8, -4],
     });
     const selectedAnswer = selectedAnswers[question.id];
     const isCorrect = results[question.id];
@@ -354,38 +410,70 @@ export default function ReviewFlow({ navigation, route }: Props) {
               },
             ]}
           >
+            {isCorrect ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.celebrationOverlay,
+                  { opacity: celebrationOverlayOpacity },
+                ]}
+              />
+            ) : null}
             <View style={styles.resultBadgeRow}>
-              <View
+              <Animated.View
                 style={[
                   styles.resultBadge,
-                  { backgroundColor: isCorrect ? 'rgba(91,203,150,0.16)' : 'rgba(255,122,122,0.16)' },
+                  { backgroundColor: isCorrect ? 'rgba(18,120,78,0.88)' : 'rgba(180,52,52,0.4)' },
+                  isCorrect ? { transform: [{ scale: celebrationScale }] } : null,
                 ]}
               >
-                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#5BCB96' : '#FF7A7A' }]}>
+                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#E8FFF5' : '#FFD6D6' }]}>
                   {isCorrect ? 'Correct' : 'Not quite'}
                 </Text>
-              </View>
+              </Animated.View>
+              {isCorrect ? (
+                <Animated.View
+                  style={[
+                    styles.celebrationSpark,
+                    {
+                      opacity: celebrationIconOpacity,
+                      transform: [{ translateY: celebrationFloat }, { scale: celebrationScale }],
+                    },
+                  ]}
+                >
+                  <Ionicons name="sparkles" size={16} color="#E8FFF5" />
+                </Animated.View>
+              ) : null}
             </View>
 
-            <Text style={styles.answerTitle}>{question.correctAnswer}</Text>
+            <Text style={styles.answerTitle}>Correct answer</Text>
             {!isCorrect ? (
               <Text style={styles.answerSubTitle}>
                 Your answer: {selectedAnswer}
               </Text>
             ) : null}
-            {question.sourceSentence ? (
-              <Text style={styles.answerSentence}>{question.sourceSentence}</Text>
-            ) : null}
+            <View style={styles.answerVocabCard}>
+              <Text style={styles.answerWord}>{question.correctAnswer}</Text>
+              <Text style={styles.answerPos}>{question.partOfSpeech || 'word'}</Text>
+              {question.definition ? (
+                <Text style={styles.answerDefinition}>{question.definition}</Text>
+              ) : null}
+              {question.contextualExplanation ? (
+                <Text style={styles.answerSentence}>{question.contextualExplanation}</Text>
+              ) : question.sourceSentence ? (
+                <Text style={styles.answerSentence}>{question.sourceSentence}</Text>
+              ) : null}
+            </View>
 
             <TouchableOpacity
               style={[styles.nextTimeButton, isPinned && styles.nextTimeButtonActive]}
               onPress={() => void handleTogglePinned(question.cardId)}
             >
-              <Ionicons
-                name={isPinned ? 'bookmark' : 'bookmark-outline'}
-                size={16}
-                color={isPinned ? '#101010' : '#FFFFFF'}
-              />
+                <Ionicons
+                  name={isPinned ? 'bookmark' : 'bookmark-outline'}
+                  size={16}
+                  color={isPinned ? '#EAF6FF' : '#FFFFFF'}
+                />
               <Text style={[styles.nextTimeText, isPinned && styles.nextTimeTextActive]}>
                 test me next time
               </Text>
@@ -521,7 +609,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#87CEFA',
+    backgroundColor: '#02213D',
   },
   header: {
     flexDirection: 'row',
@@ -592,7 +680,9 @@ const styles = StyleSheet.create({
   cardFace: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
-    backgroundColor: '#F6F6F3',
+    backgroundColor: '#8FC4F0',
+    borderWidth: 1,
+    borderColor: 'rgba(235,247,255,0.78)',
     padding: 22,
     backfaceVisibility: 'hidden',
   },
@@ -653,8 +743,9 @@ const styles = StyleSheet.create({
   },
   answerTitle: {
     marginTop: 22,
-    color: '#0F1115',
-    fontSize: 34,
+    color: '#2A313C',
+    fontSize: 16,
+    letterSpacing: 0.4,
     fontWeight: '800',
   },
   answerSubTitle: {
@@ -663,11 +754,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  answerVocabCard: {
+    marginTop: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(16,22,30,0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 6,
+  },
+  answerWord: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
+  },
+  answerPos: {
+    color: '#AFC0D5',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  answerDefinition: {
+    color: '#EAF3FF',
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '700',
+  },
   answerSentence: {
-    marginTop: 18,
-    color: '#1D2128',
-    fontSize: 20,
-    lineHeight: 30,
+    marginTop: 2,
+    color: '#C9D9EC',
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '600',
   },
   nextTimeButton: {
@@ -675,7 +795,8 @@ const styles = StyleSheet.create({
     minHeight: 54,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#101010',
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: '#101010',
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -683,16 +804,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   nextTimeButtonActive: {
-    backgroundColor: '#E5FF4F',
-    borderColor: '#E5FF4F',
+    backgroundColor: '#D97706',
+    borderColor: 'rgba(255,214,153,0.95)',
   },
   nextTimeText: {
-    color: '#101010',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
   nextTimeTextActive: {
-    color: '#101010',
+    color: '#FFFFFF',
+  },
+  celebrationSpark: {
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  celebrationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 28,
+    backgroundColor: '#D7F8E8',
   },
   nextButton: {
     marginTop: 12,

@@ -97,39 +97,85 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
       throw new Error('Apple Vision OCR is not available on this device');
     }
 
-    const visionResult = await recognizeTextWithVision(imageUri, {
-      // 提示語言順序會影響辨識偏好：英文內容優先時先放 en-US
-      languages: ['en-US', 'zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR'],
-      usesLanguageCorrection: true,
+    const primaryResult = await recognizeTextWithVision(imageUri, {
+      // 混合語系時先偏向 CJK，再補英文，避免只抓到英數。
+      languages: ['zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR', 'en-US'],
+      usesLanguageCorrection: false,
+      automaticallyDetectsLanguage: true,
     });
+    let blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
+    let fullText = normalizeFullText(primaryResult.fullText, blocks);
 
-    const blocks: OCRBlock[] = (visionResult.blocks || [])
-      .map((block, index) => {
-        const text = (block?.text || '').trim();
-        const frame = block?.frame;
-        if (!text || !frame) return null;
-        return {
-          id: `word_${index}`,
-          text,
-          frame: {
-            x: Number(frame.x) || 0,
-            y: Number(frame.y) || 0,
-            width: Math.max(0, Number(frame.width) || 0),
-            height: Math.max(0, Number(frame.height) || 0),
-          },
-          confidence: typeof block.confidence === 'number' ? block.confidence : undefined,
-        } as OCRBlock;
-      })
-      .filter((block): block is OCRBlock => Boolean(block));
+    const latinOnly = hasLatin(fullText) && !hasCJK(fullText);
+    if (latinOnly) {
+      try {
+        const cjkResult = await recognizeTextWithVision(imageUri, {
+          languages: ['zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR'],
+          usesLanguageCorrection: false,
+          automaticallyDetectsLanguage: true,
+        });
+        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(cjkResult.blocks || []));
+        if (mergedBlocks.length > blocks.length) {
+          blocks = mergedBlocks;
+          fullText = normalizeFullText(
+            [primaryResult.fullText, cjkResult.fullText].filter(Boolean).join('\n'),
+            blocks
+          );
+        }
+      } catch (cjkPassError) {
+        console.warn('[OCR] CJK fallback pass failed, keep primary result:', cjkPassError);
+      }
+    }
 
-    const fullText = normalizeFullText(visionResult.fullText, blocks);
+    const missingJapanese = !hasJapanese(fullText);
+    if (missingJapanese) {
+      try {
+        const japaneseResult = await recognizeTextWithVision(imageUri, {
+          languages: ['ja-JP'],
+          usesLanguageCorrection: false,
+          automaticallyDetectsLanguage: true,
+        });
+        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(japaneseResult.blocks || []));
+        if (mergedBlocks.length > blocks.length) {
+          blocks = mergedBlocks;
+          fullText = normalizeFullText(
+            [fullText, japaneseResult.fullText].filter(Boolean).join('\n'),
+            blocks
+          );
+        }
+      } catch (jaPassError) {
+        console.warn('[OCR] Japanese fallback pass failed, keep merged result:', jaPassError);
+      }
+    }
+
+    const missingKorean = !hasKorean(fullText);
+    if (missingKorean) {
+      try {
+        const koreanResult = await recognizeTextWithVision(imageUri, {
+          languages: ['ko-KR'],
+          usesLanguageCorrection: false,
+          automaticallyDetectsLanguage: true,
+        });
+        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(koreanResult.blocks || []));
+        if (mergedBlocks.length > blocks.length) {
+          blocks = mergedBlocks;
+          fullText = normalizeFullText(
+            [fullText, koreanResult.fullText].filter(Boolean).join('\n'),
+            blocks
+          );
+        }
+      } catch (koPassError) {
+        console.warn('[OCR] Korean fallback pass failed, keep merged result:', koPassError);
+      }
+    }
+
     const processingTime = Date.now() - startTime;
     
     console.log('[OCR] Vision raw result:', {
       blockCount: blocks.length,
       hasText: !!fullText,
-      imageWidth: visionResult.imageWidth,
-      imageHeight: visionResult.imageHeight,
+      imageWidth: primaryResult.imageWidth,
+      imageHeight: primaryResult.imageHeight,
     });
     console.log(`[OCR] ✅ Success: Found ${blocks.length} blocks in ${processingTime}ms`);
     console.log(`[OCR] Full text preview: "${fullText.substring(0, 100)}..."`);
@@ -142,6 +188,59 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
   }
 }
 
+function mapVisionBlocksToOCRBlocks(
+  visionBlocks: Array<{ text?: string; frame?: { x?: number; y?: number; width?: number; height?: number }; confidence?: number }>
+): OCRBlock[] {
+  return visionBlocks
+    .map((block, index) => {
+      const text = (block?.text || '').trim();
+      const frame = block?.frame;
+      if (!text || !frame) return null;
+      return {
+        id: `word_${index}`,
+        text,
+        frame: {
+          x: Number(frame.x) || 0,
+          y: Number(frame.y) || 0,
+          width: Math.max(0, Number(frame.width) || 0),
+          height: Math.max(0, Number(frame.height) || 0),
+        },
+        confidence: typeof block.confidence === 'number' ? block.confidence : undefined,
+      } as OCRBlock;
+    })
+    .filter((block): block is OCRBlock => Boolean(block));
+}
+
+function hasCJK(text: string): boolean {
+  return /[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(text);
+}
+
+function hasJapanese(text: string): boolean {
+  return /[\u3040-\u30FF]/.test(text);
+}
+
+function hasKorean(text: string): boolean {
+  return /[\uAC00-\uD7AF]/.test(text);
+}
+
+function hasLatin(text: string): boolean {
+  return /[A-Za-z0-9]/.test(text);
+}
+
+function mergeOCRBlocks(primary: OCRBlock[], secondary: OCRBlock[]): OCRBlock[] {
+  const merged = [...primary];
+  const seen = new Set(
+    primary.map((block) => `${block.text}|${Math.round(block.frame.x)}|${Math.round(block.frame.y)}`)
+  );
+  secondary.forEach((block) => {
+    const key = `${block.text}|${Math.round(block.frame.x)}|${Math.round(block.frame.y)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(block);
+  });
+  return merged;
+}
+
 function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): string {
   const trimmedRaw = (rawText || '').trim();
   if (trimmedRaw) {
@@ -151,9 +250,9 @@ function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): str
   const tokens = blocks.map((block) => block.text.trim()).filter(Boolean);
   if (tokens.length === 0) return '';
 
-  const hasLatin = tokens.some((token) => /[A-Za-z0-9]/.test(token));
-  const hasCJK = tokens.some((token) => /[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(token));
-  if (hasCJK && !hasLatin) {
+  const containsLatin = tokens.some((token) => hasLatin(token));
+  const containsCJK = tokens.some((token) => hasCJK(token));
+  if (containsCJK && !containsLatin) {
     return tokens.join('');
   }
 

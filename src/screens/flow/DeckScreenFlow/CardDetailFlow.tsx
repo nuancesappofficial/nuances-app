@@ -218,6 +218,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
+  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [newAlbumName, setNewAlbumName] = React.useState('');
 
@@ -244,6 +245,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setAlbumNameOverrides(prefs.albumNameOverrides);
     setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
     setAlbumColorOverrides(prefs.albumColorOverrides);
+    setAlbumCoverOverrides(prefs.albumCoverOverrides);
     setDeletedAlbumIds(prefs.deletedAlbumIds);
   }, []);
 
@@ -462,9 +464,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         albumNameOverrides,
         albumEmojiOverrides,
         albumColorOverrides,
+        albumCoverOverrides,
         deletedAlbumIds,
       }).filter((album) => album.id !== 'all'),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
   );
   const isFavorite = selectedAlbums.includes(FAVORITES_ALBUM_ID);
 
@@ -724,6 +727,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       albumNameOverrides,
       albumEmojiOverrides,
       albumColorOverrides,
+      albumCoverOverrides,
       deletedAlbumIds,
     };
 
@@ -1189,7 +1193,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
             }}
           >
-            <View style={{ flex: 1, backgroundColor: '#ADD8E6' }} />
+            <View style={{ flex: 1, backgroundColor: '#02213D' }} />
           </Animated.View>
 
           <Animated.View
@@ -1247,8 +1251,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#87CEFA' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#87CEFA' },
+  container: { flex: 1, backgroundColor: '#02213D' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#02213D' },
   errorText: { color: '#F4EDE6', fontSize: 16, fontWeight: '600' },
   errorBackBtn: {
     marginTop: 10,

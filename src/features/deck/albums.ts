@@ -7,6 +7,7 @@ export type DeckAlbumPreferences = {
   albumNameOverrides: Record<string, string>;
   albumEmojiOverrides: Record<string, string>;
   albumColorOverrides: Record<string, string>;
+  albumCoverOverrides: Record<string, string>;
   deletedAlbumIds: string[];
 };
 
@@ -57,6 +58,7 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
         albumNameOverrides: {},
         albumEmojiOverrides: {},
         albumColorOverrides: {},
+        albumCoverOverrides: {},
         deletedAlbumIds: [],
       };
     }
@@ -76,6 +78,10 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
         parsed.albumColorOverrides && typeof parsed.albumColorOverrides === 'object'
           ? (parsed.albumColorOverrides as Record<string, string>)
           : {},
+      albumCoverOverrides:
+        parsed.albumCoverOverrides && typeof parsed.albumCoverOverrides === 'object'
+          ? (parsed.albumCoverOverrides as Record<string, string>)
+          : {},
       deletedAlbumIds: Array.isArray(parsed.deletedAlbumIds) ? parsed.deletedAlbumIds : [],
     };
   } catch (error) {
@@ -85,6 +91,7 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
       albumNameOverrides: {},
       albumEmojiOverrides: {},
       albumColorOverrides: {},
+      albumCoverOverrides: {},
       deletedAlbumIds: [],
     };
   }
@@ -240,6 +247,9 @@ export function buildDeckAlbums(
       name: album.isDefault ? album.name : prefs.albumNameOverrides[album.id] || album.name,
       emoji: album.isDefault ? album.emoji : prefs.albumEmojiOverrides[album.id] || album.emoji,
       color: album.isDefault ? album.color : prefs.albumColorOverrides[album.id] || album.color,
+      coverImageUri: album.isDefault
+        ? album.coverImageUri
+        : prefs.albumCoverOverrides[album.id] || album.coverImageUri,
     }))
     .filter((album) => !prefs.deletedAlbumIds.includes(album.id));
 }

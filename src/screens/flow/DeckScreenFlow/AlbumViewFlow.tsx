@@ -317,8 +317,15 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         searchInputRef={searchInputRef}
         onPressBack={() => navigation.goBack()}
         onPressSearch={() => {
-          setIsSearchVisible(true);
-          requestAnimationFrame(() => searchInputRef.current?.focus());
+          setIsSearchVisible((prev) => {
+            const next = !prev;
+            if (next) {
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+            } else {
+              setSearchQuery('');
+            }
+            return next;
+          });
         }}
         onPressSort={() => setShowSortModal(true)}
         onPressPlay={handlePressPlay}

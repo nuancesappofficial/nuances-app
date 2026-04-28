@@ -74,6 +74,34 @@ function CardDetailCarouselCardUI({
   onOpenAlbumSheet,
   onToggleFavorite,
 }: Props) {
+  const parseCardTags = React.useCallback((rawTags: unknown): string[] => {
+    if (Array.isArray(rawTags)) {
+      return rawTags
+        .filter((tag): tag is string => typeof tag === 'string')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+    }
+    if (typeof rawTags === 'string') {
+      const trimmed = rawTags.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((tag): tag is string => typeof tag === 'string')
+            .map((tag) => tag.trim())
+            .filter(Boolean);
+        }
+      } catch {
+        return trimmed
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+      }
+    }
+    return [];
+  }, []);
+
   const toChinesePartOfSpeech = React.useCallback((value: string | undefined | null): string => {
     const raw = (value || '').trim();
     if (!raw) return '詞性未標註';
@@ -102,6 +130,22 @@ function CardDetailCarouselCardUI({
   const itemDisplayDate = formatCardDate(item.createdAt);
   const isActiveCard = index === currentIndex;
   const definitionText = item.definition || '-';
+  const hasHeroImage = Boolean(itemImageUri);
+  const resolvedHeroImageUri = itemImageUri || undefined;
+  const semanticTags = React.useMemo(
+    () =>
+      parseCardTags(item.tags)
+        .map((tag) => tag.toLowerCase())
+        .filter((tag) => !tag.startsWith('album_'))
+        .slice(0, 3),
+    [item.tags, parseCardTags]
+  );
+  const semanticContextLine = React.useMemo(() => {
+    const context = (item.originalSentence || item.contextualExplanation || '').trim();
+    if (!context) return '';
+    const firstLine = context.split('\n').map((line) => line.trim()).find(Boolean) || '';
+    return firstLine.slice(0, 96);
+  }, [item.contextualExplanation, item.originalSentence]);
   const sourceSentence = React.useMemo(() => {
     const source = (item.originalSentence || '').trim();
     if (!source) return '-';
@@ -215,13 +259,35 @@ function CardDetailCarouselCardUI({
             {/* 內容：圖片、單字、詞性、翻譯、中文解釋句 */}
             <Reanimated.View style={[styles.detailPaper, frontAnimatedStyle, { flex: 1 }]}>
               <View style={styles.heroMediaWrap}>
-                {itemImageUri ? (
+                {hasHeroImage ? (
                   <TouchableOpacity activeOpacity={0.95} onPress={() => onOpenFullscreen(index)}>
-                    <Image source={{ uri: itemImageUri }} style={styles.heroMedia} resizeMode="cover" />
+                    <Image source={{ uri: resolvedHeroImageUri }} style={styles.heroMedia} resizeMode="cover" />
                   </TouchableOpacity>
                 ) : (
-                  <View style={styles.heroMediaFallback}>
-                    <Text style={styles.heroMediaFallbackWord}>{itemWord}</Text>
+                  <View style={localStyles.semanticHeroWrap}>
+                    <View style={localStyles.semanticHeroTopRow}>
+                      <View style={localStyles.semanticTypeChip}>
+                        <Text style={localStyles.semanticTypeChipText}>TEXT CARD</Text>
+                      </View>
+                      <Text style={localStyles.semanticPosText}>{itemCaption}</Text>
+                    </View>
+                    <Text style={localStyles.semanticHeroWord} numberOfLines={1}>
+                      {itemWord}
+                    </Text>
+                    {semanticContextLine ? (
+                      <Text style={localStyles.semanticContext} numberOfLines={2}>
+                        {semanticContextLine}
+                      </Text>
+                    ) : null}
+                    {semanticTags.length > 0 ? (
+                      <View style={localStyles.semanticTagRow}>
+                        {semanticTags.map((tag) => (
+                          <View key={`${item.id}-tag-${tag}`} style={localStyles.semanticTagChip}>
+                            <Text style={localStyles.semanticTagText}>#{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                 )}
               </View>
@@ -355,6 +421,71 @@ function CardDetailCarouselCardUI({
 }
 
 const localStyles = StyleSheet.create({
+  semanticHeroWrap: {
+    width: '100%',
+    minHeight: 196,
+    backgroundColor: '#EEF2F8',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    justifyContent: 'flex-end',
+  },
+  semanticHeroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 8,
+  },
+  semanticTypeChip: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: '#111827',
+  },
+  semanticTypeChipText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  semanticPosText: {
+    color: '#4B5563',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  semanticHeroWord: {
+    color: '#111111',
+    fontSize: 38,
+    fontWeight: '900',
+    letterSpacing: -1,
+  },
+  semanticContext: {
+    color: '#374151',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  semanticTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  semanticTagChip: {
+    borderRadius: 999,
+    backgroundColor: '#D9E3F2',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  semanticTagText: {
+    color: '#344256',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   cardActionRow: {
     flexDirection: 'row',
     alignItems: 'center',

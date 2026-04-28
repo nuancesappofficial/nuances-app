@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -17,6 +17,7 @@ type FolderIconProps = {
   accentColor?: string;
   iconEmoji?: string;
   coverColor?: string;
+  coverImageUri?: string;
   compact?: boolean;
 };
 
@@ -64,6 +65,7 @@ export function FolderIcon({
   accentColor = '#FFFFFF',
   iconEmoji,
   coverColor,
+  coverImageUri,
   compact = false,
 }: FolderIconProps) {
   void latestCards;
@@ -81,30 +83,33 @@ export function FolderIcon({
         <View style={[styles.iconLayer, styles.iconLayerBack2, { backgroundColor: backColor2 }]} />
         <View style={[styles.iconLayer, styles.iconLayerBack1, { backgroundColor: backColor1 }]} />
         <View style={[styles.iconLayer, styles.iconLayerFront, { backgroundColor: frontColor }]}>
+          {coverImageUri ? <Image source={{ uri: coverImageUri }} style={styles.coverImage} resizeMode="cover" /> : null}
           <View style={[styles.iconInnerStroke, compact ? styles.iconInnerStrokeCompact : null]} />
-          <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
-            {iconEmoji ? (
-              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
-            ) : canUseSymbols ? (
-              <SymbolView
-                name={theme.symbol}
-                size={compact ? 42 : 56}
-                tintColor="#F4F7FF"
-                type="monochrome"
-                style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
-                fallback={
-                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
-                    {theme.fallback}
-                  </Text>
-                }
-              />
-            ) : (
-              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
-            )}
-          </View>
+          {!coverImageUri ? (
+            <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
+              {iconEmoji ? (
+                <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
+              ) : canUseSymbols ? (
+                <SymbolView
+                  name={theme.symbol}
+                  size={compact ? 42 : 56}
+                  tintColor="#F4F7FF"
+                  type="monochrome"
+                  style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
+                  fallback={
+                    <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
+                      {theme.fallback}
+                    </Text>
+                  }
+                />
+              ) : (
+                <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
+              )}
+            </View>
+          ) : null}
           {compact ? (
             <LinearGradient
-              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.12)', 'rgba(0,0,0,0.30)']}
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.16)', 'rgba(0,0,0,0.38)']}
               locations={[0, 0.55, 1]}
               style={styles.bottomShade}
             >
@@ -169,6 +174,10 @@ const styles = StyleSheet.create({
     elevation: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  coverImage: {
+    ...StyleSheet.absoluteFillObject,
   },
   iconInnerStroke: {
     position: 'absolute',

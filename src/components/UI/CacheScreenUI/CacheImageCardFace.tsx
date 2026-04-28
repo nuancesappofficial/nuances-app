@@ -71,8 +71,8 @@ const styles = StyleSheet.create({
   },
   detectedWrap: {
     position: 'absolute',
-    left: 8,
-    right: 8,
+    left: 18,
+    right: 18,
     bottom: 8, // 讓預覽條稍微懸浮在底部，符合參考圖質感
     borderRadius: 12,
     overflow: 'hidden',

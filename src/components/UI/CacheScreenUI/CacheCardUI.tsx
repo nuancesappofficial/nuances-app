@@ -102,10 +102,12 @@ export default function CacheCardUI({
     isPressed.value = false;
 
     if (!shouldRunEntrance) {
-      x.value = 0;
-      y.value = toY;
-      scale.value = 1;
-      rot.value = targetRot;
+      // 同一個 animationSeed 內若 index 改變（例如批次新增導致卡片重排），
+      // 用 spring 平滑到新位置，避免卡片「瞬間跳位」造成閃現感。
+      x.value = withSpring(0, ELEGANT_SPRING);
+      y.value = withSpring(toY, ELEGANT_SPRING);
+      scale.value = withSpring(1, ELEGANT_SPRING);
+      rot.value = withSpring(targetRot, ELEGANT_SPRING);
       return;
     }
 
@@ -264,15 +266,11 @@ export default function CacheCardUI({
             <Animated.View style={[StyleSheet.absoluteFillObject, styles.dragMaskLayer, leftMaskStyle]} />
 
             <Animated.View style={[styles.dragIconWrap, rightIconStyle]}>
-              <View style={[styles.dragIconBadge, styles.dragIconBadgeRight]}>
-                <Ionicons name="checkmark" size={44} color="#FFFFFF" />
-              </View>
+              <Ionicons name="checkmark" size={56} color="#FFFFFF" style={styles.dragIcon} />
             </Animated.View>
 
             <Animated.View style={[styles.dragIconWrap, leftIconStyle]}>
-              <View style={[styles.dragIconBadge, styles.dragIconBadgeLeft]}>
-                <Ionicons name="close" size={44} color="#FFFFFF" />
-              </View>
+              <Ionicons name="close" size={56} color="#FFFFFF" style={styles.dragIcon} />
             </Animated.View>
           </View>
         </View>
@@ -330,34 +328,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   dragMaskLayer: {
-    zIndex: 1,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    pointerEvents: 'none',
   },
   dragIconWrap: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
+    zIndex: 30,
     alignItems: 'center',
     justifyContent: 'center',
     pointerEvents: 'none',
   },
-  dragIconBadge: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  dragIconBadgeRight: {
-    backgroundColor: 'rgba(18, 100, 52, 0.82)',
-    borderColor: 'rgba(169, 255, 205, 0.8)',
-  },
-  dragIconBadgeLeft: {
-    backgroundColor: 'rgba(126, 20, 20, 0.82)',
-    borderColor: 'rgba(255, 178, 178, 0.8)',
+  dragIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.35)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
 });

@@ -12,8 +12,10 @@ import ProfileMainScreenUI, {
   type HeatMapMonth,
 } from '../../../components/UI/ProfileScreenUI/ProfileMainScreenUI';
 import {
+  DEFAULT_USER_SETTINGS,
   loadUserSettings,
   saveUserSettings,
+  type AIReplyLanguage,
   type EntitlementMode,
 } from '@services/settings/userSettings';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -25,10 +27,27 @@ type Props = {
 };
 
 function getDateKey(input: Date | string): string {
-  const date = new Date(input);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  let date: Date;
+  if (typeof input === 'string') {
+    const dateOnly = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) {
+      const [, y, m, d] = dateOnly;
+      date = new Date(Number(y), Number(m) - 1, Number(d));
+    } else {
+      date = new Date(input);
+    }
+  } else {
+    date = new Date(input);
+  }
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  // Use UTC calendar day to avoid timezone boundary drift between sources.
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
@@ -104,28 +123,35 @@ function getMonthDiff(from: Date, to: Date): number {
   return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
 }
 
-function buildHeatMapMonthOffsets(cards: Card[], currentDate: Date): number[] {
+function buildHeatMapMonthOffsets(
+  cards: Card[],
+  currentDate: Date,
+  profile: Profile | null
+): number[] {
   const currentMonth = getMonthStart(currentDate);
-  const oldestCard = cards[cards.length - 1];
+  const earliestSourceDate = getSinceSourceDate(profile, cards);
+  const earliestMonth = getMonthStart(earliestSourceDate);
+  const diff = Math.max(0, getMonthDiff(earliestMonth, currentMonth));
 
-  if (!oldestCard?.createdAt) return [-1, 0, 1];
+  // 需求：
+  // 1) 往前可滑到「當前月份 + 6 個月」
+  // 2) 往後可滑到「使用者最初使用月份 - 6 個月」
+  const minOffset = -diff - 6;
+  const maxOffset = 6;
+  const length = maxOffset - minOffset + 1;
 
-  const oldestMonth = getMonthStart(new Date(oldestCard.createdAt));
-  const diff = Math.max(0, getMonthDiff(oldestMonth, currentMonth));
-  const historyOffsets = Array.from({ length: diff + 1 }, (_, index) => index - diff);
-
-  if (historyOffsets.length >= 3) return historyOffsets;
-  return [-1, 0, 1];
+  return Array.from({ length }, (_, index) => minOffset + index);
 }
 
 function buildHeatMapMonths(
   cards: Card[],
   cardImageMap: Record<string, string | undefined>,
-  currentDate: Date
+  currentDate: Date,
+  profile: Profile | null
 ): HeatMapMonth[] {
   const cardsByDate = buildCardsByDate(cards);
   const currentMonth = getMonthStart(currentDate);
-  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate);
+  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate, profile);
 
   return monthOffsets.map((offset) => {
     const monthDate = shiftMonth(currentMonth, offset);
@@ -138,10 +164,14 @@ function buildHeatMapMonths(
   });
 }
 
-function collectHeatMapPrimaryCardIds(cards: Card[], currentDate: Date): string[] {
+function collectHeatMapPrimaryCardIds(
+  cards: Card[],
+  currentDate: Date,
+  profile: Profile | null
+): string[] {
   const cardsByDate = buildCardsByDate(cards);
   const currentMonth = getMonthStart(currentDate);
-  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate);
+  const monthOffsets = buildHeatMapMonthOffsets(cards, currentDate, profile);
   const required = new Set<string>();
 
   monthOffsets.forEach((offset) => {
@@ -194,6 +224,9 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
   const [currentDate, setCurrentDate] = React.useState(() => new Date());
   const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
+  const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
+    DEFAULT_USER_SETTINGS.aiReplyLanguage
+  );
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -203,8 +236,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   } | null>(null);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
   const heatMapPrimaryCardIds = React.useMemo(
-    () => collectHeatMapPrimaryCardIds(cards, currentDate),
-    [cards, currentDate]
+    () => collectHeatMapPrimaryCardIds(cards, currentDate, profile),
+    [cards, currentDate, profile]
   );
 
   React.useEffect(() => {
@@ -289,18 +322,19 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     };
   }, [cards, heatMapPrimaryCardIds]);
 
-  const refreshEntitlementMode = React.useCallback(async () => {
+  const refreshAppSettings = React.useCallback(async () => {
     try {
       const settings = await loadUserSettings();
       setEntitlementMode(settings.entitlementMode);
+      setAiReplyLanguage(settings.aiReplyLanguage);
     } catch (error) {
-      console.error('[Profiles] load entitlement mode failed:', error);
+      console.error('[Profiles] load app settings failed:', error);
     }
   }, []);
 
   React.useEffect(() => {
-    void refreshEntitlementMode();
-  }, [refreshEntitlementMode]);
+    void refreshAppSettings();
+  }, [refreshAppSettings]);
 
   const handleToggleEntitlementMode = React.useCallback(async () => {
     if (savingEntitlement) return;
@@ -325,6 +359,21 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       setSavingEntitlement(false);
     }
   }, [savingEntitlement]);
+
+  const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.aiReplyLanguage === language) return;
+      await saveUserSettings({
+        ...settings,
+        aiReplyLanguage: language,
+      });
+      setAiReplyLanguage(language);
+    } catch (error) {
+      console.error('[Profiles] update AI reply language failed:', error);
+      Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
+    }
+  }, []);
 
   const handleChangeProfilePhoto = React.useCallback(async () => {
     try {
@@ -361,8 +410,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   }, []);
 
   const heatMapMonths = React.useMemo(
-    () => buildHeatMapMonths(cards, cardImageMap, currentDate),
-    [cardImageMap, cards, currentDate]
+    () => buildHeatMapMonths(cards, cardImageMap, currentDate, profile),
+    [cardImageMap, cards, currentDate, profile]
   );
   const initialMonthIndex = React.useMemo(
     () => findCurrentMonthIndex(heatMapMonths, currentDate),
@@ -387,12 +436,13 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         initialMonthIndex={initialMonthIndex}
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
+        aiReplyLanguage={aiReplyLanguage}
         settingsVisible={settingsVisible}
-        onPressRecaps={() => Alert.alert('Recaps', 'Recaps 功能下一步接上資料來源。')}
         onPressSettings={() => setSettingsVisible(true)}
         onCloseSettings={() => setSettingsVisible(false)}
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
+        onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
         onPressBack={() => {
           if (overlayMode && onRequestClose) {
             onRequestClose();

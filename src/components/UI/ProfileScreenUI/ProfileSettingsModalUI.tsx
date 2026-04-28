@@ -1,23 +1,37 @@
 import React from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { AIReplyLanguage } from '@services/settings/userSettings';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+
+const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
+  { code: 'zh-TW', label: '繁中' },
+  { code: 'zh-CN', label: '简中' },
+  { code: 'en', label: 'EN' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+];
 
 type Props = {
   visible: boolean;
   savingEntitlement: boolean;
   entitlementMode: 'guest' | 'premium';
+  aiReplyLanguage: AIReplyLanguage;
   onClose: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
+  onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
 };
 
 export default function ProfileSettingsModalUI({
   visible,
   savingEntitlement,
   entitlementMode,
+  aiReplyLanguage,
   onClose,
   onPressUploadProfilePic,
   onToggleEntitlement,
+  onChangeAIReplyLanguage,
 }: Props) {
   const [mounted, setMounted] = React.useState(visible);
   const overlayOpacity = React.useRef(new Animated.Value(0)).current;
@@ -93,6 +107,27 @@ export default function ProfileSettingsModalUI({
               </Text>
             </TouchableOpacity>
 
+            <View style={styles.languageSection}>
+              <Text style={styles.languageTitle}>AI Reply Language</Text>
+              <View style={styles.languageOptionsRow}>
+                {AI_LANGUAGE_OPTIONS.map((option) => {
+                  const active = option.code === aiReplyLanguage;
+                  return (
+                    <TouchableOpacity
+                      key={option.code}
+                      style={[styles.languageOption, active && styles.languageOptionActive]}
+                      activeOpacity={0.86}
+                      onPress={() => onChangeAIReplyLanguage(option.code)}
+                    >
+                      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
             <TouchableOpacity style={styles.closeButton} activeOpacity={0.85} onPress={onClose}>
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
@@ -137,28 +172,69 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   primaryButton: {
-    borderRadius: 18,
-    paddingVertical: 16,
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#111111',
     marginBottom: 12,
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   secondaryButton: {
-    borderRadius: 18,
-    paddingVertical: 15,
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#EEF2F7',
     marginBottom: 10,
   },
   secondaryButtonText: {
     color: '#111111',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
+  },
+  languageSection: {
+    borderRadius: 18,
+    backgroundColor: '#EEF2F7',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  languageTitle: {
+    color: '#4D5562',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    marginBottom: 10,
+  },
+  languageOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  languageOption: {
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.09)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  languageOptionActive: {
+    backgroundColor: '#111111',
+    borderColor: '#111111',
+  },
+  languageOptionText: {
+    color: '#2B3340',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  languageOptionTextActive: {
+    color: '#FFFFFF',
   },
   closeButton: {
     paddingVertical: 12,

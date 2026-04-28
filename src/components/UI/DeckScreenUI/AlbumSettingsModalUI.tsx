@@ -1,14 +1,18 @@
 import React from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
   visible: boolean;
   settingsName: string;
   settingsEmoji: string;
   settingsColor: string;
+  settingsCoverImageUri?: string;
   onChangeName: (name: string) => void;
   onChangeEmoji: (emoji: string) => void;
   onChangeColor: (color: string) => void;
+  onPickCoverImage: () => void;
+  onRemoveCoverImage: () => void;
   onCancel: () => void;
   onSave: () => void;
 };
@@ -21,9 +25,12 @@ export default function AlbumSettingsModalUI({
   settingsName,
   settingsEmoji,
   settingsColor,
+  settingsCoverImageUri,
   onChangeName,
   onChangeEmoji,
   onChangeColor,
+  onPickCoverImage,
+  onRemoveCoverImage,
   onCancel,
   onSave,
 }: Props) {
@@ -73,6 +80,29 @@ export default function AlbumSettingsModalUI({
                   onPress={() => onChangeColor(color)}
                 />
               ))}
+            </View>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionLabel}>Cover image</Text>
+            <View style={styles.coverPreviewWrap}>
+              {settingsCoverImageUri ? (
+                <Image source={{ uri: settingsCoverImageUri }} style={styles.coverPreviewImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.coverPreviewEmpty}>
+                  <Text style={styles.coverPreviewEmptyText}>No cover image</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.coverButtonRow}>
+              <TouchableOpacity style={styles.coverActionButton} onPress={onPickCoverImage}>
+                <Text style={styles.coverActionButtonText}>Choose from Photos</Text>
+              </TouchableOpacity>
+              {settingsCoverImageUri ? (
+                <TouchableOpacity style={styles.coverActionButtonDanger} onPress={onRemoveCoverImage}>
+                  <Text style={styles.coverActionButtonDangerText}>Remove</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
 
@@ -178,6 +208,64 @@ const styles = StyleSheet.create({
   colorOptionActive: {
     borderColor: '#F6F6F3',
   },
+  coverPreviewWrap: {
+    width: '100%',
+    height: 110,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#111318',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  coverPreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverPreviewEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverPreviewEmptyText: {
+    color: '#737B88',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  coverButtonRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  coverActionButton: {
+    flex: 1,
+    borderRadius: BUTTON_TOKENS.radius.md,
+    minHeight: BUTTON_TOKENS.height.regular,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111318',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  coverActionButtonText: {
+    color: '#FFFFFF',
+    fontSize: BUTTON_TOKENS.text.regular,
+    fontWeight: BUTTON_TOKENS.weight.regular,
+  },
+  coverActionButtonDanger: {
+    borderRadius: BUTTON_TOKENS.radius.md,
+    paddingHorizontal: 14,
+    minHeight: BUTTON_TOKENS.height.regular,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,85,85,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,85,85,0.38)',
+  },
+  coverActionButtonDangerText: {
+    color: '#FF8E8E',
+    fontSize: BUTTON_TOKENS.text.regular,
+    fontWeight: BUTTON_TOKENS.weight.regular,
+  },
   buttonRow: {
     flexDirection: 'row',
     gap: 10,
@@ -185,28 +273,28 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: '#1A1E27',
-    paddingVertical: 14,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   saveButton: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
+    minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   saveText: {
     color: '#111111',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
   },
 });

@@ -271,6 +271,8 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
       await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
     }
 
+    const copiedMediaUris: string[] = [];
+
     for (const sharedPath of imagePaths) {
       if (!sharedPath || typeof sharedPath !== 'string') {
         console.warn('Skip invalid image path:', sharedPath);
@@ -294,26 +296,33 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
         throw new Error(`Copy failed: target file not found at ${targetPath}`);
       }
 
-      // 寫入資料庫，使用 file:// URI 確保 Image 組件可存取
+      // 先收集成功複製的檔案，稍後一次批量寫入 DB，避免逐筆寫入造成 UI 多次重排閃現
       const mediaUri = targetPath.startsWith('file://') ? targetPath : toFileUri(targetPath);
-      await database.write(async () => {
-        await database.get<CachedItem>('cached_items').create((item) => {
-          item.userId = userId;
-          item.type = 'image';
-          item.contentType = 'image';
-          item.mediaUri = mediaUri;
-          item.imageStoragePath = mediaUri;
-          item.contentText = undefined; // OCR 會在後續流程填入
-          item.sourceApp = 'share_sheet';
-          item.aiAnalysisCompleted = false;
-          item.convertedToCard = false;
-          const expiresAt = new Date();
-          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-          item.expiresAt = expiresAt;
-        });
-      });
+      copiedMediaUris.push(mediaUri);
 
       console.log(`Image saved to cache: ${mediaUri}`);
+    }
+
+    if (copiedMediaUris.length > 0) {
+      await database.write(async () => {
+        const collection = database.get<CachedItem>('cached_items');
+        for (const mediaUri of copiedMediaUris) {
+          await collection.create((item) => {
+            item.userId = userId;
+            item.type = 'image';
+            item.contentType = 'image';
+            item.mediaUri = mediaUri;
+            item.imageStoragePath = mediaUri;
+            item.contentText = undefined; // OCR 會在後續流程填入
+            item.sourceApp = 'share_sheet';
+            item.aiAnalysisCompleted = false;
+            item.convertedToCard = false;
+            const expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+            item.expiresAt = expiresAt;
+          });
+        }
+      });
     }
 
     // 清理共享容器中的圖片（可選，失敗不影響主流程）
