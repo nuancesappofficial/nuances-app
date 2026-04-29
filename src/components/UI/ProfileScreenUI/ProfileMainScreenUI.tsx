@@ -18,10 +18,12 @@ import {
 import Svg, { Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import type Card from '@database/models/Card';
 import ProfileSettingsModalUI from './ProfileSettingsModalUI';
-import type { AIReplyLanguage } from '@services/settings/userSettings';
+import type { AIReplyLanguage, AppThemeName } from '@services/settings/userSettings';
+import { getAppThemePalette } from '../../../theme/appTheme';
 
 export type HeatMapDay = {
   key: string;
@@ -50,12 +52,14 @@ type Props = {
   entitlementMode: 'guest' | 'premium';
   savingEntitlement: boolean;
   aiReplyLanguage: AIReplyLanguage;
+  appTheme: AppThemeName;
   settingsVisible: boolean;
   onPressSettings: () => void;
   onCloseSettings: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
+  onChangeTheme: (theme: AppThemeName) => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
@@ -68,7 +72,7 @@ const DAY_TILE_RADIUS = 14;
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const BASE_BG = '#02213D';
-const PANEL_BG = '#8FD2FA';
+const PANEL_BG = '#4EAFF4';
 const TEXT_PRIMARY = '#111111';
 const TEXT_SECONDARY = '#2C2C2E';
 const TEXT_MUTED = '#8E8E93';
@@ -284,16 +288,19 @@ export default function ProfileMainScreenUI({
   entitlementMode,
   savingEntitlement,
   aiReplyLanguage,
+  appTheme,
   settingsVisible,
   onPressSettings,
   onCloseSettings,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
+  onChangeTheme,
   onPressBack,
   onPressMenu,
   onPressDay,
 }: Props) {
+  const palette = React.useMemo(() => getAppThemePalette(appTheme), [appTheme]);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
@@ -601,15 +608,15 @@ export default function ProfileMainScreenUI({
   ]);
 
   return (
-    <View style={[styles.root, overlayMode && styles.rootOverlay]}>
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.profilePanel}>
+    <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
+        <View style={[styles.profilePanel, { backgroundColor: palette.containerBg }]}>
           <View style={styles.avatarWrap}>
             {profileImageUri ? (
               <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatarFallback}>
-                <IconSymbol name="person.crop.circle.fill" fallback="👤" size={88} color="#B8BDC6" />
+                <Ionicons name="person-circle" size={160} color="#B8BDC6" />
               </View>
             )}
           </View>
@@ -621,11 +628,15 @@ export default function ProfileMainScreenUI({
           </View>
         </View>
 
-        <TouchableOpacity style={styles.settingsPillButton} activeOpacity={0.88} onPress={onPressSettings}>
+        <TouchableOpacity
+          style={[styles.settingsPillButton, { backgroundColor: palette.containerBg }]}
+          activeOpacity={0.88}
+          onPress={onPressSettings}
+        >
           <View style={styles.settingsPillIconCircle}>
-            <IconSymbol name="gearshape" fallback="⚙" size={18} color={TEXT_PRIMARY} />
+            <IconSymbol name="gearshape" fallback="⚙" size={18} color={palette.textOnContainer} />
           </View>
-          <Text style={styles.settingsPillLabel}>Settings</Text>
+          <Text style={[styles.settingsPillLabel, { color: palette.textOnContainer }]}>Settings</Text>
         </TouchableOpacity>
 
         <View style={styles.monthHeaderRow}>
@@ -656,7 +667,7 @@ export default function ProfileMainScreenUI({
         </View>
 
         <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
-          <View style={styles.heatMapPanel}>
+          <View style={[styles.heatMapPanel, { backgroundColor: palette.containerBg }]}>
             <Animated.View
               style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
               onLayout={handlePagerLayout}
@@ -875,10 +886,12 @@ export default function ProfileMainScreenUI({
         entitlementMode={entitlementMode}
         savingEntitlement={savingEntitlement}
         aiReplyLanguage={aiReplyLanguage}
+        appTheme={appTheme}
         onClose={onCloseSettings}
         onPressUploadProfilePic={onPressUploadProfilePic}
         onToggleEntitlement={onToggleEntitlement}
         onChangeAIReplyLanguage={onChangeAIReplyLanguage}
+        onChangeTheme={onChangeTheme}
       />
     </View>
   );

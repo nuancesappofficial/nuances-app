@@ -12,6 +12,7 @@ import Reanimated, {
 import type Card from '@database/models/Card';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
 import PronunciationCoachUI from './PronunciationCoachUI';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
   item: Card;
@@ -334,15 +335,19 @@ function CardDetailCarouselCardUI({
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    style={[localStyles.actionBtn, localStyles.actionBtnFavorite]} 
+                    style={[
+                      localStyles.actionBtn,
+                      localStyles.actionBtnFavorite,
+                      isFavorite ? localStyles.actionBtnFavoriteActive : null,
+                    ]} 
                     onPress={onToggleFavorite}
                   >
                     <Ionicons 
                       name={isFavorite ? 'star' : 'star-outline'} 
                       size={20} 
-                      color="#F5A623"
+                      color={isFavorite ? '#FFFFFF' : '#F5A623'}
                     />
-                    <Text style={localStyles.actionBtnTextStar}>
+                    <Text style={[localStyles.actionBtnText, localStyles.actionBtnTextOnColor]}>
                       收藏
                     </Text>
                   </TouchableOpacity>
@@ -499,29 +504,32 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    backgroundColor: '#F2F4F7',
-    borderRadius: 20,
+    height: BUTTON_TOKENS.height.prominent,
+    backgroundColor: '#111827',
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
     gap: 6,
   },
   actionBtnFolder: {
-    backgroundColor: '#8B5E3C',
+    backgroundColor: '#D97706',
+    borderColor: 'rgba(255,214,153,0.75)',
   },
   actionBtnFavorite: {
-    backgroundColor: '#FFF7DB',
+    backgroundColor: '#111827',
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  actionBtnFavoriteActive: {
+    backgroundColor: '#D97706',
+    borderColor: 'rgba(255,214,153,0.75)',
   },
   actionBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#6B7280',
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
+    color: '#FFFFFF',
   },
   actionBtnTextOnColor: {
     color: '#FFFFFF',
-  },
-  actionBtnTextStar: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#F5A623',
   },
 });
 

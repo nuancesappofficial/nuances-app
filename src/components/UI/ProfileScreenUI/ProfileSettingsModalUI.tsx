@@ -1,7 +1,7 @@
 import React from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { AIReplyLanguage } from '@services/settings/userSettings';
+import type { AIReplyLanguage, AppThemeName } from '@services/settings/userSettings';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
@@ -11,16 +11,23 @@ const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'ja', label: '日本語' },
   { code: 'ko', label: '한국어' },
 ];
+const APP_THEME_OPTIONS: Array<{ code: AppThemeName; label: string }> = [
+  { code: 'black', label: 'Black' },
+  { code: 'white', label: 'White' },
+  { code: 'blue', label: 'Blue' },
+];
 
 type Props = {
   visible: boolean;
   savingEntitlement: boolean;
   entitlementMode: 'guest' | 'premium';
   aiReplyLanguage: AIReplyLanguage;
+  appTheme: AppThemeName;
   onClose: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
+  onChangeTheme: (theme: AppThemeName) => void;
 };
 
 export default function ProfileSettingsModalUI({
@@ -28,10 +35,12 @@ export default function ProfileSettingsModalUI({
   savingEntitlement,
   entitlementMode,
   aiReplyLanguage,
+  appTheme,
   onClose,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
+  onChangeTheme,
 }: Props) {
   const [mounted, setMounted] = React.useState(visible);
   const overlayOpacity = React.useRef(new Animated.Value(0)).current;
@@ -118,6 +127,27 @@ export default function ProfileSettingsModalUI({
                       style={[styles.languageOption, active && styles.languageOptionActive]}
                       activeOpacity={0.86}
                       onPress={() => onChangeAIReplyLanguage(option.code)}
+                    >
+                      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.languageSection}>
+              <Text style={styles.languageTitle}>Theme</Text>
+              <View style={styles.languageOptionsRow}>
+                {APP_THEME_OPTIONS.map((option) => {
+                  const active = option.code === appTheme;
+                  return (
+                    <TouchableOpacity
+                      key={option.code}
+                      style={[styles.languageOption, active && styles.languageOptionActive]}
+                      activeOpacity={0.86}
+                      onPress={() => onChangeTheme(option.code)}
                     >
                       <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>
                         {option.label}

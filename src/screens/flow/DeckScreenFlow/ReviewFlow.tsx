@@ -21,7 +21,7 @@ import {
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
 } from '../../../features/deck/reviewPreferences';
-import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
+import { markCardAsQuizReviewed } from '../../../features/deck/cardDetailSeen';
 
 type Props = {
   navigation: any;
@@ -39,6 +39,7 @@ type Props = {
 type ReviewQuestion = {
   id: string;
   cardId: string;
+  questionType: 'fill_blank' | 'translation_to_word' | 'word_to_translation';
   prompt: string;
   correctAnswer: string;
   options: string[];
@@ -81,6 +82,14 @@ function pickEnglishAnswer(card: Card): string {
 
 function pickDisplayAnswer(card: Card): string {
   return pickEnglishAnswer(card);
+}
+
+function pickDefinitionText(card: Card): string {
+  const definition = (card.definition || '').trim();
+  if (definition) return definition;
+  const contextual = (card.contextualExplanation || '').trim();
+  if (contextual) return contextual;
+  return (card.originalSentence || '').trim() || '-';
 }
 
 function escapeRegex(text: string): string {
@@ -128,6 +137,23 @@ function buildOptionPool(allCards: Card[], currentCard: Card): string[] {
   return shuffleArray(pool);
 }
 
+function buildDefinitionOptionPool(allCards: Card[], currentCard: Card): string[] {
+  const correct = pickDefinitionText(currentCard).toLowerCase();
+  const seen = new Set<string>();
+  const pool: string[] = [];
+
+  allCards.forEach((card) => {
+    const value = pickDefinitionText(card).trim();
+    if (!value || value === '-') return;
+    const key = value.toLowerCase();
+    if (key === correct || seen.has(key)) return;
+    seen.add(key);
+    pool.push(value);
+  });
+
+  return shuffleArray(pool);
+}
+
 function buildReviewQuestions(
   sourceCards: Card[],
   allCards: Card[],
@@ -141,25 +167,74 @@ function buildReviewQuestions(
   const totalCount = Math.min(sourceCards.length, Math.max(questionCount, pinnedCards.length));
   const selected = [...pinnedCards, ...randomPool].slice(0, totalCount);
 
-  return selected.map((card) => {
-    const correctAnswer = pickDisplayAnswer(card);
-    const distractors = buildOptionPool(allCards, card).slice(0, 3);
+  return selected.map((card, index) => {
+    const word = pickDisplayAnswer(card);
+    const definition = pickDefinitionText(card);
+    const partOfSpeech = (card.partOfSpeech || 'word').trim();
+    const sourceSentence = (card.originalSentence || card.definition || '').trim();
+    const contextualExplanation = (card.contextualExplanation || '').trim();
+    const maskedSentence = buildMaskedSentence(card);
 
-    while (distractors.length < 3) {
-      distractors.push(`${correctAnswer} ${distractors.length + 1}`);
+    const typePattern = index % 3;
+    const questionType: ReviewQuestion['questionType'] =
+      typePattern === 0 ? 'fill_blank' : typePattern === 1 ? 'translation_to_word' : 'word_to_translation';
+
+    if (questionType === 'translation_to_word') {
+      const distractors = buildOptionPool(allCards, card).slice(0, 3);
+      while (distractors.length < 3) {
+        distractors.push(`${word} ${distractors.length + 1}`);
+      }
+      return {
+        id: card.id,
+        cardId: card.id,
+        questionType,
+        prompt: 'Choose the correct word',
+        correctAnswer: word,
+        options: shuffleArray([word, ...distractors]),
+        sentence: definition,
+        sourceSentence,
+        partOfSpeech,
+        definition,
+        contextualExplanation,
+      };
     }
 
+    if (questionType === 'word_to_translation') {
+      const distractors = buildDefinitionOptionPool(allCards, card).slice(0, 3);
+      while (distractors.length < 3) {
+        distractors.push(`${definition} (${distractors.length + 1})`);
+      }
+      return {
+        id: card.id,
+        cardId: card.id,
+        questionType,
+        prompt: 'Choose the correct translation',
+        correctAnswer: definition,
+        options: shuffleArray([definition, ...distractors]),
+        sentence: word,
+        sourceSentence,
+        partOfSpeech,
+        definition,
+        contextualExplanation,
+      };
+    }
+
+    const distractors = buildOptionPool(allCards, card).slice(0, 3);
+    while (distractors.length < 3) {
+      distractors.push(`${word} ${distractors.length + 1}`);
+    }
     return {
       id: card.id,
       cardId: card.id,
+      questionType,
       prompt: (card.partOfSpeech || 'word').trim(),
-      correctAnswer,
-      options: shuffleArray([correctAnswer, ...distractors]),
-      sentence: buildMaskedSentence(card),
-      sourceSentence: (card.originalSentence || card.definition || '').trim(),
-      partOfSpeech: (card.partOfSpeech || 'word').trim(),
+      correctAnswer: word,
+      options: shuffleArray([word, ...distractors]),
+      sentence: maskedSentence,
+      sourceSentence,
+      partOfSpeech,
       definition: (card.definition || '').trim(),
-      contextualExplanation: (card.contextualExplanation || '').trim(),
+      contextualExplanation,
     };
   });
 }
@@ -280,7 +355,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const isCorrect = option === question.correctAnswer;
     setSelectedAnswers((prev) => ({ ...prev, [question.id]: option }));
     setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
-    void markCardAsSeen(question.cardId);
+    void markCardAsQuizReviewed(question.cardId);
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
     Animated.timing(flipValue, {
@@ -491,18 +566,23 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const renderSummaryCard = React.useCallback(() => {
     const total = questions.length;
     const percentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const summaryTone =
+      percentage >= 90
+        ? { message: 'Outstanding. You are mastering these words.', color: '#0F7A54' }
+        : percentage >= 75
+          ? { message: 'Great job. Your retention is getting really solid.', color: '#1E4E7E' }
+          : percentage >= 55
+            ? { message: 'Nice progress. A quick replay will lock this in.', color: '#B86E00' }
+            : { message: 'Good effort. One more round and you will level up fast.', color: '#A43A3A' };
 
     return (
       <View style={[styles.slide, { width }]}>
         <View style={[styles.cardShell, styles.summaryShell]}>
-          <Text style={styles.summaryEyebrow}>SESSION COMPLETE</Text>
           <Text style={styles.summaryScore}>{correctCount}/{total}</Text>
-          <Text style={styles.summaryPercent}>{percentage}% correct</Text>
-          <Text style={styles.summaryBody}>
-            Nice run. You can play again right away, or head back to the album.
-          </Text>
+          <Text style={[styles.summaryPercent, { color: summaryTone.color }]}>{percentage}% correct</Text>
+          <Text style={styles.summaryBody}>{summaryTone.message}</Text>
 
-          <TouchableOpacity style={[styles.summaryPrimaryButton, { backgroundColor: themeColor }]} onPress={handleReplay}>
+          <TouchableOpacity style={styles.summaryPrimaryButton} onPress={handleReplay}>
             <Text style={styles.summaryPrimaryText}>Play Again</Text>
           </TouchableOpacity>
 
@@ -512,7 +592,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
         </View>
       </View>
     );
-  }, [correctCount, handleReplay, navigation, questions.length, themeColor, width]);
+  }, [correctCount, handleReplay, navigation, questions.length, width]);
 
   const renderItem = React.useCallback(
     ({ item }: { item: ReviewSlide }) => {
@@ -840,32 +920,34 @@ const styles = StyleSheet.create({
   },
   summaryShell: {
     borderRadius: 28,
-    backgroundColor: '#101217',
+    backgroundColor: '#8FC4F0',
+    borderWidth: 1,
+    borderColor: 'rgba(235,247,255,0.78)',
     paddingHorizontal: 26,
     paddingVertical: 28,
     justifyContent: 'center',
   },
   summaryEyebrow: {
-    color: '#9AA2AF',
+    color: '#727985',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.4,
   },
   summaryScore: {
     marginTop: 18,
-    color: '#FFFFFF',
+    color: '#101218',
     fontSize: 72,
     fontWeight: '900',
   },
   summaryPercent: {
     marginTop: 8,
-    color: '#E5FF4F',
+    color: '#1C3E63',
     fontSize: 24,
     fontWeight: '800',
   },
   summaryBody: {
     marginTop: 18,
-    color: '#B2B9C5',
+    color: '#2A313C',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -873,11 +955,14 @@ const styles = StyleSheet.create({
     marginTop: 28,
     minHeight: 56,
     borderRadius: 18,
+    backgroundColor: 'rgba(210,232,250,0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(25,73,120,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryPrimaryText: {
-    color: '#101010',
+    color: '#18436F',
     fontSize: 17,
     fontWeight: '800',
   },
@@ -886,12 +971,13 @@ const styles = StyleSheet.create({
     minHeight: 56,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(211,234,255,0.72)',
+    backgroundColor: '#1E4E7E',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summarySecondaryText: {
-    color: '#FFFFFF',
+    color: '#F3F9FF',
     fontSize: 17,
     fontWeight: '800',
   },

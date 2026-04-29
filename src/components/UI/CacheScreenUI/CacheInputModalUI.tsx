@@ -41,6 +41,17 @@ type Props = {
 
 const SHEET_TOP_SAFE_MARGIN = 72;
 const KEYBOARD_EXTRA_GAP = 8;
+const MODAL_ENTRY_TRANSLATE_Y = 520;
+const MODAL_ENTRY_DURATION_MS = 700;
+const MODAL_BACKDROP_DURATION_MS = 300;
+const MODAL_EXIT_DURATION_MS = 260;
+// Tune this value to resize Text tab input box; modal panel height follows this value.
+const TEXT_INPUT_BOX_HEIGHT = 200;
+const TEXT_TAB_EXTRA_HEIGHT = 50; // label + spacing
+// Single control for Image tab vertical size:
+// Shrink this number to make upload area smaller and drop modal top down together.
+const IMAGE_UPLOAD_PANEL_HEIGHT = 210;
+const IMAGE_TAB_PANEL_HEIGHT = IMAGE_UPLOAD_PANEL_HEIGHT + 110; // label + gap + capture button + anti-crop buffer
 
 export default function CacheInputModalUI({
   visible,
@@ -61,13 +72,16 @@ export default function CacheInputModalUI({
   onCaptureImage,
 }: Props) {
   const { height: windowHeight } = useWindowDimensions();
+  const [shouldRender, setShouldRender] = React.useState(visible);
   const [panelWidth, setPanelWidth] = React.useState(0);
   const [sheetHeight, setSheetHeight] = React.useState(0);
   const slideX = React.useRef(new Animated.Value(0)).current;
-  const entranceY = React.useRef(new Animated.Value(36)).current;
+  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const keyboardLift = React.useRef(new Animated.Value(0)).current;
   const currentOffsetRef = React.useRef(0);
+  const textTabPanelHeight = TEXT_INPUT_BOX_HEIGHT + TEXT_TAB_EXTRA_HEIGHT;
+  const panelHeight = addTab === 'image' ? IMAGE_TAB_PANEL_HEIGHT : textTabPanelHeight;
 
   React.useEffect(() => {
     if (panelWidth <= 0) return;
@@ -146,34 +160,59 @@ export default function CacheInputModalUI({
   );
 
   React.useEffect(() => {
-    if (!visible) {
-      entranceY.setValue(36);
+    if (visible) {
+      setShouldRender(true);
+      if (suppressAnimation) {
+        entranceY.setValue(0);
+        backdropOpacity.setValue(1);
+        return;
+      }
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
       backdropOpacity.setValue(0);
-      keyboardLift.setValue(0);
+      Animated.parallel([
+        Animated.timing(entranceY, {
+          toValue: 0,
+          duration: MODAL_ENTRY_DURATION_MS,
+          easing: Easing.bezier(0.30, 0.2, 0.40, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: MODAL_BACKDROP_DURATION_MS,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
       return;
     }
 
-    if (suppressAnimation) {
-      entranceY.setValue(0);
-      backdropOpacity.setValue(1);
-      return;
-    }
-
+    if (!shouldRender) return;
+    Keyboard.dismiss();
     Animated.parallel([
       Animated.timing(entranceY, {
-        toValue: 0,
-        duration: 230,
-        easing: Easing.out(Easing.cubic),
+        toValue: MODAL_ENTRY_TRANSLATE_Y,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(backdropOpacity, {
-        toValue: 1,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        toValue: 0,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [backdropOpacity, entranceY, keyboardLift, suppressAnimation, visible]);
+      Animated.timing(keyboardLift, {
+        toValue: 0,
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      setShouldRender(false);
+      onDismiss();
+    });
+  }, [backdropOpacity, entranceY, keyboardLift, onDismiss, shouldRender, suppressAnimation, visible]);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -220,19 +259,26 @@ export default function CacheInputModalUI({
     [entranceY, keyboardLift]
   );
 
+  if (!shouldRender) return null;
+
   return (
     <Modal
-      visible={visible}
+      visible
       animationType="none"
       transparent
       onRequestClose={onClose}
-      onDismiss={onDismiss}
     >
       <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
       <Animated.View
-        style={[styles.modalSheet, { transform: [{ translateY: sheetTransform }] }]}
+        style={[
+          styles.modalSheet,
+          {
+            paddingBottom: addTab === 'image' ? 0 : 16,
+            transform: [{ translateY: sheetTransform }],
+          },
+        ]}
         onLayout={(event) => {
           const nextHeight = Math.round(event.nativeEvent.layout.height);
           setSheetHeight((prev) => (prev === nextHeight ? prev : nextHeight));
@@ -257,7 +303,7 @@ export default function CacheInputModalUI({
         </View>
 
         <View
-          style={styles.panelViewport}
+          style={[styles.panelViewport, { height: panelHeight }]}
           onLayout={handlePanelLayout}
           {...panResponder.panHandlers}
         >
@@ -266,11 +312,13 @@ export default function CacheInputModalUI({
               <CacheTextInputPanelUI
                 manualText={manualText}
                 onChangeManualText={onManualTextChange}
+                inputHeight={TEXT_INPUT_BOX_HEIGHT}
               />
             </View>
             <View style={styles.panelPage}>
               <CacheImageInputPanelUI
                 creatingImage={creatingImage}
+                uploadPanelHeight={IMAGE_UPLOAD_PANEL_HEIGHT}
                 onUploadImage={onUploadImage}
                 onCaptureImage={onCaptureImage}
               />
@@ -306,9 +354,7 @@ export default function CacheInputModalUI({
               <Text style={[styles.actionBtnText, styles.addBtnText]}>Add</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <View style={[styles.actionRow, styles.actionRowGhost]} />
-        )}
+        ) : null}
       </Animated.View>
     </Modal>
   );
@@ -320,6 +366,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   modalSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#111318',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -328,7 +378,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 16,
-    minHeight: 320,
+    minHeight: 0,
     maxHeight: '66%',
   },
   sheetHandle: {
@@ -372,7 +422,6 @@ const styles = StyleSheet.create({
   },
   panelViewport: {
     overflow: 'hidden',
-    minHeight: 280,
   },
   panelTrack: {
     width: '200%',
@@ -382,7 +431,7 @@ const styles = StyleSheet.create({
     width: '50%',
   },
   actionRow: {
-    marginTop: 6,
+    marginTop: 0,
     flexDirection: 'row',
     gap: 10,
   },
@@ -411,9 +460,6 @@ const styles = StyleSheet.create({
   },
   actionBtnDisabled: {
     opacity: 0.45,
-  },
-  actionRowGhost: {
-    opacity: 0,
   },
   actionBtnText: {
     fontWeight: BUTTON_TOKENS.weight.regular,

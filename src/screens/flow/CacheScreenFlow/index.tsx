@@ -7,16 +7,16 @@ import {
   AppState,
   TouchableOpacity,
   Animated,
-  Image,
   useWindowDimensions,
   type AppStateStatus,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
+import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -36,8 +36,6 @@ import Reanimated, {
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
-import { extractTextFromImage, isOCRAvailable, type OCRBlock } from '@services/ocr';
-import { supabase } from '@services/supabase/client';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -45,8 +43,16 @@ import type CachedItem from '@database/models/CachedItem';
 import CacheStackUI from '../../../components/UI/CacheScreenUI/CacheStackUI';
 import CacheInputModalUI from '../../../components/UI/CacheScreenUI/CacheInputModalUI';
 import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
+import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
+import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  type AppThemeName,
+} from '@services/settings/userSettings';
+import { getAppThemePalette } from '../../../theme/appTheme';
 
 type Props = {
   navigation: any;
@@ -86,6 +92,7 @@ const STICKER_HEIGHT = 32;
 const STICKER_GRID_HEIGHT = 188;
 const STICKER_MIN_WIDTH = 36;
 const STICKER_MAX_WIDTH = 420;
+const STICKER_OUTLINE_SAFETY_PAD = 12;
 
 function estimateStickerWidth(label: string): number {
   const text = normalizeStickerText(label);
@@ -101,7 +108,8 @@ function estimateStickerWidth(label: string): number {
     }
   }
   // 字母會重疊，寬度要比一般字寬更緊
-  const estimated = Math.ceil(units * 13.6 + 24);
+  // Include extra space for thick white outline so right edge won't be clipped.
+  const estimated = Math.ceil(units * 13.6 + 24 + STICKER_OUTLINE_SAFETY_PAD);
   return Math.max(STICKER_MIN_WIDTH, Math.min(STICKER_MAX_WIDTH, estimated));
 }
 
@@ -421,10 +429,6 @@ function VocabStickerCloud({
   );
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
 function toSourceLabel(sourceApp?: string | null): string {
   const value = (sourceApp || '').trim().toLowerCase();
   if (!value) return 'Unknown';
@@ -534,19 +538,36 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     setAddTab,
   });
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
-  const deletingItemIdsRef = React.useRef(new Set<string>());
   const hasFocusedOnceRef = React.useRef(false);
   const handledOverlayTokenRef = React.useRef<number | null>(null);
   const overlayAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const invalidCleanupRunningRef = React.useRef(false);
-  const ocrProcessingIdsRef = React.useRef(new Set<string>());
-  const ocrSettledIdsRef = React.useRef(new Set<string>());
-  const [liveDetectedPreviewById, setLiveDetectedPreviewById] = useState<Record<string, string>>({});
   const previousCardCountRef = React.useRef<number | null>(null);
+  const [appTheme, setAppTheme] = useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
+  const palette = useMemo(() => getAppThemePalette(appTheme), [appTheme]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      const hydrateTheme = async () => {
+        try {
+          const settings = await loadUserSettings();
+          if (active) setAppTheme(settings.theme);
+        } catch (error) {
+          console.warn('[Cache] load theme failed:', error);
+          if (active) setAppTheme(DEFAULT_USER_SETTINGS.theme);
+        }
+      };
+      void hydrateTheme();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const openAddModal = React.useCallback(() => {
+    void Haptics.selectionAsync();
     setShowAddModal(true);
-  }, [queueQuickAddCropperAfterModalDismiss]);
+  }, []);
 
   const refreshPasteEnabled = React.useCallback(async () => {
     try {
@@ -609,16 +630,30 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   }, []);
 
   useEffect(() => {
-    if (entryAnimationToken != null) return;
-
     const handleFocused = () => {
-      setAnimationSeed((prev) => prev + 1);
+      const currentCount = cacheItems.length;
+      const prevCount = previousCardCountRef.current;
 
-      if (hasFocusedOnceRef.current) {
-        setRestoreSeed((prev) => prev + 1);
-      } else {
+      if (prevCount == null) {
+        // First time entering cache: play once if there are cards.
+        if (currentCount > 0) {
+          setAnimationSeed((prev) => prev + 1);
+        }
         hasFocusedOnceRef.current = true;
+        previousCardCountRef.current = currentCount;
+        return;
       }
+
+      const hasNewCards = currentCount > prevCount;
+      if (hasNewCards) {
+        setAnimationSeed((prev) => prev + 1);
+      } else if (hasFocusedOnceRef.current) {
+        // Existing stack only: keep layout stable without entry replay.
+        setRestoreSeed((prev) => prev + 1);
+      }
+
+      hasFocusedOnceRef.current = true;
+      previousCardCountRef.current = currentCount;
     };
 
     if (navigation?.isFocused?.() ?? true) {
@@ -633,7 +668,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     return () => {
       unsubscribe?.();
     };
-  }, [entryAnimationToken, navigation]);
+  }, [cacheItems.length, navigation]);
 
   useEffect(() => {
     if (entryAnimationToken == null) return;
@@ -682,6 +717,12 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     });
     return () => sub.remove();
   }, []);
+
+  const { liveDetectedPreviewById } = useCacheOcrBackfill({
+    cacheItems,
+    getDetectedPreview,
+  });
+  const { deleteCacheItemPermanently } = useCacheItemCleanup({ cacheItems });
 
   const cards = useMemo<CacheCardRecord[]>(() => {
     return [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
@@ -867,281 +908,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     setDidPasteIntoTextBox(false);
   }, []);
 
-  const normalizeImageUriForCache = React.useCallback(async (imageUri: string): Promise<string> => {
-    if (!imageUri) return imageUri;
-    try {
-      const normalized = await ImageManipulator.manipulateAsync(
-        imageUri,
-        [],
-        { compress: 0.98, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      return normalized.uri || imageUri;
-    } catch (error) {
-      console.warn('[CacheList] normalize image uri failed, fallback to original:', error);
-      return imageUri;
-    }
-  }, []);
-
-  const runLocalOCRForPreview = React.useCallback(async (imageUri: string): Promise<OCRBlock[] | undefined> => {
-    if (!imageUri || !isOCRAvailable()) return undefined;
-    try {
-      const imageSize = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-        Image.getSize(
-          imageUri,
-          (width, height) => resolve({ width, height }),
-          (error) => reject(error)
-        );
-      });
-
-      const sideInset = Math.round(imageSize.width * 0.04);
-      const topInset = Math.round(imageSize.height * 0.12);
-      const cropWidth = Math.max(1, imageSize.width - sideInset * 2);
-      const cropHeight = Math.max(1, imageSize.height - topInset);
-
-      const cropped = await ImageManipulator.manipulateAsync(
-        imageUri,
-        [
-          {
-            crop: {
-              originX: sideInset,
-              originY: topInset,
-              width: cropWidth,
-              height: cropHeight,
-            },
-          },
-        ],
-        {
-          compress: 1,
-          format: ImageManipulator.SaveFormat.JPEG,
-        }
-      );
-
-      const result = await extractTextFromImage(cropped.uri);
-      if (!Array.isArray(result.blocks) || result.blocks.length === 0) return undefined;
-      return result.blocks;
-    } catch (error) {
-      console.warn('[CacheList] quick cache OCR failed:', error);
-      return undefined;
-    }
-  }, []);
-
-  const hasOCRAnnotations = React.useCallback((annotations: unknown): boolean => {
-    if (annotations == null) return false;
-
-    if (Array.isArray(annotations)) {
-      return annotations.length > 0;
-    }
-    if (typeof annotations === 'string') {
-      try {
-        const parsed = JSON.parse(annotations);
-        return Array.isArray(parsed) && parsed.length > 0;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }, []);
-
-  React.useEffect(() => {
-    const activeIds = new Set(cacheItems.map((item) => item.id));
-    for (const id of Array.from(ocrSettledIdsRef.current)) {
-      if (!activeIds.has(id)) ocrSettledIdsRef.current.delete(id);
-    }
-    for (const id of Array.from(ocrProcessingIdsRef.current)) {
-      if (!activeIds.has(id)) ocrProcessingIdsRef.current.delete(id);
-    }
-    setLiveDetectedPreviewById((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const key of Object.keys(next)) {
-        if (!activeIds.has(key)) {
-          delete next[key];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [cacheItems]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    const runBackfillOCR = async () => {
-      const targets = cacheItems
-        .filter((item) => {
-        const imageUri =
-          item.imageStoragePath ||
-          item.mediaUri ||
-          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
-        if (!imageUri) return false;
-        if (hasOCRAnnotations(item.imageAnnotations)) return false;
-        if (ocrProcessingIdsRef.current.has(item.id)) return false;
-        if (ocrSettledIdsRef.current.has(item.id)) return false;
-        return true;
-      })
-        .sort((a, b) => {
-          const aTs = a.createdAt?.getTime?.() ?? 0;
-          const bTs = b.createdAt?.getTime?.() ?? 0;
-          return bTs - aTs;
-        });
-
-      for (const item of targets) {
-        if (cancelled) return;
-        const baseUri =
-          item.imageStoragePath ||
-          item.mediaUri ||
-          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
-        if (!baseUri) continue;
-
-        ocrProcessingIdsRef.current.add(item.id);
-        setLiveDetectedPreviewById((prev) => ({ ...prev, [item.id]: 'text scanning...' }));
-        try {
-          const normalizedUri = await normalizeImageUriForCache(baseUri);
-          const ocrBlocks = await runLocalOCRForPreview(normalizedUri);
-          if (cancelled) return;
-
-          const detectedPreview = getDetectedPreview(ocrBlocks);
-          setLiveDetectedPreviewById((prev) => ({
-            ...prev,
-            [item.id]: detectedPreview || 'No text recognized',
-          }));
-
-          await database.write(async () => {
-            await item.update((record) => {
-              if ((!record.imageStoragePath || !record.imageStoragePath.startsWith('file://')) && normalizedUri) {
-                record.imageStoragePath = normalizedUri;
-              }
-              record.imageAnnotations = (ocrBlocks || []) as any; 
-            });
-          });
-        } catch (error) {
-          console.warn('[CacheList] backfill OCR failed:', error);
-        } finally {
-          ocrProcessingIdsRef.current.delete(item.id);
-          ocrSettledIdsRef.current.add(item.id);
-        }
-      }
-    };
-
-    void runBackfillOCR();
-    return () => {
-      cancelled = true;
-    };
-  }, [cacheItems, hasOCRAnnotations, normalizeImageUriForCache, runLocalOCRForPreview]);
-
   useEffect(() => {
     if (!showAddModal) return;
     void refreshPasteEnabled();
   }, [refreshPasteEnabled, showAddModal]);
-
-  const deleteCacheItemPermanently = React.useCallback(async (
-    item: CachedItem,
-    options?: { silent?: boolean }
-  ) => {
-    if (deletingItemIdsRef.current.has(item.id)) return;
-    deletingItemIdsRef.current.add(item.id);
-    try {
-      const userId = item.userId || (await getCurrentAuthUserId());
-      if (!userId) {
-        throw new Error('Missing user id for deletion');
-      }
-
-      // Some legacy/local-only rows may use non-UUID ids and cannot exist in Supabase UUID PK.
-      // In that case, skip remote delete and only hard-delete locally.
-      if (isUuid(item.id)) {
-        const { error: remoteDeleteError } = await supabase
-          .from('cached_items')
-          .delete()
-          .eq('id', item.id)
-          .eq('user_id', userId);
-        if (remoteDeleteError) {
-          throw remoteDeleteError;
-        }
-      }
-
-      await database.write(async () => {
-        await item.destroyPermanently();
-      });
-    } catch (error) {
-      console.error('[CacheList] delete cache item failed:', error);
-      if (!options?.silent) {
-        Alert.alert('刪除失敗', '無法同步刪除到後端，請稍後再試。');
-      }
-    } finally {
-      deletingItemIdsRef.current.delete(item.id);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (cacheItems.length === 0) return;
-    if (invalidCleanupRunningRef.current) return;
-
-    let cancelled = false;
-    invalidCleanupRunningRef.current = true;
-    const runInvalidImageCleanup = async () => {
-      try {
-        const invalidItems: CachedItem[] = [];
-
-        for (const item of cacheItems) {
-          if (item.contentType !== 'image') continue;
-          if (deletingItemIdsRef.current.has(item.id)) continue;
-
-          const imageSource =
-            item.imageStoragePath?.trim() ||
-            item.mediaUri?.trim() ||
-            item.contentUrl?.trim() ||
-            '';
-
-          if (!imageSource) {
-            invalidItems.push(item);
-            continue;
-          }
-
-          const lower = imageSource.toLowerCase();
-          const isHttpRemote = lower.startsWith('http://') || lower.startsWith('https://');
-          const isLocalPath =
-            lower.startsWith('file://') ||
-            imageSource.startsWith('/') ||
-            lower.startsWith('content://') ||
-            lower.startsWith('ph://');
-
-          if (!isHttpRemote && !isLocalPath) {
-            invalidItems.push(item);
-            continue;
-          }
-
-          const needsLocalExistenceCheck = lower.startsWith('file://') || imageSource.startsWith('/');
-          if (!needsLocalExistenceCheck) continue;
-
-          const normalizedLocalPath = imageSource.startsWith('file://')
-            ? imageSource
-            : `file://${imageSource}`;
-          try {
-            const info = await FileSystem.getInfoAsync(normalizedLocalPath);
-            if (!info.exists) {
-              invalidItems.push(item);
-            }
-          } catch {
-            invalidItems.push(item);
-          }
-        }
-
-        if (cancelled || invalidItems.length === 0) return;
-        for (const item of invalidItems) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-await-in-loop
-          await deleteCacheItemPermanently(item, { silent: true });
-        }
-      } finally {
-        invalidCleanupRunningRef.current = false;
-      }
-    };
-
-    void runInvalidImageCleanup();
-    return () => {
-      cancelled = true;
-    };
-  }, [cacheItems, deleteCacheItemPermanently]);
 
   const handleCardImageError = React.useCallback(
     (itemId: string) => {
@@ -1203,10 +973,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   );
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={styles.vocabSection}>
         <Text style={styles.vocabTitleOutside}>Today&apos;s Uploads</Text>
-        <View style={styles.vocabContainer}>
+        <View style={[styles.vocabContainer, { backgroundColor: palette.containerBg }]}>
           <VocabStickerCloud items={todayStickerWords} onPressSticker={handlePressTodaySticker} />
           {stackCards.length > 0 ? (
             <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint="light" />

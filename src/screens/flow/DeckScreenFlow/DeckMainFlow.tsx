@@ -21,7 +21,12 @@ import {
   saveDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
-import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  type AppThemeName,
+} from '@services/settings/userSettings';
+import { loadQuizReviewedCardIds } from '../../../features/deck/cardDetailSeen';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
@@ -58,11 +63,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState<string | undefined>(undefined);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
+  const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<Set<string>>(new Set());
   const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] = React.useState(false);
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
   );
+  const [appTheme, setAppTheme] = React.useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
@@ -154,13 +160,32 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+      const hydrateTheme = async () => {
+        try {
+          const settings = await loadUserSettings();
+          if (active) setAppTheme(settings.theme);
+        } catch (error) {
+          console.warn('[DeckMain] load theme failed:', error);
+          if (active) setAppTheme(DEFAULT_USER_SETTINGS.theme);
+        }
+      };
+      void hydrateTheme();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
       const hydrateSeenCards = async () => {
         try {
-          const nextSeen = await loadSeenCardIds();
-          if (active) setSeenCardIds(nextSeen);
+          const nextReviewed = await loadQuizReviewedCardIds();
+          if (active) setQuizReviewedCardIds(nextReviewed);
         } catch (error) {
-          console.warn('[DeckMain] load seen cards failed:', error);
-          if (active) setSeenCardIds(new Set());
+          console.warn('[DeckMain] load quiz-reviewed cards failed:', error);
+          if (active) setQuizReviewedCardIds(new Set());
         }
       };
       void hydrateSeenCards();
@@ -304,8 +329,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, [allCards, toDayKey]);
 
   const todayUnreviewedCount = React.useMemo(
-    () => todayCardIds.filter((id) => !seenCardIds.has(id)).length,
-    [todayCardIds, seenCardIds]
+    () => todayCardIds.filter((id) => !quizReviewedCardIds.has(id)).length,
+    [todayCardIds, quizReviewedCardIds]
   );
 
   const handlePressTodayReview = React.useCallback(() => {
@@ -514,6 +539,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   return (
     <>
       <DeckMainScreenUI
+        appTheme={appTheme}
         heroStatusText={allCards.length > 0 ? "Cache isn't empty" : 'Cache is empty'}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}

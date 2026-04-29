@@ -293,20 +293,31 @@ function LiquidTabBar({
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
-  const activeIndex = React.useRef(new Animated.Value(selectedTabIndex)).current;
+  const activeTranslateX = React.useRef(new Animated.Value(0)).current;
   const pressScales = React.useRef(TAB_ITEMS.map(() => new Animated.Value(1))).current;
-
-  React.useEffect(() => {
-    Animated.spring(activeIndex, {
-      toValue: selectedTabIndex,
-      useNativeDriver: false,
-      tension: 220,
-      friction: 22,
-    }).start();
-  }, [activeIndex, selectedTabIndex]);
   const innerTrackWidth = Math.max(0, tabBarWidth - TAB_BAR_SIDE_PADDING * 2);
   const slotWidth = innerTrackWidth > 0 ? innerTrackWidth / 3 : 0;
   const capsuleWidth = Math.max(0, slotWidth - TAB_CAPSULE_INSET * 2);
+  const capsuleBaseX = TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET;
+
+  React.useEffect(() => {
+    if (slotWidth <= 0) return;
+    const toValue = capsuleBaseX + slotWidth * selectedTabIndex;
+    activeTranslateX.stopAnimation();
+    Animated.timing(activeTranslateX, {
+      toValue,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [activeTranslateX, capsuleBaseX, selectedTabIndex, slotWidth]);
+
+  React.useEffect(() => {
+    if (slotWidth <= 0) return;
+    activeTranslateX.setValue(capsuleBaseX + slotWidth * selectedTabIndex);
+    // set only on first valid layout tick
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slotWidth]);
   const handlePressIn = React.useCallback((index: number) => {
     Animated.spring(pressScales[index], {
       toValue: 0.92,
@@ -344,14 +355,7 @@ function LiquidTabBar({
                 width: capsuleWidth,
                 transform: [
                   {
-                    translateX: activeIndex.interpolate({
-                      inputRange: [0, 1, 2],
-                      outputRange: [
-                        TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET,
-                        TAB_BAR_SIDE_PADDING + slotWidth + TAB_CAPSULE_INSET,
-                        TAB_BAR_SIDE_PADDING + slotWidth * 2 + TAB_CAPSULE_INSET,
-                      ],
-                    }),
+                    translateX: activeTranslateX,
                   },
                 ],
               },

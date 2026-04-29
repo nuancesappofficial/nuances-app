@@ -1,14 +1,17 @@
 import React from 'react';
 import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 type Props = {
   creatingImage: boolean;
+  uploadPanelHeight: number;
   onUploadImage: () => void;
   onCaptureImage: () => void;
 };
 
 export default function CacheImageInputPanelUI({
   creatingImage,
+  uploadPanelHeight,
   onUploadImage,
   onCaptureImage,
 }: Props) {
@@ -16,7 +19,7 @@ export default function CacheImageInputPanelUI({
     <>
       <Text style={styles.inputLabel}>Capture or upload image</Text>
       <TouchableOpacity
-        style={styles.imageUploadPanel}
+        style={[styles.imageUploadPanel, { height: uploadPanelHeight }]}
         activeOpacity={0.9}
         onPress={onUploadImage}
         disabled={creatingImage}
@@ -33,7 +36,7 @@ export default function CacheImageInputPanelUI({
         onPress={onCaptureImage}
         disabled={creatingImage}
       >
-        <Text style={styles.primaryActionText}>Capture Image</Text>
+        <Ionicons name="camera" size={22} color="#111111" />
       </TouchableOpacity>
     </>
   );
@@ -47,7 +50,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   imageUploadPanel: {
-    minHeight: 210,
     backgroundColor: '#181C23',
     borderRadius: 20,
     borderWidth: 1,

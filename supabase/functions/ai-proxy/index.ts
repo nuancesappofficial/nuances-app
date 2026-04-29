@@ -124,9 +124,9 @@ const BILLABLE_ACTIONS = new Set<Action>([
 const LOG_RAW_GEMINI = String(Deno.env.get('AI_LOG_RAW_GEMINI') || '').toLowerCase() === 'true';
 const GENERATE_CARD_MODEL =
   sanitizeText(Deno.env.get('AI_GENERATE_CARD_MODEL') || '', 120) ||
-  'gemini-3.1-flash-lite-preview';
+  'gemini-2.5-flash';
 const GENERATE_CARD_FALLBACK_MODELS = String(
-  Deno.env.get('AI_GENERATE_CARD_FALLBACK_MODELS') || 'gemini-2.5-flash,gemini-2.0-flash-lite'
+  Deno.env.get('AI_GENERATE_CARD_FALLBACK_MODELS') || 'gemini-2.0-flash-lite,gemini-3-flash-preview'
 )
   .split(',')
   .map((item) => sanitizeText(item, 120))
@@ -149,6 +149,39 @@ type AIExecutionMetrics = {
 
 function normalizeWhitespace(input: string): string {
   return input.replace(/\s+/g, ' ').trim();
+}
+
+function extractFirstJsonObject(raw: string): string | null {
+  if (!raw) return null;
+  const start = raw.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escapeNext = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return raw.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
 }
 
 function normalizeHeadword(input: unknown, fallback: string): string {
@@ -672,12 +705,11 @@ Output a JSON object with the following exact keys:
         });
       }
 
-      // Robust JSON extraction matching `{...}`
+      // Robust JSON extraction with brace-balance parser.
       const rawContent = aiResponse.content.trim();
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON object found in response');
-      
-      parsed = JSON.parse(jsonMatch[0]);
+      const jsonString = extractFirstJsonObject(rawContent);
+      if (!jsonString) throw new Error('No JSON object found in response');
+      parsed = JSON.parse(jsonString);
       if (parsed) break; 
     } catch (error) {
       lastErrorMsg = error instanceof Error ? error.message : String(error);

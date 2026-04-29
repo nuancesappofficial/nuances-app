@@ -4,11 +4,13 @@ import { Text, TextInput, StyleSheet, View } from 'react-native';
 type Props = {
   manualText: string;
   onChangeManualText: (value: string) => void;
+  inputHeight?: number;
 };
 
 export default function CacheTextInputPanelUI({
   manualText,
   onChangeManualText,
+  inputHeight = 118,
 }: Props) {
   return (
     <View style={styles.container}>
@@ -17,7 +19,7 @@ export default function CacheTextInputPanelUI({
         value={manualText}
         onChangeText={onChangeManualText}
         multiline
-        style={styles.textInput}
+        style={[styles.textInput, { height: inputHeight, maxHeight: inputHeight }]}
         placeholder="Paste a sentence containing slang, idioms, or expressions..."
         placeholderTextColor="#9CA3AF"
       />
@@ -36,8 +38,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   textInput: {
-    flex: 1,
-    minHeight: 92,
     borderRadius: 20,
     backgroundColor: '#181C23',
     borderWidth: 1,

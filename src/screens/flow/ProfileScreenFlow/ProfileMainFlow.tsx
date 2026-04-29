@@ -16,6 +16,7 @@ import {
   loadUserSettings,
   saveUserSettings,
   type AIReplyLanguage,
+  type AppThemeName,
   type EntitlementMode,
 } from '@services/settings/userSettings';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -227,6 +228,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
+  const [appTheme, setAppTheme] = React.useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -327,6 +329,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       const settings = await loadUserSettings();
       setEntitlementMode(settings.entitlementMode);
       setAiReplyLanguage(settings.aiReplyLanguage);
+      setAppTheme(settings.theme);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -372,6 +375,21 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     } catch (error) {
       console.error('[Profiles] update AI reply language failed:', error);
       Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
+    }
+  }, []);
+
+  const handleChangeAppTheme = React.useCallback(async (theme: AppThemeName) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.theme === theme) return;
+      await saveUserSettings({
+        ...settings,
+        theme,
+      });
+      setAppTheme(theme);
+    } catch (error) {
+      console.error('[Profiles] update app theme failed:', error);
+      Alert.alert('更新失敗', '無法儲存主題設定，請稍後再試。');
     }
   }, []);
 
@@ -437,12 +455,14 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
         aiReplyLanguage={aiReplyLanguage}
+        appTheme={appTheme}
         settingsVisible={settingsVisible}
         onPressSettings={() => setSettingsVisible(true)}
         onCloseSettings={() => setSettingsVisible(false)}
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
+        onChangeTheme={handleChangeAppTheme}
         onPressBack={() => {
           if (overlayMode && onRequestClose) {
             onRequestClose();

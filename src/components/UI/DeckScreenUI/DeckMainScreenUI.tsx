@@ -5,6 +5,8 @@ import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
+import type { AppThemeName } from '@services/settings/userSettings';
+import { getAppThemePalette } from '../../../theme/appTheme';
 
 const ALBUMS_PER_PAGE = 9;
 const GRID_COLUMNS = 3;
@@ -15,6 +17,7 @@ const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
 const ALBUM_GROUP_OFFSET_Y = 0;
 
 type Props = {
+  appTheme: AppThemeName;
   heroStatusText?: string;
   searchQuery: string;
   onSearchChange: (value: string) => void;
@@ -44,6 +47,7 @@ type Props = {
 };
 
 export default function DeckMainScreenUI({
+  appTheme,
   searchQuery,
   onSearchChange,
   onClearSearch,
@@ -69,6 +73,7 @@ export default function DeckMainScreenUI({
   onMenuFinish,
   onActionEnd,
 }: Props) {
+  const palette = React.useMemo(() => getAppThemePalette(appTheme), [appTheme]);
   const { width: screenWidth } = useWindowDimensions();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
@@ -327,7 +332,7 @@ export default function DeckMainScreenUI({
   });
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={styles.topRightRow}>
         <TouchableOpacity
           style={styles.brandIconButton}
@@ -405,12 +410,12 @@ export default function DeckMainScreenUI({
       </View>
 
       <View style={styles.albumGroupShadow}>
-        <View style={styles.albumGroup}>
+        <View style={[styles.albumGroup, { backgroundColor: palette.containerBg }]}>
           <FlatList
             data={albumPages}
             horizontal
             pagingEnabled
-            style={styles.albumPager}
+            style={[styles.albumPager, { backgroundColor: palette.containerBg }]}
             keyExtractor={(_, index) => `album-page-${index}`}
             showsHorizontalScrollIndicator={false}
             decelerationRate="fast"
@@ -471,22 +476,27 @@ export default function DeckMainScreenUI({
           ) : (
             <View style={styles.todayReviewInactiveRow}>
               <TouchableOpacity
-                style={[styles.todayReviewCard, styles.todayReviewCardInactive, styles.todayReviewQuickQuizButton]}
+                style={[
+                  styles.todayReviewCard,
+                  styles.todayReviewCardInactive,
+                  styles.todayReviewQuickQuizButton,
+                  { backgroundColor: palette.containerBg },
+                ]}
                 activeOpacity={0.9}
                 onPress={onPressTodayReview}
               >
                 <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive]}>Quick quiz</Text>
-                  <Ionicons name="play" size={16} color="#1C3E63" />
+                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
+                  <Ionicons name="play" size={16} color={palette.textOnContainer} />
                 </View>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.todayReviewEqualizerButton}
+                style={[styles.todayReviewEqualizerButton, { backgroundColor: palette.containerBg }]}
                 activeOpacity={0.9}
                 onPress={onPressTodayReviewTuning}
               >
-                <Ionicons name="options-outline" size={22} color="#1C3E63" />
+                <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
               </TouchableOpacity>
             </View>
           )}
@@ -495,7 +505,7 @@ export default function DeckMainScreenUI({
 
       <View style={styles.wordShowcaseWrap}>
         <TouchableOpacity
-          style={styles.wordShowcase}
+          style={[styles.wordShowcase, { backgroundColor: palette.containerBg }]}
           activeOpacity={0.88}
           disabled={!activeShowcaseItem}
           onPress={() => {
@@ -503,7 +513,7 @@ export default function DeckMainScreenUI({
             onPressSlideshowItem(activeShowcaseItem);
           }}
         >
-          <Text style={styles.wordShowcaseLabel}>Word Pop</Text>
+          <Text style={[styles.wordShowcaseLabel, { color: palette.textOnContainer }]}>Word Pop</Text>
           <View style={styles.wordShowcaseContent}>
             {activeShowcaseItem?.imageUri ? (
               <Animated.View style={[styles.wordThumbWrap, { opacity: wordOpacity }]}>
@@ -511,10 +521,10 @@ export default function DeckMainScreenUI({
               </Animated.View>
             ) : (
               <Animated.View style={[styles.wordThumbFallback, { opacity: wordOpacity }]}>
-                <Text style={styles.wordThumbFallbackText}>Aa</Text>
+                <Text style={[styles.wordThumbFallbackText, { color: palette.textOnContainer }]}>Aa</Text>
               </Animated.View>
             )}
-            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity }]} numberOfLines={2}>
+            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={2}>
               {activeShowcaseItem?.text || 'Start adding cards to generate words'}
             </Animated.Text>
           </View>
@@ -616,7 +626,7 @@ const styles = StyleSheet.create({
   },
   albumGroup: {
     borderRadius: 24,
-    backgroundColor: '#8FD2FA',
+    backgroundColor: '#4EAFF4',
     overflow: 'hidden',
   },
   albumGridContent: {
@@ -629,7 +639,7 @@ const styles = StyleSheet.create({
   },
   albumPager: {
     flexGrow: 0,
-    backgroundColor: '#8FD2FA',
+    backgroundColor: '#4EAFF4',
   },
   albumRow: {
     flexDirection: 'row',
@@ -693,7 +703,7 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   todayReviewCardInactive: {
-    backgroundColor: '#8FD2FA',
+    backgroundColor: '#4EAFF4',
     borderColor: 'rgba(2,33,61,0.22)',
     shadowColor: '#2C79B4',
     shadowOpacity: 0.18,
@@ -711,7 +721,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(2,33,61,0.22)',
-    backgroundColor: '#8FD2FA',
+    backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#2C79B4',
@@ -750,7 +760,7 @@ const styles = StyleSheet.create({
   wordShowcase: {
     minHeight: 88,
     borderRadius: 20,
-    backgroundColor: '#8FD2FA',
+    backgroundColor: '#4EAFF4',
     borderWidth: 1,
     borderColor: 'rgba(2,33,61,0.2)',
     paddingHorizontal: 16,
