@@ -20,10 +20,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
-import ProfileSettingsModalUI from './ProfileSettingsModalUI';
-import type { AIReplyLanguage, AppThemeName } from '@services/settings/userSettings';
-import { getAppThemePalette } from '../../../theme/appTheme';
+import type { AIReplyLanguage } from '@services/settings/userSettings';
+import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
 
 export type HeatMapDay = {
   key: string;
@@ -52,14 +52,10 @@ type Props = {
   entitlementMode: 'guest' | 'premium';
   savingEntitlement: boolean;
   aiReplyLanguage: AIReplyLanguage;
-  appTheme: AppThemeName;
-  settingsVisible: boolean;
   onPressSettings: () => void;
-  onCloseSettings: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
-  onChangeTheme: (theme: AppThemeName) => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
@@ -71,12 +67,12 @@ const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const DAY_TILE_RADIUS = 14;
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
-const BASE_BG = '#02213D';
-const PANEL_BG = '#4EAFF4';
-const TEXT_PRIMARY = '#111111';
-const TEXT_SECONDARY = '#2C2C2E';
-const TEXT_MUTED = '#8E8E93';
-const TEXT_ON_BASE = '#EAF3FF';
+const BASE_BG = SCREEN_BG;
+const PANEL_BG = CONTAINER_BG;
+const TEXT_PRIMARY = TEXT_ON_CONTAINER;
+const TEXT_SECONDARY = TEXT_ON_CONTAINER;
+const TEXT_MUTED = 'rgba(244, 246, 255, 0.62)';
+const TEXT_ON_BASE = TEXT_ON_BG;
 const HEATMAP_TOP_PADDING = 28;
 const HEATMAP_WEEKDAY_AND_GAP = 16;
 const HEATMAP_BOTTOM_PADDING = 6;
@@ -288,19 +284,15 @@ export default function ProfileMainScreenUI({
   entitlementMode,
   savingEntitlement,
   aiReplyLanguage,
-  appTheme,
-  settingsVisible,
   onPressSettings,
-  onCloseSettings,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
-  onChangeTheme,
   onPressBack,
   onPressMenu,
   onPressDay,
 }: Props) {
-  const palette = React.useMemo(() => getAppThemePalette(appTheme), [appTheme]);
+  const isFocused = useIsFocused();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
@@ -376,6 +368,21 @@ export default function ProfileMainScreenUI({
     currentMonthIndexRef.current = safeInitialIndex;
     pendingTargetIndexRef.current = null;
   }, [safeInitialIndex]);
+
+  React.useEffect(() => {
+    if (!isFocused) return;
+    if (monthsWithCalendarItems.length === 0) return;
+    const clamped = Math.max(0, Math.min(safeInitialIndex, monthsWithCalendarItems.length - 1));
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({
+        offset: clamped * effectivePagerWidth,
+        animated: false,
+      });
+      setCurrentMonthIndex(clamped);
+      currentMonthIndexRef.current = clamped;
+      pendingTargetIndexRef.current = null;
+    });
+  }, [isFocused, safeInitialIndex, monthsWithCalendarItems.length, effectivePagerWidth]);
 
   React.useEffect(
     () => () => {
@@ -608,9 +615,9 @@ export default function ProfileMainScreenUI({
   ]);
 
   return (
-    <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
-      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
-        <View style={[styles.profilePanel, { backgroundColor: palette.containerBg }]}>
+    <View style={[styles.root, overlayMode && styles.rootOverlay]}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.profilePanel}>
           <View style={styles.avatarWrap}>
             {profileImageUri ? (
               <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
@@ -628,15 +635,11 @@ export default function ProfileMainScreenUI({
           </View>
         </View>
 
-        <TouchableOpacity
-          style={[styles.settingsPillButton, { backgroundColor: palette.containerBg }]}
-          activeOpacity={0.88}
-          onPress={onPressSettings}
-        >
+        <TouchableOpacity style={styles.settingsPillButton} activeOpacity={0.88} onPress={onPressSettings}>
           <View style={styles.settingsPillIconCircle}>
-            <IconSymbol name="gearshape" fallback="⚙" size={18} color={palette.textOnContainer} />
+            <IconSymbol name="gearshape" fallback="⚙" size={18} color={TEXT_PRIMARY} />
           </View>
-          <Text style={[styles.settingsPillLabel, { color: palette.textOnContainer }]}>Settings</Text>
+          <Text style={styles.settingsPillLabel}>Settings</Text>
         </TouchableOpacity>
 
         <View style={styles.monthHeaderRow}>
@@ -667,7 +670,7 @@ export default function ProfileMainScreenUI({
         </View>
 
         <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
-          <View style={[styles.heatMapPanel, { backgroundColor: palette.containerBg }]}>
+          <View style={styles.heatMapPanel}>
             <Animated.View
               style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
               onLayout={handlePagerLayout}
@@ -880,19 +883,6 @@ export default function ProfileMainScreenUI({
           </View>
         </Animated.View>
       </Modal>
-
-      <ProfileSettingsModalUI
-        visible={settingsVisible}
-        entitlementMode={entitlementMode}
-        savingEntitlement={savingEntitlement}
-        aiReplyLanguage={aiReplyLanguage}
-        appTheme={appTheme}
-        onClose={onCloseSettings}
-        onPressUploadProfilePic={onPressUploadProfilePic}
-        onToggleEntitlement={onToggleEntitlement}
-        onChangeAIReplyLanguage={onChangeAIReplyLanguage}
-        onChangeTheme={onChangeTheme}
-      />
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -20,6 +20,7 @@ import CardDetailFlow from '../screens/flow/DeckScreenFlow/CardDetailFlow';
 import DayViewFlow from '../screens/flow/DeckScreenFlow/DayViewFlow';
 import DeckMainFlow from '../screens/flow/DeckScreenFlow/DeckMainFlow';
 import ProfileMainFlow from '../screens/flow/ProfileScreenFlow/ProfileMainFlow';
+import ProfileSettingsFlow from '../screens/flow/ProfileScreenFlow/ProfileSettingsFlow';
 import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
 import { database } from '../database';
 import type CachedItem from '../database/models/CachedItem';
@@ -261,6 +262,17 @@ function ProfileStack({
         >
           <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
           <ProfileStackNav.Screen
+            name="ProfileSettings"
+            component={ProfileSettingsFlow}
+            options={{
+              presentation: 'card',
+              animation: 'ios_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: { start: 28 },
+            }}
+          />
+          <ProfileStackNav.Screen
             name="CardDetail"
             component={CardDetailFlow}
             options={{
@@ -399,6 +411,7 @@ function LiquidTabBar({
 }
 
 export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
+  const { width: screenWidth } = useWindowDimensions();
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
   const swipeLockRef = React.useRef(false);
@@ -407,6 +420,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
   const [tabTransitionFromIndex, setTabTransitionFromIndex] = React.useState(0);
   const [tabTransitionToIndex, setTabTransitionToIndex] = React.useState(0);
+  const [tabTransitionAnimation, setTabTransitionAnimation] = React.useState<'fade' | 'slide'>('fade');
   const [isTabTransitioning, setIsTabTransitioning] = React.useState(false);
   const tabSceneProgress = React.useRef(new Animated.Value(1)).current;
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({
@@ -414,6 +428,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     1: true,
     2: true,
   });
+  const [tabBarForcedHidden, setTabBarForcedHidden] = React.useState(false);
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
@@ -425,18 +440,20 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   }, []);
 
   const switchTabImmediately = React.useCallback(
-    (index: number) => {
+    (index: number, options?: { animation?: 'fade' | 'slide' }) => {
       const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
       if (nextIndex === selectedTabIndex) return;
+      const animationType = options?.animation ?? 'fade';
       setTabTransitionFromIndex(selectedTabIndex);
       setTabTransitionToIndex(nextIndex);
+      setTabTransitionAnimation(animationType);
       setIsTabTransitioning(true);
       tabSceneProgress.stopAnimation();
       tabSceneProgress.setValue(0);
       setSelectedTabIndex(nextIndex);
       Animated.timing(tabSceneProgress, {
         toValue: 1,
-        duration: 240,
+        duration: animationType === 'slide' ? 360 : 240,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
@@ -461,11 +478,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       popDeckToRoot();
       return;
     }
-    switchTabImmediately(index);
+    switchTabImmediately(index, { animation: 'fade' });
   }, [popDeckToRoot, selectedTabIndex, switchTabImmediately]);
 
-  const goToTab = React.useCallback((index: number) => {
-    switchTabImmediately(index);
+  const goToTab = React.useCallback((index: number, options?: { animation?: 'fade' | 'slide' }) => {
+    switchTabImmediately(index, options);
   }, [switchTabImmediately]);
 
   const setPagerScrollEnabled = React.useCallback((enabled: boolean) => {
@@ -487,7 +504,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     cacheAddActionHandlerRef.current?.();
   }, []);
 
-  const shouldShowTabBar = tabRootRouteEnabledMap[selectedTabIndex] ?? true;
+  const shouldShowTabBar = (tabRootRouteEnabledMap[selectedTabIndex] ?? true) && !tabBarForcedHidden;
   const tabBarTranslateY = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -529,6 +546,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         goToTab,
         setCacheAddActionHandler,
         triggerCacheAddAction,
+        setTabBarHidden: setTabBarForcedHidden,
       }}
     >
       <View style={styles.container}>
@@ -541,21 +559,45 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
               styles.tabScene,
               {
                 opacity:
-                  isTabTransitioning && tabTransitionFromIndex === 0
-                    ? tabSceneProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0],
-                        extrapolate: 'clamp',
-                      })
-                    : isTabTransitioning && tabTransitionToIndex === 0
+                  tabTransitionAnimation === 'slide'
+                    ? selectedTabIndex === 0 || (isTabTransitioning && (tabTransitionFromIndex === 0 || tabTransitionToIndex === 0))
+                      ? 1
+                      : 0
+                    : isTabTransitioning && tabTransitionFromIndex === 0
                       ? tabSceneProgress.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0, 1],
+                          outputRange: [1, 0],
                           extrapolate: 'clamp',
                         })
-                      : selectedTabIndex === 0
-                        ? 1
+                      : isTabTransitioning && tabTransitionToIndex === 0
+                        ? tabSceneProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 1],
+                            extrapolate: 'clamp',
+                          })
+                        : selectedTabIndex === 0
+                          ? 1
+                          : 0,
+                transform: [
+                  {
+                    translateX:
+                      tabTransitionAnimation === 'slide' && isTabTransitioning
+                        ? tabTransitionFromIndex === 0
+                          ? tabSceneProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
+                              extrapolate: 'clamp',
+                            })
+                          : tabTransitionToIndex === 0
+                            ? tabSceneProgress.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
+                                extrapolate: 'clamp',
+                              })
+                            : 0
                         : 0,
+                  },
+                ],
                 zIndex: selectedTabIndex === 0 ? 3 : isTabTransitioning && tabTransitionFromIndex === 0 ? 2 : 1,
               },
             ]}
@@ -571,21 +613,45 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
               styles.tabScene,
               {
                 opacity:
-                  isTabTransitioning && tabTransitionFromIndex === 1
-                    ? tabSceneProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0],
-                        extrapolate: 'clamp',
-                      })
-                    : isTabTransitioning && tabTransitionToIndex === 1
+                  tabTransitionAnimation === 'slide'
+                    ? selectedTabIndex === 1 || (isTabTransitioning && (tabTransitionFromIndex === 1 || tabTransitionToIndex === 1))
+                      ? 1
+                      : 0
+                    : isTabTransitioning && tabTransitionFromIndex === 1
                       ? tabSceneProgress.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0, 1],
+                          outputRange: [1, 0],
                           extrapolate: 'clamp',
                         })
-                      : selectedTabIndex === 1
-                        ? 1
+                      : isTabTransitioning && tabTransitionToIndex === 1
+                        ? tabSceneProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 1],
+                            extrapolate: 'clamp',
+                          })
+                        : selectedTabIndex === 1
+                          ? 1
+                          : 0,
+                transform: [
+                  {
+                    translateX:
+                      tabTransitionAnimation === 'slide' && isTabTransitioning
+                        ? tabTransitionFromIndex === 1
+                          ? tabSceneProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
+                              extrapolate: 'clamp',
+                            })
+                          : tabTransitionToIndex === 1
+                            ? tabSceneProgress.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
+                                extrapolate: 'clamp',
+                              })
+                            : 0
                         : 0,
+                  },
+                ],
                 zIndex: selectedTabIndex === 1 ? 3 : isTabTransitioning && tabTransitionFromIndex === 1 ? 2 : 1,
               },
             ]}
@@ -598,21 +664,45 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
               styles.tabScene,
               {
                 opacity:
-                  isTabTransitioning && tabTransitionFromIndex === 2
-                    ? tabSceneProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0],
-                        extrapolate: 'clamp',
-                      })
-                    : isTabTransitioning && tabTransitionToIndex === 2
+                  tabTransitionAnimation === 'slide'
+                    ? selectedTabIndex === 2 || (isTabTransitioning && (tabTransitionFromIndex === 2 || tabTransitionToIndex === 2))
+                      ? 1
+                      : 0
+                    : isTabTransitioning && tabTransitionFromIndex === 2
                       ? tabSceneProgress.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0, 1],
+                          outputRange: [1, 0],
                           extrapolate: 'clamp',
                         })
-                      : selectedTabIndex === 2
-                        ? 1
+                      : isTabTransitioning && tabTransitionToIndex === 2
+                        ? tabSceneProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 1],
+                            extrapolate: 'clamp',
+                          })
+                        : selectedTabIndex === 2
+                          ? 1
+                          : 0,
+                transform: [
+                  {
+                    translateX:
+                      tabTransitionAnimation === 'slide' && isTabTransitioning
+                        ? tabTransitionFromIndex === 2
+                          ? tabSceneProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
+                              extrapolate: 'clamp',
+                            })
+                          : tabTransitionToIndex === 2
+                            ? tabSceneProgress.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
+                                extrapolate: 'clamp',
+                              })
+                            : 0
                         : 0,
+                  },
+                ],
                 zIndex: selectedTabIndex === 2 ? 3 : isTabTransitioning && tabTransitionFromIndex === 2 ? 2 : 1,
               },
             ]}

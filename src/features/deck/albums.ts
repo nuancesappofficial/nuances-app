@@ -13,7 +13,7 @@ export type DeckAlbumPreferences = {
 
 export const DECK_ALBUM_PREFS_KEY = 'deck_album_preferences_v1';
 export const DEFAULT_CUSTOM_ALBUM_EMOJI = '📁';
-export const DEFAULT_CUSTOM_ALBUM_COLOR = '#E5E5EA';
+export const DEFAULT_CUSTOM_ALBUM_COLOR = '#1E293B';
 export const ALBUM_TAG_PREFIX = 'album:';
 export const ALL_CARDS_ALBUM_ID = 'all';
 export const FAVORITES_ALBUM_ID = 'favorites';
@@ -244,12 +244,10 @@ export function buildDeckAlbums(
   return [...defaultAlbums, ...computedCustomAlbums]
     .map((album) => ({
       ...album,
-      name: album.isDefault ? album.name : prefs.albumNameOverrides[album.id] || album.name,
-      emoji: album.isDefault ? album.emoji : prefs.albumEmojiOverrides[album.id] || album.emoji,
-      color: album.isDefault ? album.color : prefs.albumColorOverrides[album.id] || album.color,
-      coverImageUri: album.isDefault
-        ? album.coverImageUri
-        : prefs.albumCoverOverrides[album.id] || album.coverImageUri,
+      name: prefs.albumNameOverrides[album.id] || album.name,
+      emoji: prefs.albumEmojiOverrides[album.id] || album.emoji,
+      color: prefs.albumColorOverrides[album.id] || album.color,
+      coverImageUri: prefs.albumCoverOverrides[album.id] || album.coverImageUri,
     }))
     .filter((album) => !prefs.deletedAlbumIds.includes(album.id));
 }

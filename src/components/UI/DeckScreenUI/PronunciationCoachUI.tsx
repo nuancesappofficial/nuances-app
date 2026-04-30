@@ -38,15 +38,24 @@ export default function PronunciationCoachUI({
   onPrimaryAction,
   onPlayPreview,
 }: Props) {
+  const ctaLabel = isActiveCard && isAnalyzing ? 'Analyzing...' : isActiveCard && isRecording ? 'Stop' : 'Start';
+
   return (
     <View style={[styles.coachCard, !isActiveCard && styles.inactiveDetailBlock]}>
       <View style={styles.coachHeader}>
-        <View style={styles.coachIconWrap}>
-          <Text style={styles.coachIcon}>🎤</Text>
+        <View style={styles.coachHeaderLeft}>
+          <View style={styles.coachIconWrap}>
+            <Text style={styles.coachIcon}>🎙️</Text>
+          </View>
+          <View>
+            <Text style={styles.coachTitle}>Pronunciation Coach</Text>
+            <Text style={styles.coachSubTitle}>Train it like real conversation</Text>
+          </View>
         </View>
-        <View>
-          <Text style={styles.coachTitle}>Pronunciation Coach</Text>
-          <Text style={styles.coachSubTitle}>Practice your pronunciation</Text>
+        <View style={styles.statusPill}>
+          <Text style={styles.statusPillText}>
+            {isActiveCard && isRecording ? 'REC' : isActiveCard && isAnalyzing ? 'AI' : 'READY'}
+          </Text>
         </View>
       </View>
 
@@ -59,7 +68,7 @@ export default function PronunciationCoachUI({
                 styles.waveBar,
                 {
                   height: value,
-                  opacity: isActiveCard && isRecording ? 1 : 0.3,
+                  opacity: isActiveCard && isRecording ? 1 : 0.34,
                 },
               ]}
             />
@@ -68,44 +77,41 @@ export default function PronunciationCoachUI({
       </View>
 
       <View style={styles.coachControls}>
-        {hasRecorded && isActiveCard ? (
-          <TouchableOpacity style={styles.smallControlBtn} onPress={onReset}>
-            <Text style={styles.smallControlTxt}>↺</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.sidePlaceholder} />
-        )}
-
         <TouchableOpacity
           style={[
-            styles.recordBtn,
-            isRecording && isActiveCard && styles.recordBtnActive,
-            isAnalyzing && isActiveCard && styles.recordBtnDisabled,
+            styles.primaryActionBtn,
+            isRecording && isActiveCard && styles.primaryActionBtnActive,
+            isAnalyzing && isActiveCard && styles.primaryActionBtnDisabled,
           ]}
           onPress={onPrimaryAction}
           disabled={isActiveCard ? isAnalyzing : false}
+          activeOpacity={0.9}
         >
-          <Text style={[styles.recordBtnText, isRecording && isActiveCard && styles.recordBtnTextActive]}>
-            {isActiveCard && isAnalyzing ? '…' : isActiveCard && isRecording ? '■' : '🎙️'}
-          </Text>
+          <Text style={styles.primaryActionIcon}>{isActiveCard && isRecording ? '■' : '🎤'}</Text>
+          <Text style={styles.primaryActionText}>{ctaLabel}</Text>
         </TouchableOpacity>
 
-        {hasRecorded && isActiveCard ? (
+        <View style={styles.secondaryActions}>
           <TouchableOpacity
-            style={[styles.smallControlBtn, (isRecording || isAnalyzing) && styles.smallControlBtnDisabled]}
+            style={[styles.secondaryBtn, (!hasRecorded || !isActiveCard || isRecording || isAnalyzing) && styles.secondaryBtnDisabled]}
             onPress={onPlayPreview}
-            disabled={isRecording || isAnalyzing}
+            disabled={!hasRecorded || !isActiveCard || isRecording || isAnalyzing}
           >
-            <Text style={styles.smallControlTxt}>▶</Text>
+            <Text style={styles.secondaryBtnText}>▶</Text>
           </TouchableOpacity>
-        ) : (
-          <View style={styles.sidePlaceholder} />
-        )}
+          <TouchableOpacity
+            style={[styles.secondaryBtn, (!hasRecorded || !isActiveCard) && styles.secondaryBtnDisabled]}
+            onPress={onReset}
+            disabled={!hasRecorded || !isActiveCard}
+          >
+            <Text style={styles.secondaryBtnText}>↺</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {isActiveCard && isAnalyzing ? (
         <View style={styles.analyzingWrap}>
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color="#1D4ED8" />
           <Text style={styles.analyzingText}>Azure 發音分析中...</Text>
         </View>
       ) : null}
@@ -118,7 +124,7 @@ export default function PronunciationCoachUI({
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.feedbackTitle}>Great job!</Text>
-              <Text style={styles.feedbackSub}>Azure pronunciation assessment completed</Text>
+              <Text style={styles.feedbackSub}>Pronunciation assessment completed</Text>
             </View>
             <Text style={styles.feedbackScore}>{pronunciationScore}%</Text>
           </View>
@@ -136,11 +142,7 @@ export default function PronunciationCoachUI({
                     <Text style={styles.phonemeText}>{phonemeItem.letters || phonemeItem.phoneme}</Text>
                   </View>
                 ))
-              : ['ʃ', 'ɪ', 't', 'ʃ', 'oʊ'].map((p, i) => (
-                  <View key={p + i} style={[styles.phonemeBadge, i === 2 ? styles.phonemeBad : styles.phonemeGood]}>
-                    <Text style={styles.phonemeText}>{p}</Text>
-                  </View>
-                ))}
+              : null}
           </View>
 
           {pronunciationFeedbackLines.slice(0, 2).map((line, idx) => (
@@ -152,43 +154,71 @@ export default function PronunciationCoachUI({
       ) : null}
 
       {isActiveCard && !isRecording && !hasRecorded && !isAnalyzing ? (
-        <Text style={styles.coachHint}>Tap the microphone to start practicing</Text>
+        <Text style={styles.coachHint}>Tap Start and read: "{itemWord}"</Text>
       ) : null}
-      {isActiveCard && isRecording ? <Text style={styles.coachHint}>Say "{itemWord}" now...</Text> : null}
+      {isActiveCard && isRecording ? <Text style={styles.coachHint}>Recording... say "{itemWord}" now</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   coachCard: {
-    borderRadius: 24,
-    padding: 20,
-    backgroundColor: '#143D89',
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: '#F7FAFF',
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.09)',
   },
   inactiveDetailBlock: {
-    opacity: 0.9,
+    opacity: 0.88,
   },
-  coachHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  coachHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  coachHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   coachIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#EAF0FA',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coachIcon: { fontSize: 20 },
-  coachTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
-  coachSubTitle: { fontSize: 13, color: 'rgba(255,255,255,0.82)' },
-  waveContainer: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 16,
-    paddingVertical: 16,
+  coachIcon: { fontSize: 16 },
+  coachTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
+  coachSubTitle: { fontSize: 12, color: '#64748B' },
+  statusPill: {
+    borderRadius: 999,
     paddingHorizontal: 10,
-    marginBottom: 14,
+    paddingVertical: 5,
+    backgroundColor: '#E5EEFF',
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.28)',
+  },
+  statusPillText: {
+    color: '#1D4ED8',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  waveContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.08)',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    marginBottom: 12,
   },
   waveRow: {
-    height: 82,
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -196,38 +226,59 @@ const styles = StyleSheet.create({
   },
   waveBar: {
     width: 3,
-    backgroundColor: '#fff',
+    backgroundColor: '#2563EB',
     borderRadius: 2,
   },
   coachControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
+    gap: 10,
   },
-  sidePlaceholder: { width: 48, height: 48 },
-  smallControlBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  primaryActionBtn: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    backgroundColor: '#F59E0B',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
-  smallControlBtnDisabled: { opacity: 0.5 },
-  smallControlTxt: { color: '#fff', fontSize: 22, fontWeight: '700' },
-  recordBtn: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: '#fff',
+  primaryActionBtnActive: { backgroundColor: '#EF4444', shadowColor: '#EF4444' },
+  primaryActionBtnDisabled: { opacity: 0.62 },
+  primaryActionIcon: { fontSize: 18 },
+  primaryActionText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
+  secondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  secondaryBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#E6ECF6',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
   },
-  recordBtnActive: { backgroundColor: '#FF3B30' },
-  recordBtnDisabled: { opacity: 0.6 },
-  recordBtnText: { fontSize: 30, color: '#007AFF' },
-  recordBtnTextActive: { color: '#fff', fontSize: 24 },
+  secondaryBtnDisabled: {
+    opacity: 0.45,
+  },
+  secondaryBtnText: {
+    color: '#1F2937',
+    fontSize: 18,
+    fontWeight: '800',
+  },
   analyzingWrap: {
     marginTop: 12,
     flexDirection: 'row',
@@ -235,26 +286,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  analyzingText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  analyzingText: { color: '#334155', fontSize: 13, fontWeight: '600' },
   feedbackBox: {
     marginTop: 14,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.1)',
     padding: 14,
   },
   feedbackRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   feedbackCheck: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#34C759',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#22C55E',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feedbackCheckText: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  feedbackTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  feedbackSub: { color: 'rgba(255,255,255,0.82)', fontSize: 13, marginTop: 2 },
-  feedbackScore: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  feedbackCheckText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  feedbackTitle: { color: '#111827', fontSize: 15, fontWeight: '700' },
+  feedbackSub: { color: '#6B7280', fontSize: 13, marginTop: 2 },
+  feedbackScore: { color: '#111827', fontSize: 24, fontWeight: '800' },
   phonemeRow: {
     marginTop: 12,
     flexDirection: 'row',
@@ -263,9 +316,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   phonemeBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  phonemeGood: { backgroundColor: 'rgba(52,199,89,0.3)' },
-  phonemeBad: { backgroundColor: 'rgba(255,59,48,0.3)' },
-  phonemeText: { color: '#fff', fontSize: 16, fontWeight: '700', fontFamily: 'Courier' },
-  phonemeHint: { marginTop: 8, textAlign: 'center', color: 'rgba(255,255,255,0.75)', fontSize: 12 },
-  coachHint: { marginTop: 12, textAlign: 'center', color: 'rgba(255,255,255,0.82)', fontSize: 13 },
+  phonemeGood: { backgroundColor: 'rgba(52,199,89,0.15)' },
+  phonemeBad: { backgroundColor: 'rgba(255,59,48,0.16)' },
+  phonemeText: { color: '#111827', fontSize: 15, fontWeight: '700', fontFamily: 'Courier' },
+  phonemeHint: { marginTop: 8, textAlign: 'center', color: '#6B7280', fontSize: 12 },
+  coachHint: { marginTop: 12, textAlign: 'center', color: '#475569', fontSize: 13 },
 });

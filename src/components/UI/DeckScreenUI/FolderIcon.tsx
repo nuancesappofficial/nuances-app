@@ -1,7 +1,8 @@
 import React from 'react';
-import { Image, Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { LinearGradient } from 'expo-linear-gradient';
+import { CONTAINER_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
 
 type PreviewCard = {
   imageUrl?: string;
@@ -17,13 +18,10 @@ type FolderIconProps = {
   accentColor?: string;
   iconEmoji?: string;
   coverColor?: string;
-  coverImageUri?: string;
   compact?: boolean;
 };
 
-const COVER_RADIUS = 24;
-const INNER_INSET_REGULAR = 6;
-const INNER_INSET_COMPACT = 5;
+const COVER_RADIUS = 16;
 
 function canUseSFSymbolsOnDevice() {
   if (Platform.OS !== 'ios') return false;
@@ -57,6 +55,8 @@ function getCoverTheme(title: string) {
   return { front: '#4A67D8', back1: '#364FB0', back2: '#273B8A', symbol: 'folder' as const, fallback: '⌂' };
 }
 
+const UNIFIED_FRONT = CONTAINER_BG;
+
 export function FolderIcon({
   style,
   title = '',
@@ -65,14 +65,11 @@ export function FolderIcon({
   accentColor = '#FFFFFF',
   iconEmoji,
   coverColor,
-  coverImageUri,
   compact = false,
 }: FolderIconProps) {
   void latestCards;
   const theme = getCoverTheme(title);
-  const frontColor = coverColor || theme.front;
-  const backColor1 = coverColor ? `${coverColor}D9` : theme.back1;
-  const backColor2 = coverColor ? `${coverColor}B8` : theme.back2;
+  const frontColor = coverColor || UNIFIED_FRONT;
   const canUseSymbols = canUseSFSymbolsOnDevice();
 
   const countLabel = `${wordCount} ${wordCount === 1 ? 'Pin' : 'Pins'}`;
@@ -80,37 +77,31 @@ export function FolderIcon({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.iconCoverWrap}>
-        <View style={[styles.iconLayer, styles.iconLayerBack2, { backgroundColor: backColor2 }]} />
-        <View style={[styles.iconLayer, styles.iconLayerBack1, { backgroundColor: backColor1 }]} />
         <View style={[styles.iconLayer, styles.iconLayerFront, { backgroundColor: frontColor }]}>
-          {coverImageUri ? <Image source={{ uri: coverImageUri }} style={styles.coverImage} resizeMode="cover" /> : null}
-          <View style={[styles.iconInnerStroke, compact ? styles.iconInnerStrokeCompact : null]} />
-          {!coverImageUri ? (
-            <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
-              {iconEmoji ? (
-                <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
-              ) : canUseSymbols ? (
-                <SymbolView
-                  name={theme.symbol}
-                  size={compact ? 42 : 56}
-                  tintColor="#F4F7FF"
-                  type="monochrome"
-                  style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
-                  fallback={
-                    <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
-                      {theme.fallback}
-                    </Text>
-                  }
-                />
-              ) : (
-                <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
-              )}
-            </View>
-          ) : null}
+          <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
+            {iconEmoji ? (
+              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
+            ) : canUseSymbols ? (
+              <SymbolView
+                name={theme.symbol}
+                size={compact ? 42 : 56}
+                tintColor={TEXT_ON_CONTAINER}
+                type="monochrome"
+                style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
+                fallback={
+                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
+                    {theme.fallback}
+                  </Text>
+                }
+              />
+            ) : (
+              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
+            )}
+          </View>
           {compact ? (
             <LinearGradient
-              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.16)', 'rgba(0,0,0,0.38)']}
-              locations={[0, 0.55, 1]}
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.16)', 'rgba(0,0,0,0.36)']}
+              locations={[0, 0.58, 1]}
               style={styles.bottomShade}
             >
               <Text style={styles.bottomTitle} numberOfLines={1}>
@@ -148,20 +139,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     borderRadius: COVER_RADIUS,
   },
-  iconLayerBack2: {
-    top: 8,
-    left: 12,
-    right: -2,
-    bottom: -2,
-    opacity: 0.95,
-  },
-  iconLayerBack1: {
-    top: 4,
-    left: 8,
-    right: 0,
-    bottom: 0,
-    opacity: 0.98,
-  },
   iconLayerFront: {
     top: 0,
     left: 0,
@@ -173,28 +150,9 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     overflow: 'hidden',
-  },
-  coverImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  iconInnerStroke: {
-    position: 'absolute',
-    top: INNER_INSET_REGULAR,
-    left: INNER_INSET_REGULAR,
-    right: INNER_INSET_REGULAR,
-    bottom: INNER_INSET_REGULAR,
-    borderRadius: COVER_RADIUS - INNER_INSET_REGULAR,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-  },
-  iconInnerStrokeCompact: {
-    top: INNER_INSET_COMPACT,
-    left: INNER_INSET_COMPACT,
-    right: INNER_INSET_COMPACT,
-    bottom: INNER_INSET_COMPACT,
-    borderRadius: COVER_RADIUS - INNER_INSET_COMPACT,
+    paddingTop: 22,
   },
   symbolWrap: {
     width: 68,
@@ -207,7 +165,7 @@ const styles = StyleSheet.create({
     height: 50,
   },
   fallbackIcon: {
-    color: '#F4F7FF',
+    color: TEXT_ON_CONTAINER,
     fontSize: 48,
     fontWeight: '600',
   },
@@ -215,7 +173,7 @@ const styles = StyleSheet.create({
     fontSize: 34,
   },
   emojiIcon: {
-    color: '#F4F7FF',
+    color: TEXT_ON_CONTAINER,
     fontSize: 48,
     lineHeight: 52,
   },
@@ -236,7 +194,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: COVER_RADIUS,
   },
   bottomTitle: {
-    color: '#FFFFFF',
+    color: TEXT_ON_CONTAINER,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.1,
@@ -246,10 +204,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     textAlign: 'left',
+    color: TEXT_ON_CONTAINER,
   },
   subtitle: {
     marginTop: 4,
-    color: '#8E8E93',
+    color: 'rgba(248,250,252,0.76)',
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'left',

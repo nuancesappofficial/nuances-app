@@ -47,6 +47,8 @@ type Props = {
   restoreSeed: number;
   onSwipe: (itemId: string, direction: 'left' | 'right') => void;
   animationSeed: number;
+  shouldAnimateEntrance?: boolean;
+  entranceOrder?: number;
 };
 
 export default function CacheCardUI({
@@ -64,10 +66,12 @@ export default function CacheCardUI({
   restoreSeed,
   onSwipe,
   animationSeed,
+  shouldAnimateEntrance = false,
+  entranceOrder = -1,
 }: Props) {
   const toY = index * -4;
   const targetRot = React.useMemo(() => -10 + Math.random() * 20, [animationSeed]);
-  const delay = index * 140;
+  const delay = (entranceOrder >= 0 ? entranceOrder : 0) * 110;
 
   const isDropMode = animationSeed % 2 === 0;
   const side = index % 2 === 0 ? 1 : -1;
@@ -79,7 +83,7 @@ export default function CacheCardUI({
   const isPressed = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
   const lastSwipeTriggerSeq = React.useRef<number | null>(null);
-  const lastEntranceSeedRef = React.useRef<number | null>(null);
+  const lastEntranceTokenRef = React.useRef<string | null>(null);
 
   const triggerSwipeHaptic = React.useCallback((direction: 'left' | 'right') => {
     void Haptics.impactAsync(
@@ -97,13 +101,12 @@ export default function CacheCardUI({
   );
 
   React.useEffect(() => {
-    const shouldRunEntrance = lastEntranceSeedRef.current !== animationSeed;
-    lastEntranceSeedRef.current = animationSeed;
+    const entranceToken = shouldAnimateEntrance ? `${animationSeed}:${itemId}` : null;
+    const shouldRunEntrance = Boolean(entranceToken && lastEntranceTokenRef.current !== entranceToken);
+    lastEntranceTokenRef.current = entranceToken;
     isPressed.value = false;
 
     if (!shouldRunEntrance) {
-      // 同一個 animationSeed 內若 index 改變（例如批次新增導致卡片重排），
-      // 用 spring 平滑到新位置，避免卡片「瞬間跳位」造成閃現感。
       x.value = withSpring(0, ELEGANT_SPRING);
       y.value = withSpring(toY, ELEGANT_SPRING);
       scale.value = withSpring(1, ELEGANT_SPRING);
@@ -124,7 +127,21 @@ export default function CacheCardUI({
       x.value = withDelay(delay, withSpring(0, ELEGANT_SPRING));
     }
     rot.value = withDelay(delay, withSpring(targetRot, ELEGANT_SPRING));
-  }, [animationSeed, delay, isDropMode, isPressed, rot, scale, side, targetRot, toY, x, y]);
+  }, [
+    animationSeed,
+    delay,
+    isDropMode,
+    isPressed,
+    itemId,
+    rot,
+    scale,
+    shouldAnimateEntrance,
+    side,
+    targetRot,
+    toY,
+    x,
+    y,
+  ]);
 
   React.useEffect(() => {
     if (!hasRestoreInitialized.current) {

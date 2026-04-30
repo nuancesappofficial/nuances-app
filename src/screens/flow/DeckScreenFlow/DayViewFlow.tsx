@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SCREEN_BG } from '../../../theme/colors';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -152,7 +153,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#02213D' },
+  container: { flex: 1, backgroundColor: SCREEN_BG },
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,

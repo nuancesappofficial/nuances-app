@@ -42,7 +42,7 @@ type Props = {
 const SHEET_TOP_SAFE_MARGIN = 72;
 const KEYBOARD_EXTRA_GAP = 8;
 const MODAL_ENTRY_TRANSLATE_Y = 520;
-const MODAL_ENTRY_DURATION_MS = 700;
+const MODAL_ENTRY_DURATION_MS = 460;
 const MODAL_BACKDROP_DURATION_MS = 300;
 const MODAL_EXIT_DURATION_MS = 260;
 // Tune this value to resize Text tab input box; modal panel height follows this value.

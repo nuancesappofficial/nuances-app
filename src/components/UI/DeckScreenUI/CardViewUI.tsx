@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { SCREEN_BG } from '../../../theme/colors';
 
 type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
 
@@ -37,7 +38,7 @@ type Props = {
   onPressMoreCard: (card: Card) => void;
   cardImageMap: Record<string, string>;
   getWordText: (card: Card) => string;
-  getLearningStatus: (card: Card) => LearningStatus;
+  getLearningStatus: (card: Card) => LearningStatus | null;
   withHexAlpha: (color: string, alphaHex: string) => string;
 };
 
@@ -191,24 +192,24 @@ export default function CardViewUI({
 
       <View style={styles.progressRow}>
         <View style={styles.progressDot} />
-        <Text style={styles.progressText}>{`${processedCards.length} words, ${learnedPercent}% learned`}</Text>
+        <Text style={styles.progressText}>{`${processedCards.length} words`}</Text>
       </View>
 
       <View style={styles.actionButtonsRow}>
         <TouchableOpacity
-          style={[styles.playButton, { backgroundColor: themeColor }]}
+          style={styles.playButton}
           activeOpacity={0.9}
           onPress={onPressPlay}
         >
-          <Ionicons name="play" size={16} color="#FFFFFF" />
+          <Ionicons name="play" size={16} color="#0F172A" />
           <Text style={styles.actionButtonText}>Play</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tuningButton, { backgroundColor: themeColor }]}
+          style={styles.tuningButton}
           activeOpacity={0.9}
           onPress={onPressReviewTuning}
         >
-          <Ionicons name="options-outline" size={18} color="#FFFFFF" />
+          <Ionicons name="options-outline" size={18} color="#F8FAFC" />
         </TouchableOpacity>
       </View>
     </View>
@@ -220,18 +221,18 @@ export default function CardViewUI({
         <View pointerEvents="none" style={styles.backgroundLayer}>
           <LinearGradient
             colors={[
-              withHexAlpha(themeColor, 'F0'),
-              withHexAlpha(themeColor, '8C'),
-              withHexAlpha(themeColor, '2E'),
-              'rgba(2,33,61,0)',
+              '#1E293B',
+              withHexAlpha(themeColor, '26'),
+              withHexAlpha(themeColor, '1A'),
+              'rgba(30,41,59,0.15)',
             ]}
-            locations={[0, 0.2, 0.46, 1]}
+            locations={[0, 0.22, 0.52, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={styles.topThemeGradient}
           />
           <LinearGradient
-            colors={['rgba(2,33,61,0)', 'rgba(2,33,61,0.75)', 'rgba(2,33,61,1)']}
+            colors={['rgba(15,23,42,0)', 'rgba(15,23,42,0.75)', '#0F172A']}
             locations={[0, 0.56, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -257,11 +258,9 @@ export default function CardViewUI({
                       resizeMode="cover"
                     />
                   ) : (
-                    <View style={styles.thumbnailFallback}>
-                      <Text style={styles.thumbnailFallbackText} numberOfLines={1}>
-                        {getWordText(item).slice(0, 1)}
-                      </Text>
-                    </View>
+                    <Text style={styles.thumbnailFallbackText} numberOfLines={1}>
+                      {getWordText(item).slice(0, 1)}
+                    </Text>
                   )}
                 </View>
 
@@ -270,10 +269,16 @@ export default function CardViewUI({
                     {getWordText(item)}
                   </Text>
 
-                  <View style={[styles.statusBadge, { backgroundColor: status.bgColor }]}>
-                    <Text style={styles.statusIcon}>{status.icon}</Text>
-                    <Text style={styles.statusText}>{status.label}</Text>
-                  </View>
+                  {status ? (
+                    <View style={[styles.statusBadge, { backgroundColor: status.bgColor }]}>
+                      <Text style={[styles.statusIcon, status.label === 'NEW' ? styles.statusTextNew : null]}>
+                        {status.icon}
+                      </Text>
+                      <Text style={[styles.statusText, status.label === 'NEW' ? styles.statusTextNew : null]}>
+                        {status.label}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.moreWrap}>
@@ -307,7 +312,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#02213D',
+    backgroundColor: SCREEN_BG,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -433,6 +438,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    backgroundColor: '#4EAFF4',
   },
   tuningButton: {
     width: 52,
@@ -440,27 +446,29 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   actionButtonText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#1E293B',
     borderRadius: 16,
     padding: 10,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: '#334155',
   },
   thumbnailWrap: {
     width: 68,
     height: 68,
     borderRadius: 12,
-    backgroundColor: '#1A1E27',
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
@@ -468,14 +476,9 @@ const styles = StyleSheet.create({
   thumbnailImage: {
     ...StyleSheet.absoluteFillObject,
   },
-  thumbnailFallback: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   thumbnailFallbackText: {
-    color: '#DDE7FF',
-    fontSize: 22,
+    color: '#F8FAFC',
+    fontSize: 24,
     fontWeight: '700',
   },
   cardMiddle: {
@@ -506,6 +509,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
+  },
+  statusTextNew: {
+    color: '#FF6B6B',
   },
   moreWrap: {
     marginLeft: 6,

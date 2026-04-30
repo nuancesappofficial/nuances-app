@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import { SCREEN_BG } from '../../../theme/colors';
 import {
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
@@ -54,7 +55,7 @@ type ReviewSlide =
   | { id: string; type: 'question'; question: ReviewQuestion }
   | { id: 'summary'; type: 'summary' };
 
-const OPTION_COLORS = ['#FF7A7A', '#7D8CFF', '#5BCB96', '#F4B942'];
+const OPTION_FEEDBACK_DURATION_MS = 320;
 
 function shuffleArray<T>(items: T[]): T[] {
   const next = [...items];
@@ -266,7 +267,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const albumId = route.params?.albumId || 'all-cards';
   const albumName = route.params?.albumName || 'Review';
   const requestedQuestionCount = route.params?.questionCount;
-  const themeColor = route.params?.themeColor || '#8B5CF6';
+  const themeColor = '#4EAFF4';
   const routeCardIds = route.params?.cardIds || [];
 
   const [allCards, setAllCards] = React.useState<Card[]>([]);
@@ -358,29 +359,31 @@ export default function ReviewFlow({ navigation, route }: Props) {
     void markCardAsQuizReviewed(question.cardId);
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
-    Animated.timing(flipValue, {
-      toValue: 1,
-      duration: 380,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished || !isCorrect) return;
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const celebrate = getCelebrationValue(celebrationValuesRef, question.id);
-      celebrate.setValue(0);
-      Animated.sequence([
-        Animated.timing(celebrate, {
-          toValue: 1,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-        Animated.delay(260),
-        Animated.timing(celebrate, {
-          toValue: 0,
-          duration: 380,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    });
+    setTimeout(() => {
+      Animated.timing(flipValue, {
+        toValue: 1,
+        duration: 380,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (!finished || !isCorrect) return;
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const celebrate = getCelebrationValue(celebrationValuesRef, question.id);
+        celebrate.setValue(0);
+        Animated.sequence([
+          Animated.timing(celebrate, {
+            toValue: 1,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.delay(260),
+          Animated.timing(celebrate, {
+            toValue: 0,
+            duration: 380,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, OPTION_FEEDBACK_DURATION_MS);
   }, [selectedAnswers]);
 
   const goToSlide = React.useCallback((index: number) => {
@@ -454,18 +457,22 @@ export default function ReviewFlow({ navigation, route }: Props) {
             <Text style={styles.sentenceText}>{question.sentence}</Text>
 
             <View style={styles.optionsGrid}>
-              {question.options.map((option, index) => {
+              {question.options.map((option) => {
                 const wasChosen = selectedAnswer === option;
+                const isCorrectOption = option === question.correctAnswer;
+                const hasAnswered = Boolean(selectedAnswer);
                 return (
                   <TouchableOpacity
                     key={option}
                     style={[
                       styles.optionCard,
-                      { backgroundColor: OPTION_COLORS[index % OPTION_COLORS.length] },
-                      selectedAnswer && !wasChosen && styles.optionCardDisabled,
+                      hasAnswered ? styles.optionCardAnswered : null,
+                      hasAnswered && isCorrectOption ? styles.optionCardCorrect : null,
+                      hasAnswered && wasChosen && !isCorrectOption ? styles.optionCardWrong : null,
+                      hasAnswered && !wasChosen && !isCorrectOption ? styles.optionCardDisabled : null,
                     ]}
                     activeOpacity={0.92}
-                    disabled={Boolean(selectedAnswer)}
+                    disabled={hasAnswered}
                     onPress={() => answerQuestion(question, option)}
                   >
                     <Text style={styles.optionText}>{option}</Text>
@@ -498,11 +505,11 @@ export default function ReviewFlow({ navigation, route }: Props) {
               <Animated.View
                 style={[
                   styles.resultBadge,
-                  { backgroundColor: isCorrect ? 'rgba(18,120,78,0.88)' : 'rgba(180,52,52,0.4)' },
+                  { backgroundColor: isCorrect ? 'rgba(78,175,244,0.18)' : 'rgba(255,107,107,0.15)' },
                   isCorrect ? { transform: [{ scale: celebrationScale }] } : null,
                 ]}
               >
-                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#E8FFF5' : '#FFD6D6' }]}>
+                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#4EAFF4' : '#FF6B6B' }]}>
                   {isCorrect ? 'Correct' : 'Not quite'}
                 </Text>
               </Animated.View>
@@ -568,12 +575,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const percentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
     const summaryTone =
       percentage >= 90
-        ? { message: 'Outstanding. You are mastering these words.', color: '#0F7A54' }
-        : percentage >= 75
-          ? { message: 'Great job. Your retention is getting really solid.', color: '#1E4E7E' }
-          : percentage >= 55
-            ? { message: 'Nice progress. A quick replay will lock this in.', color: '#B86E00' }
-            : { message: 'Good effort. One more round and you will level up fast.', color: '#A43A3A' };
+        ? { message: 'Outstanding. You are mastering these words.', color: '#4EAFF4' }
+        : percentage <= 50
+          ? { message: 'Good effort. One more round and you will level up fast.', color: '#FF6B6B' }
+          : { message: 'Great job. Your retention is getting really solid.', color: '#F8FAFC' };
 
     return (
       <View style={[styles.slide, { width }]}>
@@ -582,12 +587,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
           <Text style={[styles.summaryPercent, { color: summaryTone.color }]}>{percentage}% correct</Text>
           <Text style={styles.summaryBody}>{summaryTone.message}</Text>
 
-          <TouchableOpacity style={styles.summaryPrimaryButton} onPress={handleReplay}>
-            <Text style={styles.summaryPrimaryText}>Play Again</Text>
+          <TouchableOpacity style={styles.summarySecondaryButton} onPress={handleReplay}>
+            <Text style={styles.summarySecondaryText}>Play Again</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.summarySecondaryButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.summarySecondaryText}>Done</Text>
+          <TouchableOpacity style={styles.summaryPrimaryButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.summaryPrimaryText}>Done</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -689,7 +694,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#02213D',
+    backgroundColor: SCREEN_BG,
   },
   header: {
     flexDirection: 'row',
@@ -760,9 +765,9 @@ const styles = StyleSheet.create({
   cardFace: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
-    backgroundColor: '#8FC4F0',
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: 'rgba(235,247,255,0.78)',
+    borderColor: '#334155',
     padding: 22,
     backfaceVisibility: 'hidden',
   },
@@ -773,13 +778,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   questionEyebrow: {
-    color: '#727985',
+    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.4,
   },
   sentenceText: {
-    color: '#101218',
+    color: '#F8FAFC',
     fontSize: 31,
     lineHeight: 40,
     fontWeight: '700',
@@ -798,9 +803,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 18,
     justifyContent: 'center',
+    backgroundColor: '#334155',
+    borderWidth: 1,
+    borderColor: 'rgba(248,250,252,0.12)',
+  },
+  optionCardAnswered: {
+    borderColor: 'rgba(248,250,252,0.2)',
+  },
+  optionCardCorrect: {
+    backgroundColor: 'rgba(52,211,153,0.22)',
+    borderColor: '#34D399',
+  },
+  optionCardWrong: {
+    backgroundColor: 'rgba(255,107,107,0.22)',
+    borderColor: '#FF6B6B',
   },
   optionCardDisabled: {
-    opacity: 0.4,
+    opacity: 0.56,
   },
   optionText: {
     color: '#FFFFFF',
@@ -823,23 +842,24 @@ const styles = StyleSheet.create({
   },
   answerTitle: {
     marginTop: 22,
-    color: '#2A313C',
+    color: '#F8FAFC',
     fontSize: 16,
     letterSpacing: 0.4,
     fontWeight: '800',
   },
   answerSubTitle: {
     marginTop: 8,
-    color: '#5C6470',
+    color: '#94A3B8',
     fontSize: 15,
     fontWeight: '600',
+    textDecorationLine: 'line-through',
   },
   answerVocabCard: {
     marginTop: 10,
     borderRadius: 20,
-    backgroundColor: 'rgba(16,22,30,0.9)',
+    backgroundColor: '#334155',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 14,
     paddingVertical: 14,
     gap: 6,
@@ -851,32 +871,32 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   answerPos: {
-    color: '#AFC0D5',
+    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   answerDefinition: {
-    color: '#EAF3FF',
+    color: '#F8FAFC',
     fontSize: 17,
     lineHeight: 24,
     fontWeight: '700',
   },
   answerSentence: {
     marginTop: 2,
-    color: '#C9D9EC',
+    color: '#F8FAFC',
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   nextTimeButton: {
     marginTop: 'auto',
     minHeight: 54,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    backgroundColor: '#101010',
+    borderColor: '#334155',
+    backgroundColor: '#1E293B',
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -884,8 +904,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   nextTimeButtonActive: {
-    backgroundColor: '#D97706',
-    borderColor: 'rgba(255,214,153,0.95)',
+    backgroundColor: '#334155',
+    borderColor: '#4EAFF4',
   },
   nextTimeText: {
     color: '#FFFFFF',
@@ -903,26 +923,26 @@ const styles = StyleSheet.create({
   celebrationOverlay: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
-    backgroundColor: '#D7F8E8',
+    backgroundColor: 'rgba(78,175,244,0.18)',
   },
   nextButton: {
     marginTop: 12,
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#12151B',
+    backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   nextButtonText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 17,
     fontWeight: '800',
   },
   summaryShell: {
     borderRadius: 28,
-    backgroundColor: '#8FC4F0',
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: 'rgba(235,247,255,0.78)',
+    borderColor: '#334155',
     paddingHorizontal: 26,
     paddingVertical: 28,
     justifyContent: 'center',
@@ -935,7 +955,7 @@ const styles = StyleSheet.create({
   },
   summaryScore: {
     marginTop: 18,
-    color: '#101218',
+    color: '#F8FAFC',
     fontSize: 72,
     fontWeight: '900',
   },
@@ -947,7 +967,7 @@ const styles = StyleSheet.create({
   },
   summaryBody: {
     marginTop: 18,
-    color: '#2A313C',
+    color: '#94A3B8',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -955,14 +975,12 @@ const styles = StyleSheet.create({
     marginTop: 28,
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: 'rgba(210,232,250,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(25,73,120,0.35)',
+    backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryPrimaryText: {
-    color: '#18436F',
+    color: '#0F172A',
     fontSize: 17,
     fontWeight: '800',
   },
@@ -971,13 +989,13 @@ const styles = StyleSheet.create({
     minHeight: 56,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(211,234,255,0.72)',
-    backgroundColor: '#1E4E7E',
+    borderColor: '#334155',
+    backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summarySecondaryText: {
-    color: '#F3F9FF',
+    color: '#F8FAFC',
     fontSize: 17,
     fontWeight: '800',
   },

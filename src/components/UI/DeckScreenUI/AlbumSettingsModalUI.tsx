@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
@@ -7,30 +7,30 @@ type Props = {
   settingsName: string;
   settingsEmoji: string;
   settingsColor: string;
-  settingsCoverImageUri?: string;
   onChangeName: (name: string) => void;
   onChangeEmoji: (emoji: string) => void;
   onChangeColor: (color: string) => void;
-  onPickCoverImage: () => void;
-  onRemoveCoverImage: () => void;
   onCancel: () => void;
   onSave: () => void;
 };
 
 const EMOJI_OPTIONS = ['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'];
-const COLOR_OPTIONS = ['#3688E5', '#9A63CC', '#D15463', '#42A878', '#4A67D8', '#E0912D', '#5D6A7D'];
+const COVER_COLOR_OPTIONS = [
+  { label: '暗夜紫', value: '#2A2438' },
+  { label: '深松石', value: '#1E332E' },
+  { label: '勃根地紅', value: '#3B282F' },
+  { label: '古銅棕', value: '#332D21' },
+  { label: '原廠預設', value: '#1E293B' },
+];
 
 export default function AlbumSettingsModalUI({
   visible,
   settingsName,
   settingsEmoji,
   settingsColor,
-  settingsCoverImageUri,
   onChangeName,
   onChangeEmoji,
   onChangeColor,
-  onPickCoverImage,
-  onRemoveCoverImage,
   onCancel,
   onSave,
 }: Props) {
@@ -42,7 +42,7 @@ export default function AlbumSettingsModalUI({
         <View style={styles.sheet}>
           <Text style={styles.eyebrow}>ALBUM SETTINGS</Text>
           <Text style={styles.title}>Customize this album</Text>
-          <Text style={styles.subtitle}>Refine the name, icon, and accent color to fit the vibe you want.</Text>
+          <Text style={styles.subtitle}>Refine the name and icon to fit the vibe you want.</Text>
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionLabel}>Album name</Text>
@@ -71,38 +71,22 @@ export default function AlbumSettingsModalUI({
           </View>
 
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionLabel}>Color</Text>
-            <View style={styles.optionRow}>
-              {COLOR_OPTIONS.map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  style={[styles.colorOption, { backgroundColor: color }, settingsColor === color && styles.colorOptionActive]}
-                  onPress={() => onChangeColor(color)}
-                />
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionLabel}>Cover image</Text>
-            <View style={styles.coverPreviewWrap}>
-              {settingsCoverImageUri ? (
-                <Image source={{ uri: settingsCoverImageUri }} style={styles.coverPreviewImage} resizeMode="cover" />
-              ) : (
-                <View style={styles.coverPreviewEmpty}>
-                  <Text style={styles.coverPreviewEmptyText}>No cover image</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.coverButtonRow}>
-              <TouchableOpacity style={styles.coverActionButton} onPress={onPickCoverImage}>
-                <Text style={styles.coverActionButtonText}>Choose from Photos</Text>
-              </TouchableOpacity>
-              {settingsCoverImageUri ? (
-                <TouchableOpacity style={styles.coverActionButtonDanger} onPress={onRemoveCoverImage}>
-                  <Text style={styles.coverActionButtonDangerText}>Remove</Text>
-                </TouchableOpacity>
-              ) : null}
+            <Text style={styles.sectionLabel}>Cover color</Text>
+            <View style={styles.colorGrid}>
+              {COVER_COLOR_OPTIONS.map((option) => {
+                const active = settingsColor === option.value;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
+                    onPress={() => onChangeColor(option.value)}
+                    activeOpacity={0.88}
+                  >
+                    <View style={[styles.colorSwatch, { backgroundColor: option.value }]} />
+                    <Text style={styles.colorOptionLabel}>{option.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
@@ -198,73 +182,34 @@ const styles = StyleSheet.create({
   emojiOptionText: {
     fontSize: 22,
   },
-  colorOption: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 3,
-    borderColor: 'transparent',
+  colorGrid: {
+    gap: 8,
   },
-  colorOptionActive: {
-    borderColor: '#F6F6F3',
-  },
-  coverPreviewWrap: {
-    width: '100%',
-    height: 110,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#111318',
+  colorOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#111318',
+    paddingHorizontal: 10,
+    minHeight: 40,
   },
-  coverPreviewImage: {
-    width: '100%',
-    height: '100%',
+  colorOptionRowActive: {
+    borderColor: '#F8FAFC',
   },
-  coverPreviewEmpty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  colorSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
   },
-  coverPreviewEmptyText: {
-    color: '#737B88',
+  colorOptionLabel: {
+    color: '#E5EAF3',
     fontSize: 13,
     fontWeight: '600',
-  },
-  coverButtonRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  coverActionButton: {
-    flex: 1,
-    borderRadius: BUTTON_TOKENS.radius.md,
-    minHeight: BUTTON_TOKENS.height.regular,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111318',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  coverActionButtonText: {
-    color: '#FFFFFF',
-    fontSize: BUTTON_TOKENS.text.regular,
-    fontWeight: BUTTON_TOKENS.weight.regular,
-  },
-  coverActionButtonDanger: {
-    borderRadius: BUTTON_TOKENS.radius.md,
-    paddingHorizontal: 14,
-    minHeight: BUTTON_TOKENS.height.regular,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,85,85,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,85,85,0.38)',
-  },
-  coverActionButtonDangerText: {
-    color: '#FF8E8E',
-    fontSize: BUTTON_TOKENS.text.regular,
-    fontWeight: BUTTON_TOKENS.weight.regular,
   },
   buttonRow: {
     flexDirection: 'row',

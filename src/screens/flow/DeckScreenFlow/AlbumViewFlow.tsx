@@ -48,19 +48,15 @@ function getDefaultAlbum(cards: Card[]): Album {
 function getLearningStatus(
   card: Card,
   seenCardIds: Set<string>
-): { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string } {
+): { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string } | null {
   if (!seenCardIds.has(card.id)) {
     return {
       label: 'NEW',
       icon: '✦',
-      bgColor: '#2D3748',
+      bgColor: 'rgba(255,107,107,0.15)',
     };
   }
-  return {
-    label: 'LEARNING',
-    icon: '◌',
-    bgColor: '#702459',
-  };
+  return null;
 }
 
 function getWordText(card: Card): string {

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Alert } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
@@ -8,6 +7,7 @@ import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreenUI';
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
@@ -21,11 +21,6 @@ import {
   saveDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
-import {
-  DEFAULT_USER_SETTINGS,
-  loadUserSettings,
-  type AppThemeName,
-} from '@services/settings/userSettings';
 import { loadQuizReviewedCardIds } from '../../../features/deck/cardDetailSeen';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
@@ -52,15 +47,13 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
-  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [isAlbumPrefsHydrated, setIsAlbumPrefsHydrated] = React.useState(false);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
   const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(null);
   const [settingsName, setSettingsName] = React.useState('');
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
-  const [settingsColor, setSettingsColor] = React.useState('#4A67D8');
-  const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState<string | undefined>(undefined);
+  const [settingsColor, setSettingsColor] = React.useState('#1E293B');
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<Set<string>>(new Set());
@@ -68,7 +61,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
   );
-  const [appTheme, setAppTheme] = React.useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
@@ -91,7 +83,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides(prefs.albumNameOverrides);
       setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
       setAlbumColorOverrides(prefs.albumColorOverrides);
-      setAlbumCoverOverrides(prefs.albumCoverOverrides);
       setDeletedAlbumIds(prefs.deletedAlbumIds);
     } finally {
       setIsAlbumPrefsHydrated(true);
@@ -115,7 +106,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       albumNameOverrides,
       albumEmojiOverrides,
       albumColorOverrides,
-      albumCoverOverrides,
+      albumCoverOverrides: {},
       deletedAlbumIds,
     };
     saveDeckAlbumPreferences(payload).catch((error) => {
@@ -127,7 +118,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     albumNameOverrides,
     albumEmojiOverrides,
     albumColorOverrides,
-    albumCoverOverrides,
     deletedAlbumIds,
   ]);
 
@@ -151,28 +141,85 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     return () => sub.unsubscribe();
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      setImageReloadSeed((prev) => prev + 1);
-    }, [])
-  );
+  React.useEffect(() => {
+    let cancelled = false;
+    const ensureMockVisualCard = async () => {
+      try {
+        const mockQuery = database
+          .get<Card>('cards')
+          .query(
+            Q.where('deleted_at', null),
+            Q.where('source_app', 'mock-visual')
+          );
+        const existingMockCards = await mockQuery.fetch();
+        if (cancelled) return;
+
+        const userId = await getCurrentAuthUserId();
+        const fallbackUserId = allCards[0]?.userId;
+        const effectiveUserId = userId || fallbackUserId;
+        if (!effectiveUserId || cancelled) return;
+
+        const mockImageUrl = 'https://picsum.photos/seed/nuances-mock/900/1200';
+
+        await database.write(async () => {
+          if (existingMockCards.length > 0) {
+            const first = existingMockCards[0];
+            await first.update((card) => {
+              card.userId = effectiveUserId;
+              card.targetWord = 'mock';
+              card.targetPhrase = 'this is a mock card';
+              card.originalSentence = 'This is a mock sentence to preview the image card layout.';
+              card.definition = 'a sample or demonstration item';
+              card.partOfSpeech = 'noun';
+              card.contextualExplanation =
+                'In this sentence, "mock" is used as a sample item for UI preview and demonstration.';
+              card.frequentCollocations = 'mock exam, mock test, mock interview';
+              card.phoneticTranscription = '/mɑːk/';
+              card.tags = ['mock_visual', 'album_all'];
+              card.sourceApp = 'mock-visual';
+              card.imageUrl = mockImageUrl;
+              card.easeFactor = 2.5;
+              card.intervalDays = 1;
+              card.repetitions = 0;
+              card.nextReviewAt = new Date();
+              card.deletedAt = undefined;
+            });
+            return;
+          }
+
+          await database.get<Card>('cards').create((card) => {
+            card.userId = effectiveUserId;
+            card.targetWord = 'mock';
+            card.targetPhrase = 'this is a mock card';
+            card.originalSentence = 'This is a mock sentence to preview the image card layout.';
+            card.definition = 'a sample or demonstration item';
+            card.partOfSpeech = 'noun';
+            card.contextualExplanation =
+              'In this sentence, "mock" is used as a sample item for UI preview and demonstration.';
+            card.frequentCollocations = 'mock exam, mock test, mock interview';
+            card.phoneticTranscription = '/mɑːk/';
+            card.tags = ['mock_visual', 'album_all'];
+            card.sourceApp = 'mock-visual';
+            card.imageUrl = mockImageUrl;
+            card.easeFactor = 2.5;
+            card.intervalDays = 1;
+            card.repetitions = 0;
+            card.nextReviewAt = new Date();
+          });
+        });
+      } catch (error) {
+        console.warn('[DeckMain] ensure mock visual card failed:', error);
+      }
+    };
+    void ensureMockVisualCard();
+    return () => {
+      cancelled = true;
+    };
+  }, [allCards]);
 
   useFocusEffect(
     React.useCallback(() => {
-      let active = true;
-      const hydrateTheme = async () => {
-        try {
-          const settings = await loadUserSettings();
-          if (active) setAppTheme(settings.theme);
-        } catch (error) {
-          console.warn('[DeckMain] load theme failed:', error);
-          if (active) setAppTheme(DEFAULT_USER_SETTINGS.theme);
-        }
-      };
-      void hydrateTheme();
-      return () => {
-        active = false;
-      };
+      setImageReloadSeed((prev) => prev + 1);
     }, [])
   );
 
@@ -268,10 +315,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         albumNameOverrides,
         albumEmojiOverrides,
         albumColorOverrides,
-        albumCoverOverrides,
+        albumCoverOverrides: {},
         deletedAlbumIds,
       }),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
   );
 
   const processedAlbums = React.useMemo(() => {
@@ -372,47 +419,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   );
 
   const openAlbumSettings = React.useCallback((album: DeckAlbum) => {
-    if (album.isDefault) {
-      Alert.alert('無法編輯', '預設資料夾不能修改名稱、圖示或顏色。');
-      return;
-    }
     setSettingsAlbum(album);
     setSettingsName(album.name);
     setSettingsEmoji(album.emoji || '📁');
-    setSettingsColor(album.color || '#4A67D8');
-    setSettingsCoverImageUri(album.coverImageUri);
+    setSettingsColor(album.color || '#1E293B');
     setSettingsVisible(true);
-  }, []);
-
-  const handlePickAlbumCoverImage = React.useCallback(async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('需要相簿權限', '請允許相簿權限後再選擇相簿封面。');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.95,
-      });
-      if (result.canceled || !result.assets?.length) return;
-      const picked = result.assets[0];
-      if (!picked?.uri) return;
-      setSettingsCoverImageUri(picked.uri);
-    } catch (error) {
-      console.error('[DeckMain] pick album cover failed:', error);
-      Alert.alert('選圖失敗', '無法讀取相簿圖片，請稍後再試。');
-    }
   }, []);
 
   const handleSaveAlbumSettings = React.useCallback(() => {
     if (!settingsAlbum) return;
-    if (settingsAlbum.isDefault) {
-      Alert.alert('無法編輯', '預設資料夾不能修改名稱、圖示或顏色。');
-      return;
-    }
 
     const nextName = settingsName.trim();
     if (!nextName) {
@@ -425,7 +440,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setCustomAlbums((prev) =>
         prev.map((it) =>
           it.id === settingsAlbum.id
-            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor, coverImageUri: settingsCoverImageUri }
+            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor }
             : it
         )
       );
@@ -433,21 +448,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
       setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
       setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
-      if (settingsCoverImageUri) {
-        setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsCoverImageUri }));
-      } else {
-        setAlbumCoverOverrides((prev) => {
-          const next = { ...prev };
-          delete next[settingsAlbum.id];
-          return next;
-        });
-      }
     }
 
     setSettingsVisible(false);
     setSettingsAlbum(null);
-    setSettingsCoverImageUri(undefined);
-  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
+  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor]);
 
   const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
     if (album.isDefault) {
@@ -511,7 +516,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       onPressCacheFab();
       return;
     }
-    tabSwipeContext?.goToTab(1);
+    tabSwipeContext?.goToTab(1, { animation: 'slide' });
     setTimeout(() => {
       tabSwipeContext?.triggerCacheAddAction();
     }, 280);
@@ -539,7 +544,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   return (
     <>
       <DeckMainScreenUI
-        appTheme={appTheme}
         heroStatusText={allCards.length > 0 ? "Cache isn't empty" : 'Cache is empty'}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -594,13 +598,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onChangeName={setSettingsName}
         onChangeEmoji={setSettingsEmoji}
         onChangeColor={setSettingsColor}
-        settingsCoverImageUri={settingsCoverImageUri}
-        onPickCoverImage={handlePickAlbumCoverImage}
-        onRemoveCoverImage={() => setSettingsCoverImageUri(undefined)}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
-          setSettingsCoverImageUri(undefined);
         }}
         onSave={handleSaveAlbumSettings}
       />

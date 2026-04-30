@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   useWindowDimensions,
   View,
   Animated,
@@ -66,6 +67,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
+import { SCREEN_BG } from '../../../theme/colors';
 
 type Props = {
   navigation: any;
@@ -187,6 +189,8 @@ function formatCardDate(input: Date | string | undefined | null): string {
 }
 
 export default function CardDetailScreen({ navigation, route }: Props) {
+  const colorScheme = useColorScheme();
+  const isLightMode = colorScheme === 'light';
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
@@ -224,6 +228,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const waveformValues = React.useRef(Array.from({ length: 24 }, () => new Animated.Value(8))).current;
   const recordingRef = React.useRef<any | null>(null);
+  const recordingTransitionRef = React.useRef(false);
   const lastRecordingUriRef = React.useRef<string | null>(null);
   const userRecordingSoundRef = React.useRef<any | null>(null);
   const waveformPointerRef = React.useRef(0);
@@ -536,6 +541,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   };
 
   const startPronunciationRecording = async () => {
+    if (recordingTransitionRef.current) return;
+    recordingTransitionRef.current = true;
     try {
       if (!card) return;
       if (isAnalyzing) return;
@@ -578,6 +585,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setShowFeedback(false);
       setHasRecorded(false);
       await stopUserRecordingPreview();
+      const staleRecording = recordingRef.current;
+      if (staleRecording) {
+        try {
+          staleRecording.setOnRecordingStatusUpdate(null);
+          await staleRecording.stopAndUnloadAsync();
+        } catch {
+          // ignore stale recorder cleanup errors
+        } finally {
+          recordingRef.current = null;
+        }
+      }
 
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
 
@@ -610,12 +628,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       console.error('[CardDetail][Pronunciation] start recording failed:', error);
       setIsRecording(false);
       Alert.alert('錄音失敗', '請再試一次。');
+    } finally {
+      recordingTransitionRef.current = false;
     }
   };
 
   const stopPronunciationRecording = async () => {
+    if (recordingTransitionRef.current) return;
+    recordingTransitionRef.current = true;
     const recording = recordingRef.current;
-    if (!recording) return;
+    if (!recording) {
+      recordingTransitionRef.current = false;
+      return;
+    }
 
     try {
       const statusBeforeStop = await recording.getStatusAsync();
@@ -624,6 +649,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           ? statusBeforeStop.durationMillis
           : 0;
 
+      recording.setOnRecordingStatusUpdate(null);
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       recordingRef.current = null;
@@ -659,6 +685,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Alert.alert('分析失敗', message);
     } finally {
       setIsAnalyzing(false);
+      recordingTransitionRef.current = false;
     }
   };
 
@@ -1059,6 +1086,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           isFavorite={isThisCardFavorite}
           onOpenAlbumSheet={() => setShowAlbumSheet(true)}
           onToggleFavorite={() => void toggleFavorite()}
+          isLightMode={isLightMode}
         />
       );
     },
@@ -1084,12 +1112,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       showFeedback,
       waveformValues,
       playUserRecordingPreview,
+      isLightMode,
     ]
   );
 
   if (loading || currentIndex === null || displayIndex === null) {
     return (
-      <View style={styles.loadingWrap}>
+      <View style={[styles.loadingWrap, isLightMode ? { backgroundColor: '#FFFFFF' } : null]}>
         <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
@@ -1097,8 +1126,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   if (!card) {
     return (
-      <View style={styles.loadingWrap}>
-        <Text style={styles.errorText}>找不到這張卡片</Text>
+      <View style={[styles.loadingWrap, isLightMode ? { backgroundColor: '#FFFFFF' } : null]}>
+        <Text style={[styles.errorText, isLightMode ? { color: '#111111' } : null]}>找不到這張卡片</Text>
         <TouchableOpacity style={styles.errorBackBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.errorBackText}>返回</Text>
         </TouchableOpacity>
@@ -1107,19 +1136,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={[]}>
+    <SafeAreaView style={[styles.container, isLightMode ? { backgroundColor: '#FFFFFF' } : null]} edges={[]}>
       <View pointerEvents="box-none" style={styles.floatingHeaderLayer}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={[styles.floatingIconButton, styles.floatingBackButton, { top: floatingHeaderTop }]}
         >
-          <Ionicons name="chevron-back" size={24} color="#F4EDE6" />
+          <Ionicons name="chevron-back" size={24} color={isLightMode ? '#111111' : '#F4EDE6'} />
         </TouchableOpacity>
 
         {/* 新增的置中標題與卡片計數 */}
         <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
-          <Text style={styles.headerTitleText}>
-            {headerTitle} <Text style={styles.headerCountText}>({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})</Text>
+          <Text style={[styles.headerTitleText, isLightMode ? { color: '#111111' } : null]}>
+            {headerTitle}{' '}
+            <Text style={[styles.headerCountText, isLightMode ? { color: 'rgba(17,17,17,0.6)' } : null]}>
+              ({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})
+            </Text>
           </Text>
         </View>
       </View>
@@ -1193,7 +1225,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
             }}
           >
-            <View style={{ flex: 1, backgroundColor: '#02213D' }} />
+            <View style={{ flex: 1, backgroundColor: SCREEN_BG }} />
           </Animated.View>
 
           <Animated.View
@@ -1251,8 +1283,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#02213D' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#02213D' },
+  container: { flex: 1, backgroundColor: SCREEN_BG },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: SCREEN_BG },
   errorText: { color: '#F4EDE6', fontSize: 16, fontWeight: '600' },
   errorBackBtn: {
     marginTop: 10,
@@ -1346,10 +1378,10 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   detailPaper: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1E293B',
     borderRadius: 30,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: '#334155',
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 24 },
@@ -1368,7 +1400,7 @@ const styles = StyleSheet.create({
   },
   heroMedia: {
     width: '100%',
-    height: 340,
+    height: 250,
   },
   heroMediaFallback: {
     width: '100%',
@@ -1384,7 +1416,7 @@ const styles = StyleSheet.create({
     letterSpacing: -1.2,
   },
   referenceWordCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1E293B',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
@@ -1397,7 +1429,7 @@ const styles = StyleSheet.create({
   },
   referenceWordLeft: { flex: 1, paddingRight: 8 },
   referenceWord: {
-    color: '#111111',
+    color: '#F8FAFC',
     fontSize: scaleFont(52),
     lineHeight: scaleFont(56),
     fontWeight: '900',
@@ -1430,16 +1462,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: '#E7E9EF',
+    backgroundColor: '#334155',
   },
   referencePosText: {
-    color: '#6B7280',
+    color: '#F8FAFC',
     fontSize: scaleFont(20),
     fontWeight: '800',
   },
   referenceMeaning: {
     flex: 1,
-    color: '#111111',
+    color: '#F8FAFC',
     fontSize: scaleFont(30),
     lineHeight: scaleFont(42),
     fontWeight: '700',
@@ -1449,11 +1481,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 14,
     height: 1,
-    backgroundColor: '#ECECF0',
+    backgroundColor: '#334155',
   },
   referenceExample: {
     flex: 1,
-    color: '#111111',
+    color: '#F8FAFC',
     fontSize: scaleFont(30),
     lineHeight: scaleFont(38),
     fontWeight: '500',
@@ -1461,7 +1493,7 @@ const styles = StyleSheet.create({
   },
   referenceTranslation: {
     marginTop: 14,
-    color: '#20222A',
+    color: '#F8FAFC',
     fontSize: scaleFont(25),
     lineHeight: scaleFont(42),
     fontWeight: '700',
@@ -1471,33 +1503,31 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   referenceSubLabel: {
-    color: '#8A8E97',
+    color: '#94A3B8',
     fontSize: scaleFont(12),
     fontWeight: '700',
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   referenceSubText: {
-    color: '#232733',
+    color: '#94A3B8',
     fontSize: scaleFont(20),
     lineHeight: scaleFont(30),
     fontWeight: '500',
   },
   referenceCollocationSection: {
-    marginTop: 18,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECF0',
+    marginTop: 0,
+    paddingTop: 0,
     gap: 8,
   },
   referenceCollocationTitle: {
-    color: '#8A8E97',
+    color: '#94A3B8',
     fontSize: scaleFont(20),
     fontWeight: '700',
     letterSpacing: 0.8,
   },
   referenceCollocationItem: {
-    color: '#1E2430',
+    color: '#F8FAFC',
     fontSize: scaleFont(25),
     lineHeight: scaleFont(28),
     fontWeight: '600',

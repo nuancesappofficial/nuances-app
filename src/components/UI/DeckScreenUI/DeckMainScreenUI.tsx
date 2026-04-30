@@ -5,19 +5,17 @@ import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
-import type { AppThemeName } from '@services/settings/userSettings';
-import { getAppThemePalette } from '../../../theme/appTheme';
+import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
 
 const ALBUMS_PER_PAGE = 9;
 const GRID_COLUMNS = 3;
-const GRID_GAP = 6;
+const GRID_GAP = 12;
 const GRID_HORIZONTAL_PADDING = 12;
 const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
 // 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
 const ALBUM_GROUP_OFFSET_Y = 0;
 
 type Props = {
-  appTheme: AppThemeName;
   heroStatusText?: string;
   searchQuery: string;
   onSearchChange: (value: string) => void;
@@ -47,7 +45,6 @@ type Props = {
 };
 
 export default function DeckMainScreenUI({
-  appTheme,
   searchQuery,
   onSearchChange,
   onClearSearch,
@@ -73,7 +70,6 @@ export default function DeckMainScreenUI({
   onMenuFinish,
   onActionEnd,
 }: Props) {
-  const palette = React.useMemo(() => getAppThemePalette(appTheme), [appTheme]);
   const { width: screenWidth } = useWindowDimensions();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
@@ -89,7 +85,13 @@ export default function DeckMainScreenUI({
   );
   const [currentPage, setCurrentPage] = React.useState(0);
   const maxSearchWidth = Math.max(160, screenWidth - 16 * 2 - 40 - 10);
-  const isTodayReviewActive = todayReviewPendingCount > 0;
+  const newWordsLevel = React.useMemo(() => {
+    if (todayReviewPendingCount <= 0) return 0;
+    if (todayReviewPendingCount <= 2) return 1;
+    if (todayReviewPendingCount <= 5) return 2;
+    return 3;
+  }, [todayReviewPendingCount]);
+  const isTodayReviewActive = newWordsLevel > 0;
 
   const searchAnimatedWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
@@ -332,14 +334,14 @@ export default function DeckMainScreenUI({
   });
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.topRightRow}>
         <TouchableOpacity
           style={styles.brandIconButton}
           activeOpacity={0.8}
           onPress={() => onPressCacheFab?.()}
         >
-          <Image source={require('../../../../assets/icon_cutout.png')} style={styles.brandIcon} resizeMode="contain" />
+          <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
         </TouchableOpacity>
         <View style={styles.topActionsRow}>
           <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
@@ -410,12 +412,12 @@ export default function DeckMainScreenUI({
       </View>
 
       <View style={styles.albumGroupShadow}>
-        <View style={[styles.albumGroup, { backgroundColor: palette.containerBg }]}>
+        <View style={styles.albumGroup}>
           <FlatList
             data={albumPages}
             horizontal
             pagingEnabled
-            style={[styles.albumPager, { backgroundColor: palette.containerBg }]}
+            style={styles.albumPager}
             keyExtractor={(_, index) => `album-page-${index}`}
             showsHorizontalScrollIndicator={false}
             decelerationRate="fast"
@@ -455,7 +457,12 @@ export default function DeckMainScreenUI({
         >
           {isTodayReviewActive ? (
             <TouchableOpacity
-              style={[styles.todayReviewCard, styles.todayReviewCardActive]}
+              style={[
+                styles.todayReviewCard,
+                styles.todayReviewCardActive,
+                newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
+                newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
+              ]}
               activeOpacity={0.9}
               onPress={onPressTodayReview}
             >
@@ -471,6 +478,18 @@ export default function DeckMainScreenUI({
               />
               <View style={styles.todayReviewHeaderRow}>
                 <Text style={styles.todayReviewLabel}>New words</Text>
+                {newWordsLevel >= 2 ? (
+                  <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
+                    <Text
+                      style={[
+                        styles.todayReviewBadgeText,
+                        newWordsLevel >= 3 ? styles.todayReviewBadgeTextUrgent : null,
+                      ]}
+                    >
+                      {todayReviewPendingCount}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </TouchableOpacity>
           ) : (
@@ -480,23 +499,22 @@ export default function DeckMainScreenUI({
                   styles.todayReviewCard,
                   styles.todayReviewCardInactive,
                   styles.todayReviewQuickQuizButton,
-                  { backgroundColor: palette.containerBg },
                 ]}
                 activeOpacity={0.9}
                 onPress={onPressTodayReview}
               >
                 <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
-                  <Ionicons name="play" size={16} color={palette.textOnContainer} />
+                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive]}>Quick quiz</Text>
+                  <Ionicons name="play" size={16} color={TEXT_ON_CONTAINER} />
                 </View>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.todayReviewEqualizerButton, { backgroundColor: palette.containerBg }]}
+                style={styles.todayReviewEqualizerButton}
                 activeOpacity={0.9}
                 onPress={onPressTodayReviewTuning}
               >
-                <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
+                <Ionicons name="options-outline" size={22} color={TEXT_ON_CONTAINER} />
               </TouchableOpacity>
             </View>
           )}
@@ -505,7 +523,7 @@ export default function DeckMainScreenUI({
 
       <View style={styles.wordShowcaseWrap}>
         <TouchableOpacity
-          style={[styles.wordShowcase, { backgroundColor: palette.containerBg }]}
+          style={styles.wordShowcase}
           activeOpacity={0.88}
           disabled={!activeShowcaseItem}
           onPress={() => {
@@ -513,7 +531,7 @@ export default function DeckMainScreenUI({
             onPressSlideshowItem(activeShowcaseItem);
           }}
         >
-          <Text style={[styles.wordShowcaseLabel, { color: palette.textOnContainer }]}>Word Pop</Text>
+          <Text style={styles.wordShowcaseLabel}>Word Pop</Text>
           <View style={styles.wordShowcaseContent}>
             {activeShowcaseItem?.imageUri ? (
               <Animated.View style={[styles.wordThumbWrap, { opacity: wordOpacity }]}>
@@ -521,10 +539,10 @@ export default function DeckMainScreenUI({
               </Animated.View>
             ) : (
               <Animated.View style={[styles.wordThumbFallback, { opacity: wordOpacity }]}>
-                <Text style={[styles.wordThumbFallbackText, { color: palette.textOnContainer }]}>Aa</Text>
+                <Text style={styles.wordThumbFallbackText}>Aa</Text>
               </Animated.View>
             )}
-            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={2}>
+            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity }]} numberOfLines={2}>
               {activeShowcaseItem?.text || 'Start adding cards to generate words'}
             </Animated.Text>
           </View>
@@ -537,7 +555,7 @@ export default function DeckMainScreenUI({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#02213D',
+    backgroundColor: '#0F172A',
   },
   topRightRow: {
     paddingHorizontal: 16,
@@ -626,7 +644,7 @@ const styles = StyleSheet.create({
   },
   albumGroup: {
     borderRadius: 24,
-    backgroundColor: '#4EAFF4',
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   albumGridContent: {
@@ -639,12 +657,12 @@ const styles = StyleSheet.create({
   },
   albumPager: {
     flexGrow: 0,
-    backgroundColor: '#4EAFF4',
+    backgroundColor: 'transparent',
   },
   albumRow: {
     flexDirection: 'row',
     gap: GRID_GAP,
-    marginBottom: 8,
+    marginBottom: GRID_GAP,
   },
   albumRowLast: {
     marginBottom: 0,
@@ -670,7 +688,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(2,33,61,0.3)',
   },
   paginationDotActive: {
-    backgroundColor: '#02213D',
+    backgroundColor: SCREEN_BG,
   },
   wordShowcaseWrap: {
     marginTop: 10,
@@ -696,14 +714,24 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   todayReviewCardActive: {
-    backgroundColor: '#D97706',
-    borderColor: 'rgba(255,214,153,0.95)',
+    backgroundColor: 'rgba(78,175,244,0.2)',
+    borderColor: 'rgba(78,175,244,0.9)',
+    borderWidth: 1,
     shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 0 },
     elevation: 12,
   },
+  todayReviewCardLevel1: {
+    backgroundColor: 'rgba(78,175,244,0.1)',
+    borderWidth: 0,
+  },
+  todayReviewCardLevel2: {
+    backgroundColor: 'rgba(78,175,244,0.2)',
+    borderWidth: 1,
+    borderColor: '#4EAFF4',
+  },
   todayReviewCardInactive: {
-    backgroundColor: '#4EAFF4',
+    backgroundColor: CONTAINER_BG,
     borderColor: 'rgba(2,33,61,0.22)',
     shadowColor: '#2C79B4',
     shadowOpacity: 0.18,
@@ -721,7 +749,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(2,33,61,0.22)',
-    backgroundColor: '#4EAFF4',
+    backgroundColor: CONTAINER_BG,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#2C79B4',
@@ -741,13 +769,13 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   todayReviewLabel: {
-    color: '#F7FBFF',
+    color: '#F8FAFC',
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: 0.4,
   },
   todayReviewLabelInactive: {
-    color: '#1C3E63',
+    color: TEXT_ON_CONTAINER,
     fontWeight: '700',
   },
   todayReviewWhoosh: {
@@ -757,10 +785,30 @@ const styles = StyleSheet.create({
     width: 120,
     backgroundColor: 'rgba(255,255,255,0.38)',
   },
+  todayReviewBadge: {
+    minWidth: 30,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 9,
+    backgroundColor: '#4EAFF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todayReviewBadgeUrgent: {
+    backgroundColor: '#FF6B6B',
+  },
+  todayReviewBadgeText: {
+    color: '#02213D',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  todayReviewBadgeTextUrgent: {
+    color: '#FFFFFF',
+  },
   wordShowcase: {
     minHeight: 88,
     borderRadius: 20,
-    backgroundColor: '#4EAFF4',
+    backgroundColor: CONTAINER_BG,
     borderWidth: 1,
     borderColor: 'rgba(2,33,61,0.2)',
     paddingHorizontal: 16,
@@ -768,7 +816,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wordShowcaseLabel: {
-    color: 'rgba(28,62,99,0.86)',
+    color: TEXT_ON_CONTAINER,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.3,
@@ -799,12 +847,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wordThumbFallbackText: {
-    color: '#1C3E63',
+    color: TEXT_ON_CONTAINER,
     fontSize: 18,
     fontWeight: '700',
   },
   wordShowcaseWord: {
-    color: '#1C3E63',
+    color: TEXT_ON_CONTAINER,
     flex: 1,
     fontSize: 22,
     fontWeight: '700',

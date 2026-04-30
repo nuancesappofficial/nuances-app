@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, {
   Extrapolation,
@@ -43,6 +43,7 @@ type Props = {
   isFavorite: boolean;
   onOpenAlbumSheet: () => void;
   onToggleFavorite: () => void;
+  isLightMode?: boolean;
 };
 
 function CardDetailCarouselCardUI({
@@ -74,7 +75,41 @@ function CardDetailCarouselCardUI({
   isFavorite,
   onOpenAlbumSheet,
   onToggleFavorite,
+  isLightMode = false,
 }: Props) {
+  const ui = React.useMemo(
+    () =>
+      isLightMode
+        ? {
+            paperBg: '#FFFFFF',
+            paperBorder: 'rgba(0,0,0,0.06)',
+            primaryText: '#111111',
+            secondaryText: '#8A8E97',
+            noteText: '#8A8E97',
+            posBg: '#E7E9EF',
+            posText: '#6B7280',
+            divider: '#ECECF0',
+            icon: '#8E939D',
+            folderIcon: '#1F2937',
+            starActive: '#D97706',
+            starInactive: '#8E939D',
+          }
+        : {
+            paperBg: '#1E293B',
+            paperBorder: '#334155',
+            primaryText: '#F8FAFC',
+            secondaryText: '#94A3B8',
+            noteText: '#94A3B8',
+            posBg: '#334155',
+            posText: '#F8FAFC',
+            divider: '#334155',
+            icon: '#94A3B8',
+            folderIcon: '#94A3B8',
+            starActive: '#EAB308',
+            starInactive: '#94A3B8',
+          },
+    [isLightMode]
+  );
   const parseCardTags = React.useCallback((rawTags: unknown): string[] => {
     if (Array.isArray(rawTags)) {
       return rawTags
@@ -164,6 +199,20 @@ function CardDetailCarouselCardUI({
     const matched = sentences.find((s) => reg.test(s));
     return matched || sentences[0] || source;
   }, [item.originalSentence, itemWord]);
+  const quotedTargetWord = React.useMemo(() => {
+    const normalizedWord = (itemWord || '').trim();
+    if (!normalizedWord || normalizedWord === '-') return '""';
+    return `"${normalizedWord}"`;
+  }, [itemWord]);
+  const sourceSentenceWithQuote = React.useMemo(() => {
+    if (!sourceSentence || sourceSentence === '-') return '-';
+    const normalizedWord = (itemWord || '').trim();
+    if (!normalizedWord || normalizedWord === '-') return sourceSentence;
+    const escaped = normalizedWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const reg = new RegExp(`\\b${escaped}\\b`, 'ig');
+    if (reg.test(sourceSentence)) return sourceSentence.replace(reg, `"${normalizedWord}"`);
+    return `${sourceSentence} (${quotedTargetWord})`;
+  }, [itemWord, quotedTargetWord, sourceSentence]);
   const translationText = React.useMemo(() => {
     const raw = (item.contextualExplanation || item.definition || '-').trim();
     if (!raw || raw === '-') return '-';
@@ -179,9 +228,14 @@ function CardDetailCarouselCardUI({
         .split(/[\n,;]+/)
         .map((phrase) => phrase.trim())
         .filter(Boolean)
-        .slice(0, 4),
+        .slice(0, 3),
     [item.frequentCollocations]
   );
+  const sentenceExplanation = React.useMemo(() => {
+    if (item.contextualExplanation?.trim()) return item.contextualExplanation.trim();
+    if (item.definition?.trim()) return `This sentence uses ${quotedTargetWord} to express: ${item.definition.trim()}`;
+    return `This sentence highlights how ${quotedTargetWord} is used in natural context.`;
+  }, [item.contextualExplanation, item.definition, quotedTargetWord]);
   const apiExampleSentence = React.useMemo(() => {
     const firstCollocation = collocationItems[0];
     if (!firstCollocation) return sourceSentence;
@@ -258,7 +312,14 @@ function CardDetailCarouselCardUI({
             
             {/* ========== 卡片正面 (FRONT FACE) ========== */}
             {/* 內容：圖片、單字、詞性、翻譯、中文解釋句 */}
-            <Reanimated.View style={[styles.detailPaper, frontAnimatedStyle, { flex: 1 }]}>
+            <Reanimated.View
+              style={[
+                styles.detailPaper,
+                { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
+                frontAnimatedStyle,
+                { flex: 1 },
+              ]}
+            >
               <View style={styles.heroMediaWrap}>
                 {hasHeroImage ? (
                   <TouchableOpacity activeOpacity={0.95} onPress={() => onOpenFullscreen(index)}>
@@ -293,12 +354,26 @@ function CardDetailCarouselCardUI({
                 )}
               </View>
 
-              <View style={[styles.referenceWordCard, { marginHorizontal: -18 + textBlockHorizontalInset, paddingHorizontal: textBlockHorizontalInset, flex: 1 }]}>
+                <View
+                  style={[
+                    styles.referenceWordCard,
+                    { backgroundColor: ui.paperBg },
+                    {
+                      marginHorizontal: -18 + textBlockHorizontalInset,
+                      paddingHorizontal: textBlockHorizontalInset,
+                      flex: 1,
+                      paddingBottom: 0,
+                    },
+                  ]}
+                >
                 {/* 1. 單字本體 */}
                 <View style={[styles.referenceRowTop, { position: 'relative' }]}>
                   <View style={[styles.referenceWordLeft, { minWidth: 0, flexShrink: 1 }]}>
                     <Text
-                      style={[styles.referenceWord, { fontSize: referenceWordFontSize, lineHeight: referenceWordLineHeight }]}
+                      style={[
+                        styles.referenceWord,
+                        { color: ui.primaryText, fontSize: referenceWordFontSize, lineHeight: referenceWordLineHeight },
+                      ]}
                       numberOfLines={1}
                       adjustsFontSizeToFit
                       minimumFontScale={0.42}
@@ -310,46 +385,54 @@ function CardDetailCarouselCardUI({
                     style={[styles.referencePlayBtn, { position: 'absolute', right: textBlockHorizontalInset + 2, top: 12, width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent' }]}
                     onPress={() => onPlayCard(itemPronunciationText, isActiveCard, index)}
                   >
-                    <Ionicons name={isActiveCard && isPlaying ? 'volume-high' : 'volume-medium-outline'} size={22} color="#8E939D" />
+                    <Ionicons name={isActiveCard && isPlaying ? 'volume-high' : 'volume-medium-outline'} size={22} color={ui.icon} />
                   </TouchableOpacity>
                 </View>
 
-                {/* 2. 詞性 & 3. 翻譯 */}
-                <View style={styles.referenceMeaningRow}>
-                  <View style={styles.referencePosBadge}>
-                    <Text style={styles.referencePosText}>{itemCaption}</Text>
+                <ScrollView
+                  style={localStyles.frontBodyScroll}
+                  contentContainerStyle={localStyles.frontBodyContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.referenceMeaningRow}>
+                    <View style={[styles.referencePosBadge, { backgroundColor: ui.posBg }]}>
+                      <Text style={[styles.referencePosText, { color: ui.posText }]}>{itemCaption}</Text>
+                    </View>
+                    <Text style={[styles.referenceMeaning, { color: ui.primaryText }]}>{definitionText}</Text>
                   </View>
-                  <Text style={styles.referenceMeaning}>{definitionText}</Text>
-                </View>
 
-                <View style={styles.referenceDivider} />
+                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
 
-                {/* 4. 中文解釋句 */}
-                <Text style={styles.referenceTranslation}>{translationText}</Text>
+                  <View style={localStyles.dualSentenceBlock}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Original sentence</Text>
+                    <Text style={[localStyles.dualSentenceText, { color: ui.primaryText }]}>{sourceSentenceWithQuote}</Text>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText, marginTop: 12 }]}>Translation</Text>
+                    <Text style={[localStyles.dualSentenceText, { color: ui.primaryText }]}>{translationText}</Text>
+                  </View>
+
+                  <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Sentence notes</Text>
+                    <Text style={[styles.referenceSubText, { color: ui.noteText }]}>{sentenceExplanation}</Text>
+                  </View>
+                </ScrollView>
 
                 {/* ----- 第一頁底部操作列 ----- */}
                 <View style={localStyles.cardActionRow}>
-                  <TouchableOpacity style={[localStyles.actionBtn, localStyles.actionBtnFolder]} onPress={onOpenAlbumSheet}>
-                    <Ionicons name="folder-outline" size={20} color="#FFFFFF" />
-                    <Text style={[localStyles.actionBtnText, localStyles.actionBtnTextOnColor]}>分類</Text>
+                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenAlbumSheet}>
+                    <Ionicons name="folder-outline" size={22} color={ui.folderIcon} />
                   </TouchableOpacity>
 
                   <TouchableOpacity 
                     style={[
-                      localStyles.actionBtn,
-                      localStyles.actionBtnFavorite,
-                      isFavorite ? localStyles.actionBtnFavoriteActive : null,
+                      localStyles.actionIconBtn,
                     ]} 
                     onPress={onToggleFavorite}
                   >
                     <Ionicons 
                       name={isFavorite ? 'star' : 'star-outline'} 
-                      size={20} 
-                      color={isFavorite ? '#FFFFFF' : '#F5A623'}
+                      size={22} 
+                      color={isFavorite ? ui.starActive : ui.starInactive}
                     />
-                    <Text style={[localStyles.actionBtnText, localStyles.actionBtnTextOnColor]}>
-                      收藏
-                    </Text>
                   </TouchableOpacity>
                 </View>
                 {/* ----------------------------- */}
@@ -359,53 +442,70 @@ function CardDetailCarouselCardUI({
 
             {/* ========== 卡片背面 (BACK FACE) ========== */}
             {/* 內容：Collocation、AI造句、Pronunciation coach、底部資訊 */}
-            <Reanimated.View style={[styles.detailPaper, backAnimatedStyle]}>
-              <View style={[styles.referenceWordCard, { marginHorizontal: -18 + textBlockHorizontalInset, paddingHorizontal: textBlockHorizontalInset, flex: 1, paddingTop: 16 }]}>
+            <Reanimated.View
+              style={[
+                styles.detailPaper,
+                { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
+                backAnimatedStyle,
+              ]}
+            >
+                <View
+                  style={[
+                    styles.referenceWordCard,
+                    { backgroundColor: ui.paperBg, marginHorizontal: -18 + textBlockHorizontalInset, paddingHorizontal: textBlockHorizontalInset, flex: 1, paddingTop: 0 },
+                  ]}
+                >
                 
-                {/* 1. Collocation */}
-                {collocationItems.length > 0 ? (
-                  <View style={styles.referenceCollocationSection}>
-                    <Text style={styles.referenceCollocationTitle}>COLLOCATION</Text>
-                    {collocationItems.map((phrase, idx) => (
-                      <Text key={`${item.id}-collocation-${idx}`} style={styles.referenceCollocationItem}>
-                        {`• ${phrase}`}
+                <ScrollView
+                  style={localStyles.backBodyScroll}
+                  contentContainerStyle={localStyles.backBodyContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {collocationItems.length > 0 ? (
+                    <View style={styles.referenceCollocationSection}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Collocations</Text>
+                      {collocationItems.map((phrase, idx) => (
+                        <Text key={`${item.id}-collocation-${idx}`} style={[styles.referenceCollocationItem, { color: ui.primaryText }]}>
+                          {`• ${phrase}`}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <View style={[styles.referenceSubSection, { marginTop: collocationItems.length > 0 ? 12 : 14 }]}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Example sentence</Text>
+                    <View style={styles.referenceRowTop}>
+                      <Text style={[styles.referenceExample, { color: ui.primaryText }]}>
+                        "{apiExampleSentence}"
                       </Text>
-                    ))}
+                      <TouchableOpacity
+                        style={[styles.referencePlayBtn, { width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent', marginTop: 4 }]}
+                        onPress={() => onPlayCard(apiExampleSentence, isActiveCard, index)}
+                      >
+                        <Ionicons name="volume-medium-outline" size={22} color={ui.icon} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                ) : null}
 
-                {/* 2. AI 造句 */}
-                <View style={[styles.referenceSubSection, { marginTop: collocationItems.length > 0 ? 0 : 12 }]}>
-                  <Text style={styles.referenceSubLabel}>AI 造句</Text>
-                  <View style={styles.referenceRowTop}>
-                    <Text style={styles.referenceExample}>"{apiExampleSentence}"</Text>
-                    <TouchableOpacity
-                      style={[styles.referencePlayBtn, { width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent', marginTop: 4 }]}
-                      onPress={() => onPlayCard(apiExampleSentence, isActiveCard, index)}
-                    >
-                      <Ionicons name="volume-medium-outline" size={22} color="#8E939D" />
-                    </TouchableOpacity>
+                  <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Pronunciation coach</Text>
+                    <PronunciationCoachUI
+                      isActiveCard={isActiveCard}
+                      isRecording={isRecording}
+                      hasRecorded={hasRecorded}
+                      showFeedback={showFeedback}
+                      isAnalyzing={isAnalyzing}
+                      pronunciationScore={pronunciationScore}
+                      pronunciationFeedbackLines={pronunciationFeedbackLines}
+                      phonemeChips={phonemeChips}
+                      waveformValues={waveformValues}
+                      itemWord={itemWord}
+                      onReset={onReset}
+                      onPrimaryAction={() => onToggleRecord(isActiveCard, index)}
+                      onPlayPreview={onPlayPreview}
+                    />
                   </View>
-                </View>
-
-                {/* 3. Pronunciation Coach */}
-                <View style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: 16 }}>
-                  <PronunciationCoachUI
-                    isActiveCard={isActiveCard}
-                    isRecording={isRecording}
-                    hasRecorded={hasRecorded}
-                    showFeedback={showFeedback}
-                    isAnalyzing={isAnalyzing}
-                    pronunciationScore={pronunciationScore}
-                    pronunciationFeedbackLines={pronunciationFeedbackLines}
-                    phonemeChips={phonemeChips}
-                    waveformValues={waveformValues}
-                    itemWord={itemWord}
-                    onReset={onReset}
-                    onPrimaryAction={() => onToggleRecord(isActiveCard, index)}
-                    onPlayPreview={onPlayPreview}
-                  />
-                </View>
+                </ScrollView>
 
                 {/* 底部 Footer */}
                 <View style={[styles.referenceFooterRow, { marginTop: 'auto' }]}>
@@ -426,6 +526,38 @@ function CardDetailCarouselCardUI({
 }
 
 const localStyles = StyleSheet.create({
+  frontBodyScroll: {
+    flex: 1,
+    minHeight: 120,
+  },
+  frontBodyContent: {
+    paddingBottom: 44,
+  },
+  backBodyScroll: {
+    flex: 1,
+    minHeight: 180,
+  },
+  backBodyContent: {
+    paddingBottom: 10,
+  },
+  dualSentenceBlock: {
+    marginTop: 4,
+  },
+  sectionLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'none',
+    marginBottom: 6,
+  },
+  dualSentenceText: {
+    marginTop: 0,
+    color: '#F8FAFC',
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: '600',
+  },
   semanticHeroWrap: {
     width: '100%',
     minHeight: 196,
@@ -457,7 +589,7 @@ const localStyles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   semanticPosText: {
-    color: '#4B5563',
+    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -492,44 +624,23 @@ const localStyles = StyleSheet.create({
     fontWeight: '700',
   },
   cardActionRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 'auto',
-    paddingTop: 16,
-    paddingBottom: 4,
+    justifyContent: 'space-between',
+    marginTop: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
-  actionBtn: {
-    flex: 1,
-    flexDirection: 'row',
+  actionIconBtn: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    height: BUTTON_TOKENS.height.prominent,
-    backgroundColor: '#111827',
-    borderRadius: BUTTON_TOKENS.radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    gap: 6,
-  },
-  actionBtnFolder: {
-    backgroundColor: '#D97706',
-    borderColor: 'rgba(255,214,153,0.75)',
-  },
-  actionBtnFavorite: {
-    backgroundColor: '#111827',
-    borderColor: 'rgba(255,255,255,0.16)',
-  },
-  actionBtnFavoriteActive: {
-    backgroundColor: '#D97706',
-    borderColor: 'rgba(255,214,153,0.75)',
-  },
-  actionBtnText: {
-    fontSize: BUTTON_TOKENS.text.strong,
-    fontWeight: BUTTON_TOKENS.weight.regular,
-    color: '#FFFFFF',
-  },
-  actionBtnTextOnColor: {
-    color: '#FFFFFF',
+    backgroundColor: 'transparent',
   },
 });
 

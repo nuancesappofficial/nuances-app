@@ -12,12 +12,14 @@ type UseCacheQuickAddFlowArgs = {
   navigation: any;
   setShowAddModal: React.Dispatch<React.SetStateAction<boolean>>;
   setAddTab: React.Dispatch<React.SetStateAction<'text' | 'image'>>;
+  onBatchQuickAddCreated?: (createdCount: number) => void;
 };
 
 export function useCacheQuickAddFlow({
   navigation,
   setShowAddModal,
   setAddTab,
+  onBatchQuickAddCreated,
 }: UseCacheQuickAddFlowArgs) {
   const [creatingImage, setCreatingImage] = React.useState(false);
   const [showQuickCamera, setShowQuickCamera] = React.useState(false);
@@ -126,6 +128,7 @@ export function useCacheQuickAddFlow({
           );
           if (createdCount > 0) {
             setShowAddModal(false);
+            onBatchQuickAddCreated?.(createdCount);
           } else {
             Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
           }
@@ -150,7 +153,7 @@ export function useCacheQuickAddFlow({
     } finally {
       setCreatingImage(false);
     }
-  }, [createQuickImageCachedItems, queueQuickAddCropperAfterModalDismiss, setShowAddModal]);
+  }, [createQuickImageCachedItems, onBatchQuickAddCreated, queueQuickAddCropperAfterModalDismiss, setShowAddModal]);
 
   const handleCaptureImage = React.useCallback(async () => {
     if (!quickCameraPermission?.granted) {

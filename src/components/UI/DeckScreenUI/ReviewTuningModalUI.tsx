@@ -1,6 +1,7 @@
 import React from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { TEXT_ON_CTA, CTA_COLOR } from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -10,6 +11,10 @@ type Props = {
 };
 
 const QUICK_OPTIONS = [5, 10, 15, 20];
+const MODAL_ENTRY_TRANSLATE_Y = 420;
+const MODAL_ENTRY_DURATION_MS = 360;
+const MODAL_BACKDROP_DURATION_MS = 240;
+const MODAL_EXIT_DURATION_MS = 220;
 
 export default function ReviewTuningModalUI({
   visible,
@@ -17,6 +22,10 @@ export default function ReviewTuningModalUI({
   onClose,
   onChangeQuestionCount,
 }: Props) {
+  const [shouldRender, setShouldRender] = React.useState(visible);
+  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
+  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+
   const decrement = React.useCallback(() => {
     onChangeQuestionCount(Math.max(1, questionCount - 1));
   }, [onChangeQuestionCount, questionCount]);
@@ -25,12 +34,56 @@ export default function ReviewTuningModalUI({
     onChangeQuestionCount(Math.min(50, questionCount + 1));
   }, [onChangeQuestionCount, questionCount]);
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+  React.useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      backdropOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(entranceY, {
+          toValue: 0,
+          duration: MODAL_ENTRY_DURATION_MS,
+          easing: Easing.bezier(0.3, 0.2, 0.4, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: MODAL_BACKDROP_DURATION_MS,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
 
-        <View style={styles.sheet}>
+    if (!shouldRender) return;
+    Animated.parallel([
+      Animated.timing(entranceY, {
+        toValue: MODAL_ENTRY_TRANSLATE_Y,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      setShouldRender(false);
+    });
+  }, [backdropOpacity, entranceY, shouldRender, visible]);
+
+  if (!shouldRender) return null;
+
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      <Pressable style={styles.rootPressable} onPress={onClose}>
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
+          <Pressable style={styles.sheet} onPress={() => undefined}>
           <Text style={styles.eyebrow}>REVIEW TUNING</Text>
           <Text style={styles.title}>Decide how many cards to play</Text>
           <Text style={styles.subtitle}>This setting will be remembered for this album.</Text>
@@ -68,24 +121,29 @@ export default function ReviewTuningModalUI({
           <TouchableOpacity style={styles.doneButton} onPress={onClose}>
             <Text style={styles.doneText}>Done</Text>
           </TouchableOpacity>
-        </View>
-      </View>
+          </Pressable>
+        </Animated.View>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  rootPressable: {
     flex: 1,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  sheetWrap: {
+    flex: 1,
     justifyContent: 'flex-end',
-    padding: 16,
   },
   sheet: {
-    borderRadius: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     backgroundColor: '#02213D',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 22,
@@ -158,7 +216,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quickChipActive: {
-    backgroundColor: '#E5FF4F',
+    backgroundColor: CTA_COLOR,
   },
   quickChipText: {
     color: '#FFFFFF',
@@ -166,7 +224,7 @@ const styles = StyleSheet.create({
     fontWeight: BUTTON_TOKENS.weight.regular,
   },
   quickChipTextActive: {
-    color: '#101010',
+    color: TEXT_ON_CTA,
   },
   doneButton: {
     marginTop: 4,

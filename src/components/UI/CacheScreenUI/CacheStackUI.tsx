@@ -22,11 +22,19 @@ type Props = {
   cards: CacheStackItem[];
   animationSeed: number;
   restoreSeed: number;
+  enteringCardIds: string[];
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
   onCardImageError: (itemId: string) => void;
 };
 
-export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCardSwipe, onCardImageError }: Props) {
+export default function CacheStackUI({
+  cards,
+  animationSeed,
+  restoreSeed,
+  enteringCardIds,
+  onCardSwipe,
+  onCardImageError,
+}: Props) {
   const topCardDragX = useSharedValue(0);
   const swipeSeqRef = React.useRef(0);
   const [swipeTrigger, setSwipeTrigger] = React.useState<{
@@ -149,6 +157,8 @@ export default function CacheStackUI({ cards, animationSeed, restoreSeed, onCard
           restoreSeed={restoreSeed}
           onSwipe={onCardSwipe}
           animationSeed={animationSeed}
+          shouldAnimateEntrance={enteringCardIds.includes(item.id)}
+          entranceOrder={enteringCardIds.indexOf(item.id)}
         />
       ))}
     </View>

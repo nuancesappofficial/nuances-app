@@ -16,7 +16,6 @@ import {
   loadUserSettings,
   saveUserSettings,
   type AIReplyLanguage,
-  type AppThemeName,
   type EntitlementMode,
 } from '@services/settings/userSettings';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -228,7 +227,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
-  const [appTheme, setAppTheme] = React.useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -236,7 +234,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     width: number;
     height: number;
   } | null>(null);
-  const [settingsVisible, setSettingsVisible] = React.useState(false);
   const heatMapPrimaryCardIds = React.useMemo(
     () => collectHeatMapPrimaryCardIds(cards, currentDate, profile),
     [cards, currentDate, profile]
@@ -329,7 +326,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       const settings = await loadUserSettings();
       setEntitlementMode(settings.entitlementMode);
       setAiReplyLanguage(settings.aiReplyLanguage);
-      setAppTheme(settings.theme);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -378,24 +374,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     }
   }, []);
 
-  const handleChangeAppTheme = React.useCallback(async (theme: AppThemeName) => {
-    try {
-      const settings = await loadUserSettings();
-      if (settings.theme === theme) return;
-      await saveUserSettings({
-        ...settings,
-        theme,
-      });
-      setAppTheme(theme);
-    } catch (error) {
-      console.error('[Profiles] update app theme failed:', error);
-      Alert.alert('更新失敗', '無法儲存主題設定，請稍後再試。');
-    }
-  }, []);
-
   const handleChangeProfilePhoto = React.useCallback(async () => {
     try {
-      setSettingsVisible(false);
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert('需要相簿權限', '請先允許存取相簿，才能上傳頭像。');
@@ -455,14 +435,14 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
         aiReplyLanguage={aiReplyLanguage}
-        appTheme={appTheme}
-        settingsVisible={settingsVisible}
-        onPressSettings={() => setSettingsVisible(true)}
-        onCloseSettings={() => setSettingsVisible(false)}
+        onPressSettings={() =>
+          navigation.navigate('ProfileSettings', {
+            onPressUploadProfilePic: handleChangeProfilePhoto,
+          })
+        }
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
-        onChangeTheme={handleChangeAppTheme}
         onPressBack={() => {
           if (overlayMode && onRequestClose) {
             onRequestClose();

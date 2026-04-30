@@ -16,7 +16,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
-import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -47,12 +46,7 @@ import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import {
-  DEFAULT_USER_SETTINGS,
-  loadUserSettings,
-  type AppThemeName,
-} from '@services/settings/userSettings';
-import { getAppThemePalette } from '../../../theme/appTheme';
+import { TEXT_ON_CTA, CTA_COLOR, CTA_COLOR_BORDER, CONTAINER_BG, SCREEN_BG } from '../../../theme/colors';
 
 type Props = {
   navigation: any;
@@ -92,7 +86,7 @@ const STICKER_HEIGHT = 32;
 const STICKER_GRID_HEIGHT = 188;
 const STICKER_MIN_WIDTH = 36;
 const STICKER_MAX_WIDTH = 420;
-const STICKER_OUTLINE_SAFETY_PAD = 12;
+const STICKER_OUTLINE_SAFETY_PAD = 6;
 
 function estimateStickerWidth(label: string): number {
   const text = normalizeStickerText(label);
@@ -151,6 +145,7 @@ function TiltSticker({
   const svgHeight = Math.max(34, dynamicLineHeight + 10);
   const strokeWidth = Math.max(3.4, Math.min(5.2, dynamicFontSize * 0.22));
   const textY = Math.round(svgHeight * 0.72);
+  const textX = Math.round(stickerWidth / 2);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -188,7 +183,7 @@ function TiltSticker({
             style={styles.stickerWordSvg}
           >
             <SvgText
-              x={strokeWidth + 1}
+              x={textX}
               y={textY}
               fill="none"
               stroke="#FFFFFF"
@@ -197,17 +192,19 @@ function TiltSticker({
               fontSize={dynamicFontSize}
               fontWeight="900"
               fontFamily="MarkerFelt-Wide"
+              textAnchor="middle"
               letterSpacing={-0.8}
             >
               {labelText}
             </SvgText>
             <SvgText
-              x={strokeWidth + 1}
+              x={textX}
               y={textY}
               fill="#050505"
               fontSize={dynamicFontSize}
               fontWeight="900"
               fontFamily="MarkerFelt-Wide"
+              textAnchor="middle"
               letterSpacing={-0.8}
             >
               {labelText}
@@ -536,34 +533,17 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     navigation,
     setShowAddModal,
     setAddTab,
+    onBatchQuickAddCreated: () => {
+      setAnimationSeed((prev) => prev + 1);
+    },
   });
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
   const hasFocusedOnceRef = React.useRef(false);
   const handledOverlayTokenRef = React.useRef<number | null>(null);
   const overlayAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousCardCountRef = React.useRef<number | null>(null);
-  const [appTheme, setAppTheme] = useState<AppThemeName>(DEFAULT_USER_SETTINGS.theme);
-  const palette = useMemo(() => getAppThemePalette(appTheme), [appTheme]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-      const hydrateTheme = async () => {
-        try {
-          const settings = await loadUserSettings();
-          if (active) setAppTheme(settings.theme);
-        } catch (error) {
-          console.warn('[Cache] load theme failed:', error);
-          if (active) setAppTheme(DEFAULT_USER_SETTINGS.theme);
-        }
-      };
-      void hydrateTheme();
-      return () => {
-        active = false;
-      };
-    }, [])
-  );
-
+  const previousStackCardIdsRef = React.useRef<string[]>([]);
+  const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
   const openAddModal = React.useCallback(() => {
     void Haptics.selectionAsync();
     setShowAddModal(true);
@@ -770,6 +750,29 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     }));
   }, [cards]);
 
+  useEffect(() => {
+    const currentIds = stackCards.map((card) => card.id);
+    const prevIds = previousStackCardIdsRef.current;
+    if (prevIds.length === 0) {
+      previousStackCardIdsRef.current = currentIds;
+      return;
+    }
+    const prevSet = new Set(prevIds);
+    const newlyAdded = currentIds.filter((id) => !prevSet.has(id));
+    if (newlyAdded.length > 0) {
+      setEnteringCardIds(newlyAdded);
+    }
+    previousStackCardIdsRef.current = currentIds;
+  }, [stackCards]);
+
+  useEffect(() => {
+    if (enteringCardIds.length === 0) return;
+    const timer = setTimeout(() => {
+      setEnteringCardIds([]);
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [enteringCardIds]);
+
   const todayStickerWords = useMemo(() => {
     const todayKey = toDayKey(new Date());
     const seen = new Set<string>();
@@ -973,10 +976,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   );
 
   return (
-    <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
+    <GestureHandlerRootView style={styles.container}>
       <View style={styles.vocabSection}>
         <Text style={styles.vocabTitleOutside}>Today&apos;s Uploads</Text>
-        <View style={[styles.vocabContainer, { backgroundColor: palette.containerBg }]}>
+        <View style={styles.vocabContainer}>
           <VocabStickerCloud items={todayStickerWords} onPressSticker={handlePressTodaySticker} />
           {stackCards.length > 0 ? (
             <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint="light" />
@@ -989,6 +992,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
           cards={stackCards}
           animationSeed={animationSeed}
           restoreSeed={restoreSeed}
+          enteringCardIds={enteringCardIds}
           onCardSwipe={handleCardSwipe}
           onCardImageError={handleCardImageError}
         />
@@ -1055,7 +1059,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#02213D',
+    backgroundColor: SCREEN_BG,
   },
   uploadBarButtonWrap: {
     position: 'absolute',
@@ -1083,7 +1087,7 @@ const styles = StyleSheet.create({
   vocabContainer: {
     minHeight: 188,
     borderRadius: 24,
-    backgroundColor: '#4EAFF4',
+    backgroundColor: CONTAINER_BG,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.06)',
     overflow: 'hidden',
@@ -1128,9 +1132,9 @@ const styles = StyleSheet.create({
   uploadBarButton: {
     height: BUTTON_TOKENS.height.prominent,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: '#F56B6B',
+    backgroundColor: CTA_COLOR,
     borderWidth: 1,
-    borderColor: 'rgba(251,251,251,0.36)',
+    borderColor: CTA_COLOR_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: BUTTON_TOKENS.shadow.color,
@@ -1140,7 +1144,7 @@ const styles = StyleSheet.create({
     elevation: BUTTON_TOKENS.shadow.elevation,
   },
   uploadBarButtonLabel: {
-    color: '#FBFBFB',
+    color: TEXT_ON_CTA,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
     letterSpacing: 0.2,
