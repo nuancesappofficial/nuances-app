@@ -27,6 +27,7 @@ import {
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
 } from '../../../features/deck/reviewPreferences';
+import { DEFAULT_USER_SETTINGS, loadUserSettings } from '@services/settings/userSettings';
 
 type Props = {
   navigation: any;
@@ -61,6 +62,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
   );
+  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<number>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
@@ -249,6 +251,25 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+      const hydrateWordPopSettings = async () => {
+        try {
+          const settings = await loadUserSettings();
+          if (active) setWordPopSlideMs(settings.wordPopSlideMs);
+        } catch (error) {
+          console.warn('[DeckMain] load word pop settings failed:', error);
+          if (active) setWordPopSlideMs(DEFAULT_USER_SETTINGS.wordPopSlideMs);
+        }
+      };
+      void hydrateWordPopSettings();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
       const hydrateTodayReviewPreferences = async () => {
         try {
           const prefs = await loadAlbumReviewPreferences('today-added');
@@ -352,7 +373,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
   const slideshowItems = React.useMemo(() => {
     const seen = new Set<string>();
-    const list: Array<{ cardId: string; text: string; imageUri?: string }> = [];
+    const list: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }> = [];
 
     allCards.forEach((card) => {
       const phrase = (card.targetPhrase || '').trim();
@@ -365,6 +386,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       list.push({
         cardId: card.id,
         text: candidate,
+        translation: (card.definition || card.contextualExplanation || '').trim(),
+        sentence: (card.originalSentence || '').trim(),
         imageUri: cardImageMap[card.id],
       });
     });
@@ -563,6 +586,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onPressTodayReview={handlePressTodayReview}
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         slideshowItems={slideshowItems}
+        wordPopSlideMs={wordPopSlideMs}
         onPressSlideshowItem={handlePressWordPopItem}
         albums={processedAlbums}
         onPressAlbum={handleAlbumPress}

@@ -24,7 +24,15 @@ import * as Haptics from 'expo-haptics';
 import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
 import type { AIReplyLanguage } from '@services/settings/userSettings';
-import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
+import {
+  CONTAINER_BG,
+  CONTAINER_NEON_GLOW,
+  CONTAINER_NEON_OUTLINE,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CONTAINER,
+  resolveThemeColors,
+} from '../../../theme/colors';
 
 export type HeatMapDay = {
   key: string;
@@ -947,11 +955,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: PANEL_BG,
     borderWidth: 1,
-    borderColor: '#334155',
-    shadowColor: '#000',
+    borderColor: CONTAINER_NEON_OUTLINE,
+    shadowColor: CONTAINER_NEON_GLOW,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
     elevation: 7,
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -1007,10 +1015,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginHorizontal: 16,
     borderRadius: 16,
-    shadowColor: '#000',
+    shadowColor: CONTAINER_NEON_GLOW,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
     elevation: 7,
   },
   heatMapPagerWrap: {
@@ -1024,7 +1032,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: PANEL_BG,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CONTAINER_NEON_OUTLINE,
     overflow: 'hidden',
   },
   monthPage: {
@@ -1299,16 +1307,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: PANEL_BG,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CONTAINER_NEON_OUTLINE,
     minHeight: 62,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    shadowColor: '#000',
+    shadowColor: CONTAINER_NEON_GLOW,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
     elevation: 7,
   },
   settingsPillIconCircle: {

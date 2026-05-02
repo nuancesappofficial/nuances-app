@@ -8,6 +8,7 @@ import {
   type AIReplyLanguage,
   type EntitlementMode,
   type TTSVoice,
+  type WordPopSlideMs,
 } from '@services/settings/userSettings';
 
 type RouteParams = {
@@ -25,6 +26,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
   const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
+  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
 
   React.useEffect(() => {
@@ -34,6 +36,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
         setEntitlementMode(settings.entitlementMode);
         setAiReplyLanguage(settings.aiReplyLanguage);
         setTtsVoice(settings.ttsVoice);
+        setWordPopSlideMs(settings.wordPopSlideMs);
       } catch (error) {
         console.error('[ProfileSettings] load app settings failed:', error);
       }
@@ -90,6 +93,21 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
     }
   }, []);
 
+  const handleChangeWordPopSlideMs = React.useCallback(async (value: WordPopSlideMs) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.wordPopSlideMs === value) return;
+      await saveUserSettings({
+        ...settings,
+        wordPopSlideMs: value,
+      });
+      setWordPopSlideMs(value);
+    } catch (error) {
+      console.error('[ProfileSettings] update word pop slide interval failed:', error);
+      Alert.alert('更新失敗', '無法儲存 Word Pop 輪播速度，請稍後再試。');
+    }
+  }, []);
+
   return (
     <ProfileSettingsModalUI
       visible
@@ -98,6 +116,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
       savingEntitlement={savingEntitlement}
       aiReplyLanguage={aiReplyLanguage}
       ttsVoice={ttsVoice}
+      wordPopSlideMs={wordPopSlideMs}
       onClose={() => navigation.goBack()}
       onPressUploadProfilePic={() => {
         route.params?.onPressUploadProfilePic?.();
@@ -105,6 +124,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
       onToggleEntitlement={handleToggleEntitlementMode}
       onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
       onChangeTTSVoice={handleChangeTTSVoice}
+      onChangeWordPopSlideMs={handleChangeWordPopSlideMs}
     />
   );
 }

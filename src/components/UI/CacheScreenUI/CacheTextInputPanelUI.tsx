@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text, TextInput, StyleSheet, View } from 'react-native';
+import { CONTAINER_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
 
 type Props = {
   manualText: string;
@@ -39,12 +40,12 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderRadius: 20,
-    backgroundColor: '#181C23',
+    backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 14,
     paddingVertical: 14,
-    color: '#FFFFFF',
+    color: TEXT_ON_CONTAINER,
     textAlignVertical: 'top',
   },
 });

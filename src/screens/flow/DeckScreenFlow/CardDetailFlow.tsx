@@ -1313,9 +1313,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
         {/* 新增的置中標題與卡片計數 */}
         <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
-          <Text style={[styles.headerTitleText, isLightMode ? { color: '#111111' } : null]}>
+          <Text style={styles.headerTitleText}>
             {headerTitle}{' '}
-            <Text style={[styles.headerCountText, isLightMode ? { color: 'rgba(17,17,17,0.6)' } : null]}>
+            <Text style={styles.headerCountText}>
               ({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})
             </Text>
           </Text>

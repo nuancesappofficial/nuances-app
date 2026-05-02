@@ -2,7 +2,7 @@ import React from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { AIReplyLanguage, TTSVoice } from '@services/settings/userSettings';
+import type { AIReplyLanguage, TTSVoice, WordPopSlideMs } from '@services/settings/userSettings';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER } from '../../../theme/colors';
 
@@ -23,6 +23,13 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
 ];
+const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = [
+  { value: 1800, label: '1.8s' },
+  { value: 2600, label: '2.6s' },
+  { value: 3400, label: '3.4s' },
+  { value: 4200, label: '4.2s' },
+  { value: 5200, label: '5.2s' },
+];
 
 type Props = {
   visible: boolean;
@@ -31,11 +38,13 @@ type Props = {
   entitlementMode: 'guest' | 'premium';
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
+  wordPopSlideMs: WordPopSlideMs;
   onClose: () => void;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
+  onChangeWordPopSlideMs: (value: WordPopSlideMs) => void;
 };
 
 const OVERLAY_ENTRY_DURATION_MS = 240;
@@ -50,15 +59,18 @@ export default function ProfileSettingsModalUI({
   entitlementMode,
   aiReplyLanguage,
   ttsVoice,
+  wordPopSlideMs,
   onClose,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
+  onChangeWordPopSlideMs,
 }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const [languageDropdownOpen, setLanguageDropdownOpen] = React.useState(false);
   const [voiceDropdownOpen, setVoiceDropdownOpen] = React.useState(false);
+  const [wordPopDropdownOpen, setWordPopDropdownOpen] = React.useState(false);
   const [mounted, setMounted] = React.useState(visible);
   const overlayOpacity = React.useRef(new Animated.Value(0)).current;
   const pageTranslateX = React.useRef(new Animated.Value(screenWidth)).current;
@@ -118,6 +130,10 @@ export default function ProfileSettingsModalUI({
   const selectedVoiceLabel = React.useMemo(
     () => TTS_VOICE_OPTIONS.find((option) => option.code === ttsVoice)?.label ?? 'EN-US Jenny',
     [ttsVoice]
+  );
+  const selectedWordPopLabel = React.useMemo(
+    () => WORD_POP_SLIDE_OPTIONS.find((option) => option.value === wordPopSlideMs)?.label ?? '2.6s',
+    [wordPopSlideMs]
   );
 
   const renderLanguageDropdown = () => (
@@ -239,6 +255,52 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
+          <View style={styles.languageSection}>
+            <Text style={styles.languageTitle}>Word Pop Slide Interval</Text>
+            <TouchableOpacity
+              style={styles.languageDropdownTrigger}
+              activeOpacity={0.9}
+              onPress={() => setWordPopDropdownOpen((prev) => !prev)}
+            >
+              <Text style={styles.languageDropdownValue}>{selectedWordPopLabel}</Text>
+              <Ionicons
+                name={wordPopDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color="#CBD5E1"
+              />
+            </TouchableOpacity>
+            {wordPopDropdownOpen ? (
+              <View style={styles.languageDropdownList}>
+                {WORD_POP_SLIDE_OPTIONS.map((option) => {
+                  const active = option.value === wordPopSlideMs;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.languageDropdownItem,
+                        active ? styles.languageDropdownItemActive : null,
+                      ]}
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        onChangeWordPopSlideMs(option.value);
+                        setWordPopDropdownOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.languageDropdownItemText,
+                          active ? styles.languageDropdownItemTextActive : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {active ? <Ionicons name="checkmark" size={16} color={TEXT_ON_CTA} /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
         </SafeAreaView>
       </View>
     );
@@ -318,6 +380,52 @@ export default function ProfileSettingsModalUI({
                       onPress={() => {
                         onChangeTTSVoice(option.code);
                         setVoiceDropdownOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.languageDropdownItemText,
+                          active ? styles.languageDropdownItemTextActive : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {active ? <Ionicons name="checkmark" size={16} color={TEXT_ON_CTA} /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.languageSection}>
+            <Text style={styles.languageTitle}>Word Pop Slide Interval</Text>
+            <TouchableOpacity
+              style={styles.languageDropdownTrigger}
+              activeOpacity={0.9}
+              onPress={() => setWordPopDropdownOpen((prev) => !prev)}
+            >
+              <Text style={styles.languageDropdownValue}>{selectedWordPopLabel}</Text>
+              <Ionicons
+                name={wordPopDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color="#CBD5E1"
+              />
+            </TouchableOpacity>
+            {wordPopDropdownOpen ? (
+              <View style={styles.languageDropdownList}>
+                {WORD_POP_SLIDE_OPTIONS.map((option) => {
+                  const active = option.value === wordPopSlideMs;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.languageDropdownItem,
+                        active ? styles.languageDropdownItemActive : null,
+                      ]}
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        onChangeWordPopSlideMs(option.value);
+                        setWordPopDropdownOpen(false);
                       }}
                     >
                       <Text

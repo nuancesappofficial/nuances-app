@@ -8,6 +8,8 @@ export const MODAL_CTA_COLOR = '#4EAFF4';
 export const MODAL_CTA_COLOR_BORDER = 'rgba(78,175,244,0.72)';
 
 export const TEXT_ON_CTA = '#F4EEF3';
+export const CONTAINER_NEON_OUTLINE = 'rgba(78,175,244,0.30)';
+export const CONTAINER_NEON_GLOW = 'rgba(78,175,244,0.24)';
 // Backward-compatible aliases for existing modal/button imports.
 export const CTA_COLOR = MODAL_CTA_COLOR;
 export const CTA_COLOR_BORDER = MODAL_CTA_COLOR_BORDER;

@@ -46,6 +46,8 @@ import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
+  CONTAINER_NEON_OUTLINE,
+  CONTAINER_NEON_GLOW,
   TEXT_ON_CTA,
   UPLOAD_CACHE_CTA_COLOR,
   UPLOAD_CACHE_CTA_COLOR_BORDER,
@@ -1043,10 +1045,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: '#334155',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    borderColor: CONTAINER_NEON_OUTLINE,
+    shadowColor: CONTAINER_NEON_GLOW,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
     overflow: 'hidden',

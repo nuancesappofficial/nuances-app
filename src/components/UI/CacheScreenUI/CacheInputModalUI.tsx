@@ -19,6 +19,14 @@ import * as Haptics from 'expo-haptics';
 import CacheTextInputPanelUI from './CacheTextInputPanelUI';
 import CacheImageInputPanelUI from './CacheImageInputPanelUI';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import {
+  CONTAINER_BG,
+  MODAL_CTA_COLOR,
+  MODAL_CTA_COLOR_BORDER,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CTA,
+} from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -370,11 +378,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#111318',
+    backgroundColor: SCREEN_BG,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 16,
@@ -385,7 +393,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: '#4B5563',
     alignSelf: 'center',
     marginBottom: 10,
   },
@@ -397,7 +405,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   tabRow: {
-    backgroundColor: '#1A1E27',
+    backgroundColor: CONTAINER_BG,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
     borderRadius: 16,
     padding: 4,
     flexDirection: 'row',
@@ -410,7 +420,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabBtnActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: MODAL_CTA_COLOR,
   },
   tabText: {
     color: '#8D93A1',
@@ -418,7 +428,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   tabTextActive: {
-    color: '#101010',
+    color: TEXT_ON_CTA,
   },
   panelViewport: {
     overflow: 'hidden',
@@ -444,19 +454,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pasteBtn: {
-    backgroundColor: '#3F6DFF',
+    backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: 'rgba(178,201,255,0.7)',
+    borderColor: 'rgba(255,255,255,0.16)',
   },
   clearBtn: {
-    backgroundColor: '#3B4353',
+    backgroundColor: '#273449',
     borderWidth: 1,
-    borderColor: 'rgba(193,204,224,0.42)',
+    borderColor: 'rgba(190,211,240,0.35)',
   },
   addBtn: {
-    backgroundColor: '#D97706',
+    backgroundColor: MODAL_CTA_COLOR,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,153,0.75)',
+    borderColor: MODAL_CTA_COLOR_BORDER,
   },
   actionBtnDisabled: {
     opacity: 0.45,
@@ -467,12 +477,12 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   pasteBtnText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
   },
   clearBtnText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
   },
   addBtnText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_CTA,
   },
 });

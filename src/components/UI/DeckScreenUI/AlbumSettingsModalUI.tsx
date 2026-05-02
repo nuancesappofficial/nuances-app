@@ -1,6 +1,25 @@
 import React from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import {
+  CONTAINER_BG,
+  MODAL_CTA_COLOR,
+  MODAL_CTA_COLOR_BORDER,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CONTAINER,
+  TEXT_ON_CTA,
+} from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -16,13 +35,23 @@ type Props = {
 
 const EMOJI_OPTIONS = ['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'];
 const COVER_COLOR_OPTIONS = [
-  { label: '亮紅', value: '#E45757' },
-  { label: '亮紫', value: '#9A63CC' },
-  { label: '亮黃', value: '#E8C24A' },
-  { label: '亮橘', value: '#E39A34' },
-  { label: '亮粉', value: '#D86A8A' },
-  { label: '原廠預設', value: '#1E293B' },
+  { value: '#E45757' },
+  { value: '#9A63CC' },
+  { value: '#E8C24A' },
+  { value: '#E39A34' },
+  { value: '#D86A8A' },
+  { value: '#4EAFF4' },
+  { value: '#32B8A2' },
+  { value: '#5BC0EB' },
+  { value: '#F97316' },
+  { value: '#1E293B' },
+  { value: '#64748B' },
 ];
+
+const MODAL_ENTRY_TRANSLATE_Y = 420;
+const MODAL_ENTRY_DURATION_MS = 360;
+const MODAL_BACKDROP_DURATION_MS = 240;
+const MODAL_EXIT_DURATION_MS = 220;
 
 export default function AlbumSettingsModalUI({
   visible,
@@ -35,93 +64,163 @@ export default function AlbumSettingsModalUI({
   onCancel,
   onSave,
 }: Props) {
+  const [shouldRender, setShouldRender] = React.useState(visible);
+  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
+  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      backdropOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(entranceY, {
+          toValue: 0,
+          duration: MODAL_ENTRY_DURATION_MS,
+          easing: Easing.bezier(0.3, 0.2, 0.4, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: MODAL_BACKDROP_DURATION_MS,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+
+    if (!shouldRender) return;
+    Animated.parallel([
+      Animated.timing(entranceY, {
+        toValue: MODAL_ENTRY_TRANSLATE_Y,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      setShouldRender(false);
+    });
+  }, [backdropOpacity, entranceY, shouldRender, visible]);
+
+  if (!shouldRender) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onCancel} />
+    <Modal visible transparent animationType="none" onRequestClose={onCancel}>
+      <Pressable style={styles.rootPressable} onPress={onCancel}>
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
+          <Pressable style={styles.sheet} onPress={() => undefined}>
+            <View style={styles.handle} />
 
-        <View style={styles.sheet}>
-          <Text style={styles.eyebrow}>ALBUM SETTINGS</Text>
-          <Text style={styles.title}>Customize this album</Text>
-          <Text style={styles.subtitle}>Refine the name and icon to fit the vibe you want.</Text>
+            <Text style={styles.eyebrow}>ALBUM SETTINGS</Text>
+            <Text style={styles.title}>Customize this album</Text>
+            <Text style={styles.subtitle}>Refine the name, icon, and cover color.</Text>
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionLabel}>Album name</Text>
-            <TextInput
-              value={settingsName}
-              onChangeText={onChangeName}
-              style={styles.input}
-              placeholder="Type album name"
-              placeholderTextColor="#737B88"
-            />
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionLabel}>Icon</Text>
-            <View style={styles.optionRow}>
-              {EMOJI_OPTIONS.map((emoji) => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[styles.emojiOption, settingsEmoji === emoji && styles.emojiOptionActive]}
-                  onPress={() => onChangeEmoji(emoji)}
-                >
-                  <Text style={styles.emojiOptionText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>Album name</Text>
+              <TextInput
+                value={settingsName}
+                onChangeText={onChangeName}
+                style={styles.input}
+                placeholder="Type album name"
+                placeholderTextColor="#64748B"
+              />
             </View>
-          </View>
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionLabel}>Cover color</Text>
-            <View style={styles.colorGrid}>
-              {COVER_COLOR_OPTIONS.map((option) => {
-                const active = settingsColor === option.value;
-                return (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>Icon</Text>
+              <View style={styles.optionRow}>
+                {EMOJI_OPTIONS.map((emoji) => (
                   <TouchableOpacity
-                    key={option.value}
-                    style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
-                    onPress={() => onChangeColor(option.value)}
+                    key={emoji}
+                    style={[styles.emojiOption, settingsEmoji === emoji && styles.emojiOptionActive]}
+                    onPress={() => onChangeEmoji(emoji)}
                     activeOpacity={0.88}
                   >
-                    <View style={[styles.colorSwatch, { backgroundColor: option.value }]} />
-                    <Text style={styles.colorOptionLabel}>{option.label}</Text>
+                    <Text style={styles.emojiOptionText}>{emoji}</Text>
                   </TouchableOpacity>
-                );
-              })}
+                ))}
+              </View>
             </View>
-          </View>
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.saveButton} onPress={onSave}>
-              <Text style={styles.saveText}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>Cover color</Text>
+              <View style={styles.colorGrid}>
+                {COVER_COLOR_OPTIONS.map((option) => {
+                  const active = settingsColor === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
+                      onPress={() => onChangeColor(option.value)}
+                      activeOpacity={0.88}
+                    >
+                      <View
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: option.value },
+                          active ? styles.colorSwatchActive : null,
+                        ]}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={onCancel} activeOpacity={0.9}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButton} onPress={onSave} activeOpacity={0.9}>
+                <Text style={styles.saveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Animated.View>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  rootPressable: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 16,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheetWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   sheet: {
-    borderRadius: 24,
-    backgroundColor: '#111318',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: SCREEN_BG,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    //minHeight: 700,
+    borderColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 32,
-    gap: 16,
+    paddingTop: 10,
+    paddingBottom: 22,
+    gap: 14,
+  },
+  handle: {
+    width: 40,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#4B5563',
+    alignSelf: 'center',
+    marginBottom: 4,
   },
   eyebrow: {
     color: '#8D93A1',
@@ -130,7 +229,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
   },
   title: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
     fontSize: 24,
     fontWeight: '800',
   },
@@ -140,25 +239,27 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   sectionCard: {
-    borderRadius: 20,
-    backgroundColor: '#181C23',
-    paddingHorizontal: 16,
-    paddingVertical: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: CONTAINER_BG,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
   },
   sectionLabel: {
     color: '#97A0AF',
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(15,23,42,0.5)',
     borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: '#FFFFFF',
+    paddingVertical: 11,
+    color: TEXT_ON_CONTAINER,
     fontSize: 15,
   },
   optionRow: {
@@ -171,56 +272,55 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(15,23,42,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   emojiOptionActive: {
-    borderColor: '#E5FF4F',
-    backgroundColor: 'rgba(229,255,79,0.12)',
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    backgroundColor: 'rgba(78,175,244,0.16)',
   },
   emojiOptionText: {
     fontSize: 22,
   },
   colorGrid: {
-    gap: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 10,
+    columnGap: 0,
   },
   colorOptionRow: {
-    flexDirection: 'row',
+    width: '20%',
+    minHeight: 38,
     alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: '#111318',
-    paddingHorizontal: 10,
-    minHeight: 40,
+    justifyContent: 'center',
   },
   colorOptionRowActive: {
-    borderColor: '#F8FAFC',
+    transform: [{ scale: 1.08 }],
   },
   colorSwatch: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginRight: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.24)',
   },
-  colorOptionLabel: {
-    color: '#E5EAF3',
-    fontSize: 13,
-    fontWeight: '600',
+  colorSwatchActive: {
+    borderWidth: 2,
+    borderColor: MODAL_CTA_COLOR_BORDER,
   },
   buttonRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginTop: 4,
   },
   cancelButton: {
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: '#1A1E27',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: CONTAINER_BG,
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -228,18 +328,20 @@ const styles = StyleSheet.create({
   saveButton: {
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },
   saveText: {
-    color: '#111111',
+    color: TEXT_ON_CTA,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },

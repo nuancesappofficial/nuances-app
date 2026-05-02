@@ -5,7 +5,15 @@ import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
-import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
+import {
+  CONTAINER_BG,
+  CONTAINER_NEON_GLOW,
+  CONTAINER_NEON_OUTLINE,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CONTAINER,
+  resolveThemeColors,
+} from '../../../theme/colors';
 
 const ALBUMS_PER_PAGE = 9;
 const GRID_COLUMNS = 3;
@@ -30,8 +38,9 @@ type Props = {
   todayReviewPendingCount: number;
   onPressTodayReview: () => void;
   onPressTodayReviewTuning: () => void;
-  slideshowItems: Array<{ cardId: string; text: string; imageUri?: string }>;
-  onPressSlideshowItem: (item: { cardId: string; text: string; imageUri?: string }) => void;
+  slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
+  wordPopSlideMs: number;
+  onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
   albums: DeckAlbum[];
   onPressAlbum: (album: DeckAlbum) => void;
   isMenuVisible: SharedValue<boolean>;
@@ -58,6 +67,7 @@ export default function DeckMainScreenUI({
   onPressTodayReview,
   onPressTodayReviewTuning,
   slideshowItems,
+  wordPopSlideMs,
   onPressSlideshowItem,
   albums,
   onPressAlbum,
@@ -176,10 +186,10 @@ export default function DeckMainScreenUI({
           useNativeDriver: true,
         }).start();
       });
-    }, 2600);
+    }, wordPopSlideMs);
 
     return () => clearInterval(timer);
-  }, [slideshowItems, wordOpacity]);
+  }, [slideshowItems, wordOpacity, wordPopSlideMs]);
 
   React.useEffect(() => {
     if (!isTodayReviewActive) {
@@ -414,6 +424,55 @@ export default function DeckMainScreenUI({
         </View>
       </View>
 
+      <View style={styles.wordShowcaseWrap}>
+        <TouchableOpacity
+          style={[
+            styles.wordShowcase,
+            isLight
+              ? {
+                  backgroundColor: palette.containerBg,
+                  borderColor: palette.borderSubtle,
+                  shadowOpacity: 0.05,
+                }
+              : null,
+          ]}
+          activeOpacity={0.88}
+          disabled={!activeShowcaseItem}
+          onPress={() => {
+            if (!activeShowcaseItem) return;
+            onPressSlideshowItem(activeShowcaseItem);
+          }}
+        >
+          <View style={styles.wordShowcaseContent}>
+            {activeShowcaseItem?.imageUri ? (
+              <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity }]}>
+                <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordShowcaseHeroImage} />
+              </Animated.View>
+            ) : (
+              <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity }]}>
+                <Text
+                  style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
+                  numberOfLines={4}
+                >
+                  {activeShowcaseItem?.sentence || 'No original sentence yet.'}
+                </Text>
+              </Animated.View>
+            )}
+            <View style={styles.wordShowcaseTextBlock}>
+              <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={1}>
+                {activeShowcaseItem?.text || 'Start adding cards to generate words'}
+              </Animated.Text>
+              <Animated.Text
+                style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
+                numberOfLines={2}
+              >
+                {activeShowcaseItem?.translation || 'Tap to open card details'}
+              </Animated.Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.albumGroupShadow}>
         <View style={styles.albumGroup}>
           <FlatList
@@ -425,11 +484,11 @@ export default function DeckMainScreenUI({
             showsHorizontalScrollIndicator={false}
             decelerationRate="fast"
             bounces={false}
-          onMomentumScrollEnd={(event) => {
-            const offsetX = event.nativeEvent.contentOffset.x;
-            const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
-            setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
-          }}
+            onMomentumScrollEnd={(event) => {
+              const offsetX = event.nativeEvent.contentOffset.x;
+              const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
+              setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
+            }}
             renderItem={({ item, index }) => renderAlbumPage(item, index)}
           />
 
@@ -549,43 +608,6 @@ export default function DeckMainScreenUI({
           )}
         </Animated.View>
       </View>
-
-      <View style={styles.wordShowcaseWrap}>
-        <TouchableOpacity
-          style={[
-            styles.wordShowcase,
-            isLight
-              ? {
-                  backgroundColor: palette.containerBg,
-                  borderColor: palette.borderSubtle,
-                  shadowOpacity: 0.05,
-                }
-              : null,
-          ]}
-          activeOpacity={0.88}
-          disabled={!activeShowcaseItem}
-          onPress={() => {
-            if (!activeShowcaseItem) return;
-            onPressSlideshowItem(activeShowcaseItem);
-          }}
-        >
-          <Text style={[styles.wordShowcaseLabel, { color: isLight ? '#64748B' : palette.textOnContainer }]}>Word Pop</Text>
-          <View style={styles.wordShowcaseContent}>
-            {activeShowcaseItem?.imageUri ? (
-              <Animated.View style={[styles.wordThumbWrap, { opacity: wordOpacity }]}>
-                <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordThumb} />
-              </Animated.View>
-            ) : (
-              <Animated.View style={[styles.wordThumbFallback, { opacity: wordOpacity }]}>
-                <Text style={[styles.wordThumbFallbackText, { color: palette.textOnContainer }]}>Aa</Text>
-              </Animated.View>
-            )}
-            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={2}>
-              {activeShowcaseItem?.text || 'Start adding cards to generate words'}
-            </Animated.Text>
-          </View>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -673,10 +695,10 @@ const styles = StyleSheet.create({
     marginHorizontal: ALBUM_GROUP_HORIZONTAL_MARGIN,
     marginTop: 12,
     borderRadius: 16,
-    shadowColor: '#000',
+    shadowColor: CONTAINER_NEON_GLOW,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
     elevation: 7,
     transform: [{ translateY: ALBUM_GROUP_OFFSET_Y }],
   },
@@ -684,7 +706,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CONTAINER_NEON_OUTLINE,
     overflow: 'hidden',
   },
   albumGridContent: {
@@ -772,10 +794,10 @@ const styles = StyleSheet.create({
   },
   todayReviewCardInactive: {
     backgroundColor: CONTAINER_BG,
-    borderColor: '#334155',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    borderColor: CONTAINER_NEON_OUTLINE,
+    shadowColor: CONTAINER_NEON_GLOW,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
@@ -788,13 +810,13 @@ const styles = StyleSheet.create({
     height: 74,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CONTAINER_NEON_OUTLINE,
     backgroundColor: CONTAINER_BG,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    shadowColor: CONTAINER_NEON_GLOW,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
@@ -846,61 +868,60 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   wordShowcase: {
-    minHeight: 88,
+    minHeight: 220,
     borderRadius: 16,
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CONTAINER_NEON_OUTLINE,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    justifyContent: 'flex-start',
+    shadowColor: CONTAINER_NEON_GLOW,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
-  wordShowcaseLabel: {
-    color: TEXT_ON_CONTAINER,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-    marginBottom: 6,
-  },
   wordShowcaseContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  wordThumbWrap: {
-    width: 54,
-    height: 54,
+  wordShowcaseHeroWrap: {
+    width: '100%',
+    height: 110,
     borderRadius: 12,
     overflow: 'hidden',
   },
-  wordThumb: {
+  wordShowcaseHeroImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
-  wordThumbFallback: {
-    width: 54,
-    height: 54,
+  wordShowcaseHeroFallback: {
+    width: '100%',
+    height: 110,
     borderRadius: 12,
-    backgroundColor: 'rgba(251,251,251,0.78)',
-    alignItems: 'center',
+    backgroundColor: 'rgba(15,23,42,0.16)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     justifyContent: 'center',
-  },
-  wordThumbFallbackText: {
-    color: TEXT_ON_CONTAINER,
-    fontSize: 18,
-    fontWeight: '700',
   },
   wordShowcaseWord: {
     color: TEXT_ON_CONTAINER,
-    flex: 1,
-    fontSize: 22,
+    fontSize: 30,
     fontWeight: '700',
-    lineHeight: 26,
+    lineHeight: 34,
+  },
+  wordShowcaseTextBlock: {
+    gap: 4,
+  },
+  wordShowcaseTranslation: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  wordShowcaseSentence: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600',
   },
 });

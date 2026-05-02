@@ -1,6 +1,25 @@
 import React from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import {
+  CONTAINER_BG,
+  MODAL_CTA_COLOR,
+  MODAL_CTA_COLOR_BORDER,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CONTAINER,
+  TEXT_ON_CTA,
+} from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -10,6 +29,11 @@ type Props = {
   onConfirm: () => void;
 };
 
+const MODAL_ENTRY_TRANSLATE_Y = 420;
+const MODAL_ENTRY_DURATION_MS = 360;
+const MODAL_BACKDROP_DURATION_MS = 240;
+const MODAL_EXIT_DURATION_MS = 220;
+
 export default function CreateAlbumModalUI({
   visible,
   albumName,
@@ -17,62 +41,124 @@ export default function CreateAlbumModalUI({
   onCancel,
   onConfirm,
 }: Props) {
+  const [shouldRender, setShouldRender] = React.useState(visible);
+  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
+  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      backdropOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(entranceY, {
+          toValue: 0,
+          duration: MODAL_ENTRY_DURATION_MS,
+          easing: Easing.bezier(0.3, 0.2, 0.4, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: MODAL_BACKDROP_DURATION_MS,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+
+    if (!shouldRender) return;
+    Animated.parallel([
+      Animated.timing(entranceY, {
+        toValue: MODAL_ENTRY_TRANSLATE_Y,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: MODAL_EXIT_DURATION_MS,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      setShouldRender(false);
+    });
+  }, [backdropOpacity, entranceY, shouldRender, visible]);
+
+  if (!shouldRender) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onCancel} />
+    <Modal visible transparent animationType="none" onRequestClose={onCancel}>
+      <Pressable style={styles.rootPressable} onPress={onCancel}>
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}> 
+          <Pressable style={styles.sheet} onPress={() => undefined}>
+            <View style={styles.handle} />
 
-        <View style={styles.sheet}>
-          <Text style={styles.eyebrow}>NEW ALBUM</Text>
-          <Text style={styles.title}>Create a new album</Text>
-          <Text style={styles.subtitle}>Give this collection a name so it feels like its own space.</Text>
+            <Text style={styles.eyebrow}>NEW ALBUM</Text>
+            <Text style={styles.title}>Create a new album</Text>
+            <Text style={styles.subtitle}>Give this collection a name so it feels like its own space.</Text>
 
-          <View style={styles.inputCard}>
-            <Text style={styles.inputLabel}>Album name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Type album name"
-              placeholderTextColor="#737B88"
-              value={albumName}
-              onChangeText={onChangeAlbumName}
-              autoFocus
-            />
-          </View>
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>Album name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Type album name"
+                placeholderTextColor="#64748B"
+                value={albumName}
+                onChangeText={onChangeAlbumName}
+                autoFocus
+              />
+            </View>
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={onCancel} activeOpacity={0.9}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity style={styles.confirmButton} onPress={onConfirm}>
-              <Text style={styles.confirmText}>Create</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+              <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} activeOpacity={0.9}>
+                <Text style={styles.confirmText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Animated.View>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  rootPressable: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end', 
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 350, // 增加這個數值，Modal 就會垂直往上平移
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheetWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   sheet: {
-    borderRadius: 24,
-    backgroundColor: '#111318',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: SCREEN_BG,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    //minHeight: 700,
+    borderColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 32,
-    gap: 16,
+    paddingTop: 10,
+    paddingBottom: 22,
+    gap: 14,
+  },
+  handle: {
+    width: 40,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#4B5563',
+    alignSelf: 'center',
+    marginBottom: 4,
   },
   eyebrow: {
     color: '#8D93A1',
@@ -81,7 +167,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
   },
   title: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
     fontSize: 24,
     fontWeight: '800',
   },
@@ -90,37 +176,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  inputCard: {
-    borderRadius: 20,
-    backgroundColor: '#181C23',
-    paddingHorizontal: 16,
-    paddingVertical: 18,
+  sectionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: CONTAINER_BG,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
   },
-  inputLabel: {
+  sectionLabel: {
     color: '#97A0AF',
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(15,23,42,0.5)',
     borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 11,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: TEXT_ON_CONTAINER,
   },
   buttonRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginTop: 4,
   },
   cancelButton: {
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: '#1A1E27',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: CONTAINER_BG,
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -128,18 +218,20 @@ const styles = StyleSheet.create({
   confirmButton: {
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
-    color: '#FFFFFF',
+    color: TEXT_ON_BG,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },
   confirmText: {
-    color: '#111111',
+    color: TEXT_ON_CTA,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },

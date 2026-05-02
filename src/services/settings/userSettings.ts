@@ -11,6 +11,7 @@ export type TTSVoice =
   | 'ko-KR-SunHiNeural'
   | 'zh-TW-HsiaoChenNeural'
   | 'zh-CN-XiaoxiaoNeural';
+export type WordPopSlideMs = 1800 | 2600 | 3400 | 4200 | 5200;
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
 export type ProficiencyStandardPreset =
   | 'cefr'
@@ -40,6 +41,7 @@ export type UserAppSettings = {
   entitlementMode: EntitlementMode;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
+  wordPopSlideMs: WordPopSlideMs;
   personalization: UserPersonalizationSettings;
 };
 
@@ -58,6 +60,7 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   entitlementMode: 'guest',
   aiReplyLanguage: 'zh-TW',
   ttsVoice: 'en-US-JennyNeural',
+  wordPopSlideMs: 2600,
   personalization: {
     learningGoalPreset: 'ielts',
     learningGoalCustom: '',
