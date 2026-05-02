@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -15,7 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { SCREEN_BG } from '../../../theme/colors';
+import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
 
 type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
 
@@ -64,6 +65,9 @@ export default function CardViewUI({
   getLearningStatus,
   withHexAlpha,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
   const { width: screenWidth } = useWindowDimensions();
   const searchExpandProgress = React.useRef(new Animated.Value(isSearchVisible ? 1 : 0)).current;
   const maxSearchWidth = Math.max(160, screenWidth - 16 * 2 - 40 - 10);
@@ -217,14 +221,14 @@ export default function CardViewUI({
 
   return (
     <Animated.View style={[styles.screenWrap, { opacity: screenOpacity }]}>
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
         <View pointerEvents="none" style={styles.backgroundLayer}>
           <LinearGradient
             colors={[
-              '#1E293B',
+              isLight ? palette.containerBg : '#1E293B',
               withHexAlpha(themeColor, '26'),
               withHexAlpha(themeColor, '1A'),
-              'rgba(30,41,59,0.15)',
+              isLight ? 'rgba(248,250,252,0.16)' : 'rgba(30,41,59,0.15)',
             ]}
             locations={[0, 0.22, 0.52, 1]}
             start={{ x: 0.5, y: 0 }}
@@ -232,7 +236,11 @@ export default function CardViewUI({
             style={styles.topThemeGradient}
           />
           <LinearGradient
-            colors={['rgba(15,23,42,0)', 'rgba(15,23,42,0.75)', '#0F172A']}
+            colors={
+              isLight
+                ? ['rgba(169,197,217,0)', 'rgba(169,197,217,0.72)', palette.screenBg]
+                : ['rgba(15,23,42,0)', 'rgba(15,23,42,0.75)', '#0F172A']
+            }
             locations={[0, 0.56, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}

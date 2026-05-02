@@ -70,7 +70,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
-import { SCREEN_BG } from '../../../theme/colors';
+import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
   navigation: any;
@@ -201,6 +201,7 @@ function formatCardDate(input: Date | string | undefined | null): string {
 export default function CardDetailScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const isLightMode = colorScheme === 'light';
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
@@ -1207,6 +1208,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         item.id === card?.id
           ? isFavorite
           : deriveSelectedAlbums(parseTags(item.tags)).includes(FAVORITES_ALBUM_ID);
+      const isThisCardBookmarked =
+        item.id === card?.id
+          ? selectedAlbums.length > 0
+          : deriveSelectedAlbums(parseTags(item.tags)).length > 0;
 
       return (
         <CardDetailCarouselCardUI
@@ -1237,6 +1242,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           styles={styles}
           // 新增的屬性
           isFavorite={isThisCardFavorite}
+          isBookmarked={isThisCardBookmarked}
           onOpenAlbumSheet={() => setShowAlbumSheet(true)}
           onToggleFavorite={() => void toggleFavorite()}
           onOpenStickyNote={openStickyNoteModal}
@@ -1249,6 +1255,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     [
       card?.id,
       isFavorite,
+      selectedAlbums,
       toggleFavorite,
       openStickyNoteModal,
       openPronunciationModal,
@@ -1295,7 +1302,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, isLightMode ? { backgroundColor: '#FFFFFF' } : null]} edges={[]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={[]}>
       <View pointerEvents="box-none" style={styles.floatingHeaderLayer}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1487,7 +1494,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
             }}
           >
-            <View style={{ flex: 1, backgroundColor: SCREEN_BG }} />
+            <View style={{ flex: 1, backgroundColor: palette.screenBg }} />
           </Animated.View>
 
           <Animated.View

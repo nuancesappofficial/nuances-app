@@ -28,8 +28,8 @@ const DARK_THEME_COLORS = {
 };
 
 const LIGHT_THEME_COLORS = {
-  screenBg: '#F1F5F9',
-  containerBg: '#FFFFFF',
+  screenBg: '#78BBDD',
+  containerBg: '#F8FAFC',
   textOnBg: '#0F172A',
   textOnContainer: '#0F172A',
   secondaryText: '#94A3B8',

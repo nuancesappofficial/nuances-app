@@ -16,10 +16,11 @@ type Props = {
 
 const EMOJI_OPTIONS = ['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'];
 const COVER_COLOR_OPTIONS = [
-  { label: '暗夜紫', value: '#2A2438' },
-  { label: '深松石', value: '#1E332E' },
-  { label: '勃根地紅', value: '#3B282F' },
-  { label: '古銅棕', value: '#332D21' },
+  { label: '亮紅', value: '#E45757' },
+  { label: '亮紫', value: '#9A63CC' },
+  { label: '亮黃', value: '#E8C24A' },
+  { label: '亮橘', value: '#E39A34' },
+  { label: '亮粉', value: '#D86A8A' },
   { label: '原廠預設', value: '#1E293B' },
 ];
 

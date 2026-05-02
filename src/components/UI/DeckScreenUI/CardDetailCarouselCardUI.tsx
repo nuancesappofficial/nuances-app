@@ -52,6 +52,7 @@ type Props = {
   formatCardDate: (input: Date | string | undefined | null) => string;
   styles: any;
   isFavorite: boolean;
+  isBookmarked: boolean;
   onOpenAlbumSheet: () => void;
   onToggleFavorite: () => void;
   onOpenStickyNote: () => void;
@@ -87,6 +88,7 @@ function CardDetailCarouselCardUI({
   formatCardDate,
   styles,
   isFavorite,
+  isBookmarked,
   onOpenAlbumSheet,
   onToggleFavorite,
   onOpenStickyNote,
@@ -598,7 +600,11 @@ function CardDetailCarouselCardUI({
                   </TouchableOpacity>
 
                   <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenAlbumSheet}>
-                    <Ionicons name="bookmark-outline" size={28} color={ui.folderIcon} />
+                    <Ionicons
+                      name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                      size={28}
+                      color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
+                    />
                   </TouchableOpacity>
                 </View>
                 {/* ----------------------------- */}

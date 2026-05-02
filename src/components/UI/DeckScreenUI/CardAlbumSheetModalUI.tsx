@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   CONTAINER_BG,
@@ -42,10 +42,40 @@ export default function CardAlbumSheetModalUI({
   onOpenCreateAlbum,
   onToggleAlbum,
 }: Props) {
+  const sheetAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (!visible) return;
+    sheetAnim.setValue(0);
+    Animated.spring(sheetAnim, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 240,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }, [sheetAnim, visible]);
+
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View style={styles.sheetContainer}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            {
+              opacity: sheetAnim,
+              transform: [
+                {
+                  scale: sheetAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.92, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Pressable onPress={() => {}}>
         <View style={styles.sheetHandle} />
 
         <View style={styles.sheetHeader}>
@@ -99,22 +129,28 @@ export default function CardAlbumSheetModalUI({
             );
           })}
         </ScrollView>
-      </View>
+          </Pressable>
+        </Animated.View>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
   sheetContainer: {
     backgroundColor: SCREEN_BG,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 18,
-    maxHeight: '75%',
-    borderTopWidth: 1,
+    maxHeight: '80%',
+    borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
   sheetHandle: {

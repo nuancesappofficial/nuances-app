@@ -70,7 +70,7 @@ export function FolderIcon({
   void latestCards;
   const coverTheme = getCoverTheme(title);
   const isLight = colorScheme === 'light';
-  const frontColor = isLight ? '#FFFFFF' : (coverColor || palette.containerBg);
+  const frontColor = coverColor || '#1E293B';
   const iconColor = isLight ? '#4EAFF4' : palette.textOnContainer;
   const bottomTitleColor = isLight ? '#0F172A' : palette.textOnContainer;
   const titleColor = accentColor || (isLight ? '#0F172A' : palette.textOnContainer);

@@ -666,7 +666,7 @@ export default function ProfileMainScreenUI({
           onPress={onPressSettings}
         >
           <View style={[styles.settingsPillIconCircle, isLight ? { borderColor: palette.borderSubtle } : null]}>
-            <IconSymbol name="gearshape" fallback="⚙" size={18} color={palette.textOnContainer} />
+            <IconSymbol name="gearshape" fallback="⚙" size={18} color="#0F172A" />
           </View>
           <Text style={[styles.settingsPillLabel, { color: palette.textOnContainer }]}>Settings</Text>
         </TouchableOpacity>
@@ -1222,8 +1222,8 @@ const styles = StyleSheet.create({
     width: GRID_SIZE + 18,
     height: GRID_SIZE + 18,
     borderRadius: DAY_TILE_RADIUS + 9,
-    backgroundColor: 'rgba(255, 179, 102, 0.14)',
-    shadowColor: '#FFB36B',
+    backgroundColor: 'rgba(78,175,244,0.16)',
+    shadowColor: '#4EAFF4',
     shadowOpacity: 0.6,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 0 },
@@ -1236,7 +1236,7 @@ const styles = StyleSheet.create({
     borderRadius: DAY_TILE_RADIUS + 5,
     backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: 'rgba(255, 205, 138, 0.95)',
+    borderColor: '#4EAFF4',
     zIndex: 0,
   },
   placeholderCell: {
