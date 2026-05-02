@@ -433,7 +433,7 @@ function LiquidTabBar({
 
 export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
   const colorScheme = useColorScheme();
-  const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const theme = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);

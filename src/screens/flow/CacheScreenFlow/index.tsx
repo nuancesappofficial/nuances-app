@@ -504,8 +504,8 @@ function getDetectedPreview(annotations: unknown): string | undefined {
 
 export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const colorScheme = useColorScheme();
-  const palette = useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = colorScheme === 'light';
+  const palette = useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const isLight = false;
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const addButtonScale = React.useRef(new Animated.Value(1)).current;
@@ -1040,10 +1040,15 @@ const styles = StyleSheet.create({
   },
   vocabContainer: {
     minHeight: 188,
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: '#334155',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
     overflow: 'hidden',
   },
   stickerGrid: {
@@ -1076,7 +1081,7 @@ const styles = StyleSheet.create({
   },
   vocabBlurOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 24,
+    borderRadius: 16,
     zIndex: 5,
   },
   stackLayer: {

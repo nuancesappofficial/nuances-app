@@ -71,8 +71,8 @@ export default function DeckMainScreenUI({
   onActionEnd,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = colorScheme === 'light';
+  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const isLight = false;
   const { width: screenWidth } = useWindowDimensions();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);

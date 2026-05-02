@@ -303,8 +303,8 @@ export default function ProfileMainScreenUI({
   onPressDay,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = colorScheme === 'light';
+  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const isLight = false;
   const isFocused = useIsFocused();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
@@ -944,13 +944,15 @@ const styles = StyleSheet.create({
   profilePanel: {
     marginHorizontal: 16,
     marginTop: 8,
-    borderRadius: 28,
+    borderRadius: 16,
     backgroundColor: PANEL_BG,
+    borderWidth: 1,
+    borderColor: '#334155',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 7,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 12,
@@ -1004,12 +1006,12 @@ const styles = StyleSheet.create({
   heatMapPanelShadow: {
     marginTop: 6,
     marginHorizontal: 16,
-    borderRadius: 28,
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 7,
   },
   heatMapPagerWrap: {
     width: '100%',
@@ -1019,8 +1021,10 @@ const styles = StyleSheet.create({
   heatMapPanel: {
     width: '100%',
     height: '100%',
-    borderRadius: 28,
+    borderRadius: 16,
     backgroundColor: PANEL_BG,
+    borderWidth: 1,
+    borderColor: '#334155',
     overflow: 'hidden',
   },
   monthPage: {
@@ -1292,8 +1296,10 @@ const styles = StyleSheet.create({
   settingsPillButton: {
     marginHorizontal: 16,
     marginTop: 8,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: PANEL_BG,
+    borderWidth: 1,
+    borderColor: '#334155',
     minHeight: 62,
     paddingHorizontal: 14,
     flexDirection: 'row',
@@ -1302,7 +1308,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.12,
-    shadowRadius: 16,
+    shadowRadius: 14,
     elevation: 7,
   },
   settingsPillIconCircle: {

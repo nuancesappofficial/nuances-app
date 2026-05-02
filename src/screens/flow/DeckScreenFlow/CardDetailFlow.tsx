@@ -201,7 +201,7 @@ function formatCardDate(input: Date | string | undefined | null): string {
 export default function CardDetailScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const isLightMode = colorScheme === 'light';
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
