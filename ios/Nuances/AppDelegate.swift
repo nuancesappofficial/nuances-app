@@ -1,7 +1,6 @@
 import Expo
 import React
 import ReactAppDependencyProvider
-import UserNotifications
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
@@ -28,10 +27,6 @@ public class AppDelegate: ExpoAppDelegate {
       withModuleName: "main",
       in: window,
       launchOptions: launchOptions)
-
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
-      // Share Extension success notifications rely on this permission.
-    }
 #endif
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

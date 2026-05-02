@@ -1,28 +1,25 @@
+
 import UIKit
+import Social
 import UniformTypeIdentifiers
 import MobileCoreServices
-import UserNotifications
 
 class ShareViewController: UIViewController {
+    
     private let appGroupID = "group.com.jeffenglishlearning.nuances"
     private let maxImageCount = 10
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
-    private let maxQueuedItems = 50
-    private let resultLock = NSLock()
-    private let finishLock = NSLock()
-    private var didFinish = false
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
         handleSharedContent()
     }
-
+    
     private func handleSharedContent() {
         guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem],
               !extensionItems.isEmpty else {
-            closeExtension()
+            self.closeExtension(success: false)
             return
         }
 
@@ -31,10 +28,11 @@ class ShareViewController: UIViewController {
             .flatMap { $0 }
 
         guard !attachments.isEmpty else {
-            closeExtension()
+            self.closeExtension(success: false)
             return
         }
-
+        
+        // 判斷分享類型：純文字或圖片
         let textAttachments = attachments.filter {
             $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
         }
@@ -42,16 +40,16 @@ class ShareViewController: UIViewController {
             $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
         }
 
-        // 某些來源會同時附帶 plainText，圖片必須優先處理避免被吃掉
-        if !imageAttachments.isEmpty {
-            handleImageShare(imageAttachments)
-        } else if !textAttachments.isEmpty {
+        if !textAttachments.isEmpty {
             handleTextShare(textAttachments)
+        } else if !imageAttachments.isEmpty {
+            handleImageShare(imageAttachments)
         } else {
-            closeExtension()
+            self.closeExtension(success: false)
         }
     }
-
+    
+    // MARK: - 處理純文字分享
     private func handleTextShare(_ attachments: [NSItemProvider]) {
         let limitedAttachments = Array(attachments.prefix(maxQueuedItems))
         var processedTexts: [String] = []
@@ -62,27 +60,27 @@ class ShareViewController: UIViewController {
             attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] (data, error) in
                 defer { dispatchGroup.leave() }
                 guard let self = self else { return }
+                
                 if let error = error {
                     print("Error loading text: \(error)")
                     return
                 }
-
+                
                 var textContent = ""
                 if let text = data as? String {
                     textContent = text
                 } else if let url = data as? URL, let text = try? String(contentsOf: url) {
                     textContent = text
                 }
-
+                
+                // 套用字數限制
                 if textContent.count > self.maxTextLength {
                     textContent = String(textContent.prefix(self.maxTextLength))
                 }
-
+                
                 let normalized = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !normalized.isEmpty {
-                    self.resultLock.lock()
                     processedTexts.append(normalized)
-                    self.resultLock.unlock()
                 }
             }
         }
@@ -90,131 +88,105 @@ class ShareViewController: UIViewController {
         dispatchGroup.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
             if processedTexts.isEmpty {
-                self.closeExtension()
+                self.closeExtension(success: false)
                 return
             }
+
             for text in processedTexts {
                 self.saveTextToSharedStorage(text)
             }
-            self.notifyIngestSuccess(itemCount: processedTexts.count)
-            self.closeExtension()
+            self.closeExtension(success: true)
         }
     }
-
+    
+    // MARK: - 處理圖片分享
     private func handleImageShare(_ attachments: [NSItemProvider]) {
         let limitedAttachments = Array(attachments.prefix(maxImageCount))
         var processedImages: [String] = []
         let dispatchGroup = DispatchGroup()
-
+        
         for attachment in limitedAttachments {
             dispatchGroup.enter()
-            loadImageData(from: attachment) { [weak self] (imageData, error) in
+            
+            attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] (data, error) in
                 defer { dispatchGroup.leave() }
                 guard let self = self else { return }
+                
                 if let error = error {
                     print("Error loading image: \(error)")
                     return
                 }
-
+                
+                var imageData: Data?
+                
+                if let url = data as? URL {
+                    imageData = try? Data(contentsOf: url)
+                } else if let image = data as? UIImage {
+                    imageData = image.jpegData(compressionQuality: 0.8)
+                } else if let dataObj = data as? Data {
+                    imageData = dataObj
+                }
+                
                 guard let originalData = imageData,
                       let image = UIImage(data: originalData) else {
                     return
                 }
-
+                
+                // 壓縮與轉檔（HEIC -> JPEG，並限制尺寸）
                 if let compressedImage = self.compressAndResizeImage(image),
-                   let jpegData = compressedImage.jpegData(compressionQuality: 0.85),
-                   let savedPath = self.saveImageToSharedContainer(jpegData) {
-                    self.resultLock.lock()
-                    processedImages.append(savedPath)
-                    self.resultLock.unlock()
+                   let jpegData = compressedImage.jpegData(compressionQuality: 0.85) {
+                    if let savedPath = self.saveImageToSharedContainer(jpegData) {
+                        processedImages.append(savedPath)
+                    }
                 }
             }
         }
-
+        
         dispatchGroup.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
             if !processedImages.isEmpty {
                 self.saveImagesToSharedStorage(processedImages)
-                self.notifyIngestSuccess(itemCount: processedImages.count)
-                self.closeExtension()
+                self.closeExtension(success: true)
             } else {
-                self.closeExtension()
+                self.closeExtension(success: false)
             }
         }
     }
-
-    private func loadImageData(from provider: NSItemProvider, completion: @escaping (Data?, Error?) -> Void) {
-        if provider.canLoadObject(ofClass: UIImage.self) {
-            provider.loadObject(ofClass: UIImage.self) { object, error in
-                if let image = object as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
-                    completion(data, nil)
-                    return
-                }
-                if let error = error {
-                    completion(nil, error)
-                } else {
-                    completion(nil, NSError(domain: "ShareExtension", code: -2, userInfo: [NSLocalizedDescriptionKey: "Unable to load UIImage"]))
-                }
-            }
-            return
-        }
-
-        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-            provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
-                guard let url = url else {
-                    completion(nil, error ?? NSError(domain: "ShareExtension", code: -3, userInfo: [NSLocalizedDescriptionKey: "Missing file URL"]))
-                    return
-                }
-                do {
-                    let data = try Data(contentsOf: url)
-                    completion(data, nil)
-                } catch {
-                    completion(nil, error)
-                }
-            }
-            return
-        }
-
-        provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, error in
-            if let url = item as? URL, let data = try? Data(contentsOf: url) {
-                completion(data, nil)
-                return
-            }
-            if let image = item as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
-                completion(data, nil)
-                return
-            }
-            if let data = item as? Data {
-                completion(data, nil)
-                return
-            }
-            completion(nil, error ?? NSError(domain: "ShareExtension", code: -4, userInfo: [NSLocalizedDescriptionKey: "Unsupported image payload"]))
-        }
-    }
-
+    
+    // MARK: - 圖片壓縮（避免 120MB OOM）
     private func compressAndResizeImage(_ image: UIImage) -> UIImage? {
         let size = image.size
         let maxEdge = max(size.width, size.height)
+        
         if maxEdge <= maxImageEdge {
             return image
         }
+        
         let scale = maxImageEdge / maxEdge
         let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        
         UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
         image.draw(in: CGRect(origin: .zero, size: newSize))
         let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
+        
         return resizedImage
     }
-
+    
+    // MARK: - 儲存圖片到共享容器
     private func saveImageToSharedContainer(_ imageData: Data) -> String? {
         guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             return nil
         }
+        
         let sharedMediaDir = containerURL.appendingPathComponent("Library/Caches/SharedMedia", isDirectory: true)
+        
+        // 確保目錄存在
         try? FileManager.default.createDirectory(at: sharedMediaDir, withIntermediateDirectories: true)
+        
         let fileName = "\(UUID().uuidString).jpg"
         let fileURL = sharedMediaDir.appendingPathComponent(fileName)
+        
         do {
             try imageData.write(to: fileURL)
             return fileURL.path
@@ -223,7 +195,9 @@ class ShareViewController: UIViewController {
             return nil
         }
     }
-
+    
+    private let maxQueuedItems = 50
+    
     private func readExistingItems(_ userDefaults: UserDefaults) -> [[String: Any]] {
         guard let existing = userDefaults.dictionary(forKey: "shared_content") else { return [] }
         if let items = existing["items"] as? [[String: Any]], !items.isEmpty { return items }
@@ -237,7 +211,7 @@ class ShareViewController: UIViewController {
         }
         return []
     }
-
+    
     private func writeItemsToSharedStorage(_ items: [[String: Any]]) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
         let metadata: [String: Any] = [
@@ -247,7 +221,8 @@ class ShareViewController: UIViewController {
         userDefaults.set(metadata, forKey: "shared_content")
         userDefaults.synchronize()
     }
-
+    
+    // MARK: - 儲存文字到 UserDefaults（累加至既有隊列）
     private func saveTextToSharedStorage(_ text: String) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
         var items = readExistingItems(userDefaults)
@@ -255,7 +230,8 @@ class ShareViewController: UIViewController {
         let finalItems = Array(items.suffix(maxQueuedItems))
         writeItemsToSharedStorage(finalItems)
     }
-
+    
+    // MARK: - 儲存圖片路徑到 UserDefaults（累加至既有隊列）
     private func saveImagesToSharedStorage(_ imagePaths: [String]) {
         guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
         var items = readExistingItems(userDefaults)
@@ -263,34 +239,16 @@ class ShareViewController: UIViewController {
         let finalItems = Array(items.suffix(maxQueuedItems))
         writeItemsToSharedStorage(finalItems)
     }
-
-    private func notifyIngestSuccess(itemCount: Int) {
-        guard itemCount > 0 else { return }
-        let content = UNMutableNotificationContent()
-        content.title = "Nuances"
-        content.body = "已成功接收 \(itemCount) 筆分享內容"
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: "share-ingest-\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
-    }
-
-    private func closeExtension() {
-        finishLock.lock()
-        if didFinish {
-            finishLock.unlock()
-            return
-        }
-        didFinish = true
-        finishLock.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    
+    // MARK: - 關閉 Extension
+    private func closeExtension(success: Bool) {
+        DispatchQueue.main.async {
+            if success {
+                self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            } else {
+                let error = NSError(domain: "com.jeffenglishlearning.nuances.shareextension", code: -1, userInfo: nil)
+                self.extensionContext?.cancelRequest(withError: error)
+            }
         }
     }
 }

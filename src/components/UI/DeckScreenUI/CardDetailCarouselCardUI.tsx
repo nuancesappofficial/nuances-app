@@ -1,6 +1,18 @@
 import React from 'react';
-import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Animated,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { captureRef } from 'react-native-view-shot';
 import Reanimated, {
   Extrapolation,
   interpolate,
@@ -11,7 +23,6 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import type Card from '@database/models/Card';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
-import PronunciationCoachUI from './PronunciationCoachUI';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
@@ -43,6 +54,9 @@ type Props = {
   isFavorite: boolean;
   onOpenAlbumSheet: () => void;
   onToggleFavorite: () => void;
+  onOpenStickyNote: () => void;
+  stickyNoteText?: string;
+  onOpenPronunciationModal: () => void;
   isLightMode?: boolean;
 };
 
@@ -75,8 +89,25 @@ function CardDetailCarouselCardUI({
   isFavorite,
   onOpenAlbumSheet,
   onToggleFavorite,
+  onOpenStickyNote,
+  stickyNoteText,
+  onOpenPronunciationModal,
   isLightMode = false,
 }: Props) {
+  const FRONT_FOOTER_RESERVED_HEIGHT = 58;
+  const frontCaptureRef = React.useRef<View | null>(null);
+  const backCaptureRef = React.useRef<View | null>(null);
+  const combinedShareRef = React.useRef<View | null>(null);
+  const [isSharePickerVisible, setIsSharePickerVisible] = React.useState(false);
+  const [shareSelection, setShareSelection] = React.useState<{
+    front: boolean;
+    back: boolean;
+  }>({ front: true, back: false });
+  const [sharePreviewUri, setSharePreviewUri] = React.useState<{
+    front: string | null;
+    back: string | null;
+  }>({ front: null, back: null });
+  const shareModalAnim = React.useRef(new Animated.Value(0)).current;
   const ui = React.useMemo(
     () =>
       isLightMode
@@ -89,10 +120,10 @@ function CardDetailCarouselCardUI({
             posBg: '#E7E9EF',
             posText: '#6B7280',
             divider: '#ECECF0',
-            icon: '#8E939D',
+            icon: '#1F2937',
             folderIcon: '#1F2937',
-            starActive: '#D97706',
-            starInactive: '#8E939D',
+            starActive: '#EF4444',
+            starInactive: '#1F2937',
           }
         : {
             paperBg: '#1E293B',
@@ -105,39 +136,11 @@ function CardDetailCarouselCardUI({
             divider: '#334155',
             icon: '#94A3B8',
             folderIcon: '#94A3B8',
-            starActive: '#EAB308',
+            starActive: '#EF4444',
             starInactive: '#94A3B8',
           },
     [isLightMode]
   );
-  const parseCardTags = React.useCallback((rawTags: unknown): string[] => {
-    if (Array.isArray(rawTags)) {
-      return rawTags
-        .filter((tag): tag is string => typeof tag === 'string')
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-    }
-    if (typeof rawTags === 'string') {
-      const trimmed = rawTags.trim();
-      if (!trimmed) return [];
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed
-            .filter((tag): tag is string => typeof tag === 'string')
-            .map((tag) => tag.trim())
-            .filter(Boolean);
-        }
-      } catch {
-        return trimmed
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
-      }
-    }
-    return [];
-  }, []);
-
   const toChinesePartOfSpeech = React.useCallback((value: string | undefined | null): string => {
     const raw = (value || '').trim();
     if (!raw) return '詞性未標註';
@@ -166,22 +169,9 @@ function CardDetailCarouselCardUI({
   const itemDisplayDate = formatCardDate(item.createdAt);
   const isActiveCard = index === currentIndex;
   const definitionText = item.definition || '-';
+  const isMockCard = itemWord.trim().toLowerCase() === 'mock';
   const hasHeroImage = Boolean(itemImageUri);
   const resolvedHeroImageUri = itemImageUri || undefined;
-  const semanticTags = React.useMemo(
-    () =>
-      parseCardTags(item.tags)
-        .map((tag) => tag.toLowerCase())
-        .filter((tag) => !tag.startsWith('album_'))
-        .slice(0, 3),
-    [item.tags, parseCardTags]
-  );
-  const semanticContextLine = React.useMemo(() => {
-    const context = (item.originalSentence || item.contextualExplanation || '').trim();
-    if (!context) return '';
-    const firstLine = context.split('\n').map((line) => line.trim()).find(Boolean) || '';
-    return firstLine.slice(0, 96);
-  }, [item.contextualExplanation, item.originalSentence]);
   const sourceSentence = React.useMemo(() => {
     const source = (item.originalSentence || '').trim();
     if (!source) return '-';
@@ -199,43 +189,68 @@ function CardDetailCarouselCardUI({
     const matched = sentences.find((s) => reg.test(s));
     return matched || sentences[0] || source;
   }, [item.originalSentence, itemWord]);
-  const quotedTargetWord = React.useMemo(() => {
-    const normalizedWord = (itemWord || '').trim();
-    if (!normalizedWord || normalizedWord === '-') return '""';
-    return `"${normalizedWord}"`;
-  }, [itemWord]);
-  const sourceSentenceWithQuote = React.useMemo(() => {
-    if (!sourceSentence || sourceSentence === '-') return '-';
-    const normalizedWord = (itemWord || '').trim();
-    if (!normalizedWord || normalizedWord === '-') return sourceSentence;
-    const escaped = normalizedWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const reg = new RegExp(`\\b${escaped}\\b`, 'ig');
-    if (reg.test(sourceSentence)) return sourceSentence.replace(reg, `"${normalizedWord}"`);
-    return `${sourceSentence} (${quotedTargetWord})`;
-  }, [itemWord, quotedTargetWord, sourceSentence]);
+  const contextLines = React.useMemo(
+    () =>
+      (item.contextualExplanation || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+    [item.contextualExplanation]
+  );
+  const sentenceTranslationRaw = React.useMemo(() => contextLines[0] || '', [contextLines]);
   const translationText = React.useMemo(() => {
-    const raw = (item.contextualExplanation || item.definition || '-').trim();
+    const raw = (sentenceTranslationRaw || item.definition || '-').trim();
     if (!raw || raw === '-') return '-';
     const quotedWord = `「${itemWord}」`;
     const escaped = itemWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const reg = new RegExp(`\\b${escaped}\\b`, 'ig');
     const replaced = raw.replace(reg, quotedWord);
     return replaced.includes(quotedWord) ? replaced : `${quotedWord}：${replaced}`;
-  }, [item.contextualExplanation, item.definition, itemWord]);
+  }, [sentenceTranslationRaw, item.definition, itemWord]);
   const collocationItems = React.useMemo(
     () =>
       (item.frequentCollocations || '')
         .split(/[\n,;]+/)
         .map((phrase) => phrase.trim())
         .filter(Boolean)
-        .slice(0, 3),
+        .slice(0, 1),
     [item.frequentCollocations]
   );
   const sentenceExplanation = React.useMemo(() => {
-    if (item.contextualExplanation?.trim()) return item.contextualExplanation.trim();
-    if (item.definition?.trim()) return `This sentence uses ${quotedTargetWord} to express: ${item.definition.trim()}`;
-    return `This sentence highlights how ${quotedTargetWord} is used in natural context.`;
-  }, [item.contextualExplanation, item.definition, quotedTargetWord]);
+    if (contextLines.length > 1) return contextLines.slice(1).join('\n');
+    if (contextLines.length === 1) return contextLines[0];
+    if (item.definition?.trim()) return `This sentence uses 「${itemWord}」 to express: ${item.definition.trim()}`;
+    return `This sentence highlights how 「${itemWord}」 is used in natural context.`;
+  }, [contextLines, item.definition, itemWord]);
+  const frontContentScale = React.useMemo(() => {
+    const totalChars =
+      (sourceSentence?.length || 0) + (translationText?.length || 0) + (sentenceExplanation?.length || 0);
+    const imagePenalty = hasHeroImage ? 1.08 : 1;
+    const weighted = totalChars * imagePenalty;
+    if (weighted > 560) return 0.8;
+    if (weighted > 460) return 0.86;
+    if (weighted > 360) return 0.92;
+    return 1;
+  }, [hasHeroImage, sentenceExplanation, sourceSentence, translationText]);
+  const frontSentenceFontSize = Math.round(20 * frontContentScale);
+  const frontSentenceLineHeight = Math.round(28 * frontContentScale);
+  const frontSentenceFontWeight: '600' = '600';
+  const frontNoteFontSize = Math.round(19 * frontContentScale);
+  const frontNoteLineHeight = Math.round(26 * frontContentScale);
+  const hasStickyNote = Boolean((stickyNoteText || '').trim());
+  const backTextScale = React.useMemo(() => {
+    const totalChars =
+      (collocationItems.join(' ').length || 0) +
+      (apiExampleSentence?.length || 0) +
+      (culturalBackgroundText?.length || 0) +
+      (stickyNoteText?.length || 0);
+    if (totalChars > 760) return 0.82;
+    if (totalChars > 620) return 0.88;
+    if (totalChars > 500) return 0.94;
+    return 1;
+  }, [apiExampleSentence, collocationItems, culturalBackgroundText, stickyNoteText]);
+  const backTextFontSize = Math.round(20 * backTextScale);
+  const backTextLineHeight = Math.round(28 * backTextScale);
   const apiExampleSentence = React.useMemo(() => {
     const firstCollocation = collocationItems[0];
     if (!firstCollocation) return sourceSentence;
@@ -245,6 +260,58 @@ function CardDetailCarouselCardUI({
     const quoted = `"${firstCollocation}"`;
     return `A natural example using ${quoted} is: "${sourceSentence}"`;
   }, [collocationItems, sourceSentence]);
+  const mockPronunciationScore = 92;
+  const mockPronunciationFeedbackLines = React.useMemo(
+    () => ['Strong overall rhythm. Shorten the final consonant release slightly.'],
+    []
+  );
+  const mockPhonemeChips = React.useMemo<CloudPhonemeFeedback[]>(
+    () => [
+      { phoneme: '/m/', letters: 'm', accuracy: 94 },
+      { phoneme: '/ɑː/', letters: 'o', accuracy: 89 },
+      { phoneme: '/k/', letters: 'ck', accuracy: 93 },
+    ],
+    []
+  );
+  const culturalBackgroundText = React.useMemo(() => {
+    const raw = (item.contextualExplanation || '').trim();
+    if (!raw) return '';
+
+    // 優先吃 LLM 結構化 JSON
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object') {
+        const direct = parsed.culturalBackground;
+        if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+        const origin =
+          typeof parsed.origin === 'string'
+            ? parsed.origin.trim()
+            : typeof parsed.slangOrigin === 'string'
+              ? parsed.slangOrigin.trim()
+              : '';
+        const whyUsed =
+          typeof parsed.whyUsed === 'string'
+            ? parsed.whyUsed.trim()
+            : typeof parsed.usageReason === 'string'
+              ? parsed.usageReason.trim()
+              : '';
+        const context =
+          typeof parsed.context === 'string'
+            ? parsed.context.trim()
+            : typeof parsed.culturalContext === 'string'
+              ? parsed.culturalContext.trim()
+              : '';
+
+        const chunks = [origin, whyUsed, context].filter(Boolean);
+        if (chunks.length > 0) return chunks.join('\n');
+      }
+    } catch {
+      // 非 JSON：使用原文字
+    }
+
+    return raw;
+  }, [item.contextualExplanation]);
   const weightedWordLength = Array.from(itemWord.trim()).reduce((total, ch) => {
     const isCjk = /[\u4E00-\u9FFF]/.test(ch);
     return total + (isCjk ? 1.7 : 1);
@@ -278,6 +345,83 @@ function CardDetailCarouselCardUI({
     if (!isActiveCard) return;
     flipAnim.value = withTiming(flipAnim.value === 0 ? 1 : 0, { duration: 400 });
   };
+  const captureAndShareFace = React.useCallback(
+    async (face: 'front' | 'back') => {
+      const ref = face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
+      if (!ref) return;
+      const uri = await captureRef(ref, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+      await Share.share({
+        url: uri,
+        message: `${itemWord} (${face})`,
+      });
+    },
+    [itemWord]
+  );
+  const captureFacePreview = React.useCallback(async (face: 'front' | 'back') => {
+    const ref = face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
+    if (!ref) return null;
+    try {
+      const uri = await captureRef(ref, {
+        format: 'png',
+        quality: 0.9,
+        result: 'tmpfile',
+      });
+      return uri;
+    } catch {
+      return null;
+    }
+  }, []);
+  const openSharePicker = React.useCallback(async () => {
+    if (!isActiveCard) return;
+    setIsSharePickerVisible(true);
+    const [front, back] = await Promise.all([captureFacePreview('front'), captureFacePreview('back')]);
+    setSharePreviewUri({ front, back });
+  }, [captureFacePreview, isActiveCard]);
+  React.useEffect(() => {
+    if (!isSharePickerVisible) return;
+    shareModalAnim.setValue(0);
+    Animated.spring(shareModalAnim, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 240,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }, [isSharePickerVisible, shareModalAnim]);
+  const toggleShareSelection = React.useCallback((key: 'front' | 'back') => {
+    setShareSelection((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+  const submitShareSelection = React.useCallback(async () => {
+    const selectedCount = Number(shareSelection.front) + Number(shareSelection.back);
+    if (!selectedCount) return;
+    setIsSharePickerVisible(false);
+    if (shareSelection.front && shareSelection.back && combinedShareRef.current) {
+      const uri = await captureRef(combinedShareRef.current, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+      await Share.share({
+        url: uri,
+        message: `${itemWord} (front + back)`,
+      });
+      return;
+    }
+    if (shareSelection.front) {
+      await captureAndShareFace('front');
+      return;
+    }
+    if (shareSelection.back) {
+      await captureAndShareFace('back');
+    }
+  }, [captureAndShareFace, itemWord, shareSelection.back, shareSelection.front]);
+  const handleSharePress = React.useCallback(() => {
+    void openSharePicker();
+  }, [openSharePicker]);
 
   const frontAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipAnim.value, [0, 1], [0, 180]);
@@ -313,6 +457,8 @@ function CardDetailCarouselCardUI({
             {/* ========== 卡片正面 (FRONT FACE) ========== */}
             {/* 內容：圖片、單字、詞性、翻譯、中文解釋句 */}
             <Reanimated.View
+              ref={frontCaptureRef}
+              collapsable={false}
               style={[
                 styles.detailPaper,
                 { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
@@ -320,39 +466,13 @@ function CardDetailCarouselCardUI({
                 { flex: 1 },
               ]}
             >
-              <View style={styles.heroMediaWrap}>
-                {hasHeroImage ? (
+              {hasHeroImage ? (
+                <View style={styles.heroMediaWrap}>
                   <TouchableOpacity activeOpacity={0.95} onPress={() => onOpenFullscreen(index)}>
                     <Image source={{ uri: resolvedHeroImageUri }} style={styles.heroMedia} resizeMode="cover" />
                   </TouchableOpacity>
-                ) : (
-                  <View style={localStyles.semanticHeroWrap}>
-                    <View style={localStyles.semanticHeroTopRow}>
-                      <View style={localStyles.semanticTypeChip}>
-                        <Text style={localStyles.semanticTypeChipText}>TEXT CARD</Text>
-                      </View>
-                      <Text style={localStyles.semanticPosText}>{itemCaption}</Text>
-                    </View>
-                    <Text style={localStyles.semanticHeroWord} numberOfLines={1}>
-                      {itemWord}
-                    </Text>
-                    {semanticContextLine ? (
-                      <Text style={localStyles.semanticContext} numberOfLines={2}>
-                        {semanticContextLine}
-                      </Text>
-                    ) : null}
-                    {semanticTags.length > 0 ? (
-                      <View style={localStyles.semanticTagRow}>
-                        {semanticTags.map((tag) => (
-                          <View key={`${item.id}-tag-${tag}`} style={localStyles.semanticTagChip}>
-                            <Text style={localStyles.semanticTagText}>#{tag}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-                  </View>
-                )}
-              </View>
+                </View>
+              ) : null}
 
                 <View
                   style={[
@@ -382,15 +502,15 @@ function CardDetailCarouselCardUI({
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={[styles.referencePlayBtn, { position: 'absolute', right: textBlockHorizontalInset + 2, top: 12, width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent' }]}
+                    style={[styles.referencePlayBtn, { position: 'absolute', right: textBlockHorizontalInset + 2, top: 0, width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent' }]}
                     onPress={() => onPlayCard(itemPronunciationText, isActiveCard, index)}
                   >
-                    <Ionicons name={isActiveCard && isPlaying ? 'volume-high' : 'volume-medium-outline'} size={22} color={ui.icon} />
+                    <Ionicons name={isActiveCard && isPlaying ? 'volume-high' : 'volume-medium-outline'} size={28} color={ui.icon} />
                   </TouchableOpacity>
                 </View>
 
                 <ScrollView
-                  style={localStyles.frontBodyScroll}
+                  style={[localStyles.frontBodyScroll, { marginBottom: FRONT_FOOTER_RESERVED_HEIGHT }]}
                   contentContainerStyle={localStyles.frontBodyContent}
                   showsVerticalScrollIndicator={false}
                 >
@@ -398,41 +518,87 @@ function CardDetailCarouselCardUI({
                     <View style={[styles.referencePosBadge, { backgroundColor: ui.posBg }]}>
                       <Text style={[styles.referencePosText, { color: ui.posText }]}>{itemCaption}</Text>
                     </View>
-                    <Text style={[styles.referenceMeaning, { color: ui.primaryText }]}>{definitionText}</Text>
+                    <Text
+                      style={[
+                        styles.referenceMeaning,
+                        {
+                          color: ui.primaryText,
+                          fontSize: Math.round(20 * frontContentScale),
+                          lineHeight: Math.round(28 * frontContentScale),
+                        },
+                      ]}
+                    >
+                      {definitionText}
+                    </Text>
                   </View>
 
                   <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
 
                   <View style={localStyles.dualSentenceBlock}>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Original sentence</Text>
-                    <Text style={[localStyles.dualSentenceText, { color: ui.primaryText }]}>{sourceSentenceWithQuote}</Text>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText, marginTop: 12 }]}>Translation</Text>
-                    <Text style={[localStyles.dualSentenceText, { color: ui.primaryText }]}>{translationText}</Text>
+                    <Text
+                      style={[
+                        localStyles.dualSentenceText,
+                        {
+                          color: ui.primaryText,
+                          fontSize: frontSentenceFontSize,
+                          lineHeight: frontSentenceLineHeight,
+                        },
+                      ]}
+                    >
+                      {sourceSentence}
+                    </Text>
+                    <Text
+                      style={[
+                        localStyles.dualSentenceText,
+                        {
+                          color: ui.primaryText,
+                          marginTop: 12,
+                          fontSize: frontSentenceFontSize,
+                          lineHeight: frontSentenceLineHeight,
+                        },
+                      ]}
+                    >
+                      {translationText}
+                    </Text>
                   </View>
 
                   <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
                     <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Sentence notes</Text>
-                    <Text style={[styles.referenceSubText, { color: ui.noteText }]}>{sentenceExplanation}</Text>
+                    <Text
+                      style={[
+                        styles.referenceSubText,
+                        {
+                          color: ui.noteText,
+                          fontSize: frontNoteFontSize,
+                          lineHeight: frontNoteLineHeight,
+                        },
+                      ]}
+                    >
+                      {sentenceExplanation}
+                    </Text>
                   </View>
                 </ScrollView>
 
                 {/* ----- 第一頁底部操作列 ----- */}
                 <View style={localStyles.cardActionRow}>
-                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenAlbumSheet}>
-                    <Ionicons name="folder-outline" size={22} color={ui.folderIcon} />
+                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenPronunciationModal}>
+                    <Ionicons name="mic-outline" size={28} color={ui.icon} />
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
-                    style={[
-                      localStyles.actionIconBtn,
-                    ]} 
-                    onPress={onToggleFavorite}
-                  >
-                    <Ionicons 
-                      name={isFavorite ? 'star' : 'star-outline'} 
-                      size={22} 
+                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={handleSharePress}>
+                    <Ionicons name="share-outline" size={28} color={ui.icon} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onToggleFavorite}>
+                    <Ionicons
+                      name={isFavorite ? 'heart' : 'heart-outline'}
+                      size={28}
                       color={isFavorite ? ui.starActive : ui.starInactive}
                     />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenAlbumSheet}>
+                    <Ionicons name="bookmark-outline" size={28} color={ui.folderIcon} />
                   </TouchableOpacity>
                 </View>
                 {/* ----------------------------- */}
@@ -443,6 +609,8 @@ function CardDetailCarouselCardUI({
             {/* ========== 卡片背面 (BACK FACE) ========== */}
             {/* 內容：Collocation、AI造句、Pronunciation coach、底部資訊 */}
             <Reanimated.View
+              ref={backCaptureRef}
+              collapsable={false}
               style={[
                 styles.detailPaper,
                 { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
@@ -452,67 +620,116 @@ function CardDetailCarouselCardUI({
                 <View
                   style={[
                     styles.referenceWordCard,
-                    { backgroundColor: ui.paperBg, marginHorizontal: -18 + textBlockHorizontalInset, paddingHorizontal: textBlockHorizontalInset, flex: 1, paddingTop: 0 },
+                    {
+                      backgroundColor: ui.paperBg,
+                      marginHorizontal: -18 + textBlockHorizontalInset,
+                      paddingHorizontal: textBlockHorizontalInset,
+                      flex: 1,
+                      paddingTop: 0,
+                      paddingBottom: 44,
+                    },
                   ]}
                 >
-                
-                <ScrollView
-                  style={localStyles.backBodyScroll}
-                  contentContainerStyle={localStyles.backBodyContent}
-                  showsVerticalScrollIndicator={false}
-                >
+                <View style={localStyles.backTextSection}>
+                  <ScrollView
+                    style={localStyles.backBodyScroll}
+                    contentContainerStyle={localStyles.backBodyContent}
+                    showsVerticalScrollIndicator={false}
+                  >
                   {collocationItems.length > 0 ? (
                     <View style={styles.referenceCollocationSection}>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Collocations</Text>
-                      {collocationItems.map((phrase, idx) => (
-                        <Text key={`${item.id}-collocation-${idx}`} style={[styles.referenceCollocationItem, { color: ui.primaryText }]}>
-                          {`• ${phrase}`}
-                        </Text>
-                      ))}
+                      <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Collocation</Text>
+                      <Text
+                        style={[
+                          styles.referenceCollocationItem,
+                          {
+                            color: ui.primaryText,
+                            fontSize: backTextFontSize,
+                            lineHeight: backTextLineHeight,
+                          },
+                        ]}
+                      >
+                        {`• ${collocationItems[0]}`}
+                      </Text>
                     </View>
                   ) : null}
 
-                  <View style={[styles.referenceSubSection, { marginTop: collocationItems.length > 0 ? 12 : 14 }]}>
+                  <View style={[styles.referenceSubSection, { marginTop: collocationItems.length > 0 ? 14 : 14 }]}>
                     <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Example sentence</Text>
                     <View style={styles.referenceRowTop}>
-                      <Text style={[styles.referenceExample, { color: ui.primaryText }]}>
+                      <Text
+                        style={[
+                          styles.referenceExample,
+                          {
+                            color: ui.primaryText,
+                            fontSize: backTextFontSize,
+                            lineHeight: backTextLineHeight,
+                            fontWeight: '600',
+                          },
+                        ]}
+                      >
                         "{apiExampleSentence}"
                       </Text>
                       <TouchableOpacity
                         style={[styles.referencePlayBtn, { width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent', marginTop: 4 }]}
                         onPress={() => onPlayCard(apiExampleSentence, isActiveCard, index)}
                       >
-                        <Ionicons name="volume-medium-outline" size={22} color={ui.icon} />
+                        <Ionicons name="volume-medium-outline" size={28} color={ui.icon} />
                       </TouchableOpacity>
                     </View>
                   </View>
 
+                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
+
                   <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Pronunciation coach</Text>
-                    <PronunciationCoachUI
-                      isActiveCard={isActiveCard}
-                      isRecording={isRecording}
-                      hasRecorded={hasRecorded}
-                      showFeedback={showFeedback}
-                      isAnalyzing={isAnalyzing}
-                      pronunciationScore={pronunciationScore}
-                      pronunciationFeedbackLines={pronunciationFeedbackLines}
-                      phonemeChips={phonemeChips}
-                      waveformValues={waveformValues}
-                      itemWord={itemWord}
-                      onReset={onReset}
-                      onPrimaryAction={() => onToggleRecord(isActiveCard, index)}
-                      onPlayPreview={onPlayPreview}
-                    />
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Cultural background</Text>
+                    <Text
+                      style={[
+                        localStyles.dualSentenceText,
+                        {
+                          color: ui.primaryText,
+                          fontSize: backTextFontSize,
+                          lineHeight: backTextLineHeight,
+                          fontWeight: '600',
+                        },
+                      ]}
+                    >
+                      {culturalBackgroundText || 'No cultural background yet.'}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
+
+                  <View style={[styles.referenceSubSection, { marginTop: 12 }]}>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Personal notes</Text>
+                    {hasStickyNote ? (
+                      <Text
+                        style={[
+                          localStyles.dualSentenceText,
+                          {
+                            color: ui.primaryText,
+                            fontSize: backTextFontSize,
+                            lineHeight: backTextLineHeight,
+                            fontWeight: '500',
+                          },
+                        ]}
+                      >
+                        {stickyNoteText?.trim()}
+                      </Text>
+                    ) : null}
+                    <TouchableOpacity style={localStyles.noteActionBtn} onPress={onOpenStickyNote} activeOpacity={0.88}>
+                      <Ionicons name={hasStickyNote ? 'create-outline' : 'add'} size={16} color={ui.icon} />
+                      <Text style={[localStyles.noteActionText, { color: ui.icon }]}>
+                        {hasStickyNote ? 'Edit note' : 'Add a note'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 </ScrollView>
+                </View>
 
                 {/* 底部 Footer */}
-                <View style={[styles.referenceFooterRow, { marginTop: 'auto' }]}>
+                <View style={localStyles.backFooterPinned}>
                   <Text style={styles.referenceFooterText}>{itemDisplayDate || '部分6・基礎'}</Text>
-                  <View style={styles.referenceActionBadge}>
-                    <Text style={styles.referenceActionText}>例句+</Text>
-                  </View>
                 </View>
 
               </View>
@@ -521,6 +738,102 @@ function CardDetailCarouselCardUI({
           </View>
         </View>
       </Pressable>
+      <Modal
+        visible={isSharePickerVisible}
+        transparent
+        animationType="none"
+        onRequestClose={() => setIsSharePickerVisible(false)}
+      >
+        <Pressable style={localStyles.shareModalBackdrop} onPress={() => setIsSharePickerVisible(false)}>
+          <Animated.View
+            style={[
+              localStyles.shareModalSheet,
+              {
+                opacity: shareModalAnim,
+                transform: [
+                  {
+                    scale: shareModalAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.92, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Pressable onPress={() => {}}>
+            <Text style={localStyles.shareModalTitle}>Share screens</Text>
+            <View style={localStyles.sharePreviewRow}>
+              <TouchableOpacity
+                activeOpacity={1}
+                style={localStyles.sharePreviewCard}
+                onPress={() => toggleShareSelection('front')}
+              >
+                <View
+                  style={[
+                    localStyles.sharePreviewMedia,
+                    shareSelection.front ? localStyles.sharePreviewMediaActive : null,
+                  ]}
+                >
+                  {sharePreviewUri.front ? (
+                    <Image source={{ uri: sharePreviewUri.front }} style={localStyles.sharePreviewImage} resizeMode="cover" />
+                  ) : (
+                    <Text style={localStyles.sharePreviewFallback}>Front</Text>
+                  )}
+                </View>
+                <View style={localStyles.sharePreviewMetaRow}>
+                  <Ionicons name={shareSelection.front ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={shareSelection.front ? '#4EAFF4' : '#94A3B8'} />
+                  <Text style={localStyles.sharePreviewLabel}>Front</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={1}
+                style={localStyles.sharePreviewCard}
+                onPress={() => toggleShareSelection('back')}
+              >
+                <View
+                  style={[
+                    localStyles.sharePreviewMedia,
+                    shareSelection.back ? localStyles.sharePreviewMediaActive : null,
+                  ]}
+                >
+                  {sharePreviewUri.back ? (
+                    <Image source={{ uri: sharePreviewUri.back }} style={localStyles.sharePreviewImage} resizeMode="cover" />
+                  ) : (
+                    <Text style={localStyles.sharePreviewFallback}>Back</Text>
+                  )}
+                </View>
+                <View style={localStyles.sharePreviewMetaRow}>
+                  <Ionicons name={shareSelection.back ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={shareSelection.back ? '#4EAFF4' : '#94A3B8'} />
+                  <Text style={localStyles.sharePreviewLabel}>Back</Text>
+                </View>
+              </TouchableOpacity>
+
+            </View>
+
+            <View style={localStyles.shareActionRow}>
+              <TouchableOpacity activeOpacity={1} style={localStyles.shareCancelBtn} onPress={() => setIsSharePickerVisible(false)}>
+                <Text style={localStyles.shareCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={1} style={localStyles.shareConfirmBtn} onPress={() => void submitShareSelection()}>
+                <Text style={localStyles.shareConfirmText}>Share</Text>
+              </TouchableOpacity>
+            </View>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+      <View pointerEvents="none" style={localStyles.hiddenCombinedCaptureWrap}>
+        <View ref={combinedShareRef} collapsable={false} style={localStyles.combinedCaptureSheet}>
+          {sharePreviewUri.front ? (
+            <Image source={{ uri: sharePreviewUri.front }} style={localStyles.combinedCaptureHalf} resizeMode="cover" />
+          ) : null}
+          {sharePreviewUri.back ? (
+            <Image source={{ uri: sharePreviewUri.back }} style={localStyles.combinedCaptureHalf} resizeMode="cover" />
+          ) : null}
+        </View>
+      </View>
     </Reanimated.View>
   );
 }
@@ -531,7 +844,7 @@ const localStyles = StyleSheet.create({
     minHeight: 120,
   },
   frontBodyContent: {
-    paddingBottom: 44,
+    paddingBottom: 8,
   },
   backBodyScroll: {
     flex: 1,
@@ -539,6 +852,35 @@ const localStyles = StyleSheet.create({
   },
   backBodyContent: {
     paddingBottom: 10,
+  },
+  backTextSection: {
+    flex: 1,
+    minHeight: 0,
+  },
+  backFooterPinned: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 8,
+  },
+  noteActionBtn: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: 'rgba(30,41,59,0.45)',
+  },
+  noteActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   dualSentenceBlock: {
     marginTop: 4,
@@ -558,89 +900,137 @@ const localStyles = StyleSheet.create({
     lineHeight: 28,
     fontWeight: '600',
   },
-  semanticHeroWrap: {
-    width: '100%',
-    minHeight: 196,
-    backgroundColor: '#EEF2F8',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 16,
-    justifyContent: 'flex-end',
-  },
-  semanticHeroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    gap: 8,
-  },
-  semanticTypeChip: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#111827',
-  },
-  semanticTypeChipText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  semanticPosText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  semanticHeroWord: {
-    color: '#111111',
-    fontSize: 38,
-    fontWeight: '900',
-    letterSpacing: -1,
-  },
-  semanticContext: {
-    color: '#374151',
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
-  },
-  semanticTagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-  },
-  semanticTagChip: {
-    borderRadius: 999,
-    backgroundColor: '#D9E3F2',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  semanticTagText: {
-    color: '#344256',
-    fontSize: 11,
-    fontWeight: '700',
-  },
   cardActionRow: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
+    bottom: -10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginTop: 0,
+    paddingHorizontal: 1,
     paddingTop: 0,
     paddingBottom: 0,
   },
   actionIconBtn: {
-    width: 28,
-    height: 28,
+    flex: 1,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  shareModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  shareModalSheet: {
+    borderRadius: 18,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 14,
+  },
+  shareModalTitle: {
+    color: '#F8FAFC',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  sharePreviewRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  sharePreviewCard: {
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    padding: 0,
+  },
+  sharePreviewMedia: {
+    width: '100%',
+    aspectRatio: 0.72,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sharePreviewMediaActive: {
+    borderWidth: 1,
+    borderColor: '#4EAFF4',
+  },
+  sharePreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  sharePreviewFallback: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sharePreviewMetaRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  sharePreviewLabel: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  shareActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  shareCancelBtn: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  shareCancelText: {
+    color: '#CBD5E1',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  shareConfirmBtn: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#4EAFF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  shareConfirmText: {
+    color: '#0F172A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  hiddenCombinedCaptureWrap: {
+    position: 'absolute',
+    left: -9999,
+    top: -9999,
+    opacity: 0,
+  },
+  combinedCaptureSheet: {
+    width: 360,
+    backgroundColor: '#0F172A',
+    padding: 8,
+    gap: 8,
+  },
+  combinedCaptureHalf: {
+    width: '100%',
+    height: 540,
+    borderRadius: 12,
   },
 });
 

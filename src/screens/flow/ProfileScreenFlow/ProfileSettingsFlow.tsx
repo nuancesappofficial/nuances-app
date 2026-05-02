@@ -1,7 +1,14 @@
 import React from 'react';
 import { Alert } from 'react-native';
 import ProfileSettingsModalUI from '../../../components/UI/ProfileScreenUI/ProfileSettingsModalUI';
-import { DEFAULT_USER_SETTINGS, loadUserSettings, saveUserSettings, type AIReplyLanguage, type EntitlementMode } from '@services/settings/userSettings';
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  saveUserSettings,
+  type AIReplyLanguage,
+  type EntitlementMode,
+  type TTSVoice,
+} from '@services/settings/userSettings';
 
 type RouteParams = {
   onPressUploadProfilePic?: () => void;
@@ -17,6 +24,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
+  const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
 
   React.useEffect(() => {
@@ -25,6 +33,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
         const settings = await loadUserSettings();
         setEntitlementMode(settings.entitlementMode);
         setAiReplyLanguage(settings.aiReplyLanguage);
+        setTtsVoice(settings.ttsVoice);
       } catch (error) {
         console.error('[ProfileSettings] load app settings failed:', error);
       }
@@ -66,6 +75,21 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
     }
   }, []);
 
+  const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.ttsVoice === voice) return;
+      await saveUserSettings({
+        ...settings,
+        ttsVoice: voice,
+      });
+      setTtsVoice(voice);
+    } catch (error) {
+      console.error('[ProfileSettings] update TTS voice failed:', error);
+      Alert.alert('更新失敗', '無法儲存語音設定，請稍後再試。');
+    }
+  }, []);
+
   return (
     <ProfileSettingsModalUI
       visible
@@ -73,12 +97,14 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
       entitlementMode={entitlementMode}
       savingEntitlement={savingEntitlement}
       aiReplyLanguage={aiReplyLanguage}
+      ttsVoice={ttsVoice}
       onClose={() => navigation.goBack()}
       onPressUploadProfilePic={() => {
         route.params?.onPressUploadProfilePic?.();
       }}
       onToggleEntitlement={handleToggleEntitlementMode}
       onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
+      onChangeTTSVoice={handleChangeTTSVoice}
     />
   );
 }

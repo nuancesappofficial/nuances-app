@@ -1,5 +1,7 @@
 import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
+import { speakViaAzureTtsProxy, stopAzureTtsPlayback } from './cloudSpeech';
+import { loadUserSettings } from '@services/settings/userSettings';
 
 type CachedVoice = {
   identifier: string;
@@ -76,8 +78,26 @@ export async function speakEnglishNaturally(
     return;
   }
 
-  const preferredVoice = await getPreferredEnglishVoice();
+  let selectedVoice: string | undefined;
+  try {
+    const settings = await loadUserSettings();
+    selectedVoice = settings.ttsVoice;
+  } catch {
+    selectedVoice = undefined;
+  }
 
+  const cloudSpoken = await speakViaAzureTtsProxy(trimmed, {
+    locale: 'en-US',
+    voice: selectedVoice,
+    onDone: options?.onDone,
+    onError: undefined,
+  });
+  if (cloudSpoken) {
+    return;
+  }
+
+  const preferredVoice = await getPreferredEnglishVoice();
+  await stopAzureTtsPlayback();
   await Speech.stop();
   Speech.speak(trimmed, {
     language: preferredVoice?.language || 'en-US',

@@ -167,13 +167,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
             await first.update((card) => {
               card.userId = effectiveUserId;
               card.targetWord = 'mock';
-              card.targetPhrase = 'this is a mock card';
-              card.originalSentence = 'This is a mock sentence to preview the image card layout.';
-              card.definition = 'a sample or demonstration item';
+              card.targetPhrase = 'mock interview';
+              card.originalSentence =
+                'I have a mock interview tomorrow, so I am practicing common questions tonight.';
+              card.definition = '模擬的；用來練習真實情境的';
               card.partOfSpeech = 'noun';
               card.contextualExplanation =
-                'In this sentence, "mock" is used as a sample item for UI preview and demonstration.';
-              card.frequentCollocations = 'mock exam, mock test, mock interview';
+                '我明天有一場「模擬面試」，所以今晚正在練習常見問題。\n這裡的「mock」表示「模擬、演練」，通常用於考試、面試或法庭等正式情境前的練習。';
+              card.frequentCollocations =
+                'mock interview, mock exam, mock trial';
               card.phoneticTranscription = '/mɑːk/';
               card.tags = ['mock_visual', 'album_all'];
               card.sourceApp = 'mock-visual';
@@ -190,13 +192,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           await database.get<Card>('cards').create((card) => {
             card.userId = effectiveUserId;
             card.targetWord = 'mock';
-            card.targetPhrase = 'this is a mock card';
-            card.originalSentence = 'This is a mock sentence to preview the image card layout.';
-            card.definition = 'a sample or demonstration item';
+            card.targetPhrase = 'mock interview';
+            card.originalSentence =
+              'I have a mock interview tomorrow, so I am practicing common questions tonight.';
+            card.definition = '模擬的；用來練習真實情境的';
             card.partOfSpeech = 'noun';
             card.contextualExplanation =
-              'In this sentence, "mock" is used as a sample item for UI preview and demonstration.';
-            card.frequentCollocations = 'mock exam, mock test, mock interview';
+              '我明天有一場「模擬面試」，所以今晚正在練習常見問題。\n這裡的「mock」表示「模擬、演練」，通常用於考試、面試或法庭等正式情境前的練習。';
+            card.frequentCollocations =
+              'mock interview, mock exam, mock trial';
             card.phoneticTranscription = '/mɑːk/';
             card.tags = ['mock_visual', 'album_all'];
             card.sourceApp = 'mock-visual';

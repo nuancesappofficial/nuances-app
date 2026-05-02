@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useColorScheme,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -23,7 +24,7 @@ import * as Haptics from 'expo-haptics';
 import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
 import type { AIReplyLanguage } from '@services/settings/userSettings';
-import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
+import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
 
 export type HeatMapDay = {
   key: string;
@@ -172,10 +173,14 @@ function HeatMapCircle({
   item,
   isToday,
   onPressDay,
+  palette,
+  isLight,
 }: {
   item: HeatMapDay;
   isToday: boolean;
   onPressDay: (day: HeatMapDay) => void;
+  palette: ReturnType<typeof resolveThemeColors>;
+  isLight: boolean;
 }) {
   const circleStyle = {
     width: GRID_SIZE,
@@ -242,14 +247,14 @@ function HeatMapCircle({
   };
 
   const content = hasCards ? (
-    <View style={[styles.dayCircle, styles.dayCircleSticker, circleStyle]}>
+    <View style={[styles.dayCircle, styles.dayCircleSticker, circleStyle, { backgroundColor: palette.screenBg }]}>
       <View style={styles.dayStickerCloud}>
         {stickerLabels.map((label, index) => renderSticker(label, index))}
       </View>
     </View>
   ) : (
-    <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle]}>
-      <Text style={styles.dayNumber}>{item.dayNumber}</Text>
+    <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle, { backgroundColor: palette.screenBg }]}>
+      <Text style={[styles.dayNumber, { color: isLight ? '#0F172A' : TEXT_ON_BASE }]}>{item.dayNumber}</Text>
     </View>
   );
 
@@ -264,8 +269,13 @@ function HeatMapCircle({
     >
       {isToday ? (
         <>
-          <View style={styles.todayGlow} />
-          <View style={styles.todayRing} />
+          <View
+            style={[
+              styles.todayGlow,
+              isLight ? { backgroundColor: 'rgba(78,175,244,0.16)', shadowColor: '#4EAFF4' } : null,
+            ]}
+          />
+          <View style={[styles.todayRing, isLight ? { borderColor: '#4EAFF4' } : null]} />
         </>
       ) : null}
       {content}
@@ -292,6 +302,9 @@ export default function ProfileMainScreenUI({
   onPressMenu,
   onPressDay,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
   const isFocused = useIsFocused();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
@@ -615,62 +628,86 @@ export default function ProfileMainScreenUI({
   ]);
 
   return (
-    <View style={[styles.root, overlayMode && styles.rootOverlay]}>
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.profilePanel}>
+    <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
+        <View
+          style={[
+            styles.profilePanel,
+            isLight
+              ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1, shadowOpacity: 0.05 }
+              : null,
+          ]}
+        >
           <View style={styles.avatarWrap}>
             {profileImageUri ? (
               <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatarFallback}>
-                <Ionicons name="person-circle" size={160} color="#B8BDC6" />
+                <Ionicons name="person-circle" size={160} color={isLight ? '#CBD5E1' : '#B8BDC6'} />
               </View>
             )}
           </View>
           <View style={styles.titleBlock}>
-            <Text style={styles.subtitle}>{subtitle}</Text>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.subtitle, { color: isLight ? '#64748B' : '#C6CFDC' }]}>{subtitle}</Text>
+            <Text style={[styles.title, { color: palette.textOnContainer }]} numberOfLines={1}>
               {title}
             </Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.settingsPillButton} activeOpacity={0.88} onPress={onPressSettings}>
-          <View style={styles.settingsPillIconCircle}>
-            <IconSymbol name="gearshape" fallback="⚙" size={18} color={TEXT_PRIMARY} />
+        <TouchableOpacity
+          style={[
+            styles.settingsPillButton,
+            isLight
+              ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1, shadowOpacity: 0.05 }
+              : null,
+          ]}
+          activeOpacity={0.88}
+          onPress={onPressSettings}
+        >
+          <View style={[styles.settingsPillIconCircle, isLight ? { borderColor: palette.borderSubtle } : null]}>
+            <IconSymbol name="gearshape" fallback="⚙" size={18} color={palette.textOnContainer} />
           </View>
-          <Text style={styles.settingsPillLabel}>Settings</Text>
+          <Text style={[styles.settingsPillLabel, { color: palette.textOnContainer }]}>Settings</Text>
         </TouchableOpacity>
 
         <View style={styles.monthHeaderRow}>
-          <Text style={styles.monthTitleOutside}>{monthTitle}</Text>
+          <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
           <View style={styles.monthControlRow}>
             <TouchableOpacity
-              style={styles.monthNavButton}
+              style={[styles.monthNavButton, isLight ? { backgroundColor: '#FFFFFF' } : null]}
               activeOpacity={0.85}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
             >
-              <Text style={styles.monthNavButtonText}>‹</Text>
+              <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>‹</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.monthSelectButton}
+              style={[
+                styles.monthSelectButton,
+                isLight ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle } : null,
+              ]}
               activeOpacity={0.85}
               onPress={openMonthPicker}
             >
-              <Text style={styles.monthSelectButtonText}>{monthButtonLabel} ▾</Text>
+              <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.monthNavButton}
+              style={[styles.monthNavButton, isLight ? { backgroundColor: '#FFFFFF' } : null]}
               activeOpacity={0.85}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
             >
-              <Text style={styles.monthNavButtonText}>›</Text>
+              <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>›</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
-          <View style={styles.heatMapPanel}>
+          <View
+            style={[
+              styles.heatMapPanel,
+              isLight ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1 } : null,
+            ]}
+          >
             <Animated.View
               style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
               onLayout={handlePagerLayout}
@@ -692,7 +729,7 @@ export default function ProfileMainScreenUI({
                       <View style={styles.weekdayRow}>
                         {WEEKDAY_LABELS.map((label) => (
                           <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
-                            <Text style={styles.weekdayText}>{label}</Text>
+                            <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : '#6F8FAF' }]}>{label}</Text>
                           </View>
                         ))}
                       </View>
@@ -715,6 +752,8 @@ export default function ProfileMainScreenUI({
                                   item={calendarItem}
                                   isToday={calendarItem.key === todayDateKey}
                                   onPressDay={onPressDay}
+                                  palette={palette}
+                                  isLight={isLight}
                                 />
                               </View>
                             )

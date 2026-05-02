@@ -1,8 +1,8 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, Text, View, useColorScheme, type ViewStyle } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CONTAINER_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
+import { resolveThemeColors } from '../../../theme/colors';
 
 type PreviewCard = {
   imageUrl?: string;
@@ -55,8 +55,6 @@ function getCoverTheme(title: string) {
   return { front: '#4A67D8', back1: '#364FB0', back2: '#273B8A', symbol: 'folder' as const, fallback: '⌂' };
 }
 
-const UNIFIED_FRONT = CONTAINER_BG;
-
 export function FolderIcon({
   style,
   title = '',
@@ -67,9 +65,16 @@ export function FolderIcon({
   coverColor,
   compact = false,
 }: FolderIconProps) {
+  const colorScheme = useColorScheme();
+  const palette = resolveThemeColors(colorScheme);
   void latestCards;
-  const theme = getCoverTheme(title);
-  const frontColor = coverColor || UNIFIED_FRONT;
+  const coverTheme = getCoverTheme(title);
+  const isLight = colorScheme === 'light';
+  const frontColor = isLight ? '#FFFFFF' : (coverColor || palette.containerBg);
+  const iconColor = isLight ? '#4EAFF4' : palette.textOnContainer;
+  const bottomTitleColor = isLight ? '#0F172A' : palette.textOnContainer;
+  const titleColor = accentColor || (isLight ? '#0F172A' : palette.textOnContainer);
+  const subtitleColor = isLight ? '#64748B' : 'rgba(248,250,252,0.76)';
   const canUseSymbols = canUseSFSymbolsOnDevice();
 
   const countLabel = `${wordCount} ${wordCount === 1 ? 'Pin' : 'Pins'}`;
@@ -80,22 +85,26 @@ export function FolderIcon({
         <View style={[styles.iconLayer, styles.iconLayerFront, { backgroundColor: frontColor }]}>
           <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
             {iconEmoji ? (
-              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null]}>{iconEmoji}</Text>
+              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null, { color: iconColor }]}>
+                {iconEmoji}
+              </Text>
             ) : canUseSymbols ? (
               <SymbolView
-                name={theme.symbol}
+                name={coverTheme.symbol}
                 size={compact ? 42 : 56}
-                tintColor={TEXT_ON_CONTAINER}
+                tintColor={iconColor}
                 type="monochrome"
                 style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
                 fallback={
-                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>
-                    {theme.fallback}
+                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                    {coverTheme.fallback}
                   </Text>
                 }
               />
             ) : (
-              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null]}>{theme.fallback}</Text>
+              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                {coverTheme.fallback}
+              </Text>
             )}
           </View>
           {compact ? (
@@ -104,7 +113,7 @@ export function FolderIcon({
               locations={[0, 0.58, 1]}
               style={styles.bottomShade}
             >
-              <Text style={styles.bottomTitle} numberOfLines={1}>
+              <Text style={[styles.bottomTitle, { color: bottomTitleColor }]} numberOfLines={1}>
                 {title}
               </Text>
             </LinearGradient>
@@ -114,10 +123,10 @@ export function FolderIcon({
 
       {!compact ? (
         <>
-          <Text style={[styles.title, { color: accentColor }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: titleColor }]} numberOfLines={1}>
             {title}
           </Text>
-          <Text style={styles.subtitle}>{countLabel}</Text>
+          <Text style={[styles.subtitle, { color: subtitleColor }]}>{countLabel}</Text>
         </>
       ) : null}
     </View>
@@ -165,7 +174,6 @@ const styles = StyleSheet.create({
     height: 50,
   },
   fallbackIcon: {
-    color: TEXT_ON_CONTAINER,
     fontSize: 48,
     fontWeight: '600',
   },
@@ -173,7 +181,7 @@ const styles = StyleSheet.create({
     fontSize: 34,
   },
   emojiIcon: {
-    color: TEXT_ON_CONTAINER,
+    color: '#F8FAFC',
     fontSize: 48,
     lineHeight: 52,
   },
@@ -194,7 +202,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: COVER_RADIUS,
   },
   bottomTitle: {
-    color: TEXT_ON_CONTAINER,
+    color: '#F8FAFC',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.1,
@@ -204,7 +212,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     textAlign: 'left',
-    color: TEXT_ON_CONTAINER,
+    color: '#F8FAFC',
   },
   subtitle: {
     marginTop: 4,

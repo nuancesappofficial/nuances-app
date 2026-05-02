@@ -1,5 +1,15 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import {
+  CONTAINER_BG,
+  MODAL_CTA_COLOR,
+  MODAL_CTA_COLOR_BORDER,
+  SCREEN_BG,
+  TEXT_ON_BG,
+  TEXT_ON_CTA,
+  TEXT_ON_CONTAINER,
+} from '../../../theme/colors';
 
 type AlbumOption = {
   id: string;
@@ -33,7 +43,7 @@ export default function CardAlbumSheetModalUI({
   onToggleAlbum,
 }: Props) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
       <View style={styles.sheetContainer}>
         <View style={styles.sheetHandle} />
@@ -70,10 +80,10 @@ export default function CardAlbumSheetModalUI({
             return (
               <TouchableOpacity
                 key={album.id}
-                style={[styles.albumRow, { backgroundColor: isSelected ? album.color : '#F9F9F9' }]}
+                style={[styles.albumRow, isSelected && styles.albumRowSelected]}
                 onPress={() => onToggleAlbum(album.id)}
               >
-                <View style={[styles.albumEmojiWrap, { backgroundColor: isSelected ? '#fff' : album.color }]}>
+                <View style={styles.albumEmojiWrap}>
                   <Text style={styles.albumEmoji}>{album.emoji}</Text>
                 </View>
                 <View style={styles.albumTextWrap}>
@@ -95,77 +105,101 @@ export default function CardAlbumSheetModalUI({
 }
 
 const styles = StyleSheet.create({
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheetContainer: {
-    backgroundColor: '#FAF7F3',
+    backgroundColor: SCREEN_BG,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 18,
     maxHeight: '75%',
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   sheetHandle: {
     width: 40,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#C7C7CC',
+    backgroundColor: '#4B5563',
     alignSelf: 'center',
     marginBottom: 10,
   },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sheetTitle: { fontSize: 20, fontWeight: '700', color: '#000' },
-  sheetDone: { color: '#7D2A2E', fontSize: 17, fontWeight: '600' },
+  sheetTitle: { fontSize: 24, fontWeight: '800', color: TEXT_ON_BG },
+  sheetDone: { color: TEXT_ON_BG, fontSize: BUTTON_TOKENS.text.strong, fontWeight: BUTTON_TOKENS.weight.regular },
   sheetCardPreview: {
-    backgroundColor: '#F0E7DF',
+    backgroundColor: CONTAINER_BG,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
     borderRadius: 14,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  sheetCardWord: { fontSize: 17, fontWeight: '700', color: '#000' },
-  sheetCardPos: { fontSize: 13, color: '#8E8E93', marginTop: 2 },
-  sheetCountBadge: { backgroundColor: '#7D2A2E', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  sheetCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  sheetCardWord: { fontSize: 17, fontWeight: '700', color: TEXT_ON_CONTAINER },
+  sheetCardPos: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
+  sheetCountBadge: {
+    backgroundColor: MODAL_CTA_COLOR,
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  sheetCountText: { color: TEXT_ON_CTA, fontSize: 12, fontWeight: '700' },
   sheetScrollContent: { paddingBottom: 10, gap: 8 },
   createAlbumBtn: {
-    borderRadius: 14,
-    paddingVertical: 13,
+    borderRadius: BUTTON_TOKENS.radius.md,
+    minHeight: BUTTON_TOKENS.height.regular,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#7D2A2E',
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
   },
-  createAlbumIcon: { color: '#fff', fontSize: 18 },
-  createAlbumText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  createAlbumIcon: { color: TEXT_ON_CTA, fontSize: 18 },
+  createAlbumText: { color: TEXT_ON_CTA, fontSize: BUTTON_TOKENS.text.strong, fontWeight: BUTTON_TOKENS.weight.regular },
   albumRow: {
-    borderRadius: 14,
+    borderRadius: BUTTON_TOKENS.radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: CONTAINER_BG,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 8,
   },
+  albumRowSelected: {
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    backgroundColor: 'rgba(78,175,244,0.16)',
+  },
   albumEmojiWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
   },
   albumEmoji: { fontSize: 24 },
   albumTextWrap: { flex: 1 },
-  albumNameText: { fontSize: 16, color: '#000', fontWeight: '600' },
-  albumCountText: { marginTop: 2, fontSize: 12, color: '#6E6E73', fontWeight: '500' },
+  albumNameText: { fontSize: 16, color: TEXT_ON_CONTAINER, fontWeight: '600' },
+  albumCountText: { marginTop: 2, fontSize: 12, color: '#94A3B8', fontWeight: '500' },
   albumCheckWrap: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#7D2A2E',
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  albumCheckText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  albumCheckText: { color: TEXT_ON_CTA, fontSize: 16, fontWeight: '800' },
 });

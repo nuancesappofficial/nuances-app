@@ -3,6 +3,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type ClipboardMode = 'active' | 'passive';
 export type EntitlementMode = 'premium' | 'guest';
 export type AIReplyLanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko';
+export type TTSVoice =
+  | 'en-US-JennyNeural'
+  | 'en-US-GuyNeural'
+  | 'en-GB-SoniaNeural'
+  | 'ja-JP-NanamiNeural'
+  | 'ko-KR-SunHiNeural'
+  | 'zh-TW-HsiaoChenNeural'
+  | 'zh-CN-XiaoxiaoNeural';
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
 export type ProficiencyStandardPreset =
   | 'cefr'
@@ -31,6 +39,7 @@ export type UserAppSettings = {
   clipboardMode: ClipboardMode;
   entitlementMode: EntitlementMode;
   aiReplyLanguage: AIReplyLanguage;
+  ttsVoice: TTSVoice;
   personalization: UserPersonalizationSettings;
 };
 
@@ -48,6 +57,7 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   clipboardMode: 'passive',
   entitlementMode: 'guest',
   aiReplyLanguage: 'zh-TW',
+  ttsVoice: 'en-US-JennyNeural',
   personalization: {
     learningGoalPreset: 'ielts',
     learningGoalCustom: '',

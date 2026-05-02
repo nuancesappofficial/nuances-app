@@ -4,11 +4,10 @@ import {
   Text,
   StyleSheet,
   Alert,
-  AppState,
   TouchableOpacity,
   Animated,
+  useColorScheme,
   useWindowDimensions,
-  type AppStateStatus,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
@@ -46,7 +45,14 @@ import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, CTA_COLOR, CTA_COLOR_BORDER, CONTAINER_BG, SCREEN_BG } from '../../../theme/colors';
+import {
+  TEXT_ON_CTA,
+  UPLOAD_CACHE_CTA_COLOR,
+  UPLOAD_CACHE_CTA_COLOR_BORDER,
+  CONTAINER_BG,
+  SCREEN_BG,
+  resolveThemeColors,
+} from '../../../theme/colors';
 
 type Props = {
   navigation: any;
@@ -496,7 +502,10 @@ function getDetectedPreview(annotations: unknown): string | undefined {
   return `${display.join(', ')}${words.length > compact.length ? '...' : ''}`;
 }
 
-export default function CacheScreenFlow({ navigation, onRequestClose, entryAnimationToken }: Props) {
+export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const addButtonScale = React.useRef(new Animated.Value(1)).current;
@@ -533,16 +542,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
     navigation,
     setShowAddModal,
     setAddTab,
-    onBatchQuickAddCreated: () => {
-      setAnimationSeed((prev) => prev + 1);
-    },
   });
-  const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
-  const hasFocusedOnceRef = React.useRef(false);
-  const handledOverlayTokenRef = React.useRef<number | null>(null);
-  const overlayAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
   const previousCardCountRef = React.useRef<number | null>(null);
-  const previousStackCardIdsRef = React.useRef<string[]>([]);
+  const hasSeenCacheOnceRef = React.useRef(false);
+  const lastSeenStackCardIdsRef = React.useRef<string[]>([]);
   const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
   const openAddModal = React.useCallback(() => {
     void Haptics.selectionAsync();
@@ -610,93 +614,18 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   }, []);
 
   useEffect(() => {
-    const handleFocused = () => {
-      const currentCount = cacheItems.length;
-      const prevCount = previousCardCountRef.current;
-
-      if (prevCount == null) {
-        // First time entering cache: play once if there are cards.
-        if (currentCount > 0) {
-          setAnimationSeed((prev) => prev + 1);
-        }
-        hasFocusedOnceRef.current = true;
-        previousCardCountRef.current = currentCount;
-        return;
-      }
-
-      const hasNewCards = currentCount > prevCount;
-      if (hasNewCards) {
-        setAnimationSeed((prev) => prev + 1);
-      } else if (hasFocusedOnceRef.current) {
-        // Existing stack only: keep layout stable without entry replay.
-        setRestoreSeed((prev) => prev + 1);
-      }
-
-      hasFocusedOnceRef.current = true;
-      previousCardCountRef.current = currentCount;
-    };
-
-    if (navigation?.isFocused?.() ?? true) {
-      handleFocused();
-    }
-
-    if (!navigation?.addListener) {
-      return;
-    }
-
-    const unsubscribe = navigation.addListener('focus', handleFocused);
-    return () => {
-      unsubscribe?.();
-    };
-  }, [cacheItems.length, navigation]);
-
-  useEffect(() => {
-    if (entryAnimationToken == null) return;
-    if (handledOverlayTokenRef.current === entryAnimationToken) return;
-
-    const play = () => {
-      if (overlayAnimationTimerRef.current) {
-        clearTimeout(overlayAnimationTimerRef.current);
-      }
-      overlayAnimationTimerRef.current = setTimeout(() => {
-        setAnimationSeed((prev) => prev + 1);
-        handledOverlayTokenRef.current = entryAnimationToken;
-        overlayAnimationTimerRef.current = null;
-      }, 420);
-    };
-
-    if (cacheItems.length > 0) {
-      play();
-      return;
-    }
-
-    return () => {
-      if (overlayAnimationTimerRef.current) {
-        clearTimeout(overlayAnimationTimerRef.current);
-        overlayAnimationTimerRef.current = null;
-      }
-    };
-  }, [cacheItems.length, entryAnimationToken]);
-
-  useEffect(() => {
-    return () => {
-      if (overlayAnimationTimerRef.current) {
-        clearTimeout(overlayAnimationTimerRef.current);
-        overlayAnimationTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState) => {
-      const prevState = appStateRef.current;
-      if ((prevState === 'background' || prevState === 'inactive') && nextState === 'active') {
-        setAnimationSeed((prev) => prev + 1);
-      }
-      appStateRef.current = nextState;
+    if (!navigation?.addListener) return;
+    const offFocus = navigation.addListener('focus', () => {
+      setIsCacheFocused(true);
     });
-    return () => sub.remove();
-  }, []);
+    const offBlur = navigation.addListener('blur', () => {
+      setIsCacheFocused(false);
+    });
+    return () => {
+      offFocus?.();
+      offBlur?.();
+    };
+  }, [navigation]);
 
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
@@ -751,19 +680,33 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   }, [cards]);
 
   useEffect(() => {
+    if (!isCacheFocused) return;
+
     const currentIds = stackCards.map((card) => card.id);
-    const prevIds = previousStackCardIdsRef.current;
-    if (prevIds.length === 0) {
-      previousStackCardIdsRef.current = currentIds;
+    const seenIds = lastSeenStackCardIdsRef.current;
+
+    if (!hasSeenCacheOnceRef.current) {
+      if (currentIds.length > 0) {
+        setEnteringCardIds(currentIds);
+        setAnimationSeed((prev) => prev + 1);
+      }
+      hasSeenCacheOnceRef.current = true;
+      lastSeenStackCardIdsRef.current = currentIds;
       return;
     }
-    const prevSet = new Set(prevIds);
-    const newlyAdded = currentIds.filter((id) => !prevSet.has(id));
+
+    const seenSet = new Set(seenIds);
+    const newlyAdded = currentIds.filter((id) => !seenSet.has(id));
+
     if (newlyAdded.length > 0) {
       setEnteringCardIds(newlyAdded);
+      setAnimationSeed((prev) => prev + 1);
+    } else {
+      setRestoreSeed((prev) => prev + 1);
     }
-    previousStackCardIdsRef.current = currentIds;
-  }, [stackCards]);
+
+    lastSeenStackCardIdsRef.current = currentIds;
+  }, [isCacheFocused, stackCards]);
 
   useEffect(() => {
     if (enteringCardIds.length === 0) return;
@@ -976,13 +919,24 @@ export default function CacheScreenFlow({ navigation, onRequestClose, entryAnima
   );
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={styles.vocabSection}>
-        <Text style={styles.vocabTitleOutside}>Today&apos;s Uploads</Text>
-        <View style={styles.vocabContainer}>
+        <Text style={[styles.vocabTitleOutside, { color: isLight ? '#64748B' : '#FBFBFB' }]}>Today&apos;s Uploads</Text>
+        <View
+          style={[
+            styles.vocabContainer,
+            isLight
+              ? {
+                  backgroundColor: palette.containerBg,
+                  borderColor: palette.borderSubtle,
+                  shadowOpacity: 0.05,
+                }
+              : null,
+          ]}
+        >
           <VocabStickerCloud items={todayStickerWords} onPressSticker={handlePressTodaySticker} />
           {stackCards.length > 0 ? (
-            <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint="light" />
+            <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />
           ) : null}
         </View>
       </View>
@@ -1132,9 +1086,9 @@ const styles = StyleSheet.create({
   uploadBarButton: {
     height: BUTTON_TOKENS.height.prominent,
     borderRadius: BUTTON_TOKENS.radius.lg,
-    backgroundColor: CTA_COLOR,
+    backgroundColor: UPLOAD_CACHE_CTA_COLOR,
     borderWidth: 1,
-    borderColor: CTA_COLOR_BORDER,
+    borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: BUTTON_TOKENS.shadow.color,

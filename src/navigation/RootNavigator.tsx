@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, StyleSheet, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -24,6 +24,7 @@ import ProfileSettingsFlow from '../screens/flow/ProfileScreenFlow/ProfileSettin
 import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
 import { database } from '../database';
 import type CachedItem from '../database/models/CachedItem';
+import { resolveThemeColors } from '../theme/colors';
 
 const CacheStackNav = createNativeStackNavigator();
 const CardsStackNav = createNativeStackNavigator();
@@ -37,7 +38,7 @@ const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
 const TAB_CAPSULE_HEIGHT = TAB_BAR_HEIGHT - TAB_BAR_VERTICAL_INSET * 2;
 const TAB_CAPSULE_RADIUS = TAB_CAPSULE_HEIGHT / 2;
 
-const ACTIVE_COLOR = '#F56B6B';
+const ACTIVE_COLOR = '#4EAFF4';
 const TAB_ITEMS = [
   {
     activeIcon: 'library',
@@ -297,15 +298,28 @@ function LiquidTabBar({
   selectedTabIndex,
   onSelectTab,
   cacheBadgeCount,
+  navBg,
+  navBorder,
+  navIconActive,
+  navIconInactive,
+  navCapsuleBg,
+  navCapsuleBorder,
 }: {
   selectedTabIndex: number;
   onSelectTab: (index: number) => void;
   cacheBadgeCount: number;
+  navBg: string;
+  navBorder: string;
+  navIconActive: string;
+  navIconInactive: string;
+  navCapsuleBg: string;
+  navCapsuleBorder: string;
 }) {
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
-  const activeTranslateX = React.useRef(new Animated.Value(0)).current;
+  const activeTranslateX = React.useRef(new Animated.Value(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET)).current;
+  const initializedSlotWidthRef = React.useRef(0);
   const pressScales = React.useRef(TAB_ITEMS.map(() => new Animated.Value(1))).current;
   const innerTrackWidth = Math.max(0, tabBarWidth - TAB_BAR_SIDE_PADDING * 2);
   const slotWidth = innerTrackWidth > 0 ? innerTrackWidth / 3 : 0;
@@ -318,18 +332,18 @@ function LiquidTabBar({
     activeTranslateX.stopAnimation();
     Animated.timing(activeTranslateX, {
       toValue,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      duration: 300,
+      easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
   }, [activeTranslateX, capsuleBaseX, selectedTabIndex, slotWidth]);
 
   React.useEffect(() => {
     if (slotWidth <= 0) return;
+    if (Math.abs(initializedSlotWidthRef.current - slotWidth) < 0.5) return;
+    initializedSlotWidthRef.current = slotWidth;
     activeTranslateX.setValue(capsuleBaseX + slotWidth * selectedTabIndex);
-    // set only on first valid layout tick
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slotWidth]);
+  }, [activeTranslateX, capsuleBaseX, selectedTabIndex, slotWidth]);
   const handlePressIn = React.useCallback((index: number) => {
     Animated.spring(pressScales[index], {
       toValue: 0.92,
@@ -350,10 +364,15 @@ function LiquidTabBar({
   return (
     <View style={styles.tabBarOuter}>
       <View
-        style={[styles.rnTabBarWrap, { marginBottom: bottomInset }]}
+        style={[styles.rnTabBarWrap, { marginBottom: bottomInset, backgroundColor: navBg, borderColor: navBorder }]}
         onLayout={(event) => {
           const width = Math.round(event.nativeEvent.layout.width);
           if (width > 0 && width !== tabBarWidth) {
+            const nextInnerTrackWidth = Math.max(0, width - TAB_BAR_SIDE_PADDING * 2);
+            const nextSlotWidth = nextInnerTrackWidth > 0 ? nextInnerTrackWidth / TAB_ITEMS.length : 0;
+            if (nextSlotWidth > 0) {
+              activeTranslateX.setValue(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET + nextSlotWidth * selectedTabIndex);
+            }
             setTabBarWidth(width);
           }
         }}
@@ -365,6 +384,8 @@ function LiquidTabBar({
               styles.rnActiveCapsule,
               {
                 width: capsuleWidth,
+                backgroundColor: navCapsuleBg,
+                borderColor: navCapsuleBorder,
                 transform: [
                   {
                     translateX: activeTranslateX,
@@ -391,7 +412,7 @@ function LiquidTabBar({
                   <Ionicons
                     name={active ? item.activeIcon : item.inactiveIcon}
                     size={27}
-                    color={active ? '#8FD4FF' : '#E6EEF7'}
+                    color={active ? navIconActive : navIconInactive}
                   />
                   {index === 1 && cacheBadgeCount > 0 ? (
                     <View style={styles.cacheBadge}>
@@ -411,6 +432,8 @@ function LiquidTabBar({
 }
 
 export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
+  const colorScheme = useColorScheme();
+  const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
@@ -549,7 +572,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         setTabBarHidden: setTabBarForcedHidden,
       }}
     >
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
           {/*
             只讓 from/to 兩個 scene 參與 cross-fade，避免 0 <-> 2 時閃現中間頁。
@@ -720,6 +743,12 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
             selectedTabIndex={selectedTabIndex}
             onSelectTab={handleTabSelect}
             cacheBadgeCount={cacheBadgeCount}
+            navBg={theme.navBg}
+            navBorder={theme.navBorder}
+            navIconActive={theme.navActive}
+            navIconInactive={theme.navInactive}
+            navCapsuleBg={theme.navCapsuleBg}
+            navCapsuleBorder={theme.navCapsuleBorder}
           />
         </Animated.View>
       </View>
@@ -766,9 +795,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(11,29,50,0.82)',
     borderWidth: 1,
-    borderColor: 'rgba(176,222,255,0.22)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.34,
@@ -782,9 +809,7 @@ const styles = StyleSheet.create({
     top: TAB_BAR_VERTICAL_INSET,
     height: TAB_CAPSULE_HEIGHT,
     borderRadius: TAB_CAPSULE_RADIUS,
-    backgroundColor: 'rgba(150,210,255,0.23)',
     borderWidth: 1,
-    borderColor: 'rgba(194,232,255,0.52)',
     shadowColor: '#89CCFF',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.45,

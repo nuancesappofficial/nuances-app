@@ -1,7 +1,7 @@
 import React from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, CTA_COLOR } from '../../../theme/colors';
+import { TEXT_ON_CTA, MODAL_CTA_COLOR } from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quickChipActive: {
-    backgroundColor: CTA_COLOR,
+    backgroundColor: MODAL_CTA_COLOR,
   },
   quickChipText: {
     color: '#FFFFFF',

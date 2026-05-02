@@ -8,6 +8,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   PanResponder,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,6 +22,7 @@ import {
   Vibration,
   Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
@@ -48,6 +50,7 @@ import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
+import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
@@ -72,6 +75,12 @@ import { SCREEN_BG } from '../../../theme/colors';
 type Props = {
   navigation: any;
   route: { params?: { cardId?: string; cardIds?: string[]; albumName?: string; headerTitle?: string } };
+};
+type PronunciationResult = {
+  score: number | null;
+  feedbackLines: string[];
+  phonemeFeedback: CloudPhonemeFeedback[];
+  showFeedback: boolean;
 };
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
@@ -102,6 +111,7 @@ const albumIdToCategoryTag: Record<string, string> = {
   work: 'work',
 };
 const HEADER_BUTTON_TOP_OFFSET = 0;
+const CARD_STICKY_NOTES_KEY = 'card_detail_sticky_notes_v1';
 
 function scaleFont(size: number): number {
   return Math.round(size * CARD_DETAIL_FONT_SCALE * 100) / 100;
@@ -212,8 +222,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [pronunciationScore, setPronunciationScore] = React.useState<number | null>(null);
   const [pronunciationFeedbackLines, setPronunciationFeedbackLines] = React.useState<string[]>([]);
   const [phonemeFeedback, setPhonemeFeedback] = React.useState<CloudPhonemeFeedback[]>([]);
+  const [pronunciationResultsByCardId, setPronunciationResultsByCardId] = React.useState<
+    Record<string, PronunciationResult>
+  >({});
+  const [lastRecordingUriByCardId, setLastRecordingUriByCardId] = React.useState<Record<string, string>>({});
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
+  const [showStickyNoteModal, setShowStickyNoteModal] = React.useState(false);
+  const [showPronunciationModal, setShowPronunciationModal] = React.useState(false);
+  const [stickyNotesByCardId, setStickyNotesByCardId] = React.useState<Record<string, string>>({});
+  const [stickyDraft, setStickyDraft] = React.useState('');
   const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
   const [isFullscreenViewerVisible, setIsFullscreenViewerVisible] = React.useState(false);
   const [fullscreenCardIndex, setFullscreenCardIndex] = React.useState<number | null>(null);
@@ -228,6 +246,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const waveformValues = React.useRef(Array.from({ length: 24 }, () => new Animated.Value(8))).current;
   const recordingRef = React.useRef<any | null>(null);
+  const pronunciationTargetCardIdRef = React.useRef<string | null>(null);
   const recordingTransitionRef = React.useRef(false);
   const lastRecordingUriRef = React.useRef<string | null>(null);
   const userRecordingSoundRef = React.useRef<any | null>(null);
@@ -243,6 +262,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const fullscreenContentOpacity = React.useRef(new Animated.Value(1)).current;
   const fullscreenEntryProgress = React.useRef(new Animated.Value(0)).current;
   const fullscreenDragYValueRef = React.useRef(0);
+  const stickyModalAnim = React.useRef(new Animated.Value(0)).current;
+  const pronunciationModalAnim = React.useRef(new Animated.Value(0)).current;
 
   const hydrateAlbumPrefs = React.useCallback(async () => {
     const prefs = await loadDeckAlbumPreferences();
@@ -299,6 +320,28 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [allCards, routeCardIds]);
 
   const card = currentIndex === null ? null : scopedCards[currentIndex] ?? null;
+  React.useEffect(() => {
+    if (!card?.id) {
+      setPronunciationScore(null);
+      setPronunciationFeedbackLines([]);
+      setPhonemeFeedback([]);
+      setShowFeedback(false);
+      return;
+    }
+    const data = pronunciationResultsByCardId[card.id];
+    if (!data) {
+      setPronunciationScore(null);
+      setPronunciationFeedbackLines([]);
+      setPhonemeFeedback([]);
+      setShowFeedback(false);
+      return;
+    }
+    setPronunciationScore(data.score);
+    setPronunciationFeedbackLines(data.feedbackLines);
+    setPhonemeFeedback(data.phonemeFeedback);
+    setShowFeedback(data.showFeedback);
+  }, [card?.id, pronunciationResultsByCardId]);
+
   const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
   const markCenteredCardSeen = React.useCallback(
     (index: number) => {
@@ -440,6 +483,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [scopedCards]);
 
   React.useEffect(() => {
+    const hydrateStickyNotes = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CARD_STICKY_NOTES_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          setStickyNotesByCardId(parsed as Record<string, string>);
+        }
+      } catch (error) {
+        console.warn('[CardDetail] hydrate sticky notes failed:', error);
+      }
+    };
+    void hydrateStickyNotes();
+  }, []);
+
+  React.useEffect(() => {
     return () => {
       const recording = recordingRef.current;
       recordingRef.current = null;
@@ -545,6 +604,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     recordingTransitionRef.current = true;
     try {
       if (!card) return;
+      const targetCardId = card.id;
       if (isAnalyzing) return;
       if (!pronunciationText.trim()) {
         Alert.alert('無可評分句子', '請先選擇有可朗讀句子的卡片再進行發音分析。');
@@ -584,6 +644,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPhonemeFeedback([]);
       setShowFeedback(false);
       setHasRecorded(false);
+      pronunciationTargetCardIdRef.current = targetCardId;
       await stopUserRecordingPreview();
       const staleRecording = recordingRef.current;
       if (staleRecording) {
@@ -655,7 +716,11 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       recordingRef.current = null;
       setIsRecording(false);
       setHasRecorded(Boolean(uri));
+      const currentCardId = pronunciationTargetCardIdRef.current;
       lastRecordingUriRef.current = uri || null;
+      if (currentCardId && uri) {
+        setLastRecordingUriByCardId((prev) => ({ ...prev, [currentCardId]: uri }));
+      }
 
       if (!uri) {
         throw new Error('錄音檔遺失，請重新錄音');
@@ -678,6 +743,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPronunciationFeedbackLines(result.feedbackLines);
       setPhonemeFeedback(result.phonemeFeedback || []);
       setShowFeedback(true);
+      const analyzedCardId = pronunciationTargetCardIdRef.current;
+      if (analyzedCardId) {
+        setPronunciationResultsByCardId((prev) => ({
+          ...prev,
+          [analyzedCardId]: {
+            score: result.score,
+            feedbackLines: result.feedbackLines || [],
+            phonemeFeedback: result.phonemeFeedback || [],
+            showFeedback: true,
+          },
+        }));
+      }
       Vibration.vibrate(20);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
@@ -685,6 +762,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Alert.alert('分析失敗', message);
     } finally {
       setIsAnalyzing(false);
+      pronunciationTargetCardIdRef.current = null;
       recordingTransitionRef.current = false;
     }
   };
@@ -699,7 +777,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   };
 
   const playUserRecordingPreview = async () => {
-    const uri = lastRecordingUriRef.current;
+    const uri = card?.id ? lastRecordingUriByCardId[card.id] || null : null;
     if (!uri) {
       Alert.alert('尚無錄音', '請先完成一次錄音後再重播。');
       return;
@@ -732,6 +810,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setPronunciationScore(null);
     setPronunciationFeedbackLines([]);
     setPhonemeFeedback([]);
+    if (card?.id) {
+      setPronunciationResultsByCardId((prev) => {
+        const next = { ...prev };
+        delete next[card.id];
+        return next;
+      });
+      setLastRecordingUriByCardId((prev) => {
+        const next = { ...prev };
+        delete next[card.id];
+        return next;
+      });
+    }
     lastRecordingUriRef.current = null;
     waveformValues.forEach((v) => v.setValue(8));
     await stopUserRecordingPreview();
@@ -826,6 +916,56 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Alert.alert('更新失敗', '無法更新我的最愛狀態，請再試一次。');
     }
   }, [card]);
+
+  const openStickyNoteModal = React.useCallback(() => {
+    if (!card) return;
+    setStickyDraft(stickyNotesByCardId[card.id] || '');
+    setShowStickyNoteModal(true);
+  }, [card, stickyNotesByCardId]);
+  React.useEffect(() => {
+    if (!showStickyNoteModal) return;
+    stickyModalAnim.setValue(0);
+    Animated.spring(stickyModalAnim, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 230,
+      mass: 0.92,
+      useNativeDriver: true,
+    }).start();
+  }, [showStickyNoteModal, stickyModalAnim]);
+  React.useEffect(() => {
+    if (!showPronunciationModal) return;
+    pronunciationModalAnim.setValue(0);
+    Animated.spring(pronunciationModalAnim, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 230,
+      mass: 0.92,
+      useNativeDriver: true,
+    }).start();
+  }, [showPronunciationModal, pronunciationModalAnim]);
+
+  const openPronunciationModal = React.useCallback(() => {
+    setShowPronunciationModal(true);
+  }, []);
+
+  const saveStickyNote = React.useCallback(async () => {
+    if (!card) return;
+    const nextText = stickyDraft.trim();
+    const nextMap = { ...stickyNotesByCardId };
+    if (nextText) {
+      nextMap[card.id] = nextText;
+    } else {
+      delete nextMap[card.id];
+    }
+    setStickyNotesByCardId(nextMap);
+    setShowStickyNoteModal(false);
+    try {
+      await AsyncStorage.setItem(CARD_STICKY_NOTES_KEY, JSON.stringify(nextMap));
+    } catch (error) {
+      console.warn('[CardDetail] save sticky note failed:', error);
+    }
+  }, [card, stickyDraft, stickyNotesByCardId]);
 
   const navigateToIndex = React.useCallback(
     (targetIndex: number, animated = true) => {
@@ -978,6 +1118,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible, screenWidth]);
 
   const phonemeChips = phonemeFeedback.slice(0, 5);
+  const handlePlayPronunciationWord = React.useCallback(
+    (word: string) => {
+      const text = (word || '').trim();
+      if (!text) return;
+      void speakEnglishNaturally(text);
+    },
+    []
+  );
+  const handlePlayPronunciationSyllable = React.useCallback((syllable: string) => {
+    const text = (syllable || '').trim();
+    if (!text) return;
+    void speakEnglishNaturally(text);
+  }, []);
   const triggerHapticFeedback = React.useCallback(() => {
     if (!didMountIndexRef.current) return;
     void Haptics.selectionAsync();
@@ -1086,6 +1239,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           isFavorite={isThisCardFavorite}
           onOpenAlbumSheet={() => setShowAlbumSheet(true)}
           onToggleFavorite={() => void toggleFavorite()}
+          onOpenStickyNote={openStickyNoteModal}
+          stickyNoteText={stickyNotesByCardId[item.id] || ''}
+          onOpenPronunciationModal={openPronunciationModal}
           isLightMode={isLightMode}
         />
       );
@@ -1094,6 +1250,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       card?.id,
       isFavorite,
       toggleFavorite,
+      openStickyNoteModal,
+      openPronunciationModal,
       cardImageMap,
       currentIndex,
       handlePlayCard,
@@ -1113,6 +1271,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       waveformValues,
       playUserRecordingPreview,
       isLightMode,
+      stickyNotesByCardId,
     ]
   );
 
@@ -1193,6 +1352,109 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }}
         onConfirm={() => void createAlbum()}
       />
+
+      <Modal
+        visible={showStickyNoteModal}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowStickyNoteModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowStickyNoteModal(false)}
+          style={styles.stickyBackdrop}
+        >
+          <Animated.View
+            style={[
+              styles.stickySheet,
+              {
+                opacity: stickyModalAnim,
+                transform: [
+                  {
+                    scale: stickyModalAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.92, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <Text style={styles.stickyTitle}>Card note</Text>
+            <TextInput
+              value={stickyDraft}
+              onChangeText={setStickyDraft}
+              placeholder="Write your sticky note..."
+              placeholderTextColor="#64748B"
+              multiline
+              textAlignVertical="top"
+              style={styles.stickyInput}
+            />
+            <View style={styles.stickyButtonRow}>
+              <TouchableOpacity style={styles.stickyCancelBtn} onPress={() => setShowStickyNoteModal(false)}>
+                <Text style={styles.stickyCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.stickySaveBtn} onPress={() => void saveStickyNote()}>
+                <Text style={styles.stickySaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={showPronunciationModal}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowPronunciationModal(false)}
+      >
+        <Pressable style={styles.pronunciationBackdrop} onPress={() => setShowPronunciationModal(false)}>
+          <Animated.View
+            style={[
+              styles.pronunciationSheet,
+              {
+                opacity: pronunciationModalAnim,
+                transform: [
+                  {
+                    scale: pronunciationModalAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.92, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Pressable onPress={() => {}}>
+              <PronunciationCoachUI
+                isActiveCard
+                isRecording={isRecording}
+                hasRecorded={hasRecorded}
+                showFeedback={showFeedback}
+                isAnalyzing={isAnalyzing}
+                pronunciationScore={pronunciationScore}
+                pronunciationFeedbackLines={pronunciationFeedbackLines}
+                phonemeChips={phonemeChips}
+                syllableRowPattern={undefined}
+                waveformValues={waveformValues}
+                itemWord={displayWord}
+                onPlayWord={handlePlayPronunciationWord}
+                onPlaySyllable={handlePlayPronunciationSyllable}
+                onReset={() => void handleReset()}
+                onPrimaryAction={() => void togglePronunciationRecording()}
+                onPlayPreview={() => void playUserRecordingPreview()}
+              />
+              <View style={[styles.stickyButtonRow, { marginTop: 12 }]}>
+                <TouchableOpacity style={styles.stickyCancelBtn} onPress={() => setShowPronunciationModal(false)}>
+                  <Text style={styles.stickyCancelText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={isFullscreenViewerVisible}
@@ -1508,6 +1770,84 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.8,
     marginBottom: 6,
+  },
+  stickyBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  pronunciationBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.66)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  stickySheet: {
+    borderRadius: 18,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 14,
+    gap: 12,
+  },
+  stickyTitle: {
+    color: '#E2E8F0',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  stickyInput: {
+    minHeight: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#111827',
+    color: '#F8FAFC',
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  stickyButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  stickyCancelBtn: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  stickyCancelText: {
+    color: '#CBD5E1',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  stickySaveBtn: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#4EAFF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  stickySaveText: {
+    color: '#0F172A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pronunciationSheet: {
+    borderRadius: 18,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 18,
+    width: '99%',
+    maxWidth: 760,
+    minHeight: 420,
+    alignSelf: 'center',
   },
   referenceSubText: {
     color: '#94A3B8',

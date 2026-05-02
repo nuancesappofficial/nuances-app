@@ -1,11 +1,11 @@
 import React from 'react';
-import { Animated, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Animated, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
-import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
+import { CONTAINER_BG, SCREEN_BG, TEXT_ON_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
 
 const ALBUMS_PER_PAGE = 9;
 const GRID_COLUMNS = 3;
@@ -70,6 +70,9 @@ export default function DeckMainScreenUI({
   onMenuFinish,
   onActionEnd,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
   const { width: screenWidth } = useWindowDimensions();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
@@ -128,7 +131,7 @@ export default function DeckMainScreenUI({
   });
   const searchShellBackgroundColor = searchExpandProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: ['rgba(2,33,61,0)', 'rgba(2,33,61,0.9)'],
+    outputRange: ['rgba(2,33,61,0)', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(2,33,61,0.9)'],
   });
   const searchShellBorderWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
@@ -334,7 +337,7 @@ export default function DeckMainScreenUI({
   });
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={styles.topRightRow}>
         <TouchableOpacity
           style={styles.brandIconButton}
@@ -365,13 +368,13 @@ export default function DeckMainScreenUI({
                 ]}
                 pointerEvents={isSearchExpanded ? 'auto' : 'none'}
               >
-                <Ionicons name="search" size={20} color="#FBFBFB" style={styles.searchLeadingIcon} />
+                <Ionicons name="search" size={20} color={palette.textOnContainer} style={styles.searchLeadingIcon} />
                 <TextInput
                   ref={searchInputRef}
                   value={searchQuery}
                   onChangeText={onSearchChange}
                   placeholder="搜尋卡片關鍵字"
-                  placeholderTextColor="#8E8E93"
+                  placeholderTextColor={palette.secondaryText}
                   style={styles.searchInput}
                   returnKeyType="search"
                 />
@@ -387,7 +390,7 @@ export default function DeckMainScreenUI({
                     },
                   ]}
                 >
-                  <Ionicons name="search" size={30} color="#FBFBFB" />
+                  <Ionicons name="search" size={30} color={palette.textOnBg} />
                 </Animated.View>
                 <Animated.View
                   style={[
@@ -399,14 +402,14 @@ export default function DeckMainScreenUI({
                     },
                   ]}
                 >
-                  <Ionicons name="close" size={30} color="#FBFBFB" />
+                  <Ionicons name="close" size={30} color={palette.textOnBg} />
                 </Animated.View>
               </TouchableOpacity>
             </Animated.View>
           </Animated.View>
 
           <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={onOpenCreateAlbum}>
-            <Ionicons name="add" size={38} color="#FBFBFB" />
+            <Ionicons name="add" size={38} color={palette.textOnBg} />
           </TouchableOpacity>
         </View>
       </View>
@@ -435,7 +438,11 @@ export default function DeckMainScreenUI({
               {albumPages.map((_, index) => (
                 <View
                   key={`dot-${index}`}
-                  style={[styles.paginationDot, index === currentPage ? styles.paginationDotActive : null]}
+                  style={[
+                    styles.paginationDot,
+                    { backgroundColor: isLight ? 'rgba(15,23,42,0.22)' : 'rgba(2,33,61,0.3)' },
+                    index === currentPage ? [styles.paginationDotActive, { backgroundColor: palette.navActive }] : null,
+                  ]}
                 />
               ))}
             </View>
@@ -462,6 +469,12 @@ export default function DeckMainScreenUI({
                 styles.todayReviewCardActive,
                 newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
                 newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
+                isLight
+                  ? {
+                      backgroundColor: 'rgba(78,175,244,0.1)',
+                      borderColor: 'rgba(78,175,244,0.46)',
+                    }
+                  : null,
               ]}
               activeOpacity={0.9}
               onPress={onPressTodayReview}
@@ -477,7 +490,7 @@ export default function DeckMainScreenUI({
                 ]}
               />
               <View style={styles.todayReviewHeaderRow}>
-                <Text style={styles.todayReviewLabel}>New words</Text>
+                <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>New words</Text>
                 {newWordsLevel >= 2 ? (
                   <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
                     <Text
@@ -499,22 +512,38 @@ export default function DeckMainScreenUI({
                   styles.todayReviewCard,
                   styles.todayReviewCardInactive,
                   styles.todayReviewQuickQuizButton,
+                  isLight
+                    ? {
+                        backgroundColor: palette.containerBg,
+                        borderColor: palette.borderSubtle,
+                        shadowOpacity: 0.05,
+                      }
+                    : null,
                 ]}
                 activeOpacity={0.9}
                 onPress={onPressTodayReview}
               >
                 <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive]}>Quick quiz</Text>
-                  <Ionicons name="play" size={16} color={TEXT_ON_CONTAINER} />
+                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
+                  <Ionicons name="play" size={16} color={palette.textOnContainer} />
                 </View>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.todayReviewEqualizerButton}
+                style={[
+                  styles.todayReviewEqualizerButton,
+                  isLight
+                    ? {
+                        backgroundColor: palette.containerBg,
+                        borderColor: palette.borderSubtle,
+                        shadowOpacity: 0.05,
+                      }
+                    : null,
+                ]}
                 activeOpacity={0.9}
                 onPress={onPressTodayReviewTuning}
               >
-                <Ionicons name="options-outline" size={22} color={TEXT_ON_CONTAINER} />
+                <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
               </TouchableOpacity>
             </View>
           )}
@@ -523,7 +552,16 @@ export default function DeckMainScreenUI({
 
       <View style={styles.wordShowcaseWrap}>
         <TouchableOpacity
-          style={styles.wordShowcase}
+          style={[
+            styles.wordShowcase,
+            isLight
+              ? {
+                  backgroundColor: palette.containerBg,
+                  borderColor: palette.borderSubtle,
+                  shadowOpacity: 0.05,
+                }
+              : null,
+          ]}
           activeOpacity={0.88}
           disabled={!activeShowcaseItem}
           onPress={() => {
@@ -531,7 +569,7 @@ export default function DeckMainScreenUI({
             onPressSlideshowItem(activeShowcaseItem);
           }}
         >
-          <Text style={styles.wordShowcaseLabel}>Word Pop</Text>
+          <Text style={[styles.wordShowcaseLabel, { color: isLight ? '#64748B' : palette.textOnContainer }]}>Word Pop</Text>
           <View style={styles.wordShowcaseContent}>
             {activeShowcaseItem?.imageUri ? (
               <Animated.View style={[styles.wordThumbWrap, { opacity: wordOpacity }]}>
@@ -539,10 +577,10 @@ export default function DeckMainScreenUI({
               </Animated.View>
             ) : (
               <Animated.View style={[styles.wordThumbFallback, { opacity: wordOpacity }]}>
-                <Text style={styles.wordThumbFallbackText}>Aa</Text>
+                <Text style={[styles.wordThumbFallbackText, { color: palette.textOnContainer }]}>Aa</Text>
               </Animated.View>
             )}
-            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity }]} numberOfLines={2}>
+            <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={2}>
               {activeShowcaseItem?.text || 'Start adding cards to generate words'}
             </Animated.Text>
           </View>
