@@ -65,6 +65,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
   );
+  const [todayNewWordsOnly, setTodayNewWordsOnly] = React.useState(
+    DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false
+  );
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<number>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
@@ -148,6 +151,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     return () => sub.unsubscribe();
   }, []);
 
+  const fallbackUserId = allCards[0]?.userId;
+
   React.useEffect(() => {
     let cancelled = false;
     const ensureMockVisualCard = async () => {
@@ -160,42 +165,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           );
         const existingMockCards = await mockQuery.fetch();
         if (cancelled) return;
+        if (existingMockCards.length > 0) return;
 
         const userId = await getCurrentAuthUserId();
-        const fallbackUserId = allCards[0]?.userId;
         const effectiveUserId = userId || fallbackUserId;
         if (!effectiveUserId || cancelled) return;
 
         const mockImageUrl = 'https://picsum.photos/seed/nuances-mock/900/1200';
 
         await database.write(async () => {
-          if (existingMockCards.length > 0) {
-            const first = existingMockCards[0];
-            await first.update((card) => {
-              card.userId = effectiveUserId;
-              card.targetWord = 'mock';
-              card.targetPhrase = 'mock interview';
-              card.originalSentence =
-                'I have a mock interview tomorrow, so I am practicing common questions tonight.';
-              card.definition = '模擬的；用來練習真實情境的';
-              card.partOfSpeech = 'noun';
-              card.contextualExplanation =
-                '我明天有一場「模擬面試」，所以今晚正在練習常見問題。\n這裡的「mock」表示「模擬、演練」，通常用於考試、面試或法庭等正式情境前的練習。';
-              card.frequentCollocations =
-                'mock interview, mock exam, mock trial';
-              card.phoneticTranscription = '/mɑːk/';
-              card.tags = ['mock_visual', 'album_all'];
-              card.sourceApp = 'mock-visual';
-              card.imageUrl = mockImageUrl;
-              card.easeFactor = 2.5;
-              card.intervalDays = 1;
-              card.repetitions = 0;
-              card.nextReviewAt = new Date();
-              card.deletedAt = undefined;
-            });
-            return;
-          }
-
           await database.get<Card>('cards').create((card) => {
             card.userId = effectiveUserId;
             card.targetWord = 'mock';
@@ -226,7 +204,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     return () => {
       cancelled = true;
     };
-  }, [allCards]);
+  }, [fallbackUserId]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -278,10 +256,16 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       const hydrateTodayReviewPreferences = async () => {
         try {
           const prefs = await loadAlbumReviewPreferences('today-added');
-          if (active) setTodayReviewQuestionCount(prefs.questionCount);
+          if (active) {
+            setTodayReviewQuestionCount(prefs.questionCount);
+            setTodayNewWordsOnly(prefs.todayNewWordsOnly ?? false);
+          }
         } catch (error) {
           console.warn('[DeckMain] load today review preferences failed:', error);
-          if (active) setTodayReviewQuestionCount(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
+          if (active) {
+            setTodayReviewQuestionCount(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
+            setTodayNewWordsOnly(DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false);
+          }
         }
       };
       void hydrateTodayReviewPreferences();
@@ -437,23 +421,30 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   );
 
   const handlePressTodayReview = React.useCallback(() => {
-    if (todayCardIds.length === 0) {
-      Alert.alert('今天還沒有新增單字', '先新增幾張卡片，再開始今日複習。');
+    if (allCards.length === 0) {
+      Alert.alert('還沒有單字', '先新增幾張卡片，再開始 Quick quiz。');
       return;
     }
 
+    const shouldUseTodayCards = todayNewWordsOnly && todayCardIds.length > 0;
+
     navigation.navigate('CardReview', {
-      albumId: 'today-added',
-      albumName: 'Today Review',
-      cardIds: todayCardIds,
+      albumId: shouldUseTodayCards ? 'today-added' : 'all-cards',
+      albumName: shouldUseTodayCards ? 'Today Review' : 'All cards',
+      cardIds: shouldUseTodayCards ? todayCardIds : undefined,
       questionCount: todayReviewQuestionCount,
       themeColor: '#2D9E66',
     });
-  }, [navigation, todayCardIds, todayReviewQuestionCount]);
+  }, [allCards.length, navigation, todayCardIds, todayNewWordsOnly, todayReviewQuestionCount]);
 
   const handleChangeTodayReviewQuestionCount = React.useCallback((nextCount: number) => {
     setTodayReviewQuestionCount(nextCount);
     void saveAlbumReviewPreferences('today-added', { questionCount: nextCount });
+  }, []);
+
+  const handleChangeTodayNewWordsOnly = React.useCallback((enabled: boolean) => {
+    setTodayNewWordsOnly(enabled);
+    void saveAlbumReviewPreferences('today-added', { todayNewWordsOnly: enabled });
   }, []);
 
   const handleAddAlbum = React.useCallback(() => {
@@ -652,6 +643,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         filterPills={filterPills}
         todayReviewTotalCount={todayCardIds.length}
         todayReviewPendingCount={todayUnreviewedCount}
+        todayNewWordsOnly={todayNewWordsOnly}
         onPressTodayReview={handlePressTodayReview}
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         slideshowItems={slideshowItems}
@@ -674,6 +666,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       <ReviewTuningModalUI
         visible={showTodayReviewTuningModal}
         questionCount={todayReviewQuestionCount}
+        todayNewWordsOnly={todayNewWordsOnly}
+        onChangeTodayNewWordsOnly={handleChangeTodayNewWordsOnly}
         onClose={() => setShowTodayReviewTuningModal(false)}
         onChangeQuestionCount={handleChangeTodayReviewQuestionCount}
       />

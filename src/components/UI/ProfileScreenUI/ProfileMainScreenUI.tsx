@@ -6,7 +6,6 @@ import {
   Image,
   LayoutChangeEvent,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -24,7 +23,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
-import type { AIReplyLanguage, TTSVoice, WordPopSlideMs } from '@services/settings/userSettings';
+import {
+  isTTSVoiceCompatibleWithAIReplyLanguage,
+  type AIReplyLanguage,
+  type TTSVoice,
+} from '@services/settings/userSettings';
+import {
+  resolveStickerFont,
+  type StickerFontKey,
+} from '../../../theme/stickerFonts';
 import {
   CONTAINER_BG,
   CONTAINER_NEON_GLOW,
@@ -63,17 +70,15 @@ type Props = {
   savingEntitlement: boolean;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
-  wordPopSlideMs: WordPopSlideMs;
+  stickerFontKey: StickerFontKey;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
-  onChangeWordPopSlideMs: (value: WordPopSlideMs) => void;
+  onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font') => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
-  onSettingsSubPageVisibleChange?: (visible: boolean) => void;
-  onSettingsSubPageProgressChange?: (progress: number) => void;
 };
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
@@ -92,14 +97,6 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'ko-KR-SunHiNeural', label: '한국어 SunHi' },
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
-];
-
-const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = [
-  { value: 1800, label: '1.8s' },
-  { value: 2600, label: '2.6s' },
-  { value: 3400, label: '3.4s' },
-  { value: 4200, label: '4.2s' },
-  { value: 5200, label: '5.2s' },
 ];
 
 const GRID_SIZE = 42;
@@ -121,7 +118,6 @@ const MONTH_PICKER_ROW_HEIGHT = 56;
 const MONTH_PICKER_WHEEL_HEIGHT = 300;
 const MONTH_PICKER_WHEEL_SIDE_PADDING = (MONTH_PICKER_WHEEL_HEIGHT - MONTH_PICKER_ROW_HEIGHT) / 2;
 const MONTH_PICKER_ANIM_DURATION = 240;
-
 type MonthPickerItem = {
   index: number;
   year: number;
@@ -215,12 +211,14 @@ function HeatMapCircle({
   onPressDay,
   palette,
   isLight,
+  stickerFontKey,
 }: {
   item: HeatMapDay;
   isToday: boolean;
   onPressDay: (day: HeatMapDay) => void;
   palette: ReturnType<typeof resolveThemeColors>;
   isLight: boolean;
+  stickerFontKey: StickerFontKey;
 }) {
   const circleStyle = {
     width: GRID_SIZE,
@@ -248,6 +246,7 @@ function HeatMapCircle({
     const fontSize = Math.max(7.5, Math.min(maxFontSize, boostedFontSize));
     const strokeWidth = Math.max(2, Math.min(3.2, fontSize * 0.23));
     const rowStyle = index === 0 ? styles.dayStickerTokenTop : styles.dayStickerTokenBottom;
+    const stickerFont = resolveStickerFont(stickerFontKey);
     return (
       <View
         key={`${item.key}-sticker-${index}`}
@@ -263,9 +262,9 @@ function HeatMapCircle({
             strokeLinejoin="round"
             fontSize={fontSize}
             fontWeight="900"
-            fontFamily="MarkerFelt-Wide"
+            fontFamily={stickerFont.fontFamily}
             textAnchor="middle"
-            letterSpacing={-0.4}
+            letterSpacing={stickerFont.letterSpacing * 0.52}
           >
             {capped}
           </SvgText>
@@ -275,9 +274,9 @@ function HeatMapCircle({
             fill="#050505"
             fontSize={fontSize}
             fontWeight="900"
-            fontFamily="MarkerFelt-Wide"
+            fontFamily={stickerFont.fontFamily}
             textAnchor="middle"
-            letterSpacing={-0.4}
+            letterSpacing={stickerFont.letterSpacing * 0.52}
           >
             {capped}
           </SvgText>
@@ -335,17 +334,15 @@ export default function ProfileMainScreenUI({
   savingEntitlement,
   aiReplyLanguage,
   ttsVoice,
-  wordPopSlideMs,
+  stickerFontKey,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
-  onChangeWordPopSlideMs,
+  onOpenSettingsOption,
   onPressBack,
   onPressMenu,
   onPressDay,
-  onSettingsSubPageVisibleChange,
-  onSettingsSubPageProgressChange,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -356,12 +353,10 @@ export default function ProfileMainScreenUI({
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
   const [currentMonthIndex, setCurrentMonthIndex] = React.useState<number>(0);
   const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
-  const [activeSettingsPicker, setActiveSettingsPicker] = React.useState<null | 'ai' | 'voice' | 'wordPop'>(null);
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
   const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
-  const settingsPageTranslateX = React.useRef(new Animated.Value(screenWidth)).current;
   const currentMonthIndexRef = React.useRef<number>(0);
   const pendingTargetIndexRef = React.useRef<number | null>(null);
   const yearWheelRef = React.useRef<FlatList<number> | null>(null);
@@ -692,131 +687,19 @@ export default function ProfileMainScreenUI({
     monthPickerYear,
   ]);
 
-  const closeSettingsPicker = React.useCallback(() => {
-    Animated.timing(settingsPageTranslateX, {
-      toValue: screenWidth,
-      duration: 240,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start(() => {
-      setActiveSettingsPicker(null);
-      onSettingsSubPageVisibleChange?.(false);
-      onSettingsSubPageProgressChange?.(0);
-    });
-  }, [onSettingsSubPageProgressChange, onSettingsSubPageVisibleChange, screenWidth, settingsPageTranslateX]);
-
-  const openSettingsPicker = React.useCallback(
-    (target: 'ai' | 'voice' | 'wordPop') => {
-      setActiveSettingsPicker(target);
-      onSettingsSubPageVisibleChange?.(true);
-      requestAnimationFrame(() => {
-        settingsPageTranslateX.setValue(screenWidth);
-        Animated.timing(settingsPageTranslateX, {
-          toValue: 0,
-          duration: 240,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }).start();
-      });
-    },
-    [onSettingsSubPageVisibleChange, screenWidth, settingsPageTranslateX]
-  );
-
-  const activePickerTitle =
-    activeSettingsPicker === 'ai'
-      ? 'AI Reply Language'
-      : activeSettingsPicker === 'voice'
-      ? 'TTS Voice'
-      : activeSettingsPicker === 'wordPop'
-      ? 'Word Pop Slide'
-      : '';
-
-  const activePickerOptions = React.useMemo(() => {
-    if (activeSettingsPicker === 'ai') {
-      return AI_LANGUAGE_OPTIONS.map((item) => ({
-        key: item.code,
-        label: item.label,
-        selected: item.code === aiReplyLanguage,
-        onPress: () => {
-          onChangeAIReplyLanguage(item.code);
-        },
-      }));
-    }
-    if (activeSettingsPicker === 'voice') {
-      return TTS_VOICE_OPTIONS.map((item) => ({
-        key: item.code,
-        label: item.label,
-        selected: item.code === ttsVoice,
-        onPress: () => {
-          onChangeTTSVoice(item.code);
-        },
-      }));
-    }
-    if (activeSettingsPicker === 'wordPop') {
-      return WORD_POP_SLIDE_OPTIONS.map((item) => ({
-        key: String(item.value),
-        label: item.label,
-        selected: item.value === wordPopSlideMs,
-        onPress: () => {
-          onChangeWordPopSlideMs(item.value);
-        },
-      }));
-    }
-    return [];
-  }, [
-    activeSettingsPicker,
-    aiReplyLanguage,
-    onChangeAIReplyLanguage,
-    onChangeTTSVoice,
-    onChangeWordPopSlideMs,
-    ttsVoice,
-    wordPopSlideMs,
-  ]);
-
-  const settingsPagePanResponder = React.useMemo(
+  const visibleTTSVoiceOptions = React.useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          activeSettingsPicker !== null &&
-          gestureState.x0 <= 36 &&
-          gestureState.dx > 8 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
-        onPanResponderMove: (_, gestureState) => {
-          settingsPageTranslateX.setValue(Math.max(0, gestureState.dx));
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const shouldClose = gestureState.dx > screenWidth * 0.24 || gestureState.vx > 0.8;
-          if (shouldClose) {
-            closeSettingsPicker();
-            return;
-          }
-          Animated.timing(settingsPageTranslateX, {
-            toValue: 0,
-            duration: 180,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [activeSettingsPicker, closeSettingsPicker, screenWidth, settingsPageTranslateX]
+      TTS_VOICE_OPTIONS.filter((item) =>
+        isTTSVoiceCompatibleWithAIReplyLanguage(item.code, aiReplyLanguage)
+      ),
+    [aiReplyLanguage]
   );
 
-  React.useEffect(() => {
-    onSettingsSubPageVisibleChange?.(activeSettingsPicker !== null);
-  }, [activeSettingsPicker, onSettingsSubPageVisibleChange]);
-
-  React.useEffect(() => {
-    if (activeSettingsPicker === null) {
-      onSettingsSubPageProgressChange?.(0);
-      return;
-    }
-    const id = settingsPageTranslateX.addListener(({ value }) => {
-      const x = Math.max(0, Math.min(screenWidth, value));
-      const hiddenProgress = 1 - x / Math.max(1, screenWidth);
-      onSettingsSubPageProgressChange?.(hiddenProgress);
-    });
-    return () => settingsPageTranslateX.removeListener(id);
-  }, [activeSettingsPicker, onSettingsSubPageProgressChange, screenWidth, settingsPageTranslateX]);
+  const selectedVoiceLabel =
+    visibleTTSVoiceOptions.find((item) => item.code === ttsVoice)?.label ??
+    TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ??
+    'EN-US Jenny';
+  const selectedStickerFont = resolveStickerFont(stickerFontKey);
 
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
@@ -904,6 +787,7 @@ export default function ProfileMainScreenUI({
                                   onPressDay={onPressDay}
                                   palette={palette}
                                   isLight={isLight}
+                                  stickerFontKey={stickerFontKey}
                                 />
                               </View>
                             )
@@ -976,8 +860,20 @@ export default function ProfileMainScreenUI({
               },
             ]}
           >
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('ai')}>
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>AI Reply Language</Text>
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={onToggleEntitlement}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Membership</Text>
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Premium' : 'Guest'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.settingsDivider} />
+
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('ai')}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Language</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
                   {AI_LANGUAGE_OPTIONS.find((item) => item.code === aiReplyLanguage)?.label ?? '繁中'}
@@ -988,11 +884,11 @@ export default function ProfileMainScreenUI({
 
             <View style={styles.settingsDivider} />
 
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('voice')}>
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>TTS Voice</Text>
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('voice')}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Voice</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ?? 'EN-US Jenny'}
+                  {selectedVoiceLabel}
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
@@ -1000,23 +896,11 @@ export default function ProfileMainScreenUI({
 
             <View style={styles.settingsDivider} />
 
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('wordPop')}>
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Word Pop Slide</Text>
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('font')}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Font</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {WORD_POP_SLIDE_OPTIONS.find((item) => item.value === wordPopSlideMs)?.label ?? '2.6s'}
-                </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.settingsDivider} />
-
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={onToggleEntitlement}>
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Membership</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Premium' : 'Guest'}
+                  {selectedStickerFont.label}
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
@@ -1175,52 +1059,6 @@ export default function ProfileMainScreenUI({
           </View>
         </Animated.View>
       </Modal>
-
-      {activeSettingsPicker !== null ? (
-        <Animated.View
-          {...settingsPagePanResponder.panHandlers}
-          style={[
-            styles.settingsSubPage,
-            {
-              backgroundColor: palette.screenBg,
-              transform: [{ translateX: settingsPageTranslateX }],
-            },
-          ]}
-        >
-          <SafeAreaView style={styles.settingsSubPageSafe} edges={['top']}>
-            <View style={styles.settingsSubPageHeader}>
-              <TouchableOpacity style={styles.settingsSubPageBackBtn} activeOpacity={0.86} onPress={closeSettingsPicker}>
-                <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-                <Text style={[styles.settingsSubPageBackText, { color: palette.textOnBg }]}>Back</Text>
-              </TouchableOpacity>
-              <Text style={[styles.settingsPickerTitle, { color: palette.textOnBg }]}>{activePickerTitle}</Text>
-              <View style={styles.settingsSubPageHeaderRight} />
-            </View>
-
-            <View
-              style={[
-                styles.settingsPickerCard,
-                {
-                  backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                },
-              ]}
-            >
-              {activePickerOptions.map((option, idx) => (
-                <React.Fragment key={option.key}>
-                  <TouchableOpacity style={styles.settingsRow} activeOpacity={0.9} onPress={option.onPress}>
-                    <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{option.label}</Text>
-                    {option.selected ? (
-                      <Ionicons name="checkmark" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-                    ) : null}
-                  </TouchableOpacity>
-                  {idx < activePickerOptions.length - 1 ? <View style={styles.settingsDivider} /> : null}
-                </React.Fragment>
-              ))}
-            </View>
-          </SafeAreaView>
-        </Animated.View>
-      ) : null}
     </View>
   );
 }
@@ -1651,6 +1489,9 @@ const styles = StyleSheet.create({
   settingsRowIcon: {
     width: 20,
     textAlign: 'right',
+  },
+  fontPreviewSvg: {
+    overflow: 'visible',
   },
   settingsDivider: {
     height: 1,

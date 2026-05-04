@@ -3,6 +3,8 @@ import { Alert } from 'react-native';
 import ProfileSettingsModalUI from '../../../components/UI/ProfileScreenUI/ProfileSettingsModalUI';
 import {
   DEFAULT_USER_SETTINGS,
+  getDefaultTTSVoiceForAIReplyLanguage,
+  isTTSVoiceCompatibleWithAIReplyLanguage,
   loadUserSettings,
   saveUserSettings,
   type AIReplyLanguage,
@@ -66,12 +68,17 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
-      if (settings.aiReplyLanguage === language) return;
+      const nextVoice = isTTSVoiceCompatibleWithAIReplyLanguage(settings.ttsVoice, language)
+        ? settings.ttsVoice
+        : getDefaultTTSVoiceForAIReplyLanguage(language);
+      if (settings.aiReplyLanguage === language && settings.ttsVoice === nextVoice) return;
       await saveUserSettings({
         ...settings,
         aiReplyLanguage: language,
+        ttsVoice: nextVoice,
       });
       setAiReplyLanguage(language);
+      setTtsVoice(nextVoice);
     } catch (error) {
       console.error('[ProfileSettings] update AI reply language failed:', error);
       Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');

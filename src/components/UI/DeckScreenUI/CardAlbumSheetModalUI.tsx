@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   CONTAINER_BG,
@@ -9,6 +9,7 @@ import {
   TEXT_ON_BG,
   TEXT_ON_CTA,
   TEXT_ON_CONTAINER,
+  resolveThemeColors,
 } from '../../../theme/colors';
 
 type AlbumOption = {
@@ -42,6 +43,8 @@ export default function CardAlbumSheetModalUI({
   onOpenCreateAlbum,
   onToggleAlbum,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const sheetAnim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -63,6 +66,8 @@ export default function CardAlbumSheetModalUI({
           style={[
             styles.sheetContainer,
             {
+              backgroundColor: palette.screenBg,
+              borderColor: palette.modalOptionBorder,
               opacity: sheetAnim,
               transform: [
                 {
@@ -76,19 +81,19 @@ export default function CardAlbumSheetModalUI({
           ]}
         >
           <Pressable onPress={() => {}}>
-        <View style={styles.sheetHandle} />
+        <View style={[styles.sheetHandle, { backgroundColor: palette.secondaryText }]} />
 
         <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>Add to Album</Text>
+          <Text style={[styles.sheetTitle, { color: palette.textOnBg }]}>Add to Album</Text>
           <TouchableOpacity onPress={onDone}>
-            <Text style={styles.sheetDone}>Done</Text>
+            <Text style={[styles.sheetDone, { color: palette.textOnBg }]}>Done</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.sheetCardPreview}>
+        <View style={[styles.sheetCardPreview, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.sheetCardWord}>{displayWord}</Text>
-            <Text style={styles.sheetCardPos}>{partOfSpeech || 'unknown'}</Text>
+            <Text style={[styles.sheetCardWord, { color: palette.textOnContainer }]}>{displayWord}</Text>
+            <Text style={[styles.sheetCardPos, { color: palette.secondaryText }]}>{partOfSpeech || 'unknown'}</Text>
           </View>
           {selectedAlbums.length > 0 ? (
             <View style={styles.sheetCountBadge}>
@@ -110,15 +115,19 @@ export default function CardAlbumSheetModalUI({
             return (
               <TouchableOpacity
                 key={album.id}
-                style={[styles.albumRow, isSelected && styles.albumRowSelected]}
+                style={[
+                  styles.albumRow,
+                  { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                  isSelected && styles.albumRowSelected,
+                ]}
                 onPress={() => onToggleAlbum(album.id)}
               >
-                <View style={styles.albumEmojiWrap}>
+                <View style={[styles.albumEmojiWrap, { backgroundColor: palette.mutedSurface }]}>
                   <Text style={styles.albumEmoji}>{album.emoji}</Text>
                 </View>
                 <View style={styles.albumTextWrap}>
-                  <Text style={styles.albumNameText}>{album.name}</Text>
-                  <Text style={styles.albumCountText}>{album.wordCount} cards</Text>
+                  <Text style={[styles.albumNameText, { color: palette.textOnContainer }]}>{album.name}</Text>
+                  <Text style={[styles.albumCountText, { color: palette.secondaryText }]}>{album.wordCount} cards</Text>
                 </View>
                 {isSelected ? (
                   <View style={styles.albumCheckWrap}>

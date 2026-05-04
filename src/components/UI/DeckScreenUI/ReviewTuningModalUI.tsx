@@ -1,13 +1,15 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, TouchableOpacity, View, useColorScheme } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, MODAL_CTA_COLOR } from '../../../theme/colors';
+import { TEXT_ON_CTA, MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
   questionCount: number;
+  todayNewWordsOnly?: boolean;
   onClose: () => void;
   onChangeQuestionCount: (value: number) => void;
+  onChangeTodayNewWordsOnly?: (value: boolean) => void;
 };
 
 const QUICK_OPTIONS = [5, 10, 15, 20];
@@ -19,9 +21,13 @@ const MODAL_EXIT_DURATION_MS = 220;
 export default function ReviewTuningModalUI({
   visible,
   questionCount,
+  todayNewWordsOnly = false,
   onClose,
   onChangeQuestionCount,
+  onChangeTodayNewWordsOnly,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -83,23 +89,23 @@ export default function ReviewTuningModalUI({
       <Pressable style={styles.rootPressable} onPress={onClose}>
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={styles.sheet} onPress={() => undefined}>
-          <Text style={styles.eyebrow}>REVIEW TUNING</Text>
-          <Text style={styles.title}>Decide how many cards to play</Text>
-          <Text style={styles.subtitle}>This setting will be remembered for this album.</Text>
+          <Pressable style={[styles.sheet, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
+          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>REVIEW TUNING</Text>
+          <Text style={[styles.title, { color: palette.textOnContainer }]}>Decide how many cards to play</Text>
+          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>This setting will be remembered for this album.</Text>
 
           <View style={styles.counterRow}>
-            <TouchableOpacity style={styles.counterButton} onPress={decrement}>
-              <Text style={styles.counterSymbol}>−</Text>
+            <TouchableOpacity style={[styles.counterButton, { backgroundColor: palette.modalOptionBg }]} onPress={decrement}>
+              <Text style={[styles.counterSymbol, { color: palette.textOnContainer }]}>−</Text>
             </TouchableOpacity>
 
-            <View style={styles.counterValueWrap}>
-              <Text style={styles.counterValue}>{questionCount}</Text>
-              <Text style={styles.counterLabel}>questions</Text>
+            <View style={[styles.counterValueWrap, { backgroundColor: palette.mutedSurface }]}>
+              <Text style={[styles.counterValue, { color: palette.textOnContainer }]}>{questionCount}</Text>
+              <Text style={[styles.counterLabel, { color: palette.secondaryText }]}>questions</Text>
             </View>
 
-            <TouchableOpacity style={styles.counterButton} onPress={increment}>
-              <Text style={styles.counterSymbol}>＋</Text>
+            <TouchableOpacity style={[styles.counterButton, { backgroundColor: palette.modalOptionBg }]} onPress={increment}>
+              <Text style={[styles.counterSymbol, { color: palette.textOnContainer }]}>＋</Text>
             </TouchableOpacity>
           </View>
 
@@ -109,17 +115,43 @@ export default function ReviewTuningModalUI({
               return (
                 <TouchableOpacity
                   key={value}
-                  style={[styles.quickChip, active && styles.quickChipActive]}
+                  style={[styles.quickChip, { backgroundColor: palette.modalOptionBg }, active && styles.quickChipActive]}
                   onPress={() => onChangeQuestionCount(value)}
                 >
-                  <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{value}</Text>
+                  <Text style={[styles.quickChipText, { color: palette.textOnContainer }, active && styles.quickChipTextActive]}>{value}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          <TouchableOpacity style={styles.doneButton} onPress={onClose}>
-            <Text style={styles.doneText}>Done</Text>
+          {onChangeTodayNewWordsOnly ? (
+            <View
+              style={[
+                styles.toggleRow,
+                {
+                  backgroundColor: palette.mutedSurface,
+                  borderColor: palette.modalOptionBorder,
+                },
+              ]}
+            >
+              <View style={styles.toggleCopy}>
+                <Text style={[styles.toggleLabel, { color: palette.textOnContainer }]}>Today&apos;s new words only</Text>
+                <Text style={[styles.toggleHint, { color: palette.secondaryText }]}>
+                  Off means Quick quiz samples from All cards.
+                </Text>
+              </View>
+              <Switch
+                value={todayNewWordsOnly}
+                onValueChange={onChangeTodayNewWordsOnly}
+                trackColor={{ false: palette.modalOptionBg, true: MODAL_CTA_COLOR }}
+                thumbColor={TEXT_ON_CTA}
+                ios_backgroundColor={palette.modalOptionBg}
+              />
+            </View>
+          ) : null}
+
+          <TouchableOpacity style={[styles.doneButton, { backgroundColor: palette.modalSecondaryButtonBg }]} onPress={onClose}>
+            <Text style={[styles.doneText, { color: palette.modalSecondaryButtonText }]}>Done</Text>
           </TouchableOpacity>
           </Pressable>
         </Animated.View>
@@ -225,6 +257,29 @@ const styles = StyleSheet.create({
   },
   quickChipTextActive: {
     color: TEXT_ON_CTA,
+  },
+  toggleRow: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  toggleCopy: {
+    flex: 1,
+  },
+  toggleLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  toggleHint: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
   },
   doneButton: {
     marginTop: 4,

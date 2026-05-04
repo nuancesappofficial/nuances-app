@@ -1,13 +1,14 @@
 import React from 'react';
 import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CONTAINER_BG, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, TEXT_ON_CTA } from '../../../theme/colors';
+import { CONTAINER_BG, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, TEXT_ON_CTA, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
   creatingImage: boolean;
   uploadPanelHeight: number;
   onUploadImage: () => void;
   onCaptureImage: () => void;
+  palette?: ReturnType<typeof resolveThemeColors>;
 };
 
 export default function CacheImageInputPanelUI({
@@ -15,12 +16,20 @@ export default function CacheImageInputPanelUI({
   uploadPanelHeight,
   onUploadImage,
   onCaptureImage,
+  palette,
 }: Props) {
   return (
     <>
-      <Text style={styles.inputLabel}>Capture or upload image</Text>
+      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Capture or upload image</Text>
       <TouchableOpacity
-        style={[styles.imageUploadPanel, { height: uploadPanelHeight }]}
+        style={[
+          styles.imageUploadPanel,
+          {
+            height: uploadPanelHeight,
+            backgroundColor: palette?.containerBg ?? CONTAINER_BG,
+            borderColor: palette?.modalOptionBorder ?? 'rgba(255,255,255,0.12)',
+          },
+        ]}
         activeOpacity={0.9}
         onPress={onUploadImage}
         disabled={creatingImage}
@@ -28,7 +37,7 @@ export default function CacheImageInputPanelUI({
         <View style={styles.imageUploadIconWrap}>
           <Text style={styles.imageUploadIcon}>🖼️</Text>
         </View>
-        <Text style={styles.imageUploadText}>
+        <Text style={[styles.imageUploadText, palette ? { color: palette.textOnContainer } : null]}>
           {creatingImage ? 'processing image...' : 'upload image'}
         </Text>
       </TouchableOpacity>

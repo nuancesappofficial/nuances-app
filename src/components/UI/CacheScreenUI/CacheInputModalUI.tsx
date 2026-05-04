@@ -11,6 +11,7 @@ import {
   Keyboard,
   Platform,
   Easing,
+  useColorScheme,
   useWindowDimensions,
   type LayoutChangeEvent,
   type EmitterSubscription,
@@ -26,6 +27,7 @@ import {
   SCREEN_BG,
   TEXT_ON_BG,
   TEXT_ON_CTA,
+  resolveThemeColors,
 } from '../../../theme/colors';
 
 type Props = {
@@ -79,6 +81,8 @@ export default function CacheInputModalUI({
   onUploadImage,
   onCaptureImage,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const { height: windowHeight } = useWindowDimensions();
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [panelWidth, setPanelWidth] = React.useState(0);
@@ -291,6 +295,8 @@ export default function CacheInputModalUI({
         style={[
           styles.modalSheet,
           {
+            backgroundColor: palette.modalBg,
+            borderColor: palette.modalOptionBorder,
             paddingBottom: addTab === 'image' ? 0 : 16,
             transform: [{ translateY: sheetTransform }],
           },
@@ -300,21 +306,21 @@ export default function CacheInputModalUI({
           setSheetHeight((prev) => (prev === nextHeight ? prev : nextHeight));
         }}
       >
-        <View style={styles.sheetHandle} />
-        <Text style={styles.eyebrow}>ADD TO CACHE</Text>
+        <View style={[styles.sheetHandle, { backgroundColor: palette.secondaryText }]} />
+        <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ADD TO CACHE</Text>
 
-        <View style={styles.tabRow}>
+        <View style={[styles.tabRow, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
           <TouchableOpacity
             style={[styles.tabBtn, addTab === 'text' && styles.tabBtnActive]}
             onPress={() => handleTabPress('text')}
           >
-            <Text style={[styles.tabText, addTab === 'text' && styles.tabTextActive]}>Text</Text>
+            <Text style={[styles.tabText, { color: palette.secondaryText }, addTab === 'text' && styles.tabTextActive]}>Text</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, addTab === 'image' && styles.tabBtnActive]}
             onPress={() => handleTabPress('image')}
           >
-            <Text style={[styles.tabText, addTab === 'image' && styles.tabTextActive]}>Image</Text>
+            <Text style={[styles.tabText, { color: palette.secondaryText }, addTab === 'image' && styles.tabTextActive]}>Image</Text>
           </TouchableOpacity>
         </View>
 
@@ -329,6 +335,7 @@ export default function CacheInputModalUI({
                 manualText={manualText}
                 onChangeManualText={onManualTextChange}
                 inputHeight={TEXT_INPUT_BOX_HEIGHT}
+                palette={palette}
               />
             </View>
             <View style={styles.panelPage}>
@@ -337,6 +344,7 @@ export default function CacheInputModalUI({
                 uploadPanelHeight={IMAGE_UPLOAD_PANEL_HEIGHT}
                 onUploadImage={onUploadImage}
                 onCaptureImage={onCaptureImage}
+                palette={palette}
               />
             </View>
           </Animated.View>
@@ -347,7 +355,9 @@ export default function CacheInputModalUI({
             <TouchableOpacity
               style={[
                 styles.actionBtn,
-                textPrimaryAction === 'clear' ? styles.clearBtn : styles.pasteBtn,
+                textPrimaryAction === 'clear'
+                  ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
+                  : [styles.pasteBtn, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }],
                 textPrimaryAction === 'paste' && !pasteEnabled && styles.actionBtnDisabled,
               ]}
               disabled={textPrimaryAction === 'paste' ? !pasteEnabled : false}
@@ -357,6 +367,7 @@ export default function CacheInputModalUI({
                 style={[
                   styles.actionBtnText,
                   textPrimaryAction === 'clear' ? styles.clearBtnText : styles.pasteBtnText,
+                  { color: palette.textOnContainer },
                 ]}
               >
                 {textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, useColorScheme } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
   visible: boolean;
@@ -15,6 +16,8 @@ const MODAL_BACKDROP_DURATION_MS = 240;
 const MODAL_EXIT_DURATION_MS = 220;
 
 export default function CardActionModalUI({ visible, title, onClose, onDelete }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -68,14 +71,26 @@ export default function CardActionModalUI({ visible, title, onClose, onDelete }:
       <Pressable style={styles.rootPressable} onPress={onClose}>
         <Animated.View style={[styles.sortModalOverlay, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={styles.sortModalCard} onPress={() => undefined}>
-          <Text style={styles.eyebrow}>CARD OPTIONS</Text>
-          <Text style={styles.sortModalTitle}>{title}</Text>
-          <TouchableOpacity style={styles.deleteOptionBtn} onPress={onDelete}>
-            <Text style={styles.deleteOptionText}>刪掉卡片</Text>
+          <Pressable style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
+          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>CARD OPTIONS</Text>
+          <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>{title}</Text>
+          <TouchableOpacity
+            style={[
+              styles.deleteOptionBtn,
+              { backgroundColor: palette.destructiveBg, borderColor: palette.destructiveBorder },
+            ]}
+            onPress={onDelete}
+          >
+            <Text style={[styles.deleteOptionText, { color: palette.destructiveText }]}>刪掉卡片</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelOptionBtn} onPress={onClose}>
-            <Text style={styles.cancelOptionText}>取消</Text>
+          <TouchableOpacity
+            style={[
+              styles.cancelOptionBtn,
+              { backgroundColor: palette.modalSecondaryButtonBg, borderColor: palette.modalOptionBorder },
+            ]}
+            onPress={onClose}
+          >
+            <Text style={[styles.cancelOptionText, { color: palette.modalSecondaryButtonText }]}>取消</Text>
           </TouchableOpacity>
           </Pressable>
         </Animated.View>

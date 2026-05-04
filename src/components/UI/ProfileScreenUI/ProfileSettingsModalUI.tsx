@@ -1,10 +1,15 @@
 import React from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { AIReplyLanguage, TTSVoice, WordPopSlideMs } from '@services/settings/userSettings';
+import {
+  isTTSVoiceCompatibleWithAIReplyLanguage,
+  type AIReplyLanguage,
+  type TTSVoice,
+  type WordPopSlideMs,
+} from '@services/settings/userSettings';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER } from '../../../theme/colors';
+import { TEXT_ON_CTA, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, resolveThemeColors } from '../../../theme/colors';
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'zh-TW', label: '繁中' },
@@ -67,6 +72,8 @@ export default function ProfileSettingsModalUI({
   onChangeTTSVoice,
   onChangeWordPopSlideMs,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const [languageDropdownOpen, setLanguageDropdownOpen] = React.useState(false);
   const [voiceDropdownOpen, setVoiceDropdownOpen] = React.useState(false);
@@ -127,9 +134,19 @@ export default function ProfileSettingsModalUI({
     () => AI_LANGUAGE_OPTIONS.find((option) => option.code === aiReplyLanguage)?.label ?? '繁中',
     [aiReplyLanguage]
   );
+  const visibleTTSVoiceOptions = React.useMemo(
+    () =>
+      TTS_VOICE_OPTIONS.filter((option) =>
+        isTTSVoiceCompatibleWithAIReplyLanguage(option.code, aiReplyLanguage)
+      ),
+    [aiReplyLanguage]
+  );
   const selectedVoiceLabel = React.useMemo(
-    () => TTS_VOICE_OPTIONS.find((option) => option.code === ttsVoice)?.label ?? 'EN-US Jenny',
-    [ttsVoice]
+    () =>
+      visibleTTSVoiceOptions.find((option) => option.code === ttsVoice)?.label ??
+      TTS_VOICE_OPTIONS.find((option) => option.code === ttsVoice)?.label ??
+      'EN-US Jenny',
+    [ttsVoice, visibleTTSVoiceOptions]
   );
   const selectedWordPopLabel = React.useMemo(
     () => WORD_POP_SLIDE_OPTIONS.find((option) => option.value === wordPopSlideMs)?.label ?? '2.6s',
@@ -137,36 +154,48 @@ export default function ProfileSettingsModalUI({
   );
 
   const renderLanguageDropdown = () => (
-    <View style={styles.languageSection}>
-      <Text style={styles.languageTitle}>AI Reply Language</Text>
+    <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Language</Text>
       <TouchableOpacity
-        style={styles.languageDropdownTrigger}
+        style={[
+          styles.languageDropdownTrigger,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
         activeOpacity={0.9}
         onPress={() => setLanguageDropdownOpen((prev) => !prev)}
       >
-        <Text style={styles.languageDropdownValue}>{selectedLanguageLabel}</Text>
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{selectedLanguageLabel}</Text>
         <Ionicons
           name={languageDropdownOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
-          color="#CBD5E1"
+          color={palette.secondaryText}
         />
       </TouchableOpacity>
 
       {languageDropdownOpen ? (
-        <View style={styles.languageDropdownList}>
+        <View
+          style={[
+            styles.languageDropdownList,
+            { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+          ]}
+        >
           {AI_LANGUAGE_OPTIONS.map((option) => {
             const active = option.code === aiReplyLanguage;
             return (
               <TouchableOpacity
                 key={option.code}
-                style={[styles.languageDropdownItem, active ? styles.languageDropdownItemActive : null]}
+                style={[
+                  styles.languageDropdownItem,
+                  { borderBottomColor: palette.modalOptionBorder },
+                  active ? styles.languageDropdownItemActive : null,
+                ]}
                 activeOpacity={0.9}
                 onPress={() => {
                   onChangeAIReplyLanguage(option.code);
                   setLanguageDropdownOpen(false);
                 }}
               >
-                <Text style={[styles.languageDropdownItemText, active ? styles.languageDropdownItemTextActive : null]}>
+                <Text style={[styles.languageDropdownItemText, { color: palette.textOnContainer }, active ? styles.languageDropdownItemTextActive : null]}>
                   {option.label}
                 </Text>
                 {active ? <Ionicons name="checkmark" size={16} color={TEXT_ON_CTA} /> : null}
@@ -180,25 +209,32 @@ export default function ProfileSettingsModalUI({
 
   if (renderAsStaticPage) {
     return (
-      <View style={styles.page}>
+      <View style={[styles.page, { backgroundColor: palette.screenBg }]}>
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <View style={styles.headerRow}>
-            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.85} onPress={onClose}>
-              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+            <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: palette.mutedSurface }]} activeOpacity={0.85} onPress={onClose}>
+              <Ionicons name="chevron-back" size={24} color={palette.textOnBg} />
             </TouchableOpacity>
-            <Text style={styles.eyebrow}>PROFILE</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>PROFILE</Text>
             <View style={styles.headerIconBtnGhost} />
           </View>
 
-          <Text style={styles.title}>Settings</Text>
-          <Text style={styles.subtitle}>Personalize your profile and AI response language.</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>Settings</Text>
+          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Personalize your profile and AI response language.</Text>
 
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
             <Text style={styles.primaryButtonText}>Upload profile pic</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={onToggleEntitlement}>
-            <Text style={styles.secondaryButtonText}>
+          <TouchableOpacity
+            style={[
+              styles.secondaryButton,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+            ]}
+            activeOpacity={0.9}
+            onPress={onToggleEntitlement}
+          >
+            <Text style={[styles.secondaryButtonText, { color: palette.textOnContainer }]}>
               {savingEntitlement
                 ? 'Updating...'
                 : entitlementMode === 'premium'
@@ -208,30 +244,34 @@ export default function ProfileSettingsModalUI({
           </TouchableOpacity>
 
           {renderLanguageDropdown()}
-          <View style={styles.languageSection}>
-            <Text style={styles.languageTitle}>TTS Voice</Text>
+          <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
             <TouchableOpacity
-              style={styles.languageDropdownTrigger}
+              style={[
+                styles.languageDropdownTrigger,
+                { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              ]}
               activeOpacity={0.9}
               onPress={() => setVoiceDropdownOpen((prev) => !prev)}
             >
-              <Text style={styles.languageDropdownValue}>{selectedVoiceLabel}</Text>
+              <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{selectedVoiceLabel}</Text>
               <Ionicons
                 name={voiceDropdownOpen ? 'chevron-up' : 'chevron-down'}
                 size={18}
-                color="#CBD5E1"
+                color={palette.secondaryText}
               />
             </TouchableOpacity>
 
             {voiceDropdownOpen ? (
-              <View style={styles.languageDropdownList}>
-                {TTS_VOICE_OPTIONS.map((option) => {
+              <View style={[styles.languageDropdownList, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+                {visibleTTSVoiceOptions.map((option) => {
                   const active = option.code === ttsVoice;
                   return (
                     <TouchableOpacity
                       key={option.code}
                       style={[
                         styles.languageDropdownItem,
+                        { borderBottomColor: palette.modalOptionBorder },
                         active ? styles.languageDropdownItemActive : null,
                       ]}
                       activeOpacity={0.9}
@@ -243,6 +283,7 @@ export default function ProfileSettingsModalUI({
                       <Text
                         style={[
                           styles.languageDropdownItemText,
+                          { color: palette.textOnContainer },
                           active ? styles.languageDropdownItemTextActive : null,
                         ]}
                       >
@@ -255,22 +296,25 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
-          <View style={styles.languageSection}>
-            <Text style={styles.languageTitle}>Word Pop Slide Interval</Text>
+          <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Word Pop Slide Interval</Text>
             <TouchableOpacity
-              style={styles.languageDropdownTrigger}
+              style={[
+                styles.languageDropdownTrigger,
+                { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              ]}
               activeOpacity={0.9}
               onPress={() => setWordPopDropdownOpen((prev) => !prev)}
             >
-              <Text style={styles.languageDropdownValue}>{selectedWordPopLabel}</Text>
+              <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{selectedWordPopLabel}</Text>
               <Ionicons
                 name={wordPopDropdownOpen ? 'chevron-up' : 'chevron-down'}
                 size={18}
-                color="#CBD5E1"
+                color={palette.secondaryText}
               />
             </TouchableOpacity>
             {wordPopDropdownOpen ? (
-              <View style={styles.languageDropdownList}>
+              <View style={[styles.languageDropdownList, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
                 {WORD_POP_SLIDE_OPTIONS.map((option) => {
                   const active = option.value === wordPopSlideMs;
                   return (
@@ -278,6 +322,7 @@ export default function ProfileSettingsModalUI({
                       key={option.value}
                       style={[
                         styles.languageDropdownItem,
+                        { borderBottomColor: palette.modalOptionBorder },
                         active ? styles.languageDropdownItemActive : null,
                       ]}
                       activeOpacity={0.9}
@@ -289,6 +334,7 @@ export default function ProfileSettingsModalUI({
                       <Text
                         style={[
                           styles.languageDropdownItemText,
+                          { color: palette.textOnContainer },
                           active ? styles.languageDropdownItemTextActive : null,
                         ]}
                       >
@@ -318,6 +364,7 @@ export default function ProfileSettingsModalUI({
         style={[
           styles.page,
           {
+            backgroundColor: palette.screenBg,
             width: screenWidth,
             transform: [{ translateX: pageTranslateX }],
           },
@@ -325,22 +372,29 @@ export default function ProfileSettingsModalUI({
       >
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <View style={styles.headerRow}>
-            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.85} onPress={onClose}>
-              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+            <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: palette.mutedSurface }]} activeOpacity={0.85} onPress={onClose}>
+              <Ionicons name="chevron-back" size={24} color={palette.textOnBg} />
             </TouchableOpacity>
-            <Text style={styles.eyebrow}>PROFILE</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>PROFILE</Text>
             <View style={styles.headerIconBtnGhost} />
           </View>
 
-          <Text style={styles.title}>Settings</Text>
-          <Text style={styles.subtitle}>Personalize your profile and AI response language.</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>Settings</Text>
+          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Personalize your profile and AI response language.</Text>
 
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
             <Text style={styles.primaryButtonText}>Upload profile pic</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={onToggleEntitlement}>
-            <Text style={styles.secondaryButtonText}>
+          <TouchableOpacity
+            style={[
+              styles.secondaryButton,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+            ]}
+            activeOpacity={0.9}
+            onPress={onToggleEntitlement}
+          >
+            <Text style={[styles.secondaryButtonText, { color: palette.textOnContainer }]}>
               {savingEntitlement
                 ? 'Updating...'
                 : entitlementMode === 'premium'
@@ -350,30 +404,34 @@ export default function ProfileSettingsModalUI({
           </TouchableOpacity>
 
           {renderLanguageDropdown()}
-          <View style={styles.languageSection}>
-            <Text style={styles.languageTitle}>TTS Voice</Text>
+          <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
             <TouchableOpacity
-              style={styles.languageDropdownTrigger}
+              style={[
+                styles.languageDropdownTrigger,
+                { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              ]}
               activeOpacity={0.9}
               onPress={() => setVoiceDropdownOpen((prev) => !prev)}
             >
-              <Text style={styles.languageDropdownValue}>{selectedVoiceLabel}</Text>
+              <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{selectedVoiceLabel}</Text>
               <Ionicons
                 name={voiceDropdownOpen ? 'chevron-up' : 'chevron-down'}
                 size={18}
-                color="#CBD5E1"
+                color={palette.secondaryText}
               />
             </TouchableOpacity>
 
             {voiceDropdownOpen ? (
-              <View style={styles.languageDropdownList}>
-                {TTS_VOICE_OPTIONS.map((option) => {
+              <View style={[styles.languageDropdownList, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+                {visibleTTSVoiceOptions.map((option) => {
                   const active = option.code === ttsVoice;
                   return (
                     <TouchableOpacity
                       key={option.code}
                       style={[
                         styles.languageDropdownItem,
+                        { borderBottomColor: palette.modalOptionBorder },
                         active ? styles.languageDropdownItemActive : null,
                       ]}
                       activeOpacity={0.9}
@@ -385,6 +443,7 @@ export default function ProfileSettingsModalUI({
                       <Text
                         style={[
                           styles.languageDropdownItemText,
+                          { color: palette.textOnContainer },
                           active ? styles.languageDropdownItemTextActive : null,
                         ]}
                       >
@@ -397,22 +456,25 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
-          <View style={styles.languageSection}>
-            <Text style={styles.languageTitle}>Word Pop Slide Interval</Text>
+          <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Word Pop Slide Interval</Text>
             <TouchableOpacity
-              style={styles.languageDropdownTrigger}
+              style={[
+                styles.languageDropdownTrigger,
+                { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              ]}
               activeOpacity={0.9}
               onPress={() => setWordPopDropdownOpen((prev) => !prev)}
             >
-              <Text style={styles.languageDropdownValue}>{selectedWordPopLabel}</Text>
+              <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{selectedWordPopLabel}</Text>
               <Ionicons
                 name={wordPopDropdownOpen ? 'chevron-up' : 'chevron-down'}
                 size={18}
-                color="#CBD5E1"
+                color={palette.secondaryText}
               />
             </TouchableOpacity>
             {wordPopDropdownOpen ? (
-              <View style={styles.languageDropdownList}>
+              <View style={[styles.languageDropdownList, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
                 {WORD_POP_SLIDE_OPTIONS.map((option) => {
                   const active = option.value === wordPopSlideMs;
                   return (
@@ -420,6 +482,7 @@ export default function ProfileSettingsModalUI({
                       key={option.value}
                       style={[
                         styles.languageDropdownItem,
+                        { borderBottomColor: palette.modalOptionBorder },
                         active ? styles.languageDropdownItemActive : null,
                       ]}
                       activeOpacity={0.9}
@@ -431,6 +494,7 @@ export default function ProfileSettingsModalUI({
                       <Text
                         style={[
                           styles.languageDropdownItemText,
+                          { color: palette.textOnContainer },
                           active ? styles.languageDropdownItemTextActive : null,
                         ]}
                       >

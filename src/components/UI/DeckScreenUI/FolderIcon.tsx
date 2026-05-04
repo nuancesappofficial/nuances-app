@@ -72,8 +72,8 @@ export function FolderIcon({
   const isLight = colorScheme === 'light';
   const frontColor = coverColor || '#1E293B';
   const iconColor = isLight ? '#4EAFF4' : palette.textOnContainer;
-  const bottomTitleColor = isLight ? '#0F172A' : palette.textOnContainer;
-  const titleColor = accentColor || (isLight ? '#0F172A' : palette.textOnContainer);
+  const bottomTitleColor = palette.albumCoverText;
+  const titleColor = accentColor || palette.textOnContainer;
   const subtitleColor = isLight ? '#64748B' : 'rgba(248,250,252,0.76)';
   const canUseSymbols = canUseSFSymbolsOnDevice();
 
@@ -109,7 +109,7 @@ export function FolderIcon({
           </View>
           {compact ? (
             <LinearGradient
-              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.16)', 'rgba(0,0,0,0.36)']}
+              colors={[palette.albumCoverShadeStart, palette.albumCoverShadeMid, palette.albumCoverShadeEnd]}
               locations={[0, 0.58, 1]}
               style={styles.bottomShade}
             >

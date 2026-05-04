@@ -1,7 +1,7 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, useColorScheme } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, CTA_COLOR, CTA_COLOR_BORDER } from '../../../theme/colors';
+import { TEXT_ON_CTA, CTA_COLOR, CTA_COLOR_BORDER, resolveThemeColors } from '../../../theme/colors';
 
 type SortMode = 'recently_added' | 'recently_reviewed' | 'alphabetical';
 
@@ -25,6 +25,8 @@ export default function AlbumSortModalUI({
   onClose,
   onChangeSortMode,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -78,38 +80,50 @@ export default function AlbumSortModalUI({
       <Pressable style={styles.rootPressable} onPress={onClose}>
         <Animated.View style={[styles.sortModalOverlay, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={styles.sortModalCard} onPress={() => undefined}>
-          <Text style={styles.eyebrow}>SORT OPTIONS</Text>
-          <Text style={styles.sortModalTitle}>Sort by</Text>
+          <Pressable style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
+          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>SORT OPTIONS</Text>
+          <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>Sort by</Text>
 
           <TouchableOpacity
-            style={[styles.sortOptionBtn, sortMode === 'recently_added' && styles.sortOptionBtnActive]}
+            style={[
+              styles.sortOptionBtn,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              sortMode === 'recently_added' && styles.sortOptionBtnActive,
+            ]}
             onPress={() => onChangeSortMode('recently_added')}
           >
-            <Text style={[styles.sortOptionText, sortMode === 'recently_added' && styles.sortOptionTextActive]}>
+            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_added' && styles.sortOptionTextActive]}>
               Recently added
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.sortOptionBtn, sortMode === 'recently_reviewed' && styles.sortOptionBtnActive]}
+            style={[
+              styles.sortOptionBtn,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              sortMode === 'recently_reviewed' && styles.sortOptionBtnActive,
+            ]}
             onPress={() => onChangeSortMode('recently_reviewed')}
           >
-            <Text style={[styles.sortOptionText, sortMode === 'recently_reviewed' && styles.sortOptionTextActive]}>
+            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_reviewed' && styles.sortOptionTextActive]}>
               Recently reviewed
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.sortOptionBtn, sortMode === 'alphabetical' && styles.sortOptionBtnActive]}
+            style={[
+              styles.sortOptionBtn,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+              sortMode === 'alphabetical' && styles.sortOptionBtnActive,
+            ]}
             onPress={() => onChangeSortMode('alphabetical')}
           >
-            <Text style={[styles.sortOptionText, sortMode === 'alphabetical' && styles.sortOptionTextActive]}>
+            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'alphabetical' && styles.sortOptionTextActive]}>
               Alphabetical
             </Text>
           </TouchableOpacity>
 
-          <Text style={styles.sortModeHint}>{`Current: ${sortLabel}`}</Text>
+          <Text style={[styles.sortModeHint, { color: palette.secondaryText }]}>{`Current: ${sortLabel}`}</Text>
           </Pressable>
         </Animated.View>
       </Pressable>

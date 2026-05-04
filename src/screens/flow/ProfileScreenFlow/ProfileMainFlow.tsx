@@ -13,6 +13,8 @@ import ProfileMainScreenUI, {
 } from '../../../components/UI/ProfileScreenUI/ProfileMainScreenUI';
 import {
   DEFAULT_USER_SETTINGS,
+  getDefaultTTSVoiceForAIReplyLanguage,
+  isTTSVoiceCompatibleWithAIReplyLanguage,
   loadUserSettings,
   saveUserSettings,
   type AIReplyLanguage,
@@ -20,6 +22,7 @@ import {
   type TTSVoice,
   type WordPopSlideMs,
 } from '@services/settings/userSettings';
+import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../../theme/stickerFonts';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 
@@ -240,6 +243,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   );
   const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
+  const [stickerFontKey, setStickerFontKey] = React.useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -341,6 +345,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       setAiReplyLanguage(settings.aiReplyLanguage);
       setTtsVoice(settings.ttsVoice);
       setWordPopSlideMs(settings.wordPopSlideMs);
+      setStickerFontKey(settings.stickerFontKey);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -377,12 +382,17 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
-      if (settings.aiReplyLanguage === language) return;
+      const nextVoice = isTTSVoiceCompatibleWithAIReplyLanguage(settings.ttsVoice, language)
+        ? settings.ttsVoice
+        : getDefaultTTSVoiceForAIReplyLanguage(language);
+      if (settings.aiReplyLanguage === language && settings.ttsVoice === nextVoice) return;
       await saveUserSettings({
         ...settings,
         aiReplyLanguage: language,
+        ttsVoice: nextVoice,
       });
       setAiReplyLanguage(language);
+      setTtsVoice(nextVoice);
     } catch (error) {
       console.error('[Profiles] update AI reply language failed:', error);
       Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
@@ -416,6 +426,21 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     } catch (error) {
       console.error('[Profiles] update word pop slide interval failed:', error);
       Alert.alert('更新失敗', '無法儲存 Word Pop 輪播速度，請稍後再試。');
+    }
+  }, []);
+
+  const handleChangeStickerFontKey = React.useCallback(async (fontKey: StickerFontKey) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.stickerFontKey === fontKey) return;
+      await saveUserSettings({
+        ...settings,
+        stickerFontKey: fontKey,
+      });
+      setStickerFontKey(fontKey);
+    } catch (error) {
+      console.error('[Profiles] update sticker font failed:', error);
+      Alert.alert('更新失敗', '無法儲存貼紙字體，請稍後再試。');
     }
   }, []);
 
@@ -481,12 +506,14 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         entitlementMode={entitlementMode}
         aiReplyLanguage={aiReplyLanguage}
         ttsVoice={ttsVoice}
-        wordPopSlideMs={wordPopSlideMs}
+        stickerFontKey={stickerFontKey}
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
         onChangeTTSVoice={handleChangeTTSVoice}
-        onChangeWordPopSlideMs={handleChangeWordPopSlideMs}
+        onOpenSettingsOption={(kind) => {
+          navigation.navigate('ProfileSettingOptions', { kind });
+        }}
         onPressBack={() => {
           if (overlayMode && onRequestClose) {
             onRequestClose();
@@ -497,15 +524,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
           }
         }}
         onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
-        onSettingsSubPageVisibleChange={(visible) => {
-          tabSwipeContext?.setTabBarHidden?.(visible);
-          if (!visible) {
-            tabSwipeContext?.setTabBarHiddenProgress?.(null);
-          }
-        }}
-        onSettingsSubPageProgressChange={(progress) => {
-          tabSwipeContext?.setTabBarHiddenProgress?.(progress);
-        }}
         onPressDay={(day) => {
           if (!day.cards.length) return;
           navigation.navigate('CardDetail', {

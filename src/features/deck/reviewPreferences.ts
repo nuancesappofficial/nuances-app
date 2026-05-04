@@ -4,6 +4,7 @@ import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 export type AlbumReviewPreferences = {
   questionCount: number;
   pinnedCardIds: string[];
+  todayNewWordsOnly?: boolean;
 };
 
 const REVIEW_PREFS_KEY_PREFIX = 'deck_review_prefs_v1';
@@ -22,6 +23,7 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   return {
     questionCount,
     pinnedCardIds: Array.from(new Set(pinnedCardIds)),
+    todayNewWordsOnly: raw?.todayNewWordsOnly === true,
   };
 }
 

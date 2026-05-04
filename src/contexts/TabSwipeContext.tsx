@@ -15,6 +15,7 @@ export type TabSwipeContextValue = {
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;
   setTabBarHiddenProgress: (progress: number | null) => void;
+  fallbackTranslateY?: React.MutableRefObject<any> | any;
 };
 
 export const TabSwipeContext = React.createContext<TabSwipeContextValue | null>(null);

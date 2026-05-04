@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
@@ -19,6 +20,7 @@ import {
   TEXT_ON_BG,
   TEXT_ON_CONTAINER,
   TEXT_ON_CTA,
+  resolveThemeColors,
 } from '../../../theme/colors';
 
 type Props = {
@@ -68,6 +70,8 @@ export default function AlbumSettingsModalUI({
   onCancel,
   onSave,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -121,31 +125,45 @@ export default function AlbumSettingsModalUI({
       <Pressable style={styles.rootPressable} onPress={onCancel}>
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={styles.sheet} onPress={() => undefined}>
-            <View style={styles.handle} />
+          <Pressable
+            style={[styles.sheet, { backgroundColor: palette.modalBg, borderColor: palette.modalOptionBorder }]}
+            onPress={() => undefined}
+          >
+            <View style={[styles.handle, { backgroundColor: palette.secondaryText }]} />
 
-            <Text style={styles.eyebrow}>ALBUM SETTINGS</Text>
-            <Text style={styles.title}>Customize this album</Text>
-            <Text style={styles.subtitle}>Refine the name, icon, and cover color.</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ALBUM SETTINGS</Text>
+            <Text style={[styles.title, { color: palette.textOnContainer }]}>Customize this album</Text>
+            <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Refine the name, icon, and cover color.</Text>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionLabel}>Album name</Text>
+            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Album name</Text>
               <TextInput
                 value={settingsName}
                 onChangeText={onChangeName}
-                style={styles.input}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: palette.modalOptionBg,
+                    borderColor: palette.modalOptionBorder,
+                    color: palette.textOnContainer,
+                  },
+                ]}
                 placeholder="Type album name"
-                placeholderTextColor="#64748B"
+                placeholderTextColor={palette.secondaryText}
               />
             </View>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionLabel}>Icon</Text>
+            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Icon</Text>
               <View style={styles.optionRow}>
                 {EMOJI_OPTIONS.map((emoji) => (
                   <TouchableOpacity
                     key={emoji}
-                    style={[styles.emojiOption, settingsEmoji === emoji && styles.emojiOptionActive]}
+                    style={[
+                      styles.emojiOption,
+                      { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                      settingsEmoji === emoji && styles.emojiOptionActive,
+                    ]}
                     onPress={() => onChangeEmoji(emoji)}
                     activeOpacity={0.88}
                   >
@@ -155,8 +173,8 @@ export default function AlbumSettingsModalUI({
               </View>
             </View>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionLabel}>Cover color</Text>
+            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Cover color</Text>
               <View style={styles.colorGrid}>
                 {COVER_COLOR_OPTIONS.map((option) => {
                   const active = settingsColor === option.value;
@@ -180,16 +198,30 @@ export default function AlbumSettingsModalUI({
               </View>
             </View>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionLabel}>Cover image</Text>
-              <TouchableOpacity style={styles.coverButton} activeOpacity={0.9} onPress={onPickCoverImage}>
-                <Text style={styles.coverButtonText}>{hasCoverImage ? 'Change cover image' : 'Choose cover image'}</Text>
+            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Cover image</Text>
+              <TouchableOpacity
+                style={[
+                  styles.coverButton,
+                  { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                ]}
+                activeOpacity={0.9}
+                onPress={onPickCoverImage}
+              >
+                <Text style={[styles.coverButtonText, { color: palette.textOnContainer }]}>{hasCoverImage ? 'Change cover image' : 'Choose cover image'}</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.cancelButton} onPress={onCancel} activeOpacity={0.9}>
-                <Text style={styles.cancelText}>Cancel</Text>
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                ]}
+                onPress={onCancel}
+                activeOpacity={0.9}
+              >
+                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveButton} onPress={onSave} activeOpacity={0.9}>
                 <Text style={styles.saveText}>Save</Text>

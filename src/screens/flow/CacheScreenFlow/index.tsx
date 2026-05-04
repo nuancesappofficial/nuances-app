@@ -45,6 +45,8 @@ import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { DEFAULT_STICKER_FONT_KEY, resolveStickerFont, type StickerFontKey } from '../../../theme/stickerFonts';
+import { loadUserSettings } from '@services/settings/userSettings';
 import {
   CONTAINER_NEON_OUTLINE,
   CONTAINER_NEON_GLOW,
@@ -135,6 +137,7 @@ function TiltSticker({
   posYList,
   onPress,
   disabled = false,
+  stickerFontKey,
 }: {
   item: TodayUploadSticker;
   index: number;
@@ -145,8 +148,10 @@ function TiltSticker({
   posYList: SharedValue<number[]>;
   onPress?: () => void;
   disabled?: boolean;
+  stickerFontKey: StickerFontKey;
 }) {
   const stickerTiltDeg = ((index % 5) - 2) * 1.2;
+  const stickerFont = resolveStickerFont(stickerFontKey);
   const labelText = normalizeStickerText(item.label);
   const dynamicFontSize = Math.max(16, 23 - Math.max(0, labelText.length - 8) * 0.55);
   const dynamicLineHeight = Math.round(dynamicFontSize * 1.16);
@@ -199,9 +204,9 @@ function TiltSticker({
               strokeLinejoin="round"
               fontSize={dynamicFontSize}
               fontWeight="900"
-              fontFamily="MarkerFelt-Wide"
+              fontFamily={stickerFont.fontFamily}
               textAnchor="middle"
-              letterSpacing={-0.8}
+              letterSpacing={stickerFont.letterSpacing}
             >
               {labelText}
             </SvgText>
@@ -211,9 +216,9 @@ function TiltSticker({
               fill="#050505"
               fontSize={dynamicFontSize}
               fontWeight="900"
-              fontFamily="MarkerFelt-Wide"
+              fontFamily={stickerFont.fontFamily}
               textAnchor="middle"
-              letterSpacing={-0.8}
+              letterSpacing={stickerFont.letterSpacing}
             >
               {labelText}
             </SvgText>
@@ -226,9 +231,11 @@ function TiltSticker({
 function VocabStickerCloud({
   items,
   onPressSticker,
+  stickerFontKey,
 }: {
   items: TodayUploadSticker[];
   onPressSticker?: (item: TodayUploadSticker) => void;
+  stickerFontKey: StickerFontKey;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const sensor = useAnimatedSensor(SensorType.GRAVITY, {
@@ -425,6 +432,7 @@ function VocabStickerCloud({
             stickerWidth={currentWidth}
             posXList={posXList}
             posYList={posYList}
+            stickerFontKey={stickerFontKey}
             onPress={() => onPressSticker?.(item)}
             disabled={!item.cardId}
           />
@@ -553,6 +561,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     },
   });
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
+  const [stickerFontKey, setStickerFontKey] = useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
   const previousCardCountRef = React.useRef<number | null>(null);
   const hasSeenCacheOnceRef = React.useRef(false);
   const lastSeenStackCardIdsRef = React.useRef<string[]>([]);
@@ -627,6 +636,9 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     if (!navigation?.addListener) return;
     const offFocus = navigation.addListener('focus', () => {
       setIsCacheFocused(true);
+      void loadUserSettings()
+        .then((settings) => setStickerFontKey(settings.stickerFontKey))
+        .catch((error) => console.error('[CacheList] load sticker font failed:', error));
     });
     const offBlur = navigation.addListener('blur', () => {
       setIsCacheFocused(false);
@@ -636,6 +648,12 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       offBlur?.();
     };
   }, [navigation]);
+
+  useEffect(() => {
+    void loadUserSettings()
+      .then((settings) => setStickerFontKey(settings.stickerFontKey))
+      .catch((error) => console.error('[CacheList] load sticker font failed:', error));
+  }, []);
 
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
@@ -1012,7 +1030,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
               : null,
           ]}
         >
-          <VocabStickerCloud items={todayStickerWords} onPressSticker={handlePressTodaySticker} />
+          <VocabStickerCloud
+            items={todayStickerWords}
+            stickerFontKey={stickerFontKey}
+            onPressSticker={handlePressTodaySticker}
+          />
           {stackCards.length > 0 ? (
             <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />
           ) : null}

@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
@@ -19,6 +20,7 @@ import {
   TEXT_ON_BG,
   TEXT_ON_CONTAINER,
   TEXT_ON_CTA,
+  resolveThemeColors,
 } from '../../../theme/colors';
 
 type Props = {
@@ -41,6 +43,8 @@ export default function CreateAlbumModalUI({
   onCancel,
   onConfirm,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -94,25 +98,42 @@ export default function CreateAlbumModalUI({
       <Pressable style={styles.rootPressable} onPress={onCancel}>
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}> 
-          <Pressable style={styles.sheet} onPress={() => undefined}>
-            <View style={styles.handle} />
+          <Pressable
+            style={[styles.sheet, { backgroundColor: palette.modalBg, borderColor: palette.modalOptionBorder }]}
+            onPress={() => undefined}
+          >
+            <View style={[styles.handle, { backgroundColor: palette.secondaryText }]} />
 
-            <Text style={styles.eyebrow}>NEW ALBUM</Text>
-            <Text style={styles.title}>Create a new album</Text>
-            <Text style={styles.subtitle}>Give this collection a name so it feels like its own space.</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>NEW ALBUM</Text>
+            <Text style={[styles.title, { color: palette.textOnContainer }]}>Create a new album</Text>
+            <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Give this collection a name so it feels like its own space.</Text>
 
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: palette.modalOptionBorder,
+                  color: palette.textOnContainer,
+                },
+              ]}
               placeholder="Type album name"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={palette.secondaryText}
               value={albumName}
               onChangeText={onChangeAlbumName}
               autoFocus
             />
 
             <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.cancelButton} onPress={onCancel} activeOpacity={0.9}>
-                <Text style={styles.cancelText}>Cancel</Text>
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                ]}
+                onPress={onCancel}
+                activeOpacity={0.9}
+              >
+                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} activeOpacity={0.9}>

@@ -1,28 +1,39 @@
 import React from 'react';
 import { Text, TextInput, StyleSheet, View } from 'react-native';
-import { CONTAINER_BG, TEXT_ON_CONTAINER } from '../../../theme/colors';
+import { CONTAINER_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
   manualText: string;
   onChangeManualText: (value: string) => void;
   inputHeight?: number;
+  palette?: ReturnType<typeof resolveThemeColors>;
 };
 
 export default function CacheTextInputPanelUI({
   manualText,
   onChangeManualText,
   inputHeight = 118,
+  palette,
 }: Props) {
   return (
     <View style={styles.container}>
-      <Text style={styles.inputLabel}>Paste or type text</Text>
+      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Paste or type text</Text>
       <TextInput
         value={manualText}
         onChangeText={onChangeManualText}
         multiline
-        style={[styles.textInput, { height: inputHeight, maxHeight: inputHeight }]}
+        style={[
+          styles.textInput,
+          {
+            height: inputHeight,
+            maxHeight: inputHeight,
+            backgroundColor: palette?.containerBg ?? CONTAINER_BG,
+            borderColor: palette?.modalOptionBorder ?? 'rgba(255,255,255,0.12)',
+            color: palette?.textOnContainer ?? TEXT_ON_CONTAINER,
+          },
+        ]}
         placeholder="Paste a sentence containing slang, idioms, or expressions..."
-        placeholderTextColor="#9CA3AF"
+        placeholderTextColor={palette?.secondaryText ?? '#9CA3AF'}
       />
     </View>
   );

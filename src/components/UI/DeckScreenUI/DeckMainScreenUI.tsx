@@ -44,6 +44,7 @@ type Props = {
   filterPills: string[];
   todayReviewTotalCount: number;
   todayReviewPendingCount: number;
+  todayNewWordsOnly: boolean;
   onPressTodayReview: () => void;
   onPressTodayReviewTuning: () => void;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
@@ -74,6 +75,7 @@ export default function DeckMainScreenUI({
   filterPills,
   todayReviewTotalCount,
   todayReviewPendingCount,
+  todayNewWordsOnly,
   onPressTodayReview,
   onPressTodayReviewTuning,
   slideshowItems,
@@ -95,6 +97,7 @@ export default function DeckMainScreenUI({
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
+  const searchSecondaryTextColor = palette.secondaryText;
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const searchInputRef = React.useRef<TextInput | null>(null);
@@ -147,7 +150,7 @@ export default function DeckMainScreenUI({
     if (todayReviewPendingCount <= 5) return 2;
     return 3;
   }, [todayReviewPendingCount]);
-  const isTodayReviewActive = newWordsLevel > 0;
+  const isTodayReviewActive = todayNewWordsOnly && newWordsLevel > 0;
 
   const searchAnimatedWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
@@ -435,7 +438,7 @@ export default function DeckMainScreenUI({
                   onChangeText={onSearchChange}
                   placeholder="搜尋卡片關鍵字"
                   placeholderTextColor={palette.secondaryText}
-                  style={styles.searchInput}
+                  style={[styles.searchInput, { color: palette.textOnContainer }]}
                   returnKeyType="search"
                 />
               </Animated.View>
@@ -468,13 +471,22 @@ export default function DeckMainScreenUI({
             </Animated.View>
 
             {isSearchExpanded && searchQuery.trim().length > 0 ? (
-              <View style={styles.searchResultsWrap}>
+              <View
+                style={[
+                  styles.searchResultsWrap,
+                  {
+                    backgroundColor: palette.searchDropdownBg,
+                    borderColor: palette.searchDropdownBorder,
+                    shadowOpacity: isLight ? 0.16 : 0.42,
+                  },
+                ]}
+              >
                 <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
                   {searchResults.length > 0 ? (
                     searchResults.map((item) => (
                       <TouchableOpacity
                         key={`${item.cardId}-${item.text}`}
-                        style={styles.searchResultItem}
+                        style={[styles.searchResultItem, { borderBottomColor: palette.searchDropdownDivider }]}
                         activeOpacity={0.85}
                         onPress={() => onPressSearchResult(item)}
                       >
@@ -482,7 +494,7 @@ export default function DeckMainScreenUI({
                           {item.text}
                         </Text>
                         {item.translation ? (
-                          <Text style={[styles.searchResultTranslation, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.72)' }]} numberOfLines={1}>
+                          <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
                             {item.translation}
                           </Text>
                         ) : null}
@@ -490,7 +502,7 @@ export default function DeckMainScreenUI({
                     ))
                   ) : (
                     <View style={styles.searchResultEmpty}>
-                      <Text style={[styles.searchResultEmptyText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.72)' }]}>
+                      <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
                         No matching words
                       </Text>
                     </View>
@@ -510,7 +522,7 @@ export default function DeckMainScreenUI({
 
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
         <TouchableOpacity
-          style={styles.searchBackdropMask}
+          style={[styles.searchBackdropMask, { backgroundColor: palette.searchBackdropMask }]}
           activeOpacity={1}
           onPress={handleSearchToggle}
         />
@@ -1045,9 +1057,7 @@ const styles = StyleSheet.create({
     top: 46,
     zIndex: 120,
     borderRadius: 20,
-    backgroundColor: 'rgba(3,10,20,0.98)',
     borderWidth: 1,
-    borderColor: 'rgba(196,228,255,0.2)',
     shadowColor: '#000',
     shadowOpacity: 0.42,
     shadowRadius: 18,
@@ -1058,8 +1068,6 @@ const styles = StyleSheet.create({
   },
   searchBackdropMask: {
     ...StyleSheet.absoluteFillObject,
-    top: 64,
-    backgroundColor: 'rgba(0,0,0,0.62)',
     zIndex: 100,
   },
   searchResultsList: {
@@ -1073,7 +1081,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(196,228,255,0.09)',
     justifyContent: 'center',
   },
   searchResultWord: {

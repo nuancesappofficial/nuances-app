@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../theme/stickerFonts';
 
 export type ClipboardMode = 'active' | 'passive';
 export type EntitlementMode = 'premium' | 'guest';
@@ -42,6 +43,7 @@ export type UserAppSettings = {
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   wordPopSlideMs: WordPopSlideMs;
+  stickerFontKey: StickerFontKey;
   personalization: UserPersonalizationSettings;
 };
 
@@ -61,6 +63,7 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   aiReplyLanguage: 'zh-TW',
   ttsVoice: 'en-US-JennyNeural',
   wordPopSlideMs: 2600,
+  stickerFontKey: DEFAULT_STICKER_FONT_KEY,
   personalization: {
     learningGoalPreset: 'ielts',
     learningGoalCustom: '',
@@ -74,6 +77,28 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
     toneCustom: '',
   },
 };
+
+const DEFAULT_TTS_VOICE_BY_LANGUAGE: Record<AIReplyLanguage, TTSVoice> = {
+  'zh-TW': 'zh-TW-HsiaoChenNeural',
+  'zh-CN': 'zh-CN-XiaoxiaoNeural',
+  en: 'en-US-JennyNeural',
+  ja: 'ja-JP-NanamiNeural',
+  ko: 'ko-KR-SunHiNeural',
+};
+
+export function isTTSVoiceCompatibleWithAIReplyLanguage(
+  voice: TTSVoice,
+  language: AIReplyLanguage
+): boolean {
+  if (language === 'en') return voice.startsWith('en-');
+  if (language === 'ja') return voice.startsWith('ja-');
+  if (language === 'ko') return voice.startsWith('ko-');
+  return voice.startsWith(`${language}-`);
+}
+
+export function getDefaultTTSVoiceForAIReplyLanguage(language: AIReplyLanguage): TTSVoice {
+  return DEFAULT_TTS_VOICE_BY_LANGUAGE[language];
+}
 
 function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettings {
   return {
