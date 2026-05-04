@@ -30,10 +30,10 @@ const DARK_THEME_COLORS = {
 };
 
 const LIGHT_THEME_COLORS = {
-  screenBg: '#78BBDD',
-  containerBg: '#F8FAFC',
+  screenBg: '#F1EBE3',
+  containerBg: '#1E293B',
   textOnBg: '#0F172A',
-  textOnContainer: '#0F172A',
+  textOnContainer: '#F8FAFC',
   secondaryText: '#94A3B8',
   borderSubtle: '#CBD5E1',
   navBg: '#FFFFFF',

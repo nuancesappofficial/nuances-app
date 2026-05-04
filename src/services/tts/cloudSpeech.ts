@@ -1,5 +1,4 @@
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@services/supabase/client';
 
 type SpeakOptions = {
@@ -84,27 +83,16 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
       return false;
     }
 
-    const payload = (await response.json()) as { audioBase64?: string; mimeType?: string };
-    const audioBase64 = (payload.audioBase64 || '').trim();
-    if (!audioBase64) {
+    const payload = (await response.json()) as { audioUrl?: string; audioBase64?: string; mimeType?: string };
+    const audioUrl = (payload.audioUrl || '').trim();
+    if (!audioUrl) {
       options?.onError?.();
       return false;
     }
-
-    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
-    if (!baseDir) {
-      options?.onError?.();
-      return false;
-    }
-
-    const uri = `${baseDir}azure-tts-${Date.now()}.mp3`;
-    await FileSystem.writeAsStringAsync(uri, audioBase64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
 
     await stopActiveCloudPlayback();
     const result = await Audio.Sound.createAsync(
-      { uri },
+      { uri: audioUrl },
       { shouldPlay: true, progressUpdateIntervalMillis: 120 },
     );
     activeSound = result.sound;

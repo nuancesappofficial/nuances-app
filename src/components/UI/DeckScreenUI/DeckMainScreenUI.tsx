@@ -1,6 +1,6 @@
 import React from 'react';
-import { Animated, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Animated, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
@@ -22,6 +22,14 @@ const GRID_HORIZONTAL_PADDING = 12;
 const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
 // 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
 const ALBUM_GROUP_OFFSET_Y = 0;
+const WORD_POP_MIN_HEIGHT = 220;
+const WORD_POP_HERO_HEIGHT = 110;
+const WORD_POP_VERTICAL_PADDING = 14;
+const WORD_POP_TEXT_LINE_LIMIT = 2;
+const WORD_POP_SENTENCE_LINE_LIMIT = 4;
+const TAB_BAR_HEIGHT_ESTIMATE = 65;
+const TAB_BAR_BOTTOM_MARGIN_BUFFER = 8;
+const QUIZ_SAFE_BUFFER = 14;
 
 type Props = {
   heroStatusText?: string;
@@ -41,6 +49,8 @@ type Props = {
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
+  searchResults: Array<{ cardId: string; text: string; translation?: string }>;
+  onPressSearchResult: (item: { cardId: string; text: string; translation?: string }) => void;
   albums: DeckAlbum[];
   onPressAlbum: (album: DeckAlbum) => void;
   isMenuVisible: SharedValue<boolean>;
@@ -69,6 +79,8 @@ export default function DeckMainScreenUI({
   slideshowItems,
   wordPopSlideMs,
   onPressSlideshowItem,
+  searchResults,
+  onPressSearchResult,
   albums,
   onPressAlbum,
   isMenuVisible,
@@ -81,9 +93,10 @@ export default function DeckMainScreenUI({
   onActionEnd,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = false;
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
   const searchExpandProgress = React.useRef(new Animated.Value(0)).current;
@@ -97,7 +110,37 @@ export default function DeckMainScreenUI({
     (albumPageWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS
   );
   const [currentPage, setCurrentPage] = React.useState(0);
-  const maxSearchWidth = Math.max(160, screenWidth - 16 * 2 - 40 - 10);
+  const maxSearchWidth = Math.max(200, screenWidth - 16 * 2);
+  const compactLevel = React.useMemo(() => {
+    if (screenHeight < 760) return 2;
+    if (screenHeight < 860) return 1;
+    return 0;
+  }, [screenHeight]);
+  const wordPopMinHeight = React.useMemo(() => {
+    if (compactLevel === 2) return 160;
+    if (compactLevel === 1) return 186;
+    return WORD_POP_MIN_HEIGHT;
+  }, [compactLevel]);
+  const wordPopHeroHeight = React.useMemo(() => {
+    if (compactLevel === 2) return 72;
+    if (compactLevel === 1) return 88;
+    return WORD_POP_HERO_HEIGHT;
+  }, [compactLevel]);
+  const wordPopVerticalPadding = React.useMemo(() => {
+    if (compactLevel === 2) return 9;
+    if (compactLevel === 1) return 11;
+    return WORD_POP_VERTICAL_PADDING;
+  }, [compactLevel]);
+  const wordPopTextLineLimit = compactLevel === 2 ? 1 : WORD_POP_TEXT_LINE_LIMIT;
+  const wordPopSentenceLineLimit = compactLevel === 2 ? 2 : compactLevel === 1 ? 3 : WORD_POP_SENTENCE_LINE_LIMIT;
+  const compactGridPaddingTop = compactLevel === 2 ? 8 : compactLevel === 1 ? 9 : 10;
+  const compactGridPaddingBottom = compactLevel === 2 ? 24 : compactLevel === 1 ? 28 : 32;
+  const compactGridGap = compactLevel === 2 ? 10 : compactLevel === 1 ? 11 : GRID_GAP;
+  const quizBottomSafeSpacing =
+    Math.max(insets.bottom, TAB_BAR_BOTTOM_MARGIN_BUFFER) +
+    TAB_BAR_HEIGHT_ESTIMATE +
+    TAB_BAR_BOTTOM_MARGIN_BUFFER +
+    QUIZ_SAFE_BUFFER;
   const newWordsLevel = React.useMemo(() => {
     if (todayReviewPendingCount <= 0) return 0;
     if (todayReviewPendingCount <= 2) return 1;
@@ -252,7 +295,11 @@ export default function DeckMainScreenUI({
               return (
                 <View
                   key={`page-${pageIndex}-row-${rowIndex}`}
-                  style={[styles.albumRow, rowIndex === rowCount - 1 ? styles.albumRowLast : null]}
+                  style={[
+                    styles.albumRow,
+                    { gap: compactGridGap, marginBottom: compactGridGap },
+                    rowIndex === rowCount - 1 ? styles.albumRowLast : null,
+                  ]}
                 >
                   {Array.from({ length: GRID_COLUMNS }).map((__, colIndex) => {
                     const item = rowAlbums[colIndex];
@@ -297,6 +344,7 @@ export default function DeckMainScreenUI({
       onMenuFinish,
       onActionEnd,
       albumItemWidth,
+      compactGridGap,
     ]
   );
 
@@ -348,15 +396,17 @@ export default function DeckMainScreenUI({
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
-      <View style={styles.topRightRow}>
-        <TouchableOpacity
-          style={styles.brandIconButton}
-          activeOpacity={0.8}
-          onPress={() => onPressCacheFab?.()}
-        >
-          <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
-        </TouchableOpacity>
-        <View style={styles.topActionsRow}>
+      <View style={[styles.topRightRow, isSearchExpanded ? styles.topRightRowExpanded : null]}>
+        {!isSearchExpanded ? (
+          <TouchableOpacity
+            style={styles.brandIconButton}
+            activeOpacity={0.8}
+            onPress={() => onPressCacheFab?.()}
+          >
+            <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
+          </TouchableOpacity>
+        ) : null}
+        <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
           <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
             <Animated.View
               style={[
@@ -416,18 +466,64 @@ export default function DeckMainScreenUI({
                 </Animated.View>
               </TouchableOpacity>
             </Animated.View>
+
+            {isSearchExpanded && searchQuery.trim().length > 0 ? (
+              <View style={styles.searchResultsWrap}>
+                <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
+                  {searchResults.length > 0 ? (
+                    searchResults.map((item) => (
+                      <TouchableOpacity
+                        key={`${item.cardId}-${item.text}`}
+                        style={styles.searchResultItem}
+                        activeOpacity={0.85}
+                        onPress={() => onPressSearchResult(item)}
+                      >
+                        <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
+                          {item.text}
+                        </Text>
+                        {item.translation ? (
+                          <Text style={[styles.searchResultTranslation, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.72)' }]} numberOfLines={1}>
+                            {item.translation}
+                          </Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={styles.searchResultEmpty}>
+                      <Text style={[styles.searchResultEmptyText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.72)' }]}>
+                        No matching words
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            ) : null}
           </Animated.View>
 
-          <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={onOpenCreateAlbum}>
-            <Ionicons name="add" size={38} color={palette.textOnBg} />
-          </TouchableOpacity>
+          {!isSearchExpanded ? (
+            <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={onOpenCreateAlbum}>
+              <Ionicons name="add" size={38} color={palette.textOnBg} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
+
+      {isSearchExpanded && searchQuery.trim().length > 0 ? (
+        <TouchableOpacity
+          style={styles.searchBackdropMask}
+          activeOpacity={1}
+          onPress={handleSearchToggle}
+        />
+      ) : null}
 
       <View style={styles.wordShowcaseWrap}>
         <TouchableOpacity
           style={[
             styles.wordShowcase,
+            {
+              minHeight: wordPopMinHeight,
+              paddingVertical: wordPopVerticalPadding,
+            },
             isLight
               ? {
                   backgroundColor: palette.containerBg,
@@ -445,14 +541,14 @@ export default function DeckMainScreenUI({
         >
           <View style={styles.wordShowcaseContent}>
             {activeShowcaseItem?.imageUri ? (
-              <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity }]}>
+              <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
                 <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordShowcaseHeroImage} />
               </Animated.View>
             ) : (
-              <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity }]}>
+              <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
                 <Text
                   style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
-                  numberOfLines={4}
+                  numberOfLines={wordPopSentenceLineLimit}
                 >
                   {activeShowcaseItem?.sentence || 'No original sentence yet.'}
                 </Text>
@@ -464,7 +560,7 @@ export default function DeckMainScreenUI({
               </Animated.Text>
               <Animated.Text
                 style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
-                numberOfLines={2}
+                numberOfLines={wordPopTextLineLimit}
               >
                 {activeShowcaseItem?.translation || 'Tap to open card details'}
               </Animated.Text>
@@ -490,6 +586,10 @@ export default function DeckMainScreenUI({
               setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
             }}
             renderItem={({ item, index }) => renderAlbumPage(item, index)}
+            contentContainerStyle={{
+              paddingTop: compactGridPaddingTop,
+              paddingBottom: compactGridPaddingBottom,
+            }}
           />
 
           {albumPages.length > 1 ? (
@@ -509,7 +609,7 @@ export default function DeckMainScreenUI({
         </View>
       </View>
 
-      <View style={styles.todayReviewWrap}>
+      <View style={[styles.todayReviewWrap, { marginBottom: quizBottomSafeSpacing }]}>
         <Animated.View
           style={
             isTodayReviewActive
@@ -625,10 +725,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  topRightRowExpanded: {
+    justifyContent: 'flex-end',
+  },
   topActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  topActionsRowExpanded: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   brandIcon: {
     width: 60,
@@ -643,6 +750,8 @@ const styles = StyleSheet.create({
   },
   searchAnimatedWrap: {
     height: 44,
+    overflow: 'visible',
+    zIndex: 140,
   },
   rawIconButton: {
     width: 40,
@@ -693,7 +802,7 @@ const styles = StyleSheet.create({
   albumGroupShadow: {
     alignSelf: 'center',
     marginHorizontal: ALBUM_GROUP_HORIZONTAL_MARGIN,
-    marginTop: 12,
+    marginTop: 4,
     borderRadius: 16,
     shadowColor: CONTAINER_NEON_GLOW,
     shadowOffset: { width: 0, height: 10 },
@@ -711,8 +820,8 @@ const styles = StyleSheet.create({
   },
   albumGridContent: {
     paddingHorizontal: GRID_HORIZONTAL_PADDING,
-    paddingTop: 10,
-    paddingBottom: 32,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   page: {
     width: '100%',
@@ -755,7 +864,7 @@ const styles = StyleSheet.create({
   wordShowcaseWrap: {
     marginTop: 10,
     marginHorizontal: 10,
-    marginBottom: 12,
+    marginBottom: 4,
   },
   todayReviewWrap: {
     marginTop: 12,
@@ -868,13 +977,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   wordShowcase: {
-    minHeight: 220,
+    minHeight: WORD_POP_MIN_HEIGHT,
     borderRadius: 16,
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
     borderColor: CONTAINER_NEON_OUTLINE,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: WORD_POP_VERTICAL_PADDING,
     justifyContent: 'flex-start',
     shadowColor: CONTAINER_NEON_GLOW,
     shadowOpacity: 0.22,
@@ -887,7 +996,7 @@ const styles = StyleSheet.create({
   },
   wordShowcaseHeroWrap: {
     width: '100%',
-    height: 110,
+    height: WORD_POP_HERO_HEIGHT,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -898,7 +1007,7 @@ const styles = StyleSheet.create({
   },
   wordShowcaseHeroFallback: {
     width: '100%',
-    height: 110,
+    height: WORD_POP_HERO_HEIGHT,
     borderRadius: 12,
     backgroundColor: 'rgba(15,23,42,0.16)',
     paddingHorizontal: 14,
@@ -917,6 +1026,64 @@ const styles = StyleSheet.create({
   wordShowcaseTranslation: {
     fontSize: 16,
     lineHeight: 20,
+    fontWeight: '600',
+  },
+  searchResultsWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 46,
+    zIndex: 120,
+    borderRadius: 20,
+    backgroundColor: 'rgba(3,10,20,0.98)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,228,255,0.2)',
+    shadowColor: '#000',
+    shadowOpacity: 0.42,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 16,
+    maxHeight: 240,
+    overflow: 'hidden',
+  },
+  searchBackdropMask: {
+    ...StyleSheet.absoluteFillObject,
+    top: 64,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    zIndex: 100,
+  },
+  searchResultsList: {
+    width: '100%',
+  },
+  searchResultsContent: {
+    paddingVertical: 4,
+  },
+  searchResultItem: {
+    minHeight: 54,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(196,228,255,0.09)',
+    justifyContent: 'center',
+  },
+  searchResultWord: {
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  searchResultTranslation: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchResultEmpty: {
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  searchResultEmptyText: {
+    fontSize: 14,
     fontWeight: '600',
   },
   wordShowcaseSentence: {

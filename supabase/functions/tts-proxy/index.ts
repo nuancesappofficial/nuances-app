@@ -1,3 +1,5 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -18,6 +20,15 @@ function xmlEscape(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function normalizeText(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[.,!?"'`“”‘’]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 type TtsRequest = {
@@ -53,17 +64,6 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -82,6 +82,16 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Missing AZURE_TTS_REGION or AZURE_TTS_ENDPOINT' }, 500);
   }
 
+  const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
+  const serviceRoleKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
+  if (!supabaseUrl || !serviceRoleKey) {
+    return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500);
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
   let payload: TtsRequest;
   try {
     payload = (await req.json()) as TtsRequest;
@@ -89,23 +99,48 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Invalid JSON payload' }, 400);
   }
 
-  const text = (payload.text || '').trim();
-  if (!text) {
+  const rawText = (payload.text || '').trim();
+  if (!rawText) {
     return jsonResponse({ error: 'text is required' }, 400);
   }
 
+  const normalizedText = normalizeText(rawText);
+  if (!normalizedText) {
+    return jsonResponse({ error: 'text is empty after normalization' }, 400);
+  }
+
   const locale = (payload.locale || 'en-US').trim();
-  const voice = (payload.voice || AZURE_TTS_VOICE).trim();
+  const resolvedVoice = (payload.voice || AZURE_TTS_VOICE).trim();
   const rate = (payload.rate || '0%').trim();
 
-  const ssml =
-    `<speak version="1.0" xml:lang="${xmlEscape(locale)}">` +
-    `<voice name="${xmlEscape(voice)}">` +
-    `<prosody rate="${xmlEscape(rate)}">${xmlEscape(text)}</prosody>` +
-    `</voice></speak>`;
-
   try {
-    const response = await fetchWithTimeout(
+    const { data: cacheHit, error: selectError } = await supabase
+      .from('cached_pronunciations')
+      .select('audio_url')
+      .eq('phrase', normalizedText)
+      .eq('voice', resolvedVoice)
+      .maybeSingle();
+
+    if (!selectError && cacheHit?.audio_url) {
+      console.log('[tts-proxy] cache hit', {
+        phrase: normalizedText,
+        voice: resolvedVoice,
+      });
+      return jsonResponse({ audioUrl: cacheHit.audio_url, cached: true });
+    }
+
+    console.log('[tts-proxy] cache miss -> calling azure', {
+      phrase: normalizedText,
+      voice: resolvedVoice,
+    });
+
+    const ssml =
+      `<speak version="1.0" xml:lang="${xmlEscape(locale)}">` +
+      `<voice name="${xmlEscape(resolvedVoice)}">` +
+      `<prosody rate="${xmlEscape(rate)}">${xmlEscape(rawText)}</prosody>` +
+      `</voice></speak>`;
+
+    const ttsResponse = await fetchWithTimeout(
       endpoint,
       {
         method: 'POST',
@@ -120,26 +155,68 @@ Deno.serve(async (req: Request) => {
       AZURE_TTS_TIMEOUT_MS,
     );
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
+    if (!ttsResponse.ok) {
+      const errorText = await ttsResponse.text().catch(() => '');
       return jsonResponse(
         {
-          error: `Azure TTS failed (${response.status})`,
+          error: `Azure TTS failed (${ttsResponse.status})`,
           details: errorText.slice(0, 500),
         },
         502,
       );
     }
 
-    const audioBuffer = await response.arrayBuffer();
-    const audioBase64 = arrayBufferToBase64(audioBuffer);
+    const audioBuffer = await ttsResponse.arrayBuffer();
+    const safeStem = normalizedText
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_-]/g, '')
+      .slice(0, 80) || 'tts';
+    const safeVoice = resolvedVoice
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .slice(0, 60) || 'voice';
+    const fileName = `${safeStem}_${safeVoice}_${Date.now()}.mp3`;
 
-    return jsonResponse({
-      audioBase64,
-      mimeType: 'audio/mpeg',
-      locale,
-      voice,
+    const { error: uploadError } = await supabase.storage
+      .from('audio_cache')
+      .upload(fileName, audioBuffer, {
+        contentType: 'audio/mpeg',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return jsonResponse(
+        {
+          error: 'Storage upload failed',
+          details: uploadError.message.slice(0, 300),
+        },
+        502,
+      );
+    }
+
+    const { data: publicData } = supabase.storage.from('audio_cache').getPublicUrl(fileName);
+    const publicUrl = (publicData?.publicUrl || '').trim();
+    if (!publicUrl) {
+      return jsonResponse({ error: 'Failed to resolve public URL' }, 502);
+    }
+
+    const { error: insertError } = await supabase.from('cached_pronunciations').insert({
+      phrase: normalizedText,
+      voice: resolvedVoice,
+      audio_url: publicUrl,
     });
+
+    if (insertError) {
+      return jsonResponse(
+        {
+          error: 'DB insert failed',
+          details: insertError.message.slice(0, 300),
+        },
+        502,
+      );
+    }
+
+    return jsonResponse({ audioUrl: publicUrl, cached: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return jsonResponse({ error: 'Azure TTS request failed', details: message }, 502);

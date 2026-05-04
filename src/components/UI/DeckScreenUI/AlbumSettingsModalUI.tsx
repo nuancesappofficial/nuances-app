@@ -26,9 +26,11 @@ type Props = {
   settingsName: string;
   settingsEmoji: string;
   settingsColor: string;
+  hasCoverImage: boolean;
   onChangeName: (name: string) => void;
   onChangeEmoji: (emoji: string) => void;
   onChangeColor: (color: string) => void;
+  onPickCoverImage: () => void;
   onCancel: () => void;
   onSave: () => void;
 };
@@ -58,9 +60,11 @@ export default function AlbumSettingsModalUI({
   settingsName,
   settingsEmoji,
   settingsColor,
+  hasCoverImage,
   onChangeName,
   onChangeEmoji,
   onChangeColor,
+  onPickCoverImage,
   onCancel,
   onSave,
 }: Props) {
@@ -174,6 +178,13 @@ export default function AlbumSettingsModalUI({
                   );
                 })}
               </View>
+            </View>
+
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>Cover image</Text>
+              <TouchableOpacity style={styles.coverButton} activeOpacity={0.9} onPress={onPickCoverImage}>
+                <Text style={styles.coverButtonText}>{hasCoverImage ? 'Change cover image' : 'Choose cover image'}</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.buttonRow}>
@@ -309,6 +320,21 @@ const styles = StyleSheet.create({
   colorSwatchActive: {
     borderWidth: 2,
     borderColor: MODAL_CTA_COLOR_BORDER,
+  },
+  coverButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(15,23,42,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  coverButtonText: {
+    color: TEXT_ON_CONTAINER,
+    fontSize: 14,
+    fontWeight: '700',
   },
   buttonRow: {
     flexDirection: 'row',

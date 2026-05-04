@@ -23,7 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
-import type { AIReplyLanguage } from '@services/settings/userSettings';
+import type { AIReplyLanguage, TTSVoice, WordPopSlideMs } from '@services/settings/userSettings';
 import {
   CONTAINER_BG,
   CONTAINER_NEON_GLOW,
@@ -61,14 +61,43 @@ type Props = {
   entitlementMode: 'guest' | 'premium';
   savingEntitlement: boolean;
   aiReplyLanguage: AIReplyLanguage;
-  onPressSettings: () => void;
+  ttsVoice: TTSVoice;
+  wordPopSlideMs: WordPopSlideMs;
   onPressUploadProfilePic: () => void;
   onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
+  onChangeTTSVoice: (voice: TTSVoice) => void;
+  onChangeWordPopSlideMs: (value: WordPopSlideMs) => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
 };
+
+const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
+  { code: 'zh-TW', label: '繁中' },
+  { code: 'zh-CN', label: '简中' },
+  { code: 'en', label: 'EN' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+];
+
+const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
+  { code: 'en-US-JennyNeural', label: 'EN-US Jenny' },
+  { code: 'en-US-GuyNeural', label: 'EN-US Guy' },
+  { code: 'en-GB-SoniaNeural', label: 'EN-GB Sonia' },
+  { code: 'ja-JP-NanamiNeural', label: '日本語 Nanami' },
+  { code: 'ko-KR-SunHiNeural', label: '한국어 SunHi' },
+  { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
+  { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
+];
+
+const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = [
+  { value: 1800, label: '1.8s' },
+  { value: 2600, label: '2.6s' },
+  { value: 3400, label: '3.4s' },
+  { value: 4200, label: '4.2s' },
+  { value: 5200, label: '5.2s' },
+];
 
 const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
@@ -302,16 +331,19 @@ export default function ProfileMainScreenUI({
   entitlementMode,
   savingEntitlement,
   aiReplyLanguage,
-  onPressSettings,
+  ttsVoice,
+  wordPopSlideMs,
   onPressUploadProfilePic,
   onToggleEntitlement,
   onChangeAIReplyLanguage,
+  onChangeTTSVoice,
+  onChangeWordPopSlideMs,
   onPressBack,
   onPressMenu,
   onPressDay,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = false;
   const isFocused = useIsFocused();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -319,6 +351,9 @@ export default function ProfileMainScreenUI({
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
   const [currentMonthIndex, setCurrentMonthIndex] = React.useState<number>(0);
   const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
+  const [languageOpen, setLanguageOpen] = React.useState(false);
+  const [voiceOpen, setVoiceOpen] = React.useState(false);
+  const [wordPopOpen, setWordPopOpen] = React.useState(false);
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
@@ -638,47 +673,6 @@ export default function ProfileMainScreenUI({
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
-        <View
-          style={[
-            styles.profilePanel,
-            isLight
-              ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1, shadowOpacity: 0.05 }
-              : null,
-          ]}
-        >
-          <View style={styles.avatarWrap}>
-            {profileImageUri ? (
-              <Image source={{ uri: profileImageUri }} style={styles.avatarImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Ionicons name="person-circle" size={160} color={isLight ? '#CBD5E1' : '#B8BDC6'} />
-              </View>
-            )}
-          </View>
-          <View style={styles.titleBlock}>
-            <Text style={[styles.subtitle, { color: isLight ? '#64748B' : '#C6CFDC' }]}>{subtitle}</Text>
-            <Text style={[styles.title, { color: palette.textOnContainer }]} numberOfLines={1}>
-              {title}
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.settingsPillButton,
-            isLight
-              ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1, shadowOpacity: 0.05 }
-              : null,
-          ]}
-          activeOpacity={0.88}
-          onPress={onPressSettings}
-        >
-          <View style={[styles.settingsPillIconCircle, isLight ? { borderColor: palette.borderSubtle } : null]}>
-            <IconSymbol name="gearshape" fallback="⚙" size={18} color="#0F172A" />
-          </View>
-          <Text style={[styles.settingsPillLabel, { color: palette.textOnContainer }]}>Settings</Text>
-        </TouchableOpacity>
-
         <View style={styles.monthHeaderRow}>
           <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
           <View style={styles.monthControlRow}>
@@ -820,6 +814,103 @@ export default function ProfileMainScreenUI({
             </Animated.View>
           </View>
         </Animated.View>
+
+        <View style={styles.settingsListSection}>
+          <TouchableOpacity style={styles.miniPfpButton} activeOpacity={0.88} onPress={onPressUploadProfilePic}>
+            {profileImageUri ? (
+              <Image source={{ uri: profileImageUri }} style={styles.miniPfpImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.miniPfpFallback}>
+                <Ionicons name="person-circle" size={34} color={isLight ? '#CBD5E1' : '#9FB0C7'} />
+              </View>
+            )}
+          </TouchableOpacity>
+          <View style={styles.settingBlock}>
+            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setLanguageOpen((p) => !p)}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>AI Reply Language</Text>
+              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                {AI_LANGUAGE_OPTIONS.find((item) => item.code === aiReplyLanguage)?.label ?? '繁中'} ▾
+              </Text>
+            </TouchableOpacity>
+            {languageOpen ? (
+              <View style={styles.settingOptionsList}>
+                {AI_LANGUAGE_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.code}
+                    style={styles.settingOptionRow}
+                    onPress={() => {
+                      onChangeAIReplyLanguage(option.code);
+                      setLanguageOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.settingBlock}>
+            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setVoiceOpen((p) => !p)}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>TTS Voice</Text>
+              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                {TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ?? 'EN-US Jenny'} ▾
+              </Text>
+            </TouchableOpacity>
+            {voiceOpen ? (
+              <View style={styles.settingOptionsList}>
+                {TTS_VOICE_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.code}
+                    style={styles.settingOptionRow}
+                    onPress={() => {
+                      onChangeTTSVoice(option.code);
+                      setVoiceOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.settingBlock}>
+            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setWordPopOpen((p) => !p)}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Word Pop Slide</Text>
+              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                {WORD_POP_SLIDE_OPTIONS.find((item) => item.value === wordPopSlideMs)?.label ?? '2.6s'} ▾
+              </Text>
+            </TouchableOpacity>
+            {wordPopOpen ? (
+              <View style={styles.settingOptionsList}>
+                {WORD_POP_SLIDE_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={String(option.value)}
+                    style={styles.settingOptionRow}
+                    onPress={() => {
+                      onChangeWordPopSlideMs(option.value);
+                      setWordPopOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.settingsActionsRow}>
+            <TouchableOpacity style={styles.inlineSettingBtn} activeOpacity={0.88} onPress={onPressUploadProfilePic}>
+              <Text style={[styles.inlineSettingBtnText, { color: palette.textOnContainer }]}>Upload PFP</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.inlineSettingBtn} activeOpacity={0.88} onPress={onToggleEntitlement}>
+              <Text style={[styles.inlineSettingBtnText, { color: palette.textOnContainer }]}>
+                {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Switch Guest' : 'Switch Premium'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </SafeAreaView>
 
       <Modal
@@ -1301,23 +1392,38 @@ const styles = StyleSheet.create({
   dayStickerTokenBottom: {
     bottom: 0,
   },
-  settingsPillButton: {
+  settingsListSection: {
     marginHorizontal: 16,
     marginTop: 8,
-    borderRadius: 16,
-    backgroundColor: PANEL_BG,
+    marginBottom: 10,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  miniPfpButton: {
+    alignSelf: 'flex-end',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: CONTAINER_NEON_OUTLINE,
-    minHeight: 62,
-    paddingHorizontal: 14,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+    marginBottom: 8,
+  },
+  miniPfpImage: {
+    width: '100%',
+    height: '100%',
+  },
+  miniPfpFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    shadowColor: CONTAINER_NEON_GLOW,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    elevation: 7,
+    gap: 10,
+    marginBottom: 8,
   },
   settingsPillIconCircle: {
     width: 34,
@@ -1331,8 +1437,69 @@ const styles = StyleSheet.create({
   },
   settingsPillLabel: {
     color: TEXT_PRIMARY,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  settingBlock: {
+    marginTop: 8,
+  },
+  settingTrigger: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(15,23,42,0.4)',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  settingValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  settingOptionsList: {
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(15,23,42,0.5)',
+  },
+  settingOptionRow: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+  },
+  settingOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  settingsActionsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  inlineSettingBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(15,23,42,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  inlineSettingBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

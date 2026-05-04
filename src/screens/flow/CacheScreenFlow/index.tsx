@@ -506,7 +506,7 @@ function getDetectedPreview(annotations: unknown): string | undefined {
 
 export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const colorScheme = useColorScheme();
-  const palette = useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const palette = useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = false;
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);

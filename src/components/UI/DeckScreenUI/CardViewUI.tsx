@@ -66,11 +66,11 @@ export default function CardViewUI({
   withHexAlpha,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = false;
   const { width: screenWidth } = useWindowDimensions();
   const searchExpandProgress = React.useRef(new Animated.Value(isSearchVisible ? 1 : 0)).current;
-  const maxSearchWidth = Math.max(160, screenWidth - 16 * 2 - 40 - 10);
+  const maxSearchWidth = Math.max(220, screenWidth - 16 * 2);
   const searchAnimatedWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [40, maxSearchWidth],
@@ -184,9 +184,11 @@ export default function CardViewUI({
             </Animated.View>
           </Animated.View>
 
-          <TouchableOpacity style={styles.rawIconButton} onPress={onPressSort}>
-            <Ionicons name="swap-vertical" size={30} color="#FFFFFF" />
-          </TouchableOpacity>
+          {!isSearchVisible ? (
+            <TouchableOpacity style={styles.rawIconButton} onPress={onPressSort}>
+              <Ionicons name="swap-vertical" size={30} color="#FFFFFF" />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 

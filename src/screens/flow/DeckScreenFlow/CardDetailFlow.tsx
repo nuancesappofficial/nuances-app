@@ -201,7 +201,7 @@ function formatCardDate(input: Date | string | undefined | null): string {
 export default function CardDetailScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const isLightMode = colorScheme === 'light';
-  const palette = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
@@ -1128,7 +1128,32 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     []
   );
   const handlePlayPronunciationSyllable = React.useCallback((syllable: string) => {
-    const text = (syllable || '').trim();
+    const raw = (syllable || '').trim();
+    if (!raw) return;
+    const cleaned = raw.replace(/^\/+|\/+$/g, '').trim();
+    const phonemeApproxMap: Record<string, string> = {
+      // Common IPA/phoneme fallbacks for better TTS output.
+      'ə': 'uh',
+      'ɚ': 'er',
+      'ɝ': 'er',
+      'æ': 'a',
+      'ɑ': 'ah',
+      'ɔ': 'aw',
+      'ʌ': 'uh',
+      'ɪ': 'ih',
+      'i': 'ee',
+      'u': 'oo',
+      'ʊ': 'oo',
+      'ɛ': 'eh',
+      'ŋ': 'ng',
+      'θ': 'th',
+      'ð': 'th',
+      'ʃ': 'sh',
+      'ʒ': 'zh',
+      'tʃ': 'ch',
+      'dʒ': 'j',
+    };
+    const text = phonemeApproxMap[cleaned] || cleaned;
     if (!text) return;
     void speakEnglishNaturally(text);
   }, []);
@@ -1313,9 +1338,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
         {/* 新增的置中標題與卡片計數 */}
         <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
-          <Text style={styles.headerTitleText}>
+          <Text style={[styles.headerTitleText, isLightMode ? styles.headerTitleTextLight : null]}>
             {headerTitle}{' '}
-            <Text style={styles.headerCountText}>
+            <Text style={[styles.headerCountText, isLightMode ? styles.headerCountTextLight : null]}>
               ({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})
             </Text>
           </Text>
@@ -1599,6 +1624,12 @@ const styles = StyleSheet.create({
     fontSize: 25,
     color: 'rgba(244, 237, 230, 0.6)',
     fontWeight: '500',
+  },
+  headerTitleTextLight: {
+    color: '#0F172A',
+  },
+  headerCountTextLight: {
+    color: 'rgba(15, 23, 42, 0.62)',
   },
   floatingHeaderAction: {
     width: 40,

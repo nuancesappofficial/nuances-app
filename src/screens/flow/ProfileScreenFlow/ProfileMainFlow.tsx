@@ -17,6 +17,8 @@ import {
   saveUserSettings,
   type AIReplyLanguage,
   type EntitlementMode,
+  type TTSVoice,
+  type WordPopSlideMs,
 } from '@services/settings/userSettings';
 import { resolveCardImageUri } from '@services/media/cardImage';
 
@@ -227,6 +229,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
+  const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
+  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -326,6 +330,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       const settings = await loadUserSettings();
       setEntitlementMode(settings.entitlementMode);
       setAiReplyLanguage(settings.aiReplyLanguage);
+      setTtsVoice(settings.ttsVoice);
+      setWordPopSlideMs(settings.wordPopSlideMs);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -371,6 +377,36 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     } catch (error) {
       console.error('[Profiles] update AI reply language failed:', error);
       Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
+    }
+  }, []);
+
+  const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.ttsVoice === voice) return;
+      await saveUserSettings({
+        ...settings,
+        ttsVoice: voice,
+      });
+      setTtsVoice(voice);
+    } catch (error) {
+      console.error('[Profiles] update TTS voice failed:', error);
+      Alert.alert('更新失敗', '無法儲存語音設定，請稍後再試。');
+    }
+  }, []);
+
+  const handleChangeWordPopSlideMs = React.useCallback(async (value: WordPopSlideMs) => {
+    try {
+      const settings = await loadUserSettings();
+      if (settings.wordPopSlideMs === value) return;
+      await saveUserSettings({
+        ...settings,
+        wordPopSlideMs: value,
+      });
+      setWordPopSlideMs(value);
+    } catch (error) {
+      console.error('[Profiles] update word pop slide interval failed:', error);
+      Alert.alert('更新失敗', '無法儲存 Word Pop 輪播速度，請稍後再試。');
     }
   }, []);
 
@@ -435,14 +471,13 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
         aiReplyLanguage={aiReplyLanguage}
-        onPressSettings={() =>
-          navigation.navigate('ProfileSettings', {
-            onPressUploadProfilePic: handleChangeProfilePhoto,
-          })
-        }
+        ttsVoice={ttsVoice}
+        wordPopSlideMs={wordPopSlideMs}
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onToggleEntitlement={handleToggleEntitlementMode}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
+        onChangeTTSVoice={handleChangeTTSVoice}
+        onChangeWordPopSlideMs={handleChangeWordPopSlideMs}
         onPressBack={() => {
           if (overlayMode && onRequestClose) {
             onRequestClose();

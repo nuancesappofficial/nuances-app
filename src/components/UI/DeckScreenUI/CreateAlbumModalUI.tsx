@@ -101,17 +101,14 @@ export default function CreateAlbumModalUI({
             <Text style={styles.title}>Create a new album</Text>
             <Text style={styles.subtitle}>Give this collection a name so it feels like its own space.</Text>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionLabel}>Album name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Type album name"
-                placeholderTextColor="#64748B"
-                value={albumName}
-                onChangeText={onChangeAlbumName}
-                autoFocus
-              />
-            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Type album name"
+              placeholderTextColor="#64748B"
+              value={albumName}
+              onChangeText={onChangeAlbumName}
+              autoFocus
+            />
 
             <View style={styles.buttonRow}>
               <TouchableOpacity style={styles.cancelButton} onPress={onCancel} activeOpacity={0.9}>
@@ -176,24 +173,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  sectionCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: CONTAINER_BG,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 10,
-  },
-  sectionLabel: {
-    color: '#97A0AF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
   input: {
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(15,23,42,0.5)',
+    backgroundColor: CONTAINER_BG,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 11,

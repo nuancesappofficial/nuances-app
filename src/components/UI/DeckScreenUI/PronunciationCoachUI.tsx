@@ -219,7 +219,7 @@ export default function PronunciationCoachUI({
                     <TouchableOpacity
                       key={`${chip.phoneme}-${rowIndex}-${idx}`}
                       activeOpacity={0.88}
-                      onPress={() => onPlaySyllable((chip.letters || chip.phoneme || '').trim())}
+                      onPress={() => onPlaySyllable((chip.phoneme || chip.letters || '').trim())}
                       style={[styles.syllableBlock, { paddingVertical: dynPaddingVertical }]}
                     >
                       <Text

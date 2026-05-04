@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -48,6 +49,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
   const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
   const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
+  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [isAlbumPrefsHydrated, setIsAlbumPrefsHydrated] = React.useState(false);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
@@ -55,6 +57,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [settingsName, setSettingsName] = React.useState('');
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
   const [settingsColor, setSettingsColor] = React.useState('#1E293B');
+  const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<Set<string>>(new Set());
@@ -85,6 +88,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides(prefs.albumNameOverrides);
       setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
       setAlbumColorOverrides(prefs.albumColorOverrides);
+      setAlbumCoverOverrides(prefs.albumCoverOverrides);
       setDeletedAlbumIds(prefs.deletedAlbumIds);
     } finally {
       setIsAlbumPrefsHydrated(true);
@@ -108,7 +112,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       albumNameOverrides,
       albumEmojiOverrides,
       albumColorOverrides,
-      albumCoverOverrides: {},
+      albumCoverOverrides,
       deletedAlbumIds,
     };
     saveDeckAlbumPreferences(payload).catch((error) => {
@@ -120,6 +124,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     albumNameOverrides,
     albumEmojiOverrides,
     albumColorOverrides,
+    albumCoverOverrides,
     deletedAlbumIds,
   ]);
 
@@ -340,10 +345,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         albumNameOverrides,
         albumEmojiOverrides,
         albumColorOverrides,
-        albumCoverOverrides: {},
+        albumCoverOverrides,
         deletedAlbumIds,
       }),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, deletedAlbumIds]
+    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
   );
 
   const processedAlbums = React.useMemo(() => {
@@ -394,6 +399,30 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
     return list;
   }, [allCards, cardImageMap]);
+
+  const searchResults = React.useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    if (!keyword) return [];
+    const seen = new Set<string>();
+    const list: Array<{ cardId: string; text: string; translation?: string }> = [];
+    allCards.forEach((card) => {
+      const phrase = (card.targetPhrase || '').trim();
+      const word = (card.targetWord || '').trim();
+      const candidate = phrase || word;
+      if (!candidate) return;
+      const haystack = `${candidate} ${card.definition || ''} ${card.originalSentence || ''}`.toLowerCase();
+      if (!haystack.includes(keyword)) return;
+      const dedupeKey = `${card.id}:${candidate.toLowerCase()}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      list.push({
+        cardId: card.id,
+        text: candidate,
+        translation: (card.definition || '').trim(),
+      });
+    });
+    return list;
+  }, [allCards, searchQuery]);
 
   const todayCardIds = React.useMemo(() => {
     const todayKey = toDayKey(new Date());
@@ -450,8 +479,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     setSettingsName(album.name);
     setSettingsEmoji(album.emoji || '📁');
     setSettingsColor(album.color || '#1E293B');
+    setSettingsCoverImageUri(albumCoverOverrides[album.id] || album.coverImageUri || '');
     setSettingsVisible(true);
-  }, []);
+  }, [albumCoverOverrides]);
 
   const handleSaveAlbumSettings = React.useCallback(() => {
     if (!settingsAlbum) return;
@@ -475,11 +505,33 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
       setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
       setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
+      setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsCoverImageUri }));
     }
 
     setSettingsVisible(false);
     setSettingsAlbum(null);
-  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor]);
+  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
+
+  const handlePickAlbumCoverImage = React.useCallback(async () => {
+    if (!settingsAlbum) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('需要相簿權限', '請先允許存取相簿，才能選擇封面圖片。');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      setSettingsCoverImageUri(result.assets[0].uri);
+    } catch (error) {
+      console.error('[DeckMain] pick album cover failed:', error);
+      Alert.alert('選擇失敗', '無法選擇封面圖片，請稍後再試。');
+    }
+  }, [settingsAlbum]);
 
   const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
     if (album.isDefault) {
@@ -568,6 +620,23 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     [allCards, navigation]
   );
 
+  const handlePressSearchResult = React.useCallback(
+    (item: { cardId: string; text: string; translation?: string }) => {
+      if (!item?.cardId) return;
+      const scopedCardIds = allCards.map((card) => card.id);
+      if (scopedCardIds.length === 0) return;
+      const targetCardId = scopedCardIds.includes(item.cardId) ? item.cardId : scopedCardIds[0];
+      navigation.navigate('CardDetail', {
+        cardId: targetCardId,
+        cardIds: scopedCardIds,
+        albumName: 'All cards',
+        headerTitle: 'All cards',
+      });
+      setSearchQuery('');
+    },
+    [allCards, navigation]
+  );
+
   return (
     <>
       <DeckMainScreenUI
@@ -588,6 +657,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         onPressSlideshowItem={handlePressWordPopItem}
+        searchResults={searchResults}
+        onPressSearchResult={handlePressSearchResult}
         albums={processedAlbums}
         onPressAlbum={handleAlbumPress}
         isMenuVisible={isMenuVisible}
@@ -623,9 +694,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         settingsName={settingsName}
         settingsEmoji={settingsEmoji}
         settingsColor={settingsColor}
+        hasCoverImage={Boolean(settingsCoverImageUri)}
         onChangeName={setSettingsName}
         onChangeEmoji={setSettingsEmoji}
         onChangeColor={setSettingsColor}
+        onPickCoverImage={() => void handlePickAlbumCoverImage()}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
