@@ -4,6 +4,8 @@
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import {
+  Animated,
+  Easing,
   StyleSheet,
   View,
   ActivityIndicator,
@@ -12,6 +14,8 @@ import {
   Alert,
   Linking,
   AppState,
+  Modal,
+  useColorScheme,
   type AppStateStatus,
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
@@ -28,6 +32,7 @@ import {
   signInWithGoogle,
   supabase,
 } from './src/services/supabase/client';
+import { resolveThemeColors } from './src/theme/colors';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
@@ -73,6 +78,43 @@ function AuthGate({ onPressGoogle, loading }: { onPressGoogle: () => void; loadi
         </Text>
       </TouchableOpacity>
     </View>
+  );
+}
+
+function GlobalThemeCrossFadeOverlay() {
+  const colorScheme = useColorScheme();
+  const previousColorSchemeRef = React.useRef(colorScheme);
+  const overlayOpacity = React.useRef(new Animated.Value(0)).current;
+  const [overlayColor, setOverlayColor] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const previousColorScheme = previousColorSchemeRef.current;
+    if (previousColorScheme === colorScheme) return;
+
+    const previousTheme = resolveThemeColors(previousColorScheme);
+    previousColorSchemeRef.current = colorScheme;
+    setOverlayColor(previousTheme.screenBg);
+    overlayOpacity.stopAnimation();
+    overlayOpacity.setValue(1);
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: 260,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setOverlayColor(null);
+    });
+  }, [colorScheme, overlayOpacity]);
+
+  if (!overlayColor) return null;
+
+  return (
+    <Modal visible transparent animationType="none" statusBarTranslucent presentationStyle="overFullScreen">
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.themeFadeOverlay, { backgroundColor: overlayColor, opacity: overlayOpacity }]}
+      />
+    </Modal>
   );
 }
 
@@ -243,6 +285,7 @@ export default function App() {
           </ShareExtensionSync>
           <StatusBar style="auto" />
         </ShareExtensionProvider>
+        <GlobalThemeCrossFadeOverlay />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -278,6 +321,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#222',
     marginBottom: 12,
+  },
+  themeFadeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flex: 1,
   },
   authSubtitle: {
     fontSize: 14,
