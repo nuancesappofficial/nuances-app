@@ -35,13 +35,13 @@ type Props = {
 
 type SortMode = 'recently_added' | 'recently_reviewed' | 'alphabetical';
 
-function getDefaultAlbum(cards: Card[]): Album {
+function getDefaultAlbum(): Album {
   return {
     id: 'all-cards',
     name: 'All Cards',
     emoji: '📚',
     color: '#EAF1FF',
-    cardIds: cards.map((card) => card.id),
+    cardIds: [],
   };
 }
 
@@ -69,7 +69,10 @@ function withHexAlpha(color: string, alphaHex: string): string {
 }
 
 export default function AlbumViewFlow({ navigation, route }: Props) {
-  const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const album = React.useMemo(() => {
+    return route.params?.album ?? getDefaultAlbum();
+  }, [route.params?.album]);
+  const [albumCards, setAlbumCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortMode, setSortMode] = React.useState<SortMode>('recently_added');
@@ -125,30 +128,32 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     }).start();
   }, [screenOpacity]);
 
+  const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    const cardsCollection = database.get<Card>('cards');
+    const queryCards =
+      album.id === 'all-cards' || !album.cardIds.length
+        ? cardsCollection.query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+        : cardsCollection.query(
+            Q.where('deleted_at', null),
+            Q.where('id', Q.oneOf(album.cardIds)),
+            Q.sortBy('created_at', Q.desc)
+          );
 
     const load = async () => {
       try {
         const data = await queryCards.fetch();
-        setAllCards(data);
+        setAlbumCards(data);
       } catch (error) {
-        console.error('[AlbumView] load cards failed:', error);
-        setAllCards([]);
+        console.error('[AlbumView] load album cards failed:', error);
+        setAlbumCards([]);
       }
     };
 
     void load();
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
+    const sub = queryCards.observe().subscribe((data) => setAlbumCards(data));
     return () => sub.unsubscribe();
-  }, []);
-
-  const album = React.useMemo(() => {
-    return route.params?.album ?? getDefaultAlbum(allCards);
-  }, [allCards, route.params?.album]);
-  const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
+  }, [album.cardIds, album.id]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -186,36 +191,28 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     }, [album.id])
   );
 
-  const albumCards = React.useMemo(() => {
-    if (!album.cardIds.length) return [];
-    const idSet = new Set(album.cardIds);
-    return allCards.filter((card) => idSet.has(card.id));
-  }, [allCards, album.cardIds]);
-
   React.useEffect(() => {
     let cancelled = false;
+    const currentCardIds = new Set(albumCards.map((card) => card.id));
+    setCardImageMap((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([id, uri]) => {
+        if (currentCardIds.has(id)) {
+          next[id] = uri;
+        }
+      });
+      return next;
+    });
 
     const loadCardImages = async () => {
-      const nextMap: Record<string, string> = {};
-      await Promise.all(
-        albumCards.map(async (card) => {
-          const uri = await resolveCardImageUri({
-            cardId: card.id,
-            remoteUri: card.imageUrl,
-          });
-          if (card.imageUrl && !uri) {
-            console.warn('[AlbumView] card image resolve failed', {
-              cardId: card.id,
-              imageUrl: card.imageUrl,
-            });
-          }
-          if (uri) {
-            nextMap[card.id] = uri;
-          }
-        })
-      );
-      if (!cancelled) {
-        setCardImageMap(nextMap);
+      for (const card of albumCards) {
+        if (cancelled) break;
+        const uri = await resolveCardImageUri({
+          cardId: card.id,
+          remoteUri: card.imageUrl,
+        });
+        if (cancelled || !uri) continue;
+        setCardImageMap((prev) => (prev[card.id] === uri ? prev : { ...prev, [card.id]: uri }));
       }
     };
 

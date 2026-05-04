@@ -202,7 +202,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const isLightMode = colorScheme === 'light';
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
   const tabSwipeContext = React.useContext(TabSwipeContext);
@@ -253,15 +253,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const userRecordingSoundRef = React.useRef<any | null>(null);
   const waveformPointerRef = React.useRef(0);
   const flatListRef = React.useRef<FlatList<Card> | null>(null);
-  const fullscreenListRef = React.useRef<FlatList<Card> | null>(null);
   const initialScrollDone = React.useRef(false);
   const didMountIndexRef = React.useRef(false);
   const scrollX = useSharedValue(0);
   const activeIndexUI = useSharedValue(currentIndex ?? 0);
   const fullscreenDragY = React.useRef(new Animated.Value(0)).current;
   const fullscreenBackdropOpacity = React.useRef(new Animated.Value(1)).current;
-  const fullscreenContentOpacity = React.useRef(new Animated.Value(1)).current;
   const fullscreenEntryProgress = React.useRef(new Animated.Value(0)).current;
+  const fullscreenOriginDeltaX = React.useRef(new Animated.Value(0)).current;
+  const fullscreenOriginDeltaY = React.useRef(new Animated.Value(0)).current;
   const fullscreenDragYValueRef = React.useRef(0);
   const stickyModalAnim = React.useRef(new Animated.Value(0)).current;
   const pronunciationModalAnim = React.useRef(new Animated.Value(0)).current;
@@ -995,11 +995,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         duration: 170,
         useNativeDriver: true,
       }),
-      Animated.timing(fullscreenContentOpacity, {
-        toValue: 0,
-        duration: 170,
-        useNativeDriver: true,
-      }),
       Animated.timing(fullscreenDragY, {
         toValue: exitTargetY,
         duration: 170,
@@ -1014,20 +1009,32 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         });
       }
     });
-  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenContentOpacity, fullscreenDragY, navigateToIndex]);
+  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenDragY, navigateToIndex]);
   const handleOpenFullscreen = React.useCallback(
-    (targetIndex: number) => {
+    (targetIndex: number, origin?: { x: number; y: number }) => {
       const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
       if (!scopedCards[safeIndex]) return;
       setFullscreenCardIndex(safeIndex);
       fullscreenDragYValueRef.current = 0;
       fullscreenDragY.setValue(0);
       fullscreenBackdropOpacity.setValue(1);
-      fullscreenContentOpacity.setValue(1);
       fullscreenEntryProgress.setValue(0);
+      const centerX = screenWidth / 2;
+      const centerY = screenHeight / 2;
+      fullscreenOriginDeltaX.setValue((origin?.x ?? centerX) - centerX);
+      fullscreenOriginDeltaY.setValue((origin?.y ?? centerY) - centerY);
       setIsFullscreenViewerVisible(true);
     },
-    [fullscreenBackdropOpacity, fullscreenContentOpacity, fullscreenDragY, fullscreenEntryProgress, scopedCards]
+    [
+      fullscreenBackdropOpacity,
+      fullscreenDragY,
+      fullscreenEntryProgress,
+      fullscreenOriginDeltaX,
+      fullscreenOriginDeltaY,
+      scopedCards,
+      screenHeight,
+      screenWidth,
+    ]
   );
   const fullscreenPanResponder = React.useMemo(
     () =>
@@ -1039,7 +1046,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           fullscreenDragYValueRef.current = gestureState.dy;
           const dragFactor = Math.min(1, Math.abs(gestureState.dy) / 320);
           fullscreenBackdropOpacity.setValue(Math.max(0.3, 1 - dragFactor * 0.7));
-          fullscreenContentOpacity.setValue(Math.max(0.24, 1 - dragFactor * 0.76));
         },
         onPanResponderRelease: (_, gestureState) => {
           if (Math.abs(gestureState.dy) > 120) {
@@ -1054,12 +1060,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               speed: 18,
             }),
             Animated.spring(fullscreenBackdropOpacity, {
-              toValue: 1,
-              useNativeDriver: true,
-              bounciness: 6,
-              speed: 18,
-            }),
-            Animated.spring(fullscreenContentOpacity, {
               toValue: 1,
               useNativeDriver: true,
               bounciness: 6,
@@ -1082,43 +1082,25 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               bounciness: 6,
               speed: 18,
             }),
-            Animated.spring(fullscreenContentOpacity, {
-              toValue: 1,
-              useNativeDriver: true,
-              bounciness: 6,
-              speed: 18,
-            }),
           ]).start();
           fullscreenDragYValueRef.current = 0;
         },
       }),
-    [closeFullscreenViewer, fullscreenBackdropOpacity, fullscreenContentOpacity, fullscreenDragY]
-  );
-  const handleFullscreenMomentumEnd = React.useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const nextIndex = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
-      const safeIndex = Math.max(0, Math.min(nextIndex, scopedCards.length - 1));
-      setFullscreenCardIndex(safeIndex);
-    },
-    [scopedCards.length, screenWidth]
+    [closeFullscreenViewer, fullscreenBackdropOpacity, fullscreenDragY]
   );
   React.useEffect(() => {
     if (!isFullscreenViewerVisible || fullscreenCardIndex === null) return;
     Animated.timing(fullscreenEntryProgress, {
       toValue: 1,
-      duration: 230,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-    requestAnimationFrame(() => {
-      fullscreenListRef.current?.scrollToOffset({
-        offset: fullscreenCardIndex * screenWidth,
-        animated: false,
-      });
-    });
-  }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible, screenWidth]);
+  }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible]);
 
   const phonemeChips = phonemeFeedback.slice(0, 5);
+  const fullscreenCard = fullscreenCardIndex === null ? null : scopedCards[fullscreenCardIndex] ?? null;
+  const fullscreenImageUri = fullscreenCard ? cardImageMap[fullscreenCard.id] ?? null : null;
   const handlePlayPronunciationWord = React.useCallback(
     (word: string) => {
       const text = (word || '').trim();
@@ -1498,12 +1480,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         {(() => {
           const entryTranslateY = fullscreenEntryProgress.interpolate({
             inputRange: [0, 1],
-            outputRange: [-140, 0],
+            outputRange: [1, 0],
+            extrapolate: 'clamp',
+          });
+          const entryTranslateX = fullscreenEntryProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
             extrapolate: 'clamp',
           });
           const entryScale = fullscreenEntryProgress.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.86, 1],
+            outputRange: [0.8, 1],
             extrapolate: 'clamp',
           });
           const dragScale = fullscreenDragY.interpolate({
@@ -1519,54 +1506,55 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
             }}
           >
-            <View style={{ flex: 1, backgroundColor: palette.screenBg }} />
+            <View style={{ flex: 1, backgroundColor: '#000000' }} />
           </Animated.View>
 
           <Animated.View
             {...fullscreenPanResponder.panHandlers}
             style={{
               flex: 1,
-              opacity: Animated.multiply(fullscreenContentOpacity, fullscreenEntryProgress),
               transform: [
-                { translateY: Animated.add(fullscreenDragY, entryTranslateY) },
+                {
+                  translateX: Animated.multiply(fullscreenOriginDeltaX, entryTranslateX),
+                },
+                {
+                  translateY: Animated.add(
+                    fullscreenDragY,
+                    Animated.multiply(fullscreenOriginDeltaY, entryTranslateY)
+                  ),
+                },
                 { scale: Animated.multiply(dragScale, entryScale) },
               ],
             }}
           >
-            <FlatList
-              ref={fullscreenListRef}
-              data={scopedCards}
-              keyExtractor={(item) => `fullscreen-${item.id}`}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              initialNumToRender={3}
-              windowSize={5}
-              getItemLayout={(_, index) => ({
-                length: screenWidth,
-                offset: screenWidth * index,
-                index,
-              })}
-              onMomentumScrollEnd={handleFullscreenMomentumEnd}
-              renderItem={({ item }) => {
-                const uri = cardImageMap[item.id] ?? null;
-                return (
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    onPress={() => closeFullscreenViewer('tap')}
-                    style={{ width: screenWidth, flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    {uri ? (
-                      <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                    ) : (
-                      <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#F4EDE6', fontSize: 18, fontWeight: '700' }}>無圖片可顯示</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-            />
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => closeFullscreenViewer('tap')}
+              style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+            >
+              {fullscreenImageUri ? (
+                <Image
+                  source={{ uri: fullscreenImageUri }}
+                  style={{ width: screenWidth, height: '100%' }}
+                  resizeMode="contain"
+                />
+              ) : (
+                <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#F4EDE6', fontSize: 18, fontWeight: '700' }}>無圖片可顯示</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => closeFullscreenViewer('tap')}
+              activeOpacity={0.85}
+              style={[
+                styles.fullscreenCloseButton,
+                { top: Math.max(insets.top, 14), left: 14 },
+              ]}
+            >
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
           </Animated.View>
         </View>
           );
@@ -1630,6 +1618,18 @@ const styles = StyleSheet.create({
   },
   headerCountTextLight: {
     color: 'rgba(15, 23, 42, 0.62)',
+  },
+  fullscreenCloseButton: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.36)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    zIndex: 12,
   },
   floatingHeaderAction: {
     width: 40,

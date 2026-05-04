@@ -507,7 +507,7 @@ function getDetectedPreview(annotations: unknown): string | undefined {
 export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const colorScheme = useColorScheme();
   const palette = useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = false;
+  const isLight = colorScheme === 'light';
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const addButtonScale = React.useRef(new Animated.Value(1)).current;
@@ -520,6 +520,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const [manualText, setManualText] = useState('');
   const [didPasteIntoTextBox, setDidPasteIntoTextBox] = useState(false);
   const [pasteEnabled, setPasteEnabled] = useState(false);
+  const [pendingBatchEnterIds, setPendingBatchEnterIds] = useState<string[]>([]);
+  const [optimisticallyHiddenCacheIds, setOptimisticallyHiddenCacheIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const {
     creatingImage,
     showQuickCamera,
@@ -544,12 +548,16 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     navigation,
     setShowAddModal,
     setAddTab,
+    onBatchQuickAddCreated: (createdItemIds) => {
+      setPendingBatchEnterIds(createdItemIds);
+    },
   });
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
   const previousCardCountRef = React.useRef<number | null>(null);
   const hasSeenCacheOnceRef = React.useRef(false);
   const lastSeenStackCardIdsRef = React.useRef<string[]>([]);
   const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
+  const [visibleCacheIds, setVisibleCacheIds] = useState<string[]>([]);
   const openAddModal = React.useCallback(() => {
     void Haptics.selectionAsync();
     setShowAddModal(true);
@@ -635,8 +643,29 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   });
   const { deleteCacheItemPermanently } = useCacheItemCleanup({ cacheItems });
 
+  useEffect(() => {
+    if (optimisticallyHiddenCacheIds.size === 0) return;
+    const activeIds = new Set(cacheItems.map((item) => item.id));
+    setOptimisticallyHiddenCacheIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (activeIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [cacheItems, optimisticallyHiddenCacheIds.size]);
+
   const cards = useMemo<CacheCardRecord[]>(() => {
     return [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
+        if (optimisticallyHiddenCacheIds.has(item.id)) {
+          return acc;
+        }
+
         const text = (
           item.contentText?.trim() ||
           item.userKeywords?.trim() ||
@@ -668,10 +697,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         });
         return acc;
       }, []);
-  }, [cacheItems, liveDetectedPreviewById]);
+  }, [cacheItems, liveDetectedPreviewById, optimisticallyHiddenCacheIds]);
 
   const stackCards = useMemo(() => {
-    return cards.map((item) => ({
+    const visibleIdSet = new Set(visibleCacheIds);
+    return cards.filter((item) => visibleIdSet.has(item.id)).map((item) => ({
       id: item.id,
       imageUri: item.imageUri,
       text: item.text,
@@ -679,18 +709,42 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       sourceLabel: item.sourceLabel,
       importedAtLabel: item.importedAtLabel,
     }));
-  }, [cards]);
+  }, [cards, visibleCacheIds]);
 
   useEffect(() => {
     if (!isCacheFocused) return;
 
-    const currentIds = stackCards.map((card) => card.id);
+    const currentIds = cards.map((card) => card.id);
     const seenIds = lastSeenStackCardIdsRef.current;
+    const pendingBatchIds = pendingBatchEnterIds;
+
+    if (enteringCardIds.length > 0) {
+      lastSeenStackCardIdsRef.current = currentIds;
+      return;
+    }
+
+    if (pendingBatchIds.length > 0) {
+      if (showAddModal) return;
+
+      const readyIds = pendingBatchIds.filter((id) => currentIds.includes(id));
+      if (readyIds.length !== pendingBatchIds.length) return;
+
+      setPendingBatchEnterIds([]);
+      setVisibleCacheIds(currentIds);
+      setEnteringCardIds(readyIds);
+      setAnimationSeed((prev) => prev + 1);
+      hasSeenCacheOnceRef.current = true;
+      lastSeenStackCardIdsRef.current = currentIds;
+      return;
+    }
 
     if (!hasSeenCacheOnceRef.current) {
       if (currentIds.length > 0) {
+        setVisibleCacheIds(currentIds);
         setEnteringCardIds(currentIds);
         setAnimationSeed((prev) => prev + 1);
+      } else {
+        setVisibleCacheIds([]);
       }
       hasSeenCacheOnceRef.current = true;
       lastSeenStackCardIdsRef.current = currentIds;
@@ -701,14 +755,17 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     const newlyAdded = currentIds.filter((id) => !seenSet.has(id));
 
     if (newlyAdded.length > 0) {
+      if (showAddModal) return;
+      setVisibleCacheIds(currentIds);
       setEnteringCardIds(newlyAdded);
       setAnimationSeed((prev) => prev + 1);
     } else {
+      setVisibleCacheIds(currentIds);
       setRestoreSeed((prev) => prev + 1);
     }
 
     lastSeenStackCardIdsRef.current = currentIds;
-  }, [isCacheFocused, stackCards]);
+  }, [cards, enteringCardIds.length, isCacheFocused, pendingBatchEnterIds, showAddModal]);
 
   useEffect(() => {
     if (enteringCardIds.length === 0) return;
@@ -861,13 +918,31 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     void refreshPasteEnabled();
   }, [refreshPasteEnabled, showAddModal]);
 
+  const hideCacheCardImmediately = React.useCallback((itemId: string) => {
+    setVisibleCacheIds((prev) => prev.filter((id) => id !== itemId));
+    setOptimisticallyHiddenCacheIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+  }, []);
+
   const handleCardImageError = React.useCallback(
     (itemId: string) => {
       const target = cards.find((card) => card.id === itemId);
       if (!target) return;
+      hideCacheCardImmediately(itemId);
       void deleteCacheItemPermanently(target.cachedItem, { silent: true });
     },
-    [cards, deleteCacheItemPermanently]
+    [cards, deleteCacheItemPermanently, hideCacheCardImmediately]
+  );
+
+  const handleCardSwipeStart = React.useCallback(
+    (itemId: string, direction: 'left' | 'right') => {
+      if (direction !== 'left') return;
+      hideCacheCardImmediately(itemId);
+    },
+    [hideCacheCardImmediately]
   );
 
   const handleCardSwipe = React.useCallback(
@@ -903,9 +978,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         return;
       }
 
+      hideCacheCardImmediately(itemId);
       void deleteCacheItemPermanently(target.cachedItem);
     },
-    [cards, deleteCacheItemPermanently, navigation, openCropperForSwipeImage]
+    [cards, deleteCacheItemPermanently, hideCacheCardImmediately, navigation, openCropperForSwipeImage]
   );
 
   const animateAddButtonPress = React.useCallback(
@@ -949,6 +1025,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           animationSeed={animationSeed}
           restoreSeed={restoreSeed}
           enteringCardIds={enteringCardIds}
+          onCardSwipeStart={handleCardSwipeStart}
           onCardSwipe={handleCardSwipe}
           onCardImageError={handleCardImageError}
         />

@@ -12,7 +12,7 @@ type UseCacheQuickAddFlowArgs = {
   navigation: any;
   setShowAddModal: React.Dispatch<React.SetStateAction<boolean>>;
   setAddTab: React.Dispatch<React.SetStateAction<'text' | 'image'>>;
-  onBatchQuickAddCreated?: (createdCount: number) => void;
+  onBatchQuickAddCreated?: (createdItemIds: string[]) => void;
 };
 
 export function useCacheQuickAddFlow({
@@ -36,43 +36,47 @@ export function useCacheQuickAddFlow({
   const [quickCameraPermission, requestQuickCameraPermission] = useCameraPermissions();
 
   const createQuickImageCachedItems = React.useCallback(
-    async (imageUris: string[]): Promise<number> => {
+    async (imageUris: string[]): Promise<string[]> => {
       const userId = await getCurrentAuthUserId();
       if (!userId) {
         Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
-        return 0;
+        return [];
       }
 
       const validUris = imageUris.filter(Boolean);
-      if (validUris.length === 0) return 0;
+      if (validUris.length === 0) return [];
+
+      const collection = database.get<CachedItem>('cached_items');
+      const preparedItems = validUris.map((uri) =>
+        collection.prepareCreate((item) => {
+          item.userId = userId;
+          item.contentType = 'image';
+          item.type = 'image';
+          item.contentText = undefined;
+          item.contentUrl = undefined;
+          item.mediaUri = uri;
+          item.imageStoragePath = uri;
+          item.sourceApp = 'Quick Add';
+          item.userKeywords = undefined;
+          item.aiAnalysisCompleted = false;
+          item.convertedToCard = false;
+          item.imageAnnotations = undefined;
+
+          const expiresAt = new Date();
+          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+          item.expiresAt = expiresAt;
+        })
+      );
+      const createdIds = preparedItems.map((item) => item.id);
+      onBatchQuickAddCreated?.(createdIds);
 
       await database.write(async () => {
-        const collection = database.get<CachedItem>('cached_items');
-        for (const uri of validUris) {
-          await collection.create((item) => {
-            item.userId = userId;
-            item.contentType = 'image';
-            item.type = 'image';
-            item.contentText = undefined;
-            item.contentUrl = undefined;
-            item.mediaUri = uri;
-            item.imageStoragePath = uri;
-            item.sourceApp = 'Quick Add';
-            item.userKeywords = undefined;
-            item.aiAnalysisCompleted = false;
-            item.convertedToCard = false;
-            item.imageAnnotations = undefined;
-
-            const expiresAt = new Date();
-            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-            item.expiresAt = expiresAt;
-          });
-        }
+        await database.batch(...preparedItems);
       });
 
-      return validUris.length;
+      return createdIds;
     },
-    []
+    [onBatchQuickAddCreated]
   );
 
   const queueQuickAddCropperAfterModalDismiss = React.useCallback(
@@ -122,17 +126,21 @@ export function useCacheQuickAddFlow({
       if (pickedAssets.length === 0) return;
 
       if (pickedAssets.length > 1) {
+        setSuppressAddModalAnimation(true);
+        setShowAddModal(false);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         try {
-          const createdCount = await createQuickImageCachedItems(
+          const createdItemIds = await createQuickImageCachedItems(
             pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
           );
-          if (createdCount > 0) {
-            setShowAddModal(false);
-            onBatchQuickAddCreated?.(createdCount);
+          if (createdItemIds.length > 0) {
+            // The pending ids were registered before the DB batch, so the stack
+            // is ready before WatermelonDB emits the newly inserted rows.
           } else {
             Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
           }
         } catch (error) {
+          onBatchQuickAddCreated?.([]);
           console.error('[CacheList] batch image create failed:', error);
           Alert.alert('新增失敗', '批次新增圖片快取失敗，請稍後再試。');
         }

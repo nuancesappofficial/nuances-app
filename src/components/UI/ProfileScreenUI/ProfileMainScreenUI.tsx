@@ -6,6 +6,7 @@ import {
   Image,
   LayoutChangeEvent,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -71,6 +72,8 @@ type Props = {
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
+  onSettingsSubPageVisibleChange?: (visible: boolean) => void;
+  onSettingsSubPageProgressChange?: (progress: number) => void;
 };
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
@@ -114,8 +117,8 @@ const TEXT_ON_BASE = TEXT_ON_BG;
 const HEATMAP_TOP_PADDING = 28;
 const HEATMAP_WEEKDAY_AND_GAP = 16;
 const HEATMAP_BOTTOM_PADDING = 6;
-const MONTH_PICKER_ROW_HEIGHT = 44;
-const MONTH_PICKER_WHEEL_HEIGHT = 156;
+const MONTH_PICKER_ROW_HEIGHT = 56;
+const MONTH_PICKER_WHEEL_HEIGHT = 300;
 const MONTH_PICKER_WHEEL_SIDE_PADDING = (MONTH_PICKER_WHEEL_HEIGHT - MONTH_PICKER_ROW_HEIGHT) / 2;
 const MONTH_PICKER_ANIM_DURATION = 240;
 
@@ -291,7 +294,7 @@ function HeatMapCircle({
     </View>
   ) : (
     <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle, { backgroundColor: palette.screenBg }]}>
-      <Text style={[styles.dayNumber, { color: isLight ? '#0F172A' : TEXT_ON_BASE }]}>{item.dayNumber}</Text>
+      <Text style={[styles.dayNumber, { color: isLight ? '#0F172A' : '#EAF3FF' }]}>{item.dayNumber}</Text>
     </View>
   );
 
@@ -341,29 +344,32 @@ export default function ProfileMainScreenUI({
   onPressBack,
   onPressMenu,
   onPressDay,
+  onSettingsSubPageVisibleChange,
+  onSettingsSubPageProgressChange,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = false;
+  const isLight = colorScheme === 'light';
   const isFocused = useIsFocused();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
   const [currentMonthIndex, setCurrentMonthIndex] = React.useState<number>(0);
   const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
-  const [languageOpen, setLanguageOpen] = React.useState(false);
-  const [voiceOpen, setVoiceOpen] = React.useState(false);
-  const [wordPopOpen, setWordPopOpen] = React.useState(false);
+  const [activeSettingsPicker, setActiveSettingsPicker] = React.useState<null | 'ai' | 'voice' | 'wordPop'>(null);
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
   const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
+  const settingsPageTranslateX = React.useRef(new Animated.Value(screenWidth)).current;
   const currentMonthIndexRef = React.useRef<number>(0);
   const pendingTargetIndexRef = React.useRef<number | null>(null);
   const yearWheelRef = React.useRef<FlatList<number> | null>(null);
   const monthWheelRef = React.useRef<FlatList<number> | null>(null);
   const edgePullX = React.useRef(new Animated.Value(0)).current;
   const edgeBounceAnimRef = React.useRef<Animated.CompositeAnimation | null>(null);
+  const lastMonthPickerHapticIndexRef = React.useRef({ year: -1, month: -1 });
+  const lastMonthPickerHapticAtRef = React.useRef(0);
 
   const handlePagerLayout = React.useCallback((event: LayoutChangeEvent) => {
     const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width));
@@ -456,7 +462,7 @@ export default function ProfileMainScreenUI({
   );
   const monthTitle = `${activeMonthDate.getMonth() + 1}月`;
   const monthButtonLabel = `${activeMonthDate.getFullYear()}年 ${activeMonthDate.getMonth() + 1}月`;
-  const monthPickerSheetHeight = Math.max(240, Math.round(screenHeight * 0.33));
+  const monthPickerSheetHeight = Math.max(380, Math.round(screenHeight * 0.5));
   const monthPickerItems = React.useMemo<MonthPickerItem[]>(
     () =>
       monthsWithCalendarItems.map((month, index) => ({
@@ -506,6 +512,8 @@ export default function ProfileMainScreenUI({
     setMonthPickerYear(activeYear);
     setMonthPickerMonth(activeMonth);
     setMonthPickerVisible(true);
+    lastMonthPickerHapticIndexRef.current = { year: -1, month: -1 };
+    lastMonthPickerHapticAtRef.current = 0;
     monthPickerOverlayOpacity.setValue(0);
     monthPickerSheetTranslateY.setValue(40);
     requestAnimationFrame(() => {
@@ -555,6 +563,20 @@ export default function ProfileMainScreenUI({
       useNativeDriver: false,
     }).start();
   }, [heatMapPanelHeight, panelHeightAnim]);
+
+  const triggerMonthPickerScrollHaptic = React.useCallback((wheel: 'year' | 'month', offsetY: number) => {
+    const nextIndex = Math.round(offsetY / MONTH_PICKER_ROW_HEIGHT);
+    if (lastMonthPickerHapticIndexRef.current[wheel] === nextIndex) return;
+
+    const now = Date.now();
+    if (now - lastMonthPickerHapticAtRef.current < 42) return;
+    lastMonthPickerHapticIndexRef.current = {
+      ...lastMonthPickerHapticIndexRef.current,
+      [wheel]: nextIndex,
+    };
+    lastMonthPickerHapticAtRef.current = now;
+    void Haptics.selectionAsync();
+  }, []);
 
   const scrollToMonth = React.useCallback(
     (index: number) => {
@@ -670,6 +692,132 @@ export default function ProfileMainScreenUI({
     monthPickerYear,
   ]);
 
+  const closeSettingsPicker = React.useCallback(() => {
+    Animated.timing(settingsPageTranslateX, {
+      toValue: screenWidth,
+      duration: 240,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      setActiveSettingsPicker(null);
+      onSettingsSubPageVisibleChange?.(false);
+      onSettingsSubPageProgressChange?.(0);
+    });
+  }, [onSettingsSubPageProgressChange, onSettingsSubPageVisibleChange, screenWidth, settingsPageTranslateX]);
+
+  const openSettingsPicker = React.useCallback(
+    (target: 'ai' | 'voice' | 'wordPop') => {
+      setActiveSettingsPicker(target);
+      onSettingsSubPageVisibleChange?.(true);
+      requestAnimationFrame(() => {
+        settingsPageTranslateX.setValue(screenWidth);
+        Animated.timing(settingsPageTranslateX, {
+          toValue: 0,
+          duration: 240,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }).start();
+      });
+    },
+    [onSettingsSubPageVisibleChange, screenWidth, settingsPageTranslateX]
+  );
+
+  const activePickerTitle =
+    activeSettingsPicker === 'ai'
+      ? 'AI Reply Language'
+      : activeSettingsPicker === 'voice'
+      ? 'TTS Voice'
+      : activeSettingsPicker === 'wordPop'
+      ? 'Word Pop Slide'
+      : '';
+
+  const activePickerOptions = React.useMemo(() => {
+    if (activeSettingsPicker === 'ai') {
+      return AI_LANGUAGE_OPTIONS.map((item) => ({
+        key: item.code,
+        label: item.label,
+        selected: item.code === aiReplyLanguage,
+        onPress: () => {
+          onChangeAIReplyLanguage(item.code);
+        },
+      }));
+    }
+    if (activeSettingsPicker === 'voice') {
+      return TTS_VOICE_OPTIONS.map((item) => ({
+        key: item.code,
+        label: item.label,
+        selected: item.code === ttsVoice,
+        onPress: () => {
+          onChangeTTSVoice(item.code);
+        },
+      }));
+    }
+    if (activeSettingsPicker === 'wordPop') {
+      return WORD_POP_SLIDE_OPTIONS.map((item) => ({
+        key: String(item.value),
+        label: item.label,
+        selected: item.value === wordPopSlideMs,
+        onPress: () => {
+          onChangeWordPopSlideMs(item.value);
+        },
+      }));
+    }
+    return [];
+  }, [
+    activeSettingsPicker,
+    aiReplyLanguage,
+    onChangeAIReplyLanguage,
+    onChangeTTSVoice,
+    onChangeWordPopSlideMs,
+    ttsVoice,
+    wordPopSlideMs,
+  ]);
+
+  const settingsPagePanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          activeSettingsPicker !== null &&
+          gestureState.x0 <= 36 &&
+          gestureState.dx > 8 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        onPanResponderMove: (_, gestureState) => {
+          settingsPageTranslateX.setValue(Math.max(0, gestureState.dx));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const shouldClose = gestureState.dx > screenWidth * 0.24 || gestureState.vx > 0.8;
+          if (shouldClose) {
+            closeSettingsPicker();
+            return;
+          }
+          Animated.timing(settingsPageTranslateX, {
+            toValue: 0,
+            duration: 180,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [activeSettingsPicker, closeSettingsPicker, screenWidth, settingsPageTranslateX]
+  );
+
+  React.useEffect(() => {
+    onSettingsSubPageVisibleChange?.(activeSettingsPicker !== null);
+  }, [activeSettingsPicker, onSettingsSubPageVisibleChange]);
+
+  React.useEffect(() => {
+    if (activeSettingsPicker === null) {
+      onSettingsSubPageProgressChange?.(0);
+      return;
+    }
+    const id = settingsPageTranslateX.addListener(({ value }) => {
+      const x = Math.max(0, Math.min(screenWidth, value));
+      const hiddenProgress = 1 - x / Math.max(1, screenWidth);
+      onSettingsSubPageProgressChange?.(hiddenProgress);
+    });
+    return () => settingsPageTranslateX.removeListener(id);
+  }, [activeSettingsPicker, onSettingsSubPageProgressChange, screenWidth, settingsPageTranslateX]);
+
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
@@ -677,7 +825,7 @@ export default function ProfileMainScreenUI({
           <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
           <View style={styles.monthControlRow}>
             <TouchableOpacity
-              style={[styles.monthNavButton, isLight ? { backgroundColor: '#FFFFFF' } : null]}
+              style={[styles.monthNavButton, isLight ? { backgroundColor: palette.containerBg } : null]}
               activeOpacity={0.85}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
             >
@@ -686,7 +834,7 @@ export default function ProfileMainScreenUI({
             <TouchableOpacity
               style={[
                 styles.monthSelectButton,
-                isLight ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle } : null,
+                isLight ? { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle } : null,
               ]}
               activeOpacity={0.85}
               onPress={openMonthPicker}
@@ -694,7 +842,7 @@ export default function ProfileMainScreenUI({
               <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.monthNavButton, isLight ? { backgroundColor: '#FFFFFF' } : null]}
+              style={[styles.monthNavButton, isLight ? { backgroundColor: palette.containerBg } : null]}
               activeOpacity={0.85}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
             >
@@ -707,7 +855,7 @@ export default function ProfileMainScreenUI({
           <View
             style={[
               styles.heatMapPanel,
-              isLight ? { backgroundColor: '#FFFFFF', borderColor: palette.borderSubtle, borderWidth: 1 } : null,
+              { backgroundColor: palette.containerBg, borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE, borderWidth: 1 },
             ]}
           >
             <Animated.View
@@ -731,7 +879,7 @@ export default function ProfileMainScreenUI({
                       <View style={styles.weekdayRow}>
                         {WEEKDAY_LABELS.map((label) => (
                           <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
-                            <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : '#6F8FAF' }]}>{label}</Text>
+                            <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.64)' }]}>{label}</Text>
                           </View>
                         ))}
                       </View>
@@ -785,6 +933,9 @@ export default function ProfileMainScreenUI({
               onScrollToIndexFailed={(info) => {
                 listRef.current?.scrollToOffset({ offset: info.index * effectivePagerWidth, animated: true });
               }}
+              onScrollBeginDrag={() => {
+                void Haptics.selectionAsync();
+              }}
               onMomentumScrollEnd={(event) => {
                 const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
                 const next = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -816,98 +967,59 @@ export default function ProfileMainScreenUI({
         </Animated.View>
 
         <View style={styles.settingsListSection}>
-          <TouchableOpacity style={styles.miniPfpButton} activeOpacity={0.88} onPress={onPressUploadProfilePic}>
-            {profileImageUri ? (
-              <Image source={{ uri: profileImageUri }} style={styles.miniPfpImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.miniPfpFallback}>
-                <Ionicons name="person-circle" size={34} color={isLight ? '#CBD5E1' : '#9FB0C7'} />
-              </View>
-            )}
-          </TouchableOpacity>
-          <View style={styles.settingBlock}>
-            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setLanguageOpen((p) => !p)}>
+          <View
+            style={[
+              styles.settingsCard,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('ai')}>
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>AI Reply Language</Text>
-              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                {AI_LANGUAGE_OPTIONS.find((item) => item.code === aiReplyLanguage)?.label ?? '繁中'} ▾
-              </Text>
-            </TouchableOpacity>
-            {languageOpen ? (
-              <View style={styles.settingOptionsList}>
-                {AI_LANGUAGE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.code}
-                    style={styles.settingOptionRow}
-                    onPress={() => {
-                      onChangeAIReplyLanguage(option.code);
-                      setLanguageOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  {AI_LANGUAGE_OPTIONS.find((item) => item.code === aiReplyLanguage)?.label ?? '繁中'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            ) : null}
-          </View>
+            </TouchableOpacity>
 
-          <View style={styles.settingBlock}>
-            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setVoiceOpen((p) => !p)}>
+            <View style={styles.settingsDivider} />
+
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('voice')}>
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>TTS Voice</Text>
-              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                {TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ?? 'EN-US Jenny'} ▾
-              </Text>
-            </TouchableOpacity>
-            {voiceOpen ? (
-              <View style={styles.settingOptionsList}>
-                {TTS_VOICE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.code}
-                    style={styles.settingOptionRow}
-                    onPress={() => {
-                      onChangeTTSVoice(option.code);
-                      setVoiceOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  {TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ?? 'EN-US Jenny'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            ) : null}
-          </View>
+            </TouchableOpacity>
 
-          <View style={styles.settingBlock}>
-            <TouchableOpacity style={styles.settingTrigger} activeOpacity={0.88} onPress={() => setWordPopOpen((p) => !p)}>
+            <View style={styles.settingsDivider} />
+
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => openSettingsPicker('wordPop')}>
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Word Pop Slide</Text>
-              <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                {WORD_POP_SLIDE_OPTIONS.find((item) => item.value === wordPopSlideMs)?.label ?? '2.6s'} ▾
-              </Text>
-            </TouchableOpacity>
-            {wordPopOpen ? (
-              <View style={styles.settingOptionsList}>
-                {WORD_POP_SLIDE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={String(option.value)}
-                    style={styles.settingOptionRow}
-                    onPress={() => {
-                      onChangeWordPopSlideMs(option.value);
-                      setWordPopOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.settingOptionText, { color: palette.textOnContainer }]}>{option.label}</Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  {WORD_POP_SLIDE_OPTIONS.find((item) => item.value === wordPopSlideMs)?.label ?? '2.6s'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            ) : null}
-          </View>
-
-          <View style={styles.settingsActionsRow}>
-            <TouchableOpacity style={styles.inlineSettingBtn} activeOpacity={0.88} onPress={onPressUploadProfilePic}>
-              <Text style={[styles.inlineSettingBtnText, { color: palette.textOnContainer }]}>Upload PFP</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.inlineSettingBtn} activeOpacity={0.88} onPress={onToggleEntitlement}>
-              <Text style={[styles.inlineSettingBtnText, { color: palette.textOnContainer }]}>
-                {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Switch Guest' : 'Switch Premium'}
-              </Text>
+
+            <View style={styles.settingsDivider} />
+
+            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={onToggleEntitlement}>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Membership</Text>
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Premium' : 'Guest'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -925,18 +1037,45 @@ export default function ProfileMainScreenUI({
               <Animated.View
                 style={[
                   styles.monthPickerSheet,
+                  { backgroundColor: palette.screenBg },
                   { height: monthPickerSheetHeight, transform: [{ translateY: monthPickerSheetTranslateY }] },
                 ]}
               >
             <View style={styles.monthPickerHandle} />
             <View style={styles.monthPickerTopBar}>
-              <TouchableOpacity style={styles.monthPickerDoneButton} activeOpacity={0.9} onPress={handleConfirmMonthPicker}>
-                <Text style={styles.monthPickerDoneText}>完成</Text>
+              <TouchableOpacity
+                style={[
+                  styles.monthPickerDoneButton,
+                  {
+                    backgroundColor: palette.containerBg,
+                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  },
+                ]}
+                activeOpacity={0.9}
+                onPress={handleConfirmMonthPicker}
+              >
+                <Text style={[styles.monthPickerDoneText, { color: palette.textOnContainer }]}>完成</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.monthPickerWheelsCard}>
-              <View style={styles.monthPickerSelectionHighlight} pointerEvents="none" />
+            <View
+              style={[
+                styles.monthPickerWheelsCard,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.monthPickerSelectionHighlight,
+                  {
+                    backgroundColor: isLight ? '#F2F2F7' : '#334155',
+                  },
+                ]}
+                pointerEvents="none"
+              />
 
               <View style={styles.monthPickerWheelColumn}>
                 <FlatList
@@ -951,6 +1090,9 @@ export default function ProfileMainScreenUI({
                   decelerationRate="fast"
                   snapToInterval={MONTH_PICKER_ROW_HEIGHT}
                   contentContainerStyle={styles.monthPickerWheelContent}
+                  onScroll={(event) => {
+                    triggerMonthPickerScrollHaptic('year', event.nativeEvent.contentOffset.y);
+                  }}
                   getItemLayout={(_, index) => ({
                     length: MONTH_PICKER_ROW_HEIGHT,
                     offset: MONTH_PICKER_ROW_HEIGHT * index,
@@ -966,6 +1108,7 @@ export default function ProfileMainScreenUI({
                       <Text
                         style={[
                           styles.monthPickerWheelText,
+                          { color: palette.textOnContainer },
                           item === monthPickerYear && styles.monthPickerWheelTextActive,
                         ]}
                       >
@@ -976,7 +1119,14 @@ export default function ProfileMainScreenUI({
                 />
               </View>
 
-              <View style={styles.monthPickerWheelDivider} />
+              <View
+                style={[
+                  styles.monthPickerWheelDivider,
+                  {
+                    backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : '#334155',
+                  },
+                ]}
+              />
 
               <View style={styles.monthPickerWheelColumn}>
                 <FlatList
@@ -992,6 +1142,9 @@ export default function ProfileMainScreenUI({
                   decelerationRate="fast"
                   snapToInterval={MONTH_PICKER_ROW_HEIGHT}
                   contentContainerStyle={styles.monthPickerWheelContent}
+                  onScroll={(event) => {
+                    triggerMonthPickerScrollHaptic('month', event.nativeEvent.contentOffset.y);
+                  }}
                   getItemLayout={(_, index) => ({
                     length: MONTH_PICKER_ROW_HEIGHT,
                     offset: MONTH_PICKER_ROW_HEIGHT * index,
@@ -1007,6 +1160,7 @@ export default function ProfileMainScreenUI({
                       <Text
                         style={[
                           styles.monthPickerWheelText,
+                          { color: palette.textOnContainer },
                           item === monthPickerMonth && styles.monthPickerWheelTextActive,
                         ]}
                       >
@@ -1021,6 +1175,52 @@ export default function ProfileMainScreenUI({
           </View>
         </Animated.View>
       </Modal>
+
+      {activeSettingsPicker !== null ? (
+        <Animated.View
+          {...settingsPagePanResponder.panHandlers}
+          style={[
+            styles.settingsSubPage,
+            {
+              backgroundColor: palette.screenBg,
+              transform: [{ translateX: settingsPageTranslateX }],
+            },
+          ]}
+        >
+          <SafeAreaView style={styles.settingsSubPageSafe} edges={['top']}>
+            <View style={styles.settingsSubPageHeader}>
+              <TouchableOpacity style={styles.settingsSubPageBackBtn} activeOpacity={0.86} onPress={closeSettingsPicker}>
+                <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
+                <Text style={[styles.settingsSubPageBackText, { color: palette.textOnBg }]}>Back</Text>
+              </TouchableOpacity>
+              <Text style={[styles.settingsPickerTitle, { color: palette.textOnBg }]}>{activePickerTitle}</Text>
+              <View style={styles.settingsSubPageHeaderRight} />
+            </View>
+
+            <View
+              style={[
+                styles.settingsPickerCard,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                },
+              ]}
+            >
+              {activePickerOptions.map((option, idx) => (
+                <React.Fragment key={option.key}>
+                  <TouchableOpacity style={styles.settingsRow} activeOpacity={0.9} onPress={option.onPress}>
+                    <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{option.label}</Text>
+                    {option.selected ? (
+                      <Ionicons name="checkmark" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+                    ) : null}
+                  </TouchableOpacity>
+                  {idx < activePickerOptions.length - 1 ? <View style={styles.settingsDivider} /> : null}
+                </React.Fragment>
+              ))}
+            </View>
+          </SafeAreaView>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -1221,6 +1421,7 @@ const styles = StyleSheet.create({
   monthPickerDoneButton: {
     minWidth: 82,
     borderRadius: 22,
+    borderWidth: 1,
     paddingHorizontal: 18,
     paddingVertical: 10,
     alignItems: 'center',
@@ -1418,6 +1619,87 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  settingsCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: CONTAINER_NEON_OUTLINE,
+    backgroundColor: PANEL_BG,
+    shadowColor: CONTAINER_NEON_GLOW,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
+    overflow: 'hidden',
+  },
+  settingsRow: {
+    minHeight: 58,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'transparent',
+  },
+  settingsRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    flexShrink: 1,
+    marginLeft: 12,
+  },
+  settingsRowIcon: {
+    width: 20,
+    textAlign: 'right',
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(148,163,184,0.32)',
+    marginHorizontal: 14,
+  },
+  settingsSubPage: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+  },
+  settingsSubPageSafe: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+  },
+  settingsSubPageHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  settingsSubPageBackBtn: {
+    minWidth: 72,
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  settingsSubPageBackText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  settingsSubPageHeaderRight: {
+    minWidth: 72,
+  },
+  settingsPickerTitle: {
+    color: TEXT_PRIMARY,
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  settingsPickerCard: {
+    marginHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: CONTAINER_NEON_OUTLINE,
+    backgroundColor: PANEL_BG,
+    overflow: 'hidden',
   },
   settingsHeaderRow: {
     flexDirection: 'row',

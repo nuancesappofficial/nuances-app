@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Animated, Easing, StyleSheet, TouchableOpacity, View, useColorScheme } from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -318,32 +318,65 @@ function LiquidTabBar({
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
+  const [optimisticSelectedIndex, setOptimisticSelectedIndex] = React.useState(selectedTabIndex);
   const activeTranslateX = React.useRef(new Animated.Value(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET)).current;
-  const initializedSlotWidthRef = React.useRef(0);
   const pressScales = React.useRef(TAB_ITEMS.map(() => new Animated.Value(1))).current;
+  
+  // 新增：每個圖示的獨立透明度控制變數
+  const iconOpacities = React.useRef(
+    TAB_ITEMS.map((_, i) => new Animated.Value(i === selectedTabIndex ? 1 : 0))
+  ).current;
+
+  const initializedSlotWidthRef = React.useRef(0);
   const innerTrackWidth = Math.max(0, tabBarWidth - TAB_BAR_SIDE_PADDING * 2);
   const slotWidth = innerTrackWidth > 0 ? innerTrackWidth / 3 : 0;
   const capsuleWidth = Math.max(0, slotWidth - TAB_CAPSULE_INSET * 2);
   const capsuleBaseX = TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET;
+  const displaySelectedIndex = optimisticSelectedIndex;
+
+  const animateCapsuleToIndex = React.useCallback(
+    (index: number, duration = 300) => {
+      if (slotWidth <= 0) return;
+      const toValue = capsuleBaseX + slotWidth * index;
+      
+      activeTranslateX.stopAnimation();
+
+      // 同時執列膠囊位移與所有圖示的透明度漸變
+      Animated.parallel([
+        Animated.timing(activeTranslateX, {
+          toValue,
+          duration,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        ...iconOpacities.map((anim, i) =>
+          Animated.timing(anim, {
+            toValue: i === index ? 1 : 0,
+            duration,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          })
+        ),
+      ]).start();
+    },
+    [activeTranslateX, capsuleBaseX, slotWidth, iconOpacities]
+  );
 
   React.useEffect(() => {
-    if (slotWidth <= 0) return;
-    const toValue = capsuleBaseX + slotWidth * selectedTabIndex;
-    activeTranslateX.stopAnimation();
-    Animated.timing(activeTranslateX, {
-      toValue,
-      duration: 300,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [activeTranslateX, capsuleBaseX, selectedTabIndex, slotWidth]);
+    setOptimisticSelectedIndex(selectedTabIndex);
+  }, [selectedTabIndex]);
+
+  React.useEffect(() => {
+    animateCapsuleToIndex(displaySelectedIndex);
+  }, [animateCapsuleToIndex, displaySelectedIndex]);
 
   React.useEffect(() => {
     if (slotWidth <= 0) return;
     if (Math.abs(initializedSlotWidthRef.current - slotWidth) < 0.5) return;
     initializedSlotWidthRef.current = slotWidth;
-    activeTranslateX.setValue(capsuleBaseX + slotWidth * selectedTabIndex);
-  }, [activeTranslateX, capsuleBaseX, selectedTabIndex, slotWidth]);
+    activeTranslateX.setValue(capsuleBaseX + slotWidth * displaySelectedIndex);
+  }, [activeTranslateX, capsuleBaseX, displaySelectedIndex, slotWidth]);
+
   const handlePressIn = React.useCallback((index: number) => {
     Animated.spring(pressScales[index], {
       toValue: 0.92,
@@ -352,6 +385,7 @@ function LiquidTabBar({
       bounciness: 0,
     }).start();
   }, [pressScales]);
+  
   const handlePressOut = React.useCallback((index: number) => {
     Animated.spring(pressScales[index], {
       toValue: 1,
@@ -360,6 +394,13 @@ function LiquidTabBar({
       bounciness: 6,
     }).start();
   }, [pressScales]);
+
+  const handleTabPressIn = React.useCallback((index: number) => {
+    setOptimisticSelectedIndex(index);
+    animateCapsuleToIndex(index);
+    onSelectTab(index);
+    handlePressIn(index);
+  }, [animateCapsuleToIndex, handlePressIn, onSelectTab]);
 
   return (
     <View style={styles.tabBarOuter}>
@@ -371,7 +412,7 @@ function LiquidTabBar({
             const nextInnerTrackWidth = Math.max(0, width - TAB_BAR_SIDE_PADDING * 2);
             const nextSlotWidth = nextInnerTrackWidth > 0 ? nextInnerTrackWidth / TAB_ITEMS.length : 0;
             if (nextSlotWidth > 0) {
-              activeTranslateX.setValue(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET + nextSlotWidth * selectedTabIndex);
+              activeTranslateX.setValue(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET + nextSlotWidth * displaySelectedIndex);
             }
             setTabBarWidth(width);
           }
@@ -397,23 +438,48 @@ function LiquidTabBar({
         ) : null}
 
         {TAB_ITEMS.map((item, index) => {
-          const active = selectedTabIndex === index;
           return (
             <TouchableOpacity
               key={`tab-item-${index}`}
               style={styles.rnTabButton}
               activeOpacity={1}
-              onPressIn={() => handlePressIn(index)}
+              onPressIn={() => handleTabPressIn(index)}
               onPressOut={() => handlePressOut(index)}
-              onPress={() => onSelectTab(index)}
+              onPress={() => undefined}
             >
               <Animated.View style={{ transform: [{ scale: pressScales[index] }] }}>
                 <View style={styles.tabIconWrap}>
-                  <Ionicons
-                    name={active ? item.activeIcon : item.inactiveIcon}
-                    size={27}
-                    color={active ? navIconActive : navIconInactive}
-                  />
+                  {/* 未啟用的圖示 (在啟用時淡出) */}
+                  <Animated.View
+                    style={[
+                      StyleSheet.absoluteFill,
+                      {
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: iconOpacities[index].interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 0],
+                        }),
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.inactiveIcon} size={27} color={navIconInactive} />
+                  </Animated.View>
+
+                  {/* 啟用的圖示 (在啟用時淡入) */}
+                  <Animated.View
+                    style={[
+                      StyleSheet.absoluteFill,
+                      {
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: iconOpacities[index],
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.activeIcon} size={27} color={navIconActive} />
+                  </Animated.View>
+
                   {index === 1 && cacheBadgeCount > 0 ? (
                     <View style={styles.cacheBadge}>
                       <Animated.Text style={styles.cacheBadgeText}>
@@ -433,26 +499,27 @@ function LiquidTabBar({
 
 export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
   const colorScheme = useColorScheme();
-  const theme = React.useMemo(() => resolveThemeColors('dark'), [colorScheme]);
-  const { width: screenWidth } = useWindowDimensions();
+  const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
   const swipeLockRef = React.useRef(false);
   const paginationEnabledRef = React.useRef(true);
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
   const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
-  const [tabTransitionFromIndex, setTabTransitionFromIndex] = React.useState(0);
-  const [tabTransitionToIndex, setTabTransitionToIndex] = React.useState(0);
-  const [tabTransitionAnimation, setTabTransitionAnimation] = React.useState<'fade' | 'slide'>('fade');
-  const [isTabTransitioning, setIsTabTransitioning] = React.useState(false);
-  const tabSceneProgress = React.useRef(new Animated.Value(1)).current;
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({
     0: true,
     1: true,
     2: true,
   });
   const [tabBarForcedHidden, setTabBarForcedHidden] = React.useState(false);
+  const [tabBarHiddenProgress, setTabBarHiddenProgress] = React.useState<number | null>(null);
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
+
+  const tabOpacities = React.useRef([
+    new Animated.Value(1),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
 
   const setCacheSwipeExclusionRange = React.useCallback((range: SwipeExclusionRange | null) => {
     cacheSwipeExclusionRangeRef.current = range;
@@ -466,26 +533,21 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     (index: number, options?: { animation?: 'fade' | 'slide' }) => {
       const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
       if (nextIndex === selectedTabIndex) return;
-      const animationType = options?.animation ?? 'fade';
-      setTabTransitionFromIndex(selectedTabIndex);
-      setTabTransitionToIndex(nextIndex);
-      setTabTransitionAnimation(animationType);
-      setIsTabTransitioning(true);
-      tabSceneProgress.stopAnimation();
-      tabSceneProgress.setValue(0);
+      
       setSelectedTabIndex(nextIndex);
-      Animated.timing(tabSceneProgress, {
-        toValue: 1,
-        duration: animationType === 'slide' ? 360 : 240,
-        easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (!finished) return;
-        setIsTabTransitioning(false);
-        setTabTransitionFromIndex(nextIndex);
-      });
+
+      Animated.parallel(
+        tabOpacities.map((opacityAnim, i) =>
+          Animated.timing(opacityAnim, {
+            toValue: i === nextIndex ? 1 : 0,
+            duration: 260,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          })
+        )
+      ).start();
     },
-    [selectedTabIndex, tabSceneProgress]
+    [selectedTabIndex, tabOpacities]
   );
 
   const popDeckToRoot = React.useCallback(() => {
@@ -501,7 +563,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       popDeckToRoot();
       return;
     }
-    switchTabImmediately(index, { animation: 'fade' });
+    switchTabImmediately(index);
   }, [popDeckToRoot, selectedTabIndex, switchTabImmediately]);
 
   const goToTab = React.useCallback((index: number, options?: { animation?: 'fade' | 'slide' }) => {
@@ -551,13 +613,10 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   }, []);
 
   React.useEffect(() => {
-    Animated.timing(tabBarTranslateY, {
-      toValue: shouldShowTabBar ? 0 : 140,
-      duration: shouldShowTabBar ? 210 : 320,
-      easing: shouldShowTabBar ? Easing.out(Easing.exp) : Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [shouldShowTabBar, tabBarTranslateY]);
+    const effectiveHiddenProgress =
+      tabBarHiddenProgress !== null ? tabBarHiddenProgress : shouldShowTabBar ? 0 : 1;
+    tabBarTranslateY.setValue(Math.max(0, Math.min(1, effectiveHiddenProgress)) * 140);
+  }, [shouldShowTabBar, tabBarHiddenProgress, tabBarTranslateY]);
 
   return (
     <TabSwipeContext.Provider
@@ -570,58 +629,18 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         setCacheAddActionHandler,
         triggerCacheAddAction,
         setTabBarHidden: setTabBarForcedHidden,
+        setTabBarHiddenProgress: setTabBarHiddenProgress,
       }}
     >
       <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
-          {/*
-            只讓 from/to 兩個 scene 參與 cross-fade，避免 0 <-> 2 時閃現中間頁。
-          */}
+          
           <Animated.View
             style={[
               styles.tabScene,
               {
-                opacity:
-                  tabTransitionAnimation === 'slide'
-                    ? selectedTabIndex === 0 || (isTabTransitioning && (tabTransitionFromIndex === 0 || tabTransitionToIndex === 0))
-                      ? 1
-                      : 0
-                    : isTabTransitioning && tabTransitionFromIndex === 0
-                      ? tabSceneProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 0],
-                          extrapolate: 'clamp',
-                        })
-                      : isTabTransitioning && tabTransitionToIndex === 0
-                        ? tabSceneProgress.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 1],
-                            extrapolate: 'clamp',
-                          })
-                        : selectedTabIndex === 0
-                          ? 1
-                          : 0,
-                transform: [
-                  {
-                    translateX:
-                      tabTransitionAnimation === 'slide' && isTabTransitioning
-                        ? tabTransitionFromIndex === 0
-                          ? tabSceneProgress.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
-                              extrapolate: 'clamp',
-                            })
-                          : tabTransitionToIndex === 0
-                            ? tabSceneProgress.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
-                                extrapolate: 'clamp',
-                              })
-                            : 0
-                        : 0,
-                  },
-                ],
-                zIndex: selectedTabIndex === 0 ? 3 : isTabTransitioning && tabTransitionFromIndex === 0 ? 2 : 1,
+                opacity: tabOpacities[0],
+                zIndex: selectedTabIndex === 0 ? 3 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}
@@ -631,108 +650,33 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
               onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(0, enabled)}
             />
           </Animated.View>
+
           <Animated.View
             style={[
               styles.tabScene,
               {
-                opacity:
-                  tabTransitionAnimation === 'slide'
-                    ? selectedTabIndex === 1 || (isTabTransitioning && (tabTransitionFromIndex === 1 || tabTransitionToIndex === 1))
-                      ? 1
-                      : 0
-                    : isTabTransitioning && tabTransitionFromIndex === 1
-                      ? tabSceneProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 0],
-                          extrapolate: 'clamp',
-                        })
-                      : isTabTransitioning && tabTransitionToIndex === 1
-                        ? tabSceneProgress.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 1],
-                            extrapolate: 'clamp',
-                          })
-                        : selectedTabIndex === 1
-                          ? 1
-                          : 0,
-                transform: [
-                  {
-                    translateX:
-                      tabTransitionAnimation === 'slide' && isTabTransitioning
-                        ? tabTransitionFromIndex === 1
-                          ? tabSceneProgress.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
-                              extrapolate: 'clamp',
-                            })
-                          : tabTransitionToIndex === 1
-                            ? tabSceneProgress.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
-                                extrapolate: 'clamp',
-                              })
-                            : 0
-                        : 0,
-                  },
-                ],
-                zIndex: selectedTabIndex === 1 ? 3 : isTabTransitioning && tabTransitionFromIndex === 1 ? 2 : 1,
+                opacity: tabOpacities[1],
+                zIndex: selectedTabIndex === 1 ? 3 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}
           >
             <CacheStack onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(1, enabled)} />
           </Animated.View>
+
           <Animated.View
             style={[
               styles.tabScene,
               {
-                opacity:
-                  tabTransitionAnimation === 'slide'
-                    ? selectedTabIndex === 2 || (isTabTransitioning && (tabTransitionFromIndex === 2 || tabTransitionToIndex === 2))
-                      ? 1
-                      : 0
-                    : isTabTransitioning && tabTransitionFromIndex === 2
-                      ? tabSceneProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 0],
-                          extrapolate: 'clamp',
-                        })
-                      : isTabTransitioning && tabTransitionToIndex === 2
-                        ? tabSceneProgress.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 1],
-                            extrapolate: 'clamp',
-                          })
-                        : selectedTabIndex === 2
-                          ? 1
-                          : 0,
-                transform: [
-                  {
-                    translateX:
-                      tabTransitionAnimation === 'slide' && isTabTransitioning
-                        ? tabTransitionFromIndex === 2
-                          ? tabSceneProgress.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, tabTransitionToIndex > tabTransitionFromIndex ? -screenWidth : screenWidth],
-                              extrapolate: 'clamp',
-                            })
-                          : tabTransitionToIndex === 2
-                            ? tabSceneProgress.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [tabTransitionToIndex > tabTransitionFromIndex ? screenWidth : -screenWidth, 0],
-                                extrapolate: 'clamp',
-                              })
-                            : 0
-                        : 0,
-                  },
-                ],
-                zIndex: selectedTabIndex === 2 ? 3 : isTabTransitioning && tabTransitionFromIndex === 2 ? 2 : 1,
+                opacity: tabOpacities[2],
+                zIndex: selectedTabIndex === 2 ? 3 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}
           >
             <ProfileStack onSwipeEnabledChange={(enabled) => setTabSwipeRouteEnabled(2, enabled)} />
           </Animated.View>
+
         </View>
 
         <Animated.View
@@ -842,6 +786,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF2D55',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 10,
   },
   cacheBadgeText: {
     color: '#FFFFFF',

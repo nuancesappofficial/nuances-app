@@ -31,17 +31,17 @@ const DARK_THEME_COLORS = {
 
 const LIGHT_THEME_COLORS = {
   screenBg: '#F1EBE3',
-  containerBg: '#1E293B',
+  containerBg: '#FFFFFF',
   textOnBg: '#0F172A',
-  textOnContainer: '#F8FAFC',
+  textOnContainer: '#0F172A',
   secondaryText: '#94A3B8',
-  borderSubtle: '#CBD5E1',
-  navBg: '#FFFFFF',
-  navBorder: '#E2E8F0',
-  navInactive: '#94A3B8',
+  borderSubtle: '#D5DEE8',
+  navBg: 'rgba(255,255,255,0.96)',
+  navBorder: '#D2DBE6',
+  navInactive: '#6B7E95',
   navActive: '#4EAFF4',
-  navCapsuleBg: 'rgba(78,175,244,0.14)',
-  navCapsuleBorder: 'rgba(78,175,244,0.38)',
+  navCapsuleBg: 'rgba(78,175,244,0.2)',
+  navCapsuleBorder: 'rgba(78,175,244,0.42)',
 };
 
 export function resolveThemeColors(colorScheme?: ColorSchemeName) {

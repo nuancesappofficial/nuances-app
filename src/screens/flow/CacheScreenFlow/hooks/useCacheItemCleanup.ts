@@ -25,25 +25,26 @@ export function useCacheItemCleanup({ cacheItems }: UseCacheItemCleanupArgs) {
     if (deletingItemIdsRef.current.has(item.id)) return;
     deletingItemIdsRef.current.add(item.id);
     try {
+      const itemId = item.id;
       const userId = item.userId || (await getCurrentAuthUserId());
       if (!userId) {
         throw new Error('Missing user id for deletion');
       }
 
-      if (isUuid(item.id)) {
+      await database.write(async () => {
+        await item.destroyPermanently();
+      });
+
+      if (isUuid(itemId)) {
         const { error: remoteDeleteError } = await supabase
           .from('cached_items')
           .delete()
-          .eq('id', item.id)
+          .eq('id', itemId)
           .eq('user_id', userId);
         if (remoteDeleteError) {
           throw remoteDeleteError;
         }
       }
-
-      await database.write(async () => {
-        await item.destroyPermanently();
-      });
     } catch (error) {
       console.error('[CacheList] delete cache item failed:', error);
       if (!options?.silent) {

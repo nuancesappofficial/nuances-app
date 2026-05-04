@@ -15,7 +15,7 @@ import {
   resolveThemeColors,
 } from '../../../theme/colors';
 
-const ALBUMS_PER_PAGE = 9;
+const ALBUMS_PER_PAGE = 6;
 const GRID_COLUMNS = 3;
 const GRID_GAP = 12;
 const GRID_HORIZONTAL_PADDING = 12;
@@ -94,7 +94,7 @@ export default function DeckMainScreenUI({
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = false;
+  const isLight = colorScheme === 'light';
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const searchInputRef = React.useRef<TextInput | null>(null);
@@ -285,7 +285,7 @@ export default function DeckMainScreenUI({
 
   const renderAlbumPage = React.useCallback(
     (pageAlbums: DeckAlbum[], pageIndex: number) => {
-      const rowCount = albumPages.length > 1 ? 3 : Math.max(1, Math.ceil(pageAlbums.length / GRID_COLUMNS));
+      const rowCount = 2;
 
       return (
         <View style={[styles.page, { width: albumPageWidth }]}>
@@ -570,7 +570,17 @@ export default function DeckMainScreenUI({
       </View>
 
       <View style={styles.albumGroupShadow}>
-        <View style={styles.albumGroup}>
+        <View
+          style={[
+            styles.albumGroup,
+            isLight
+              ? {
+                  backgroundColor: palette.containerBg,
+                  borderColor: palette.borderSubtle,
+                }
+              : null,
+          ]}
+        >
           <FlatList
             data={albumPages}
             horizontal

@@ -67,7 +67,7 @@ export default function CardViewUI({
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = false;
+  const isLight = colorScheme === 'light';
   const { width: screenWidth } = useWindowDimensions();
   const searchExpandProgress = React.useRef(new Animated.Value(isSearchVisible ? 1 : 0)).current;
   const maxSearchWidth = Math.max(220, screenWidth - 16 * 2);

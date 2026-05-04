@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Animated,
+  type GestureResponderEvent,
   Image,
   Modal,
   Pressable,
@@ -44,7 +45,7 @@ type Props = {
   onToggleRecord: (isActiveCard: boolean, index: number) => void;
   onPlayPreview: () => void;
   onReset: () => void;
-  onOpenFullscreen: (index: number) => void;
+  onOpenFullscreen: (index: number, origin?: { x: number; y: number }) => void;
   cardDetailFontScale: number;
   snapInterval: number;
   sidePeekShift: number;
@@ -470,7 +471,15 @@ function CardDetailCarouselCardUI({
             >
               {hasHeroImage ? (
                 <View style={styles.heroMediaWrap}>
-                  <TouchableOpacity activeOpacity={0.95} onPress={() => onOpenFullscreen(index)}>
+                  <TouchableOpacity
+                    activeOpacity={0.95}
+                    onPress={(event: GestureResponderEvent) =>
+                      onOpenFullscreen(index, {
+                        x: event.nativeEvent.pageX,
+                        y: event.nativeEvent.pageY,
+                      })
+                    }
+                  >
                     <Image source={{ uri: resolvedHeroImageUri }} style={styles.heroMedia} resizeMode="cover" />
                   </TouchableOpacity>
                 </View>

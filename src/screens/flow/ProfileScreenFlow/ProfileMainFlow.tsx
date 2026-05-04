@@ -21,6 +21,7 @@ import {
   type WordPopSlideMs,
 } from '@services/settings/userSettings';
 import { resolveCardImageUri } from '@services/media/cardImage';
+import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 
 type Props = {
   navigation: any;
@@ -221,6 +222,14 @@ function getSinceSourceDate(profile: Profile | null, cards: Card[]): Date {
 }
 
 export default function ProfileMainFlow({ navigation, overlayMode = false, onRequestClose }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
+
+  React.useEffect(() => {
+    return () => {
+      tabSwipeContext?.setTabBarHidden?.(false);
+      tabSwipeContext?.setTabBarHiddenProgress?.(null);
+    };
+  }, [tabSwipeContext]);
   const [cards, setCards] = React.useState<Card[]>([]);
   const [profile, setProfile] = React.useState<Profile | null>(null);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
@@ -488,6 +497,15 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
           }
         }}
         onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
+        onSettingsSubPageVisibleChange={(visible) => {
+          tabSwipeContext?.setTabBarHidden?.(visible);
+          if (!visible) {
+            tabSwipeContext?.setTabBarHiddenProgress?.(null);
+          }
+        }}
+        onSettingsSubPageProgressChange={(progress) => {
+          tabSwipeContext?.setTabBarHiddenProgress?.(progress);
+        }}
         onPressDay={(day) => {
           if (!day.cards.length) return;
           navigation.navigate('CardDetail', {

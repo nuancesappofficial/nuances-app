@@ -23,6 +23,7 @@ type Props = {
   animationSeed: number;
   restoreSeed: number;
   enteringCardIds: string[];
+  onCardSwipeStart: (itemId: string, direction: 'left' | 'right') => void;
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
   onCardImageError: (itemId: string) => void;
 };
@@ -32,6 +33,7 @@ export default function CacheStackUI({
   animationSeed,
   restoreSeed,
   enteringCardIds,
+  onCardSwipeStart,
   onCardSwipe,
   onCardImageError,
 }: Props) {
@@ -43,6 +45,16 @@ export default function CacheStackUI({
     direction: 'left' | 'right';
   } | null>(null);
   const topCard = cards[cards.length - 1];
+  const swipingItemIdsRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    const activeIds = new Set(cards.map((card) => card.id));
+    swipingItemIdsRef.current.forEach((id) => {
+      if (!activeIds.has(id)) {
+        swipingItemIdsRef.current.delete(id);
+      }
+    });
+  }, [cards]);
 
   const skipActionStyle = useAnimatedStyle(() => {
     const progress = interpolate(topCardDragX.value, [-140, 0], [1, 0], Extrapolate.CLAMP);
@@ -87,6 +99,11 @@ export default function CacheStackUI({
   const triggerTopCardSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
       if (!topCard) return;
+      if (swipingItemIdsRef.current.has(topCard.id)) return;
+      swipingItemIdsRef.current.add(topCard.id);
+      setTimeout(() => {
+        swipingItemIdsRef.current.delete(topCard.id);
+      }, 600);
       swipeSeqRef.current += 1;
       setSwipeTrigger({
         seq: swipeSeqRef.current,
@@ -140,27 +157,33 @@ export default function CacheStackUI({
           </Pressable>
         </View>
       ) : null}
-      {cards.map((item, index) => (
-        <CacheCardUI
-          key={item.id}
-          itemId={item.id}
-          imageUri={item.imageUri}
-          text={item.text}
-          detectedPreview={item.detectedPreview}
-          sourceLabel={item.sourceLabel}
-          importedAtLabel={item.importedAtLabel}
-          index={index}
-          isTopCard={index === cards.length - 1}
-          topCardDragX={topCardDragX}
-          swipeTrigger={swipeTrigger}
-          onImageError={onCardImageError}
-          restoreSeed={restoreSeed}
-          onSwipe={onCardSwipe}
-          animationSeed={animationSeed}
-          shouldAnimateEntrance={enteringCardIds.includes(item.id)}
-          entranceOrder={enteringCardIds.indexOf(item.id)}
-        />
-      ))}
+      {cards.map((item, index) => {
+        const entranceOrder = enteringCardIds.indexOf(item.id);
+        const shouldAnimateEntrance = entranceOrder >= 0;
+
+        return (
+          <CacheCardUI
+            key={item.id}
+            itemId={item.id}
+            imageUri={item.imageUri}
+            text={item.text}
+            detectedPreview={item.detectedPreview}
+            sourceLabel={item.sourceLabel}
+            importedAtLabel={item.importedAtLabel}
+            index={index}
+            isTopCard={index === cards.length - 1}
+            topCardDragX={topCardDragX}
+            swipeTrigger={swipeTrigger}
+            onImageError={onCardImageError}
+            restoreSeed={restoreSeed}
+            onSwipeStart={onCardSwipeStart}
+            onSwipe={onCardSwipe}
+            animationSeed={animationSeed}
+            shouldAnimateEntrance={shouldAnimateEntrance}
+            entranceOrder={entranceOrder}
+          />
+        );
+      })}
     </View>
   );
 }

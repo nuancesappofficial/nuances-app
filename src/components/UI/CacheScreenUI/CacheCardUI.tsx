@@ -28,6 +28,14 @@ const ELEGANT_SPRING = {
 };
 const SWIPE_COMMIT_DELAY_MS = 180;
 
+function getStableCardRotation(itemId: string): number {
+  let hash = 0;
+  for (let i = 0; i < itemId.length; i += 1) {
+    hash = (hash * 31 + itemId.charCodeAt(i)) >>> 0;
+  }
+  return -10 + (hash % 2000) / 100;
+}
+
 type Props = {
   itemId: string;
   imageUri?: string;
@@ -45,6 +53,7 @@ type Props = {
   } | null;
   onImageError: (itemId: string) => void;
   restoreSeed: number;
+  onSwipeStart: (itemId: string, direction: 'left' | 'right') => void;
   onSwipe: (itemId: string, direction: 'left' | 'right') => void;
   animationSeed: number;
   shouldAnimateEntrance?: boolean;
@@ -64,22 +73,24 @@ export default function CacheCardUI({
   swipeTrigger,
   onImageError,
   restoreSeed,
+  onSwipeStart,
   onSwipe,
   animationSeed,
   shouldAnimateEntrance = false,
   entranceOrder = -1,
 }: Props) {
   const toY = index * -4;
-  const targetRot = React.useMemo(() => -10 + Math.random() * 20, [animationSeed]);
+  const targetRot = React.useMemo(() => getStableCardRotation(itemId), [itemId]);
   const delay = (entranceOrder >= 0 ? entranceOrder : 0) * 110;
 
   const isDropMode = animationSeed % 2 === 0;
-  const side = index % 2 === 0 ? 1 : -1;
+  const side = (entranceOrder >= 0 ? entranceOrder : index) % 2 === 0 ? 1 : -1;
+  const startsInEntrancePose = shouldAnimateEntrance && entranceOrder >= 0;
 
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const rot = useSharedValue(0);
+  const x = useSharedValue(startsInEntrancePose && !isDropMode ? side * (width + 200) : 0);
+  const y = useSharedValue(startsInEntrancePose && isDropMode ? -920 : toY);
+  const scale = useSharedValue(startsInEntrancePose && isDropMode ? 1.5 : 1);
+  const rot = useSharedValue(startsInEntrancePose ? 0 : targetRot);
   const isPressed = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
   const lastSwipeTriggerSeq = React.useRef<number | null>(null);
@@ -94,10 +105,11 @@ export default function CacheCardUI({
   const commitSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
       setTimeout(() => {
+        onSwipeStart(itemId, direction);
         onSwipe(itemId, direction);
       }, SWIPE_COMMIT_DELAY_MS);
     },
-    [itemId, onSwipe]
+    [itemId, onSwipe, onSwipeStart]
   );
 
   React.useEffect(() => {
@@ -173,6 +185,7 @@ export default function CacheCardUI({
   }, [commitSwipe, isTopCard, itemId, isPressed, swipeTrigger, topCardDragX, x]);
 
   const pan = Gesture.Pan()
+    .enabled(isTopCard)
     .onBegin(() => {
       isPressed.value = true;
     })

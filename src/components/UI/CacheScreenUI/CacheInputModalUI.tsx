@@ -196,6 +196,14 @@ export default function CacheInputModalUI({
 
     if (!shouldRender) return;
     Keyboard.dismiss();
+    if (suppressAnimation) {
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      backdropOpacity.setValue(0);
+      keyboardLift.setValue(0);
+      setShouldRender(false);
+      onDismiss();
+      return;
+    }
     Animated.parallel([
       Animated.timing(entranceY, {
         toValue: MODAL_ENTRY_TRANSLATE_Y,
