@@ -259,6 +259,10 @@ export default function CardViewUI({
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          removeClippedSubviews
           renderItem={({ item }) => {
             const status = getLearningStatus(item);
             const imageUri = cardImageMap[item.id];

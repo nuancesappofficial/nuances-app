@@ -44,7 +44,7 @@ const ACTIVE_COLOR = '#4EAFF4';
 const TAB_ITEMS = [
   { activeIcon: 'library', inactiveIcon: 'library-outline' },
   { activeIcon: 'layers', inactiveIcon: 'layers-outline' },
-  { activeIcon: 'person-circle', inactiveIcon: 'person-circle-outline' },
+  { activeIcon: 'settings', inactiveIcon: 'settings-outline' },
 ] as const;
 
 const APP_DARK_THEME = {

@@ -10,9 +10,11 @@ class ShareViewController: UIViewController {
     private let maxImageCount = 10
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
+    private var didCloseExtension = false
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .clear
         handleSharedContent()
     }
     
@@ -32,9 +34,11 @@ class ShareViewController: UIViewController {
             return
         }
         
-        // 判斷分享類型：純文字或圖片
+        NSLog("[NuancesShareExtension] attachments count: \(attachments.count)")
+
+        // 判斷分享類型：文字/連結或圖片
         let textAttachments = attachments.filter {
-            $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+            self.preferredTextTypeIdentifier(for: $0) != nil
         }
         let imageAttachments = attachments.filter {
             $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
@@ -54,10 +58,14 @@ class ShareViewController: UIViewController {
         let limitedAttachments = Array(attachments.prefix(maxQueuedItems))
         var processedTexts: [String] = []
         let dispatchGroup = DispatchGroup()
+        scheduleCloseFallback(after: 8.0)
 
         for attachment in limitedAttachments {
+            guard let typeIdentifier = preferredTextTypeIdentifier(for: attachment) else {
+                continue
+            }
             dispatchGroup.enter()
-            attachment.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] (data, error) in
+            attachment.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { [weak self] (data, error) in
                 defer { dispatchGroup.leave() }
                 guard let self = self else { return }
                 
@@ -71,6 +79,10 @@ class ShareViewController: UIViewController {
                     textContent = text
                 } else if let url = data as? URL, let text = try? String(contentsOf: url) {
                     textContent = text
+                } else if let url = data as? URL {
+                    textContent = url.absoluteString
+                } else if let attributedText = data as? NSAttributedString {
+                    textContent = attributedText.string
                 }
                 
                 // 套用字數限制
@@ -95,6 +107,7 @@ class ShareViewController: UIViewController {
             for text in processedTexts {
                 self.saveTextToSharedStorage(text)
             }
+            NSLog("[NuancesShareExtension] saved text items: \(processedTexts.count)")
             self.closeExtension(success: true)
         }
     }
@@ -104,6 +117,7 @@ class ShareViewController: UIViewController {
         let limitedAttachments = Array(attachments.prefix(maxImageCount))
         var processedImages: [String] = []
         let dispatchGroup = DispatchGroup()
+        scheduleCloseFallback(after: 14.0)
         
         for attachment in limitedAttachments {
             dispatchGroup.enter()
@@ -146,11 +160,21 @@ class ShareViewController: UIViewController {
             guard let self = self else { return }
             if !processedImages.isEmpty {
                 self.saveImagesToSharedStorage(processedImages)
+                NSLog("[NuancesShareExtension] saved image items: \(processedImages.count)")
                 self.closeExtension(success: true)
             } else {
                 self.closeExtension(success: false)
             }
         }
+    }
+
+    private func preferredTextTypeIdentifier(for provider: NSItemProvider) -> String? {
+        let candidates = [
+            UTType.plainText.identifier,
+            UTType.text.identifier,
+            UTType.url.identifier,
+        ]
+        return candidates.first { provider.hasItemConformingToTypeIdentifier($0) }
     }
     
     // MARK: - 圖片壓縮（避免 120MB OOM）
@@ -243,12 +267,17 @@ class ShareViewController: UIViewController {
     // MARK: - 關閉 Extension
     private func closeExtension(success: Bool) {
         DispatchQueue.main.async {
-            if success {
-                self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-            } else {
-                let error = NSError(domain: "com.jeffenglishlearning.nuances.shareextension", code: -1, userInfo: nil)
-                self.extensionContext?.cancelRequest(withError: error)
-            }
+            guard !self.didCloseExtension else { return }
+            self.didCloseExtension = true
+            NSLog("[NuancesShareExtension] closing extension, success: \(success)")
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
+    }
+
+    private func scheduleCloseFallback(after seconds: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self = self, !self.didCloseExtension else { return }
+            self.closeExtension(success: true)
         }
     }
 }

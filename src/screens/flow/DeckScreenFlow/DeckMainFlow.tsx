@@ -17,12 +17,14 @@ import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTunin
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   buildDeckAlbums,
+  ALL_CARDS_ALBUM_ID,
   createCustomAlbum,
   loadDeckAlbumPreferences,
   saveDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
-import { loadQuizReviewedCardIds } from '../../../features/deck/cardDetailSeen';
+import { primeAlbumPreload } from '../../../features/deck/albumPreloadCache';
+import { loadQuizReviewedCardIds, loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
@@ -60,6 +62,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
   const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<Set<string>>(new Set());
   const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] = React.useState(false);
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
@@ -209,6 +212,25 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   useFocusEffect(
     React.useCallback(() => {
       setImageReloadSeed((prev) => prev + 1);
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      const hydrateSeenCards = async () => {
+        try {
+          const nextSeen = await loadSeenCardIds();
+          if (active) setSeenCardIds(nextSeen);
+        } catch (error) {
+          console.warn('[DeckMain] load seen cards failed:', error);
+          if (active) setSeenCardIds(new Set());
+        }
+      };
+      void hydrateSeenCards();
+      return () => {
+        active = false;
+      };
     }, [])
   );
 
@@ -460,9 +482,25 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
   const handleAlbumPress = React.useCallback(
     (album: DeckAlbum) => {
+      const albumCardIdSet = new Set(album.cardIds);
+      const optimisticCards =
+        album.id === ALL_CARDS_ALBUM_ID || album.id === 'all-cards'
+          ? allCards
+          : allCards.filter((card) => albumCardIdSet.has(card.id));
+      const optimisticImageMap = optimisticCards.reduce<Record<string, string>>((next, card) => {
+        const uri = cardImageMap[card.id];
+        if (uri) next[card.id] = uri;
+        return next;
+      }, {});
+
+      primeAlbumPreload(album.id, {
+        cards: optimisticCards,
+        cardImageMap: optimisticImageMap,
+        seenCardIds,
+      });
       navigation.navigate('AlbumView', { album, isDefault: album.isDefault });
     },
-    [navigation]
+    [allCards, cardImageMap, navigation, seenCardIds]
   );
 
   const openAlbumSettings = React.useCallback((album: DeckAlbum) => {

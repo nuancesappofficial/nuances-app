@@ -982,25 +982,28 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     },
     [scopedCards, stopActiveAudio]
   );
-  const closeFullscreenViewer = React.useCallback((mode: 'tap' | 'swipe' = 'tap') => {
-    const currentDragY = fullscreenDragYValueRef.current;
-    const exitTargetY =
-      mode === 'swipe'
-        ? currentDragY + (currentDragY >= 0 ? 96 : -96)
-        : currentDragY;
-
+  const closeFullscreenViewer = React.useCallback((_mode: 'tap' | 'swipe' = 'tap') => {
     Animated.parallel([
       Animated.timing(fullscreenBackdropOpacity, {
         toValue: 0,
-        duration: 170,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(fullscreenDragY, {
-        toValue: exitTargetY,
-        duration: 170,
+        toValue: 0,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(fullscreenEntryProgress, {
+        toValue: 0,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start(() => {
+      fullscreenDragYValueRef.current = 0;
       void Haptics.selectionAsync();
       setIsFullscreenViewerVisible(false);
       if (fullscreenCardIndex !== null) {
@@ -1009,7 +1012,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         });
       }
     });
-  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenDragY, navigateToIndex]);
+  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenDragY, fullscreenEntryProgress, navigateToIndex]);
   const handleOpenFullscreen = React.useCallback(
     (targetIndex: number, origin?: { x: number; y: number }) => {
       const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
@@ -1315,7 +1318,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onPress={() => navigation.goBack()}
           style={[styles.floatingIconButton, styles.floatingBackButton, { top: floatingHeaderTop }]}
         >
-          <Ionicons name="chevron-back" size={24} color={isLightMode ? '#111111' : '#F4EDE6'} />
+          <Ionicons name="chevron-back" size={30} color={isLightMode ? '#111111' : '#F4EDE6'} />
         </TouchableOpacity>
 
         {/* 新增的置中標題與卡片計數 */}
@@ -1590,9 +1593,9 @@ const styles = StyleSheet.create({
     left: 16,
     flexDirection: 'row',
     gap: 3,
-    // --- 新增以下兩行 ---
-    height: 40,               // 設定與標題區塊（floatingHeaderCenter）相同的高度
-    justifyContent: 'center',  // 讓箭頭在 40 像素的高度內垂直置中
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
   },
   floatingHeaderCenter: {
     position: 'absolute',

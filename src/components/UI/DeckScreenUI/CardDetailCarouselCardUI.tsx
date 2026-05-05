@@ -101,6 +101,7 @@ function CardDetailCarouselCardUI({
   const frontCaptureRef = React.useRef<View | null>(null);
   const backCaptureRef = React.useRef<View | null>(null);
   const combinedShareRef = React.useRef<View | null>(null);
+  const heroMediaRef = React.useRef<View | null>(null);
   const [isSharePickerVisible, setIsSharePickerVisible] = React.useState(false);
   const [shareSelection, setShareSelection] = React.useState<{
     front: boolean;
@@ -348,6 +349,31 @@ function CardDetailCarouselCardUI({
     if (!isActiveCard) return;
     flipAnim.value = withTiming(flipAnim.value === 0 ? 1 : 0, { duration: 400 });
   };
+  const handleOpenHeroFullscreen = React.useCallback(
+    (event: GestureResponderEvent) => {
+      const fallbackOrigin = {
+        x: event.nativeEvent.pageX,
+        y: event.nativeEvent.pageY,
+      };
+
+      if (!heroMediaRef.current) {
+        onOpenFullscreen(index, fallbackOrigin);
+        return;
+      }
+
+      heroMediaRef.current.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          onOpenFullscreen(index, {
+            x: x + width / 2,
+            y: y + height / 2,
+          });
+          return;
+        }
+        onOpenFullscreen(index, fallbackOrigin);
+      });
+    },
+    [index, onOpenFullscreen]
+  );
   const captureAndShareFace = React.useCallback(
     async (face: 'front' | 'back') => {
       const ref = face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
@@ -470,15 +496,10 @@ function CardDetailCarouselCardUI({
               ]}
             >
               {hasHeroImage ? (
-                <View style={styles.heroMediaWrap}>
+                <View ref={heroMediaRef} collapsable={false} style={styles.heroMediaWrap}>
                   <TouchableOpacity
                     activeOpacity={0.95}
-                    onPress={(event: GestureResponderEvent) =>
-                      onOpenFullscreen(index, {
-                        x: event.nativeEvent.pageX,
-                        y: event.nativeEvent.pageY,
-                      })
-                    }
+                    onPress={handleOpenHeroFullscreen}
                   >
                     <Image source={{ uri: resolvedHeroImageUri }} style={styles.heroMedia} resizeMode="cover" />
                   </TouchableOpacity>

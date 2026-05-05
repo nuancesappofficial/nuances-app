@@ -15,6 +15,7 @@ import {
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
 } from '../../../features/deck/reviewPreferences';
+import { consumeAlbumPreload } from '../../../features/deck/albumPreloadCache';
 
 type Album = {
   id: string;
@@ -72,8 +73,11 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const album = React.useMemo(() => {
     return route.params?.album ?? getDefaultAlbum();
   }, [route.params?.album]);
-  const [albumCards, setAlbumCards] = React.useState<Card[]>([]);
-  const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
+  const initialPreloadRef = React.useRef(consumeAlbumPreload(album.id));
+  const [albumCards, setAlbumCards] = React.useState<Card[]>(() => initialPreloadRef.current?.cards ?? []);
+  const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>(
+    () => initialPreloadRef.current?.cardImageMap ?? {}
+  );
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortMode, setSortMode] = React.useState<SortMode>('recently_added');
   const [showSortModal, setShowSortModal] = React.useState(false);
@@ -81,7 +85,9 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const [showCardActionModal, setShowCardActionModal] = React.useState(false);
   const [showReviewTuningModal, setShowReviewTuningModal] = React.useState(false);
   const [selectedCard, setSelectedCard] = React.useState<Card | null>(null);
-  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
+  const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(
+    () => initialPreloadRef.current?.seenCardIds ?? new Set()
+  );
   const [reviewQuestionCount, setReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
   );

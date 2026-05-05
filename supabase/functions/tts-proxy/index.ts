@@ -121,6 +121,14 @@ Deno.serve(async (req: Request) => {
       .eq('voice', resolvedVoice)
       .maybeSingle();
 
+    if (selectError) {
+      console.warn('[tts-proxy] cache lookup failed; falling back to azure', {
+        phrase: normalizedText,
+        voice: resolvedVoice,
+        error: selectError.message,
+      });
+    }
+
     if (!selectError && cacheHit?.audio_url) {
       console.log('[tts-proxy] cache hit', {
         phrase: normalizedText,
@@ -215,6 +223,12 @@ Deno.serve(async (req: Request) => {
         502,
       );
     }
+
+    console.log('[tts-proxy] azure audio cached', {
+      phrase: normalizedText,
+      voice: resolvedVoice,
+      fileName,
+    });
 
     return jsonResponse({ audioUrl: publicUrl, cached: false });
   } catch (error) {

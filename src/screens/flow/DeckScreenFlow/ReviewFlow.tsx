@@ -57,6 +57,13 @@ type ReviewSlide =
 
 const OPTION_FEEDBACK_DURATION_MS = 320;
 
+function triggerWrongAnswerBuzzHaptic() {
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  setTimeout(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  }, 90);
+}
+
 function shuffleArray<T>(items: T[]): T[] {
   const next = [...items];
   for (let i = next.length - 1; i > 0; i -= 1) {
@@ -357,6 +364,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
     setSelectedAnswers((prev) => ({ ...prev, [question.id]: option }));
     setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
     void markCardAsQuizReviewed(question.cardId);
+    if (!isCorrect) {
+      triggerWrongAnswerBuzzHaptic();
+    }
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
     setTimeout(() => {
