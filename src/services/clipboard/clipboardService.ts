@@ -8,6 +8,10 @@
 import * as Clipboard from 'expo-clipboard';
 import { database } from '@database/index';
 import CachedItem from '@database/models/CachedItem';
+import {
+  formatCacheLimitReachedMessage,
+  getCacheCapacitySnapshot,
+} from '@services/cache/cacheLimitService';
 
 const MAX_TEXT_LENGTH = 2000;
 
@@ -47,6 +51,14 @@ export async function pasteTextFromClipboard(userId: string): Promise<ClipboardP
     const limitedText = trimmedText.length > MAX_TEXT_LENGTH 
       ? trimmedText.substring(0, MAX_TEXT_LENGTH) 
       : trimmedText;
+
+    const capacity = await getCacheCapacitySnapshot(userId);
+    if (capacity.isAtLimit) {
+      return {
+        success: false,
+        message: formatCacheLimitReachedMessage(capacity),
+      };
+    }
 
     // 儲存到資料庫
     await database.write(async () => {

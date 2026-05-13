@@ -568,7 +568,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
   const [visibleCacheIds, setVisibleCacheIds] = useState<string[]>([]);
   const openAddModal = React.useCallback(() => {
-    void Haptics.selectionAsync();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowAddModal(true);
   }, []);
 
@@ -1066,7 +1066,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           onPressOut={() => animateAddButtonPress(1)}
           onPress={openAddModal}
         >
-          <Text style={styles.uploadBarButtonLabel}>＋ Upload Cache</Text>
+          <Text style={styles.uploadBarButtonLabel}>＋ Upload</Text>
         </TouchableOpacity>
       </Animated.View>
 

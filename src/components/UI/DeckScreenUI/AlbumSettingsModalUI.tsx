@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Animated,
   Easing,
+  Image,
   Modal,
   Pressable,
   StyleSheet,
@@ -9,16 +10,14 @@ import {
   TextInput,
   TouchableOpacity,
   useColorScheme,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
-  CONTAINER_BG,
   MODAL_CTA_COLOR,
   MODAL_CTA_COLOR_BORDER,
   SCREEN_BG,
-  TEXT_ON_BG,
-  TEXT_ON_CONTAINER,
   TEXT_ON_CTA,
   resolveThemeColors,
 } from '../../../theme/colors';
@@ -29,12 +28,15 @@ type Props = {
   settingsEmoji: string;
   settingsColor: string;
   hasCoverImage: boolean;
+  coverImageUri?: string;
+  onSelectCoverTab: (tab: 'classic' | 'image') => void;
   onChangeName: (name: string) => void;
   onChangeEmoji: (emoji: string) => void;
   onChangeColor: (color: string) => void;
   onPickCoverImage: () => void;
   onCancel: () => void;
   onSave: () => void;
+  onDidClose?: () => void;
 };
 
 const EMOJI_OPTIONS = ['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'];
@@ -49,7 +51,6 @@ const COVER_COLOR_OPTIONS = [
   { value: '#5BC0EB' },
   { value: '#F97316' },
   { value: '#1E293B' },
-  { value: '#64748B' },
 ];
 
 const MODAL_ENTRY_TRANSLATE_Y = 420;
@@ -63,18 +64,46 @@ export default function AlbumSettingsModalUI({
   settingsEmoji,
   settingsColor,
   hasCoverImage,
+  coverImageUri,
+  onSelectCoverTab,
   onChangeName,
   onChangeEmoji,
   onChangeColor,
   onPickCoverImage,
   onCancel,
   onSave,
+  onDidClose,
 }: Props) {
   const colorScheme = useColorScheme();
+  const { width: screenWidth } = useWindowDimensions();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
   const [shouldRender, setShouldRender] = React.useState(visible);
+  const [coverTab, setCoverTab] = React.useState<'classic' | 'image'>(hasCoverImage ? 'image' : 'classic');
+  const [tabContentWidth, setTabContentWidth] = React.useState(0);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+  const tabSlideProgress = React.useRef(new Animated.Value(hasCoverImage ? 1 : 0)).current;
+  const onDidCloseRef = React.useRef(onDidClose);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    const nextTab = hasCoverImage ? 'image' : 'classic';
+    setCoverTab((prev) => (prev === nextTab ? prev : nextTab));
+  }, [hasCoverImage, visible]);
+
+  React.useEffect(() => {
+    onDidCloseRef.current = onDidClose;
+  }, [onDidClose]);
+
+  React.useEffect(() => {
+    Animated.timing(tabSlideProgress, {
+      toValue: coverTab === 'image' ? 1 : 0,
+      duration: 260,
+      easing: Easing.bezier(0.22, 0.86, 0.26, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [coverTab, tabSlideProgress]);
 
   React.useEffect(() => {
     if (visible) {
@@ -115,10 +144,21 @@ export default function AlbumSettingsModalUI({
     ]).start(({ finished }) => {
       if (!finished) return;
       setShouldRender(false);
+      onDidCloseRef.current?.();
     });
   }, [backdropOpacity, entranceY, shouldRender, visible]);
 
+  const handleSelectTab = React.useCallback(
+    (tab: 'classic' | 'image') => {
+      setCoverTab((prev) => (prev === tab ? prev : tab));
+      onSelectCoverTab(tab);
+    },
+    [onSelectCoverTab]
+  );
+
   if (!shouldRender) return null;
+
+  const panelWidth = Math.max(tabContentWidth, 1);
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={onCancel}>
@@ -130,93 +170,176 @@ export default function AlbumSettingsModalUI({
             onPress={() => undefined}
           >
             <View style={[styles.handle, { backgroundColor: palette.secondaryText }]} />
-
             <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ALBUM SETTINGS</Text>
-            <Text style={[styles.title, { color: palette.textOnContainer }]}>Customize this album</Text>
-            <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Refine the name, icon, and cover color.</Text>
 
-            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
-              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Album name</Text>
-              <TextInput
-                value={settingsName}
-                onChangeText={onChangeName}
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: palette.modalOptionBg,
-                    borderColor: palette.modalOptionBorder,
-                    color: palette.textOnContainer,
-                  },
-                ]}
-                placeholder="Type album name"
-                placeholderTextColor={palette.secondaryText}
-              />
-            </View>
-
-            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
-              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Icon</Text>
-              <View style={styles.optionRow}>
-                {EMOJI_OPTIONS.map((emoji) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[
-                      styles.emojiOption,
-                      { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-                      settingsEmoji === emoji && styles.emojiOptionActive,
-                    ]}
-                    onPress={() => onChangeEmoji(emoji)}
-                    activeOpacity={0.88}
-                  >
-                    <Text style={styles.emojiOptionText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
+            <View style={styles.settingsList}>
+              <View style={styles.settingsRowBlock}>
+                <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Album name</Text>
+                <TextInput
+                  value={settingsName}
+                  onChangeText={onChangeName}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: palette.modalOptionBg,
+                      borderColor: palette.modalOptionBorder,
+                      color: palette.textOnContainer,
+                    },
+                  ]}
+                  placeholder="Type album name"
+                  placeholderTextColor={palette.secondaryText}
+                />
               </View>
-            </View>
 
-            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
-              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Cover color</Text>
-              <View style={styles.colorGrid}>
-                {COVER_COLOR_OPTIONS.map((option) => {
-                  const active = settingsColor === option.value;
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
-                      onPress={() => onChangeColor(option.value)}
-                      activeOpacity={0.88}
-                    >
-                      <View
+              <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+
+              <View style={styles.settingsRowBlock}>
+                <View
+                  style={[
+                    styles.tabShell,
+                    {
+                      backgroundColor: isLight ? palette.containerBg : palette.modalOptionBg,
+                      borderColor: palette.modalOptionBorder,
+                    },
+                  ]}
+                >
+                  {(['classic', 'image'] as const).map((tab) => {
+                    const active = coverTab === tab;
+                    return (
+                      <TouchableOpacity
+                        key={tab}
                         style={[
-                          styles.colorSwatch,
-                          { backgroundColor: option.value },
-                          active ? styles.colorSwatchActive : null,
+                          styles.tabButton,
+                          active
+                            ? styles.tabButtonActive
+                            : {
+                                backgroundColor: 'transparent',
+                                borderColor: 'transparent',
+                              },
                         ]}
-                      />
-                    </TouchableOpacity>
-                  );
-                })}
+                        onPress={() => handleSelectTab(tab)}
+                        activeOpacity={0.88}
+                      >
+                        <Text
+                          style={[
+                            styles.tabButtonText,
+                            { color: active ? TEXT_ON_CTA : palette.textOnContainer },
+                          ]}
+                        >
+                          {tab === 'classic' ? 'Classic' : 'Image'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
 
-            <View style={[styles.sectionCard, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
-              <Text style={[styles.sectionLabel, { color: palette.secondaryText }]}>Cover image</Text>
-              <TouchableOpacity
-                style={[
-                  styles.coverButton,
-                  { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-                ]}
-                activeOpacity={0.9}
-                onPress={onPickCoverImage}
+              <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+
+              <View
+                style={styles.tabContentViewport}
+                onLayout={(event) => {
+                  const nextWidth = event.nativeEvent.layout.width;
+                  setTabContentWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+                }}
               >
-                <Text style={[styles.coverButtonText, { color: palette.textOnContainer }]}>{hasCoverImage ? 'Change cover image' : 'Choose cover image'}</Text>
-              </TouchableOpacity>
+                <Animated.View
+                  style={[
+                    styles.tabContentSlider,
+                    {
+                      width: Math.max(panelWidth * 2, screenWidth),
+                      transform: [
+                        {
+                          translateX: tabSlideProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -panelWidth],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={[styles.tabPanel, { width: panelWidth }]}>
+                    <View style={styles.settingsRowBlock}>
+                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Icon</Text>
+                      <View style={styles.optionRow}>
+                        {EMOJI_OPTIONS.map((emoji) => (
+                          <TouchableOpacity
+                            key={emoji}
+                            style={[
+                              styles.emojiOption,
+                              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                              settingsEmoji === emoji && styles.emojiOptionActive,
+                            ]}
+                            onPress={() => onChangeEmoji(emoji)}
+                            activeOpacity={0.88}
+                          >
+                            <Text style={styles.emojiOptionText}>{emoji}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+
+                    <View style={styles.settingsRowBlock}>
+                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Cover color</Text>
+                      <View style={styles.colorGrid}>
+                        {COVER_COLOR_OPTIONS.map((option) => {
+                          const active = settingsColor === option.value;
+                          return (
+                            <TouchableOpacity
+                              key={option.value}
+                              style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
+                              onPress={() => onChangeColor(option.value)}
+                              activeOpacity={0.88}
+                            >
+                              <View
+                                style={[
+                                  styles.colorSwatch,
+                                  { backgroundColor: option.value },
+                                  active ? styles.colorSwatchActive : null,
+                                ]}
+                              />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={[styles.tabPanel, styles.imagePanel, { width: panelWidth }]}>
+                    <TouchableOpacity
+                      style={[
+                        styles.coverUploadTile,
+                        { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                      ]}
+                      activeOpacity={0.9}
+                      onPress={onPickCoverImage}
+                    >
+                      {coverImageUri ? (
+                        <Image source={{ uri: coverImageUri }} style={styles.coverPreviewImage} resizeMode="cover" />
+                      ) : (
+                        <>
+                          <View style={[styles.coverBlurLine, styles.coverBlurLineOne]} />
+                          <View style={[styles.coverBlurLine, styles.coverBlurLineTwo]} />
+                          <View style={[styles.coverBlurLine, styles.coverBlurLineThree]} />
+                          <View style={[styles.coverPlusCircle, { backgroundColor: MODAL_CTA_COLOR }]}>
+                            <Text style={styles.coverPlusText}>+</Text>
+                          </View>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              </View>
             </View>
 
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[
                   styles.cancelButton,
-                  { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                  { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
                 ]}
                 onPress={onCancel}
                 activeOpacity={0.9}
@@ -271,49 +394,79 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.6,
   },
-  title: {
-    color: TEXT_ON_BG,
-    fontSize: 24,
-    fontWeight: '800',
+  settingsList: {
+    gap: 0,
   },
-  subtitle: {
-    color: '#B4BBC8',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  sectionCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: CONTAINER_BG,
-    paddingHorizontal: 14,
+  settingsRowBlock: {
+    paddingHorizontal: 4,
     paddingVertical: 14,
     gap: 10,
   },
+  tabShell: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 4,
+    gap: 6,
+  },
+  tabButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  settingsDivider: {
+    height: 1,
+    marginHorizontal: 4,
+  },
   sectionLabel: {
-    color: '#97A0AF',
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
   },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(15,23,42,0.5)',
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    color: TEXT_ON_CONTAINER,
     fontSize: 15,
+  },
+  tabContentViewport: {
+    height: 250,
+    overflow: 'hidden',
+  },
+  tabContentSlider: {
+    height: '100%',
+    flexDirection: 'row',
+  },
+  tabPanel: {
+    height: '100%',
+  },
+  imagePanel: {
+    paddingHorizontal: 4,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   optionRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    justifyContent: 'space-between',
+    gap: 6,
   },
   emojiOption: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
     backgroundColor: 'rgba(15,23,42,0.5)',
@@ -325,7 +478,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(78,175,244,0.16)',
   },
   emojiOptionText: {
-    fontSize: 22,
+    fontSize: 19,
   },
   colorGrid: {
     flexDirection: 'row',
@@ -343,9 +496,9 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.08 }],
   },
   colorSwatch: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.24)',
   },
@@ -353,20 +506,56 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: MODAL_CTA_COLOR_BORDER,
   },
-  coverButton: {
-    minHeight: 42,
-    borderRadius: 12,
+  coverUploadTile: {
+    width: 196,
+    aspectRatio: 1,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: 'rgba(15,23,42,0.5)',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
   },
-  coverButtonText: {
-    color: TEXT_ON_CONTAINER,
-    fontSize: 14,
+  coverPreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverBlurLine: {
+    position: 'absolute',
+    left: 30,
+    right: 30,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(78,175,244,0.16)',
+  },
+  coverBlurLineOne: {
+    top: 62,
+    opacity: 0.52,
+  },
+  coverBlurLineTwo: {
+    top: 92,
+    opacity: 0.34,
+  },
+  coverBlurLineThree: {
+    top: 122,
+    opacity: 0.22,
+  },
+  coverPlusCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: MODAL_CTA_COLOR,
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  coverPlusText: {
+    color: TEXT_ON_CTA,
+    fontSize: 34,
+    lineHeight: 38,
     fontWeight: '700',
+    marginTop: -2,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -377,8 +566,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: CONTAINER_BG,
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -394,7 +581,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cancelText: {
-    color: TEXT_ON_BG,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
   },

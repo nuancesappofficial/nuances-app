@@ -83,6 +83,17 @@ export default function CacheInputModalUI({
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
+  const lightModalColors = React.useMemo(
+    () => ({
+      sheetBg: palette.screenBg,
+      tabShellBg: palette.containerBg,
+      tabShellBorder: palette.borderSubtle,
+      tabText: palette.textOnContainer,
+      tabTextActive: TEXT_ON_CTA,
+    }),
+    [palette]
+  );
   const { height: windowHeight } = useWindowDimensions();
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [panelWidth, setPanelWidth] = React.useState(0);
@@ -295,7 +306,7 @@ export default function CacheInputModalUI({
         style={[
           styles.modalSheet,
           {
-            backgroundColor: palette.modalBg,
+            backgroundColor: isLight ? lightModalColors.sheetBg : palette.modalBg,
             borderColor: palette.modalOptionBorder,
             paddingBottom: addTab === 'image' ? 0 : 16,
             transform: [{ translateY: sheetTransform }],
@@ -309,18 +320,56 @@ export default function CacheInputModalUI({
         <View style={[styles.sheetHandle, { backgroundColor: palette.secondaryText }]} />
         <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ADD TO CACHE</Text>
 
-        <View style={[styles.tabRow, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
+        <View
+          style={[
+            styles.tabRow,
+            {
+              backgroundColor: isLight ? lightModalColors.tabShellBg : palette.containerBg,
+              borderColor: isLight ? lightModalColors.tabShellBorder : palette.modalOptionBorder,
+            },
+          ]}
+        >
           <TouchableOpacity
-            style={[styles.tabBtn, addTab === 'text' && styles.tabBtnActive]}
+            style={[
+              styles.tabBtn,
+              addTab === 'text' && styles.tabBtnActive,
+            ]}
             onPress={() => handleTabPress('text')}
           >
-            <Text style={[styles.tabText, { color: palette.secondaryText }, addTab === 'text' && styles.tabTextActive]}>Text</Text>
+            <Text
+              style={[
+                styles.tabText,
+                { color: isLight ? lightModalColors.tabText : palette.secondaryText },
+                addTab === 'text'
+                  ? [styles.tabTextActive, { color: isLight ? lightModalColors.tabTextActive : TEXT_ON_CTA }]
+                  : isLight
+                    ? { color: lightModalColors.tabText }
+                    : null,
+              ]}
+            >
+              Text
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabBtn, addTab === 'image' && styles.tabBtnActive]}
+            style={[
+              styles.tabBtn,
+              addTab === 'image' && styles.tabBtnActive,
+            ]}
             onPress={() => handleTabPress('image')}
           >
-            <Text style={[styles.tabText, { color: palette.secondaryText }, addTab === 'image' && styles.tabTextActive]}>Image</Text>
+            <Text
+              style={[
+                styles.tabText,
+                { color: isLight ? lightModalColors.tabText : palette.secondaryText },
+                addTab === 'image'
+                  ? [styles.tabTextActive, { color: isLight ? lightModalColors.tabTextActive : TEXT_ON_CTA }]
+                  : isLight
+                    ? { color: lightModalColors.tabText }
+                    : null,
+              ]}
+            >
+              Image
+            </Text>
           </TouchableOpacity>
         </View>
 

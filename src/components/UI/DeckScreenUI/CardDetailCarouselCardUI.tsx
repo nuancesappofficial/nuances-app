@@ -62,6 +62,44 @@ type Props = {
   isLightMode?: boolean;
 };
 
+function buildFallbackCollocations(params: {
+  targetWord: string;
+  targetPhrase?: string | null;
+  sourceSentence?: string | null;
+}): string[] {
+  const targetWord = (params.targetWord || '').trim();
+  const targetPhrase = (params.targetPhrase || '').trim();
+  const sourceSentence = (params.sourceSentence || '').trim();
+
+  if (targetPhrase && targetPhrase.toLowerCase() !== targetWord.toLowerCase()) {
+    return [targetPhrase];
+  }
+  if (targetWord.includes(' ')) {
+    return [targetWord];
+  }
+  if (!sourceSentence || !targetWord) {
+    return targetWord ? [targetWord] : [];
+  }
+
+  const escaped = targetWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tokenReg = new RegExp(`\\b${escaped}\\b`, 'i');
+  const sentenceTokens = sourceSentence.split(/\s+/).filter(Boolean);
+  const matchIndex = sentenceTokens.findIndex((token) =>
+    tokenReg.test(token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+  );
+
+  if (matchIndex >= 0) {
+    const phrase = sentenceTokens
+      .slice(Math.max(0, matchIndex - 1), Math.min(sentenceTokens.length, matchIndex + 2))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (phrase) return [phrase];
+  }
+
+  return [targetWord];
+}
+
 function CardDetailCarouselCardUI({
   item,
   index,
@@ -211,15 +249,19 @@ function CardDetailCarouselCardUI({
     const replaced = raw.replace(reg, quotedWord);
     return replaced.includes(quotedWord) ? replaced : `${quotedWord}：${replaced}`;
   }, [sentenceTranslationRaw, item.definition, itemWord]);
-  const collocationItems = React.useMemo(
-    () =>
-      (item.frequentCollocations || '')
-        .split(/[\n,;]+/)
-        .map((phrase) => phrase.trim())
-        .filter(Boolean)
-        .slice(0, 1),
-    [item.frequentCollocations]
-  );
+  const collocationItems = React.useMemo(() => {
+    const directItems = (item.frequentCollocations || '')
+      .split(/[\n,;]+/)
+      .map((phrase) => phrase.trim())
+      .filter(Boolean)
+      .slice(0, 1);
+    if (directItems.length > 0) return directItems;
+    return buildFallbackCollocations({
+      targetWord: itemWord,
+      targetPhrase: item.targetPhrase,
+      sourceSentence,
+    });
+  }, [item.frequentCollocations, item.targetPhrase, itemWord, sourceSentence]);
   const sentenceExplanation = React.useMemo(() => {
     if (contextLines.length > 1) return contextLines.slice(1).join('\n');
     if (contextLines.length === 1) return contextLines[0];
@@ -242,19 +284,6 @@ function CardDetailCarouselCardUI({
   const frontNoteFontSize = Math.round(19 * frontContentScale);
   const frontNoteLineHeight = Math.round(26 * frontContentScale);
   const hasStickyNote = Boolean((stickyNoteText || '').trim());
-  const backTextScale = React.useMemo(() => {
-    const totalChars =
-      (collocationItems.join(' ').length || 0) +
-      (apiExampleSentence?.length || 0) +
-      (culturalBackgroundText?.length || 0) +
-      (stickyNoteText?.length || 0);
-    if (totalChars > 760) return 0.82;
-    if (totalChars > 620) return 0.88;
-    if (totalChars > 500) return 0.94;
-    return 1;
-  }, [apiExampleSentence, collocationItems, culturalBackgroundText, stickyNoteText]);
-  const backTextFontSize = Math.round(20 * backTextScale);
-  const backTextLineHeight = Math.round(28 * backTextScale);
   const apiExampleSentence = React.useMemo(() => {
     const firstCollocation = collocationItems[0];
     if (!firstCollocation) return sourceSentence;
@@ -271,9 +300,9 @@ function CardDetailCarouselCardUI({
   );
   const mockPhonemeChips = React.useMemo<CloudPhonemeFeedback[]>(
     () => [
-      { phoneme: '/m/', letters: 'm', accuracy: 94 },
-      { phoneme: '/ɑː/', letters: 'o', accuracy: 89 },
-      { phoneme: '/k/', letters: 'ck', accuracy: 93 },
+      { phoneme: '/m/', letters: 'm', accuracy: 94, level: 'green' },
+      { phoneme: '/ɑː/', letters: 'o', accuracy: 89, level: 'green' },
+      { phoneme: '/k/', letters: 'ck', accuracy: 93, level: 'green' },
     ],
     []
   );
@@ -316,6 +345,19 @@ function CardDetailCarouselCardUI({
 
     return raw;
   }, [item.contextualExplanation]);
+  const backTextScale = React.useMemo(() => {
+    const totalChars =
+      (collocationItems.join(' ').length || 0) +
+      (apiExampleSentence?.length || 0) +
+      (culturalBackgroundText?.length || 0) +
+      (stickyNoteText?.length || 0);
+    if (totalChars > 760) return 0.82;
+    if (totalChars > 620) return 0.88;
+    if (totalChars > 500) return 0.94;
+    return 1;
+  }, [apiExampleSentence, collocationItems, culturalBackgroundText, stickyNoteText]);
+  const backTextFontSize = Math.round(20 * backTextScale);
+  const backTextLineHeight = Math.round(28 * backTextScale);
   const weightedWordLength = Array.from(itemWord.trim()).reduce((total, ch) => {
     const isCjk = /[\u4E00-\u9FFF]/.test(ch);
     return total + (isCjk ? 1.7 : 1);
@@ -719,19 +761,25 @@ function CardDetailCarouselCardUI({
 
                   <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
                     <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Cultural background</Text>
-                    <Text
-                      style={[
-                        localStyles.dualSentenceText,
-                        {
-                          color: ui.primaryText,
-                          fontSize: backTextFontSize,
-                          lineHeight: backTextLineHeight,
-                          fontWeight: '600',
-                        },
-                      ]}
+                    <ScrollView
+                      style={localStyles.culturalScrollBox}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
                     >
-                      {culturalBackgroundText || 'No cultural background yet.'}
-                    </Text>
+                      <Text
+                        style={[
+                          localStyles.dualSentenceText,
+                          {
+                            color: ui.primaryText,
+                            fontSize: backTextFontSize,
+                            lineHeight: backTextLineHeight,
+                            fontWeight: '600',
+                          },
+                        ]}
+                      >
+                        {culturalBackgroundText || 'No cultural background yet.'}
+                      </Text>
+                    </ScrollView>
                   </View>
 
                   <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
@@ -800,9 +848,11 @@ function CardDetailCarouselCardUI({
             <Pressable onPress={() => {}}>
             <Text style={localStyles.shareModalTitle}>Share screens</Text>
             <View style={localStyles.sharePreviewRow}>
-              <TouchableOpacity
-                activeOpacity={1}
-                style={localStyles.sharePreviewCard}
+              <Pressable
+                style={({ pressed }) => [
+                  localStyles.sharePreviewCard,
+                  pressed ? localStyles.sharePreviewCardPressed : null,
+                ]}
                 onPress={() => toggleShareSelection('front')}
               >
                 <View
@@ -821,11 +871,13 @@ function CardDetailCarouselCardUI({
                   <Ionicons name={shareSelection.front ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={shareSelection.front ? '#4EAFF4' : '#94A3B8'} />
                   <Text style={localStyles.sharePreviewLabel}>Front</Text>
                 </View>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                activeOpacity={1}
-                style={localStyles.sharePreviewCard}
+              <Pressable
+                style={({ pressed }) => [
+                  localStyles.sharePreviewCard,
+                  pressed ? localStyles.sharePreviewCardPressed : null,
+                ]}
                 onPress={() => toggleShareSelection('back')}
               >
                 <View
@@ -844,17 +896,29 @@ function CardDetailCarouselCardUI({
                   <Ionicons name={shareSelection.back ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={shareSelection.back ? '#4EAFF4' : '#94A3B8'} />
                   <Text style={localStyles.sharePreviewLabel}>Back</Text>
                 </View>
-              </TouchableOpacity>
+              </Pressable>
 
             </View>
 
             <View style={localStyles.shareActionRow}>
-              <TouchableOpacity activeOpacity={1} style={localStyles.shareCancelBtn} onPress={() => setIsSharePickerVisible(false)}>
+              <Pressable
+                style={({ pressed }) => [
+                  localStyles.shareCancelBtn,
+                  pressed ? localStyles.shareActionBtnPressed : null,
+                ]}
+                onPress={() => setIsSharePickerVisible(false)}
+              >
                 <Text style={localStyles.shareCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity activeOpacity={1} style={localStyles.shareConfirmBtn} onPress={() => void submitShareSelection()}>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  localStyles.shareConfirmBtn,
+                  pressed ? localStyles.shareActionBtnPressed : null,
+                ]}
+                onPress={() => void submitShareSelection()}
+              >
                 <Text style={localStyles.shareConfirmText}>Share</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
             </Pressable>
           </Animated.View>
@@ -892,6 +956,9 @@ const localStyles = StyleSheet.create({
   backTextSection: {
     flex: 1,
     minHeight: 0,
+  },
+  culturalScrollBox: {
+    maxHeight: 152,
   },
   backFooterPinned: {
     position: 'absolute',
@@ -986,6 +1053,10 @@ const localStyles = StyleSheet.create({
     backgroundColor: 'transparent',
     padding: 0,
   },
+  sharePreviewCardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.985 }],
+  },
   sharePreviewMedia: {
     width: '100%',
     aspectRatio: 0.72,
@@ -1050,6 +1121,10 @@ const localStyles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 14,
     fontWeight: '700',
+  },
+  shareActionBtnPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }],
   },
   hiddenCombinedCaptureWrap: {
     position: 'absolute',

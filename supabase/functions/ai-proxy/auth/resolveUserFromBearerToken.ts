@@ -1,5 +1,12 @@
 declare const Deno: any;
 
+export type AuthenticatedSupabaseUser = {
+  id: string;
+  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
 export function getBearerToken(req: Request): string | null {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
@@ -9,7 +16,7 @@ export function getBearerToken(req: Request): string | null {
 async function resolveUserIdViaSupabaseAuth(
   req: Request,
   token: string
-): Promise<string | null> {
+): Promise<AuthenticatedSupabaseUser | null> {
   const requestUrl = new URL(req.url);
   const supabaseOrigin = requestUrl.origin;
   const reqApiKey = req.headers.get('apikey');
@@ -31,7 +38,7 @@ async function resolveUserIdViaSupabaseAuth(
     }
     const payload = await response.json() as Record<string, unknown>;
     if (typeof payload.id === 'string' && payload.id.trim()) {
-      return payload.id;
+      return payload as AuthenticatedSupabaseUser;
     }
     return null;
   } catch {
@@ -39,10 +46,16 @@ async function resolveUserIdViaSupabaseAuth(
   }
 }
 
-export async function getUserIdFromAuthorization(req: Request): Promise<string | null> {
+export async function getAuthenticatedUserFromAuthorization(
+  req: Request
+): Promise<AuthenticatedSupabaseUser | null> {
   const token = getBearerToken(req);
   if (!token) return null;
 
-  // Always verify bearer token via Supabase Auth service.
   return await resolveUserIdViaSupabaseAuth(req, token);
+}
+
+export async function getUserIdFromAuthorization(req: Request): Promise<string | null> {
+  const user = await getAuthenticatedUserFromAuthorization(req);
+  return user?.id ?? null;
 }

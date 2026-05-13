@@ -1,7 +1,11 @@
 // Supabase Edge Function: ai-proxy
 // Securely proxies AI requests so API keys never live in the mobile app.
 declare const Deno: any;
-import { getUserIdFromAuthorization } from './auth/resolveUserFromBearerToken.ts';
+import {
+  getAuthenticatedUserFromAuthorization,
+  getUserIdFromAuthorization,
+} from './auth/resolveUserFromBearerToken.ts';
+import { createServiceRoleClient, resolveServerEntitlement } from '../_shared/entitlement.ts';
 import { corsHeaders, jsonResponse } from './_shared/httpResponse.ts';
 import { handlePronunciationAssess } from './providers/azureProvider.ts';
 import { callGeminiLegacy, routeGeminiModelForAction } from './providers/geminiProvider.ts';
@@ -652,7 +656,8 @@ Output a JSON object with the following exact keys:
 - "partOfSpeech": The grammatical role in the sentence.
 - "definition": The primary meaning in this specific context (in ${replyLanguage.label}).
 - "contextualExplanation": Explain why it means this, citing sentence context or cultural slang usage (in ${replyLanguage.label}).
-- "example": Provide another example sentence using this exact meaning (in ${replyLanguage.label}).
+- "frequentCollocations": Provide 1 to 3 natural collocations or short phrases using this exact meaning, comma-separated (in the source language of the target word).
+- "example": Provide another example sentence using one of the collocations above and this exact meaning (in ${replyLanguage.label}).
 - "tags": Array of strings (e.g., ["slang", "hip-hop", "noun"]).
 `;
 
@@ -662,6 +667,8 @@ Output a JSON object with the following exact keys:
     'Prioritize in-context meaning over traditional dictionary defaults when sentence context indicates slang, meme, gaming, music, social media, or community-specific usage.',
     'Apply your knowledge of modern cultural references even if the provided sentence is short or lacks explicit context.',
     `Use ${replyLanguage.label} for natural-language output fields (especially definition/contextualExplanation/example) unless the user explicitly requests another language.`,
+    'Always provide at least one usable collocation or short phrase in frequentCollocations. Prefer concrete, common combinations over isolated single words.',
+    'Make the example sentence sound natural and clearly demonstrate one of the collocations you returned.',
     'If meaning is ambiguous, explicitly mark uncertainty and provide concise alternatives.',
     'Return strict JSON only matching the requested schema. Keep each field concise.'
   ].join(' ');
@@ -989,9 +996,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const userPromise = getUserIdFromAuthorization(req);
+    const userPromise = getAuthenticatedUserFromAuthorization(req);
     const bodyPromise = req.json().catch(() => null);
-    const userId = await userPromise;
+    const authUser = await userPromise;
+    const userId = authUser?.id ?? null;
     if (!userId) {
       return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
     }
@@ -1012,6 +1020,9 @@ Deno.serve(async (req: Request) => {
       );
     }
     const body = parsedBody as RequestBody;
+    const supabase = createServiceRoleClient();
+    const entitlement = await resolveServerEntitlement({ supabase, userId, user: authUser });
+    const planType = entitlement.planType;
 
     if (isActionRequest(body)) {
       if (!SUPPORTED_ACTIONS.has(body.action)) {
@@ -1035,6 +1046,17 @@ Deno.serve(async (req: Request) => {
       }
       if (body.action === 'get_task_result') {
         return await getTaskResult(userId, body.payload as GetTaskResultPayload);
+      }
+      if (planType === 'free' && BILLABLE_ACTIONS.has(body.action)) {
+        return jsonResponse(
+          {
+            error: 'Premium or active trial required',
+            reason: 'premium_required',
+            planType,
+            paywallType: body.action === 'pronunciation_assess' ? 'pronunciation' : 'ai_generate',
+          },
+          403
+        );
       }
 
       const validationErrors = validateActionPayload(body.action, body.payload);
@@ -1126,6 +1148,18 @@ Deno.serve(async (req: Request) => {
         meta: debugMeta,
       });
       return response;
+    }
+
+    if (planType === 'free') {
+      return jsonResponse(
+        {
+          error: 'Premium or active trial required',
+          reason: 'premium_required',
+          planType,
+          paywallType: 'ai_generate',
+        },
+        403
+      );
     }
 
     // Backward-compatible legacy mode (kept for temporary compatibility).

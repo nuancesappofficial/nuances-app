@@ -3,6 +3,7 @@
 
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
+import * as Haptics from 'expo-haptics';
 import {
   Animated,
   Easing,
@@ -15,12 +16,25 @@ import {
   Linking,
   AppState,
   Modal,
+  Image,
   useColorScheme,
+  useWindowDimensions,
+  type LayoutChangeEvent,
   type AppStateStatus,
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import Reanimated, {
+  runOnJS,
+  SensorType,
+  useAnimatedSensor,
+  useAnimatedStyle,
+  useFrameCallback,
+  useSharedValue,
+} from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
@@ -29,14 +43,21 @@ import {
   completeOAuthFromUrl,
   getCurrentUser,
   getCurrentSession,
+  signInWithApple,
   signInWithGoogle,
+  signOut,
   supabase,
 } from './src/services/supabase/client';
+import SubscriptionService from './src/services/subscription/SubscriptionService';
 import { resolveThemeColors } from './src/theme/colors';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
 WebBrowser.maybeCompleteAuthSession();
+const APP_ICON = require('./assets/NUANCES_ICON8.png');
+const APP_CUTOUT_ICON = require('./assets/icon_cutout2.png');
+const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
+const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
 
 function ShareExtensionSync({
   userId,
@@ -63,20 +84,190 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   }
 }
 
-function AuthGate({ onPressGoogle, loading }: { onPressGoogle: () => void; loading: boolean }) {
+function AuthGate({
+  onPressGoogle,
+  onPressApple,
+  loading,
+}: {
+  onPressGoogle: () => void;
+  onPressApple: () => void;
+  loading: boolean;
+}) {
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === 'light';
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [heroHeight, setHeroHeight] = React.useState<number>(windowHeight);
+  const [actionTopY, setActionTopY] = React.useState<number | null>(null);
+  const sensor = useAnimatedSensor(SensorType.GRAVITY, {
+    interval: 16,
+  });
+  const stickerTiltDeg = ((0 % 5) - 2) * 1.2;
+  const posX = useSharedValue(-2);
+  const posY = useSharedValue(1);
+  const velX = useSharedValue(0);
+  const velY = useSharedValue(0);
+  const lastEdgeMask = useSharedValue(0);
+  const stageWidth = Math.max(220, windowWidth);
+  const stickerBoxSize = 172;
+  const EDGE_INSET_X = 4;
+  const BOUNCE = 0.55;
+  const FRICTION = 0.93;
+  const GRAVITY_MULTIPLIER = 400;
+  const effectiveHeroHeight = Math.max(320, heroHeight || windowHeight);
+  const centerYOffset = effectiveHeroHeight / 2;
+  const upperBound = -centerYOffset + stickerBoxSize / 2 + EDGE_INSET_X;
+  const lowerBound =
+    actionTopY == null
+      ? centerYOffset - stickerBoxSize / 2 - EDGE_INSET_X
+      : actionTopY - centerYOffset - stickerBoxSize / 2 - EDGE_INSET_X;
+  const triggerBorderHaptic = React.useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+  const handleHeroLayout = React.useCallback((event: LayoutChangeEvent) => {
+    setHeroHeight(event.nativeEvent.layout.height);
+  }, []);
+  const handleActionStackLayout = React.useCallback((event: LayoutChangeEvent) => {
+    setActionTopY(event.nativeEvent.layout.y);
+  }, []);
+
+  useFrameCallback((frameInfo) => {
+    'worklet';
+    if (frameInfo.timeSincePreviousFrame == null) return;
+    const dt = frameInfo.timeSincePreviousFrame / 1000;
+
+    const gx = sensor.sensor.value?.x ?? 0;
+    const gy = sensor.sensor.value?.y ?? 0;
+    const ax = gx * GRAVITY_MULTIPLIER;
+    const ay = -gy * GRAVITY_MULTIPLIER;
+
+    const limitLeft = -stageWidth / 2 + stickerBoxSize / 2 + EDGE_INSET_X;
+    const limitRight = stageWidth / 2 - stickerBoxSize / 2 - EDGE_INSET_X;
+    const limitUp = upperBound;
+    const limitDown = Math.max(limitUp, lowerBound);
+
+    velX.value += ax * dt;
+    velY.value += ay * dt;
+    velX.value *= Math.pow(FRICTION, dt * 60);
+    velY.value *= Math.pow(FRICTION, dt * 60);
+
+    let nextX = posX.value + velX.value * dt;
+    let nextY = posY.value + velY.value * dt;
+    let edgeMask = 0;
+
+    if (nextX <= limitLeft) {
+      nextX = limitLeft;
+      velX.value = Math.abs(velX.value) * BOUNCE;
+      edgeMask |= 1;
+    } else if (nextX >= limitRight) {
+      nextX = limitRight;
+      velX.value = -Math.abs(velX.value) * BOUNCE;
+      edgeMask |= 2;
+    }
+    if (nextY <= limitUp) {
+      nextY = limitUp;
+      velY.value = Math.abs(velY.value) * BOUNCE;
+      edgeMask |= 4;
+    } else if (nextY >= limitDown) {
+      nextY = limitDown;
+      velY.value = -Math.abs(velY.value) * BOUNCE;
+      edgeMask |= 8;
+    }
+
+    if (edgeMask !== 0 && edgeMask !== lastEdgeMask.value) {
+      lastEdgeMask.value = edgeMask;
+      runOnJS(triggerBorderHaptic)();
+    } else if (edgeMask === 0) {
+      lastEdgeMask.value = 0;
+    }
+
+    posX.value = nextX;
+    posY.value = nextY;
+  }, true);
+
+  const stickerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateX: posX.value },
+        { translateY: posY.value },
+        { rotateZ: `${stickerTiltDeg}deg` },
+      ],
+    };
+  });
+
   return (
-    <View style={styles.authContainer}>
-      <Text style={styles.authTitle}>Nuances</Text>
-      <Text style={styles.authSubtitle}>先登入一次，之後測試不需要每次重登入。</Text>
-      <TouchableOpacity
-        style={[styles.googleButton, loading && styles.googleButtonDisabled]}
-        onPress={onPressGoogle}
-        disabled={loading}
-      >
-        <Text style={styles.googleButtonText}>
-          {loading ? '連線中...' : '使用 Google 登入'}
-        </Text>
-      </TouchableOpacity>
+    <View style={[styles.authContainer, { backgroundColor: '#02213D' }]}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={
+          isLight
+            ? ['rgba(78,175,244,0.16)', 'rgba(78,175,244,0.03)', 'transparent']
+            : ['rgba(78,175,244,0.20)', 'rgba(78,175,244,0.06)', 'transparent']
+        }
+        style={styles.authBackdropGlow}
+      />
+      <View style={styles.authHeroStack} onLayout={handleHeroLayout}>
+        <View style={styles.authStickerStage} pointerEvents="none">
+          <Reanimated.View
+            style={[
+              styles.authStickerWrap,
+              stickerAnimatedStyle,
+              {
+                shadowColor: isLight ? '#0F172A' : '#020617',
+              },
+            ]}
+          >
+            <Image source={APP_CUTOUT_ICON} style={styles.authStickerIcon} resizeMode="contain" />
+          </Reanimated.View>
+        </View>
+
+        <View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }]}>
+          <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
+        </View>
+
+        <View style={styles.authActionStack} onLayout={handleActionStackLayout}>
+          <TouchableOpacity
+            style={[styles.googleButton, loading && styles.googleButtonDisabled]}
+            onPress={onPressApple}
+            disabled={loading}
+            activeOpacity={0.9}
+          >
+            <View
+              style={[
+                styles.appleButtonSurface,
+                {
+                  backgroundColor: isLight ? '#FFFFFF' : '#F8FAFC',
+                  borderColor: isLight ? 'rgba(15,23,42,0.10)' : 'rgba(255,255,255,0.08)',
+                },
+              ]}
+            >
+              <View style={styles.authButtonContent}>
+                <Ionicons name="logo-apple" size={20} color="#0F172A" />
+                <Text style={styles.appleButtonText}>{loading ? '連線中...' : 'Continue with Apple'}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.googleButton, loading && styles.googleButtonDisabled]}
+            onPress={onPressGoogle}
+            disabled={loading}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={['#65B9F7', '#4EAFF4', '#2E7EC2']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.googleButtonGradient}
+            >
+              <View style={styles.authButtonContent}>
+                <Ionicons name="logo-google" size={18} color="#F4EEF3" />
+                <Text style={styles.googleButtonText}>{loading ? '連線中...' : 'Continue with Google'}</Text>
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
@@ -119,6 +310,8 @@ function GlobalThemeCrossFadeOverlay() {
 }
 
 export default function App() {
+  const colorScheme = useColorScheme();
+  const theme = resolveThemeColors(colorScheme);
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -139,6 +332,10 @@ export default function App() {
       const { session } = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
       if (session?.access_token) {
         const { user } = await withTimeout(getCurrentUser(), 6000, 'getCurrentUser');
+        await SubscriptionService.ensureTrialEnrollment();
+        if (user?.id) {
+          await SubscriptionService.syncEntitlements(user.id);
+        }
         setUserId(user?.id ?? null);
       } else {
         setUserId(null);
@@ -169,8 +366,16 @@ export default function App() {
         return;
       }
       void (async () => {
-        const { user } = await getCurrentUser();
-        setUserId(user?.id ?? null);
+        try {
+          const { user } = await getCurrentUser();
+          await SubscriptionService.ensureTrialEnrollment();
+          if (user?.id) {
+            await SubscriptionService.syncEntitlements(user.id);
+          }
+          setUserId(user?.id ?? null);
+        } catch (error) {
+          console.error('[App] auth state entitlement bootstrap failed:', error);
+        }
       })();
     });
     return () => {
@@ -189,30 +394,58 @@ export default function App() {
       return;
     }
     if (handled && !error) {
-      Alert.alert('登入成功', 'Google 帳號登入成功。');
+      Alert.alert('登入成功', '帳號登入成功。');
     }
   }, []);
 
+  const handleDeveloperCommand = React.useCallback(async (url: string) => {
+    if (!__DEV__) return false;
+    if (!url.startsWith(DEV_SIGNOUT_URL)) return false;
+
+    try {
+      await signOut();
+      setAllowOfflineAccess(false);
+      setUserId(null);
+      Alert.alert('已登出', '已切回 auth 畫面。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知錯誤';
+      Alert.alert('登出失敗', message);
+    }
+    return true;
+  }, []);
+
+  const handleIncomingUrl = React.useCallback(
+    async (url: string) => {
+      const handledDevCommand = await handleDeveloperCommand(url);
+      if (handledDevCommand) return;
+      await handleOAuthCallback(url);
+    },
+    [handleDeveloperCommand, handleOAuthCallback]
+  );
+
   useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void handleOAuthCallback(url);
+      void handleIncomingUrl(url);
     });
 
     Linking.getInitialURL().then((url) => {
       if (url) {
-        void handleOAuthCallback(url);
+        void handleIncomingUrl(url);
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [handleOAuthCallback]);
+  }, [handleIncomingUrl]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       const wasBackground = appStateRef.current.match(/inactive|background/);
       if (wasBackground && nextAppState === 'active' && userId) {
+        void SubscriptionService.syncEntitlements(userId).catch((error) => {
+          console.error('[Subscription] Foreground entitlement sync failed:', error);
+        });
         void purgeExpiredFreeCacheOnForeground(userId).catch((error) => {
           console.error('[CacheLifecycle] Foreground cleanup failed:', error);
         });
@@ -256,18 +489,64 @@ export default function App() {
     }
   }, [handleOAuthCallback]);
 
+  const handleAppleSignIn = React.useCallback(async () => {
+    setAuthLoading(true);
+    try {
+      const { data, redirectTo, error } = await signInWithApple();
+      if (error) {
+        Alert.alert(
+          '登入失敗',
+          `Apple OAuth 問題：${error.message}\n\n請檢查 Supabase Apple Provider 與 Apple Services 設定。`
+        );
+        return;
+      }
+
+      const authUrl = data?.url?.trim();
+      if (!authUrl) {
+        Alert.alert('登入失敗', 'Apple OAuth URL 取得失敗');
+        return;
+      }
+
+      const authResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
+      if (authResult.type === 'success' && authResult.url) {
+        await handleOAuthCallback(authResult.url);
+      } else if (authResult.type !== 'cancel' && authResult.type !== 'dismiss') {
+        Alert.alert('登入失敗', `Apple OAuth 未完成（${authResult.type}）`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知錯誤';
+      Alert.alert('登入失敗', message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [handleOAuthCallback]);
+
   if (!isReady) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>Loading Nuances...</Text>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.screenBg }]}>
+        <View
+          style={[
+            styles.loadingPanel,
+            {
+              backgroundColor: theme.containerBg,
+              borderColor: theme.borderSubtle,
+              shadowColor: colorScheme === 'light' ? '#0F172A' : '#000000',
+            },
+          ]}
+        >
+          <Image source={APP_ICON} style={styles.loadingIcon} resizeMode="contain" />
+          <ActivityIndicator size="large" color="#4EAFF4" />
+          <Text style={[styles.loadingText, { color: theme.textOnContainer }]}>Loading Nuances...</Text>
+          <Text style={[styles.loadingHelperText, { color: theme.secondaryText }]}>
+            正在準備本機資料、同步狀態與字卡體驗
+          </Text>
+        </View>
         {isExpoGo && (
-          <Text style={styles.previewText}>
+          <Text style={[styles.previewText, { color: theme.secondaryText }]}>
             📱 Expo Go Preview Mode{'\n'}
             (UI only - database disabled)
           </Text>
         )}
-        <StatusBar style="auto" />
       </View>
     );
   }
@@ -280,10 +559,14 @@ export default function App() {
             {userId || allowOfflineAccess ? (
               <RootNavigator isExpoGo={isExpoGo} />
             ) : (
-              <AuthGate onPressGoogle={handleGoogleSignIn} loading={authLoading} />
+              <AuthGate
+                onPressGoogle={handleGoogleSignIn}
+                onPressApple={handleAppleSignIn}
+                loading={authLoading}
+              />
             )}
           </ShareExtensionSync>
-          <StatusBar style="auto" />
+          <StatusBar style={colorScheme === 'light' ? 'dark' : 'light'} />
         </ShareExtensionProvider>
         <GlobalThemeCrossFadeOverlay />
       </SafeAreaProvider>
@@ -294,56 +577,145 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  previewText: {
-    marginTop: 16,
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-  },
-  authContainer: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  authTitle: {
-    fontSize: 32,
+  loadingPanel: {
+    width: '100%',
+    maxWidth: 440,
+    borderRadius: 28,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 28,
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 10,
+  },
+  loadingIcon: {
+    width: 88,
+    height: 88,
+    marginBottom: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#222',
-    marginBottom: 12,
+  },
+  loadingHelperText: {
+    marginTop: 10,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  previewText: {
+    marginTop: 18,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  authContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authBackdropGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '58%',
+  },
+  authHeroStack: {
+    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+    paddingTop: 12,
+    paddingBottom: 30,
+    zIndex: 1,
+  },
+  authTitleStage: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    zIndex: 2,
+  },
+  authTitle: {
+    fontSize: 34,
+    fontWeight: '800',
+    lineHeight: 38,
+    letterSpacing: -0.9,
   },
   themeFadeOverlay: {
     ...StyleSheet.absoluteFillObject,
     flex: 1,
   },
-  authSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 24,
+  authActionStack: {
+    width: '100%',
+    marginTop: 'auto',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    zIndex: 2,
+  },
+  authStickerStage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 0,
+  },
+  authStickerWrap: {
+    width: 172,
+    height: 172,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 8,
+  },
+  authStickerIcon: {
+    width: '100%',
+    height: '100%',
   },
   googleButton: {
-    backgroundColor: '#1a73e8',
-    paddingVertical: 14,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  appleButtonSurface: {
+    minHeight: 58,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 24,
-    borderRadius: 10,
+    borderWidth: 1,
+  },
+  appleButtonText: {
+    color: '#0F172A',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  googleButtonGradient: {
+    minHeight: 58,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   googleButtonDisabled: {
     opacity: 0.6,
   },
   googleButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#F4EEF3',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  authButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
 });

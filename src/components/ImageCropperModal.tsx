@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 import Svg, { Path } from 'react-native-svg';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Size = {
   width: number;
@@ -38,7 +40,7 @@ type Props = {
   visible: boolean;
   imageUri: string | null;
   initialImageSize?: Size | null;
-  cropShape?: 'rect' | 'circle';
+  cropShape?: 'rect' | 'circle' | 'album';
   fixedCropSize?: number;
   modalAnimationType?: 'none' | 'slide' | 'fade';
   onCancel: () => void;
@@ -50,6 +52,23 @@ const HANDLE_SIZE = 24;
 const HANDLE_HITBOX_SIZE = 44;
 const EDGE_HITBOX_SIZE = 28;
 const MOVE_HITBOX_INSET = 20;
+const ALBUM_CROP_RADIUS = 28;
+
+function createRoundedRectPath(x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  return [
+    `M ${x + r} ${y}`,
+    `H ${x + width - r}`,
+    `Q ${x + width} ${y} ${x + width} ${y + r}`,
+    `V ${y + height - r}`,
+    `Q ${x + width} ${y + height} ${x + width - r} ${y + height}`,
+    `H ${x + r}`,
+    `Q ${x} ${y + height} ${x} ${y + height - r}`,
+    `V ${y + r}`,
+    `Q ${x} ${y} ${x + r} ${y}`,
+    'Z',
+  ].join(' ');
+}
 
 export default function ImageCropperModal({
   visible,
@@ -61,6 +80,8 @@ export default function ImageCropperModal({
   onCancel,
   onConfirm,
 }: Props) {
+  const insets = useSafeAreaInsets();
+  const isFixedCropShape = cropShape === 'circle' || cropShape === 'album';
   const [imageSize, setImageSize] = React.useState<Size | null>(null);
   const [containerSize, setContainerSize] = React.useState<Size>({ width: 0, height: 0 });
   const [cropRect, setCropRect] = React.useState<Rect | null>(null);
@@ -83,6 +104,19 @@ export default function ImageCropperModal({
     left: number;
     top: number;
   } | null>(null);
+
+  const commitImageTransform = React.useCallback((nextTransform: ImageTransform) => {
+    const current = imageTransformRef.current;
+    const hasMeaningfulChange =
+      Math.abs(current.scale - nextTransform.scale) > 0.002 ||
+      Math.abs(current.translateX - nextTransform.translateX) > 0.35 ||
+      Math.abs(current.translateY - nextTransform.translateY) > 0.35;
+    if (!hasMeaningfulChange) {
+      return;
+    }
+    imageTransformRef.current = nextTransform;
+    setImageTransform(nextTransform);
+  }, []);
 
   React.useEffect(() => {
     if (!visible || !imageUri) return;
@@ -121,7 +155,7 @@ export default function ImageCropperModal({
   React.useEffect(() => {
     if (!displayMetrics) return;
 
-    if (cropShape === 'circle') {
+    if (isFixedCropShape) {
       const preferredSize = fixedCropSize ?? 200;
       const size = Math.max(
         MIN_EDGE,
@@ -144,7 +178,7 @@ export default function ImageCropperModal({
         height: Math.max(MIN_EDGE, displayMetrics.height - marginY * 2),
       };
     });
-  }, [containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize]);
+  }, [containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize, isFixedCropShape]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -172,7 +206,7 @@ export default function ImageCropperModal({
   }, [imageTransform]);
 
   const circleScaleBounds = React.useMemo(() => {
-    if (!displayMetrics || !cropRect || cropShape !== 'circle') {
+    if (!displayMetrics || !cropRect || !isFixedCropShape) {
       return { minScale: 1, maxScale: 4 };
     }
     const minScale = Math.max(cropRect.width / displayMetrics.width, cropRect.height / displayMetrics.height, 1);
@@ -180,7 +214,7 @@ export default function ImageCropperModal({
       minScale,
       maxScale: Math.max(minScale, 4),
     };
-  }, [cropRect, cropShape, displayMetrics]);
+  }, [cropRect, displayMetrics, isFixedCropShape]);
 
   const clampCircleTransform = React.useCallback(
     (transform: ImageTransform) => {
@@ -206,25 +240,25 @@ export default function ImageCropperModal({
   );
 
   React.useEffect(() => {
-    if (!visible || cropShape !== 'circle' || !displayMetrics || !cropRect) return;
-    setImageTransform(
+    if (!visible || !isFixedCropShape || !displayMetrics || !cropRect) return;
+    commitImageTransform(
       clampCircleTransform({
         scale: circleScaleBounds.minScale,
         translateX: 0,
         translateY: 0,
       })
     );
-  }, [clampCircleTransform, circleScaleBounds.minScale, cropRect, cropShape, displayMetrics, visible]);
+  }, [clampCircleTransform, circleScaleBounds.minScale, commitImageTransform, cropRect, displayMetrics, isFixedCropShape, visible]);
 
   const createHandleResponder = React.useCallback(
     (corner: CornerKey) => {
       let startRect: Rect | null = null;
 
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
-        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onStartShouldSetPanResponder: () => !isFixedCropShape,
+        onMoveShouldSetPanResponder: () => !isFixedCropShape,
+        onStartShouldSetPanResponderCapture: () => !isFixedCropShape,
+        onMoveShouldSetPanResponderCapture: () => !isFixedCropShape,
         onPanResponderGrant: () => {
           startRect = cropRectRef.current;
         },
@@ -260,7 +294,7 @@ export default function ImageCropperModal({
         },
       });
     },
-    [clamp, cropShape]
+    [clamp, isFixedCropShape]
   );
 
   const createEdgeResponder = React.useCallback(
@@ -268,10 +302,10 @@ export default function ImageCropperModal({
       let startRect: Rect | null = null;
 
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
-        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onStartShouldSetPanResponder: () => !isFixedCropShape,
+        onMoveShouldSetPanResponder: () => !isFixedCropShape,
+        onStartShouldSetPanResponderCapture: () => !isFixedCropShape,
+        onMoveShouldSetPanResponderCapture: () => !isFixedCropShape,
         onPanResponderGrant: () => {
           startRect = cropRectRef.current;
         },
@@ -299,17 +333,17 @@ export default function ImageCropperModal({
         },
       });
     },
-    [clamp, cropShape]
+    [clamp, isFixedCropShape]
   );
 
   const moveRectResponder = React.useRef(
     (() => {
       let startRect: Rect | null = null;
       return PanResponder.create({
-        onStartShouldSetPanResponder: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponder: () => cropShape !== 'circle',
-        onStartShouldSetPanResponderCapture: () => cropShape !== 'circle',
-        onMoveShouldSetPanResponderCapture: () => cropShape !== 'circle',
+        onStartShouldSetPanResponder: () => !isFixedCropShape,
+        onMoveShouldSetPanResponder: () => !isFixedCropShape,
+        onStartShouldSetPanResponderCapture: () => !isFixedCropShape,
+        onMoveShouldSetPanResponderCapture: () => !isFixedCropShape,
         onPanResponderGrant: () => {
           startRect = cropRectRef.current;
         },
@@ -333,73 +367,6 @@ export default function ImageCropperModal({
     })()
   ).current;
 
-  const circleImageResponder = React.useRef(
-    (() => {
-      let startTransform: ImageTransform | null = null;
-      let startDistance = 0;
-
-      const getPinchDistance = (touches: readonly any[]) => {
-        if (touches.length < 2) return 0;
-        const [first, second] = touches;
-        return Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
-      };
-
-      return PanResponder.create({
-        onStartShouldSetPanResponder: () => cropShape === 'circle',
-        onMoveShouldSetPanResponder: () => cropShape === 'circle',
-        onStartShouldSetPanResponderCapture: () => cropShape === 'circle',
-        onMoveShouldSetPanResponderCapture: () => cropShape === 'circle',
-        onPanResponderGrant: (event) => {
-          startTransform = imageTransformRef.current;
-          startDistance = getPinchDistance(event.nativeEvent.touches);
-        },
-        onPanResponderMove: (event, gestureState) => {
-          if (cropShape !== 'circle' || !startTransform) return;
-
-          if (event.nativeEvent.touches.length >= 2) {
-            const nextDistance = getPinchDistance(event.nativeEvent.touches);
-            if (!startDistance || !nextDistance) {
-              startTransform = imageTransformRef.current;
-              startDistance = nextDistance;
-              return;
-            }
-            const nextScale = clamp(
-              startTransform.scale * (nextDistance / startDistance),
-              circleScaleBounds.minScale,
-              circleScaleBounds.maxScale
-            );
-            setImageTransform(
-              clampCircleTransform({
-                scale: nextScale,
-                translateX: startTransform.translateX,
-                translateY: startTransform.translateY,
-              })
-            );
-            return;
-          }
-
-          startDistance = 0;
-
-          setImageTransform(
-            clampCircleTransform({
-              scale: startTransform.scale,
-              translateX: startTransform.translateX + gestureState.dx,
-              translateY: startTransform.translateY + gestureState.dy,
-            })
-          );
-        },
-        onPanResponderRelease: () => {
-          startTransform = imageTransformRef.current;
-          startDistance = 0;
-        },
-        onPanResponderTerminate: () => {
-          startTransform = imageTransformRef.current;
-          startDistance = 0;
-        },
-      });
-    })()
-  ).current;
-
   const topLeftResponder = React.useRef(createHandleResponder('topLeft')).current;
   const topRightResponder = React.useRef(createHandleResponder('topRight')).current;
   const bottomRightResponder = React.useRef(createHandleResponder('bottomRight')).current;
@@ -410,7 +377,7 @@ export default function ImageCropperModal({
   const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
 
   const circleImageFrame = React.useMemo(() => {
-    if (!displayMetrics || cropShape !== 'circle') return null;
+    if (!displayMetrics || !isFixedCropShape) return null;
     const width = displayMetrics.width * imageTransform.scale;
     const height = displayMetrics.height * imageTransform.scale;
     return {
@@ -419,7 +386,7 @@ export default function ImageCropperModal({
       width,
       height,
     };
-  }, [cropShape, displayMetrics, imageTransform]);
+  }, [displayMetrics, imageTransform, isFixedCropShape]);
 
   const cropRectStyle = React.useMemo(() => {
     if (!cropRect) return null;
@@ -430,6 +397,89 @@ export default function ImageCropperModal({
       height: cropRect.height,
     };
   }, [cropRect]);
+
+  const fixedGestureStartRef = React.useRef<ImageTransform | null>(null);
+
+  const beginFixedGesture = React.useCallback(() => {
+    fixedGestureStartRef.current = imageTransformRef.current;
+  }, []);
+
+  const updateFixedPan = React.useCallback(
+    (translationX: number, translationY: number) => {
+      const startTransform = fixedGestureStartRef.current ?? imageTransformRef.current;
+      commitImageTransform(
+        clampCircleTransform({
+          scale: startTransform.scale,
+          translateX: startTransform.translateX + translationX,
+          translateY: startTransform.translateY + translationY,
+        })
+      );
+    },
+    [clampCircleTransform, commitImageTransform]
+  );
+
+  const updateFixedPinch = React.useCallback(
+    (gestureScale: number) => {
+      const startTransform = fixedGestureStartRef.current ?? imageTransformRef.current;
+      const nextScale = clamp(
+        startTransform.scale * gestureScale,
+        circleScaleBounds.minScale,
+        circleScaleBounds.maxScale
+      );
+      commitImageTransform(
+        clampCircleTransform({
+          scale: nextScale,
+          translateX: startTransform.translateX,
+          translateY: startTransform.translateY,
+        })
+      );
+    },
+    [clamp, clampCircleTransform, circleScaleBounds.maxScale, circleScaleBounds.minScale, commitImageTransform]
+  );
+
+  const resetFixedGesture = React.useCallback(() => {
+    fixedGestureStartRef.current = imageTransformRef.current;
+  }, []);
+
+  const fixedCropGesture = React.useMemo(() => {
+    if (!isFixedCropShape) {
+      return null;
+    }
+
+    const pan = Gesture.Pan()
+      .runOnJS(true)
+      .minPointers(1)
+      .maxPointers(1)
+      .onBegin(() => {
+        beginFixedGesture();
+      })
+      .onUpdate((event) => {
+        updateFixedPan(event.translationX, event.translationY);
+      })
+      .onEnd(() => {
+        resetFixedGesture();
+      })
+      .onFinalize(() => {
+        resetFixedGesture();
+      });
+
+    const pinch = Gesture.Pinch()
+      .runOnJS(true)
+      .onBegin(() => {
+        beginFixedGesture();
+      })
+      .onUpdate((event) => {
+        updateFixedPinch(event.scale);
+      })
+      .onEnd(() => {
+        resetFixedGesture();
+      })
+      .onFinalize(() => {
+        resetFixedGesture();
+      });
+
+    return Gesture.Simultaneous(pan, pinch);
+  }, [beginFixedGesture, isFixedCropShape, resetFixedGesture, updateFixedPan, updateFixedPinch]);
 
   const handleConfirm = React.useCallback(async () => {
     if (!imageUri || !cropRect || !imageSize || !displayMetrics) return;
@@ -442,7 +492,7 @@ export default function ImageCropperModal({
       let width = 1;
       let height = 1;
 
-      if (cropShape === 'circle' && circleImageFrame) {
+      if (isFixedCropShape && circleImageFrame) {
         originX = Math.max(
           0,
           Math.round(((cropRect.x - circleImageFrame.left) / circleImageFrame.width) * imageSize.width)
@@ -479,7 +529,7 @@ export default function ImageCropperModal({
     } finally {
       setProcessing(false);
     }
-  }, [circleImageFrame, cropRect, cropShape, displayMetrics, imageSize, imageUri, onConfirm]);
+  }, [circleImageFrame, cropRect, displayMetrics, imageSize, imageUri, isFixedCropShape, onConfirm]);
 
   return (
     <Modal
@@ -489,19 +539,6 @@ export default function ImageCropperModal({
       onRequestClose={onCancel}
     >
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onCancel} style={styles.headerButton} disabled={processing}>
-            <Text style={styles.cancelText}>取消</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.title}>裁切圖片</Text>
-            {cropShape === 'circle' ? <Text style={styles.helperText}>拖曳與縮放</Text> : null}
-          </View>
-          <TouchableOpacity onPress={handleConfirm} style={styles.headerButton} disabled={processing || !cropRect}>
-            <Text style={styles.confirmText}>{processing ? '處理中...' : '完成'}</Text>
-          </TouchableOpacity>
-        </View>
-
         <View
           style={styles.editorArea}
           onLayout={(event) => {
@@ -514,7 +551,7 @@ export default function ImageCropperModal({
               <Image
                 source={{ uri: imageUri }}
                 style={
-                  cropShape === 'circle' && circleImageFrame
+                  isFixedCropShape && circleImageFrame
                     ? [styles.absoluteImage, circleImageFrame]
                     : [
                         styles.absoluteImage,
@@ -529,11 +566,21 @@ export default function ImageCropperModal({
                 resizeMode="contain"
               />
 
-              {cropShape === 'circle' ? (
+              {isFixedCropShape ? (
                 <View pointerEvents="none" style={styles.absoluteFill}>
                   <Svg width="100%" height="100%">
                     <Path
-                      d={`M 0 0 H ${containerSize.width} V ${containerSize.height} H 0 Z M ${cropRect.x + cropRect.width / 2} ${cropRect.y + cropRect.height / 2} m -${cropRect.width / 2} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 ${cropRect.width} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 -${cropRect.width} 0`}
+                      d={
+                        cropShape === 'circle'
+                          ? `M 0 0 H ${containerSize.width} V ${containerSize.height} H 0 Z M ${cropRect.x + cropRect.width / 2} ${cropRect.y + cropRect.height / 2} m -${cropRect.width / 2} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 ${cropRect.width} 0 a ${cropRect.width / 2} ${cropRect.height / 2} 0 1 0 -${cropRect.width} 0`
+                          : `M 0 0 H ${containerSize.width} V ${containerSize.height} H 0 Z M ${createRoundedRectPath(
+                              cropRect.x,
+                              cropRect.y,
+                              cropRect.width,
+                              cropRect.height,
+                              ALBUM_CROP_RADIUS
+                            )}`
+                      }
                       fill="rgba(8, 12, 20, 0.58)"
                       fillRule="evenodd"
                     />
@@ -572,29 +619,38 @@ export default function ImageCropperModal({
                 style={[
                   styles.cropRect,
                   cropShape === 'circle' ? styles.cropCircle : null,
+                  cropShape === 'album' ? styles.cropAlbum : null,
                   cropRectStyle,
                 ]}
               />
 
-              <View
-                style={[
-                  styles.moveHitbox,
-                  cropShape === 'circle' ? styles.moveHitboxCircle : null,
-                  cropShape === 'circle'
-                    ? cropRectStyle
-                    : {
-                        left: cropRect.x + MOVE_HITBOX_INSET,
-                        top: cropRect.y + MOVE_HITBOX_INSET,
-                        width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
-                        height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
-                      },
-                ]}
-                {...(cropShape === 'circle'
-                  ? circleImageResponder.panHandlers
-                  : moveRectResponder.panHandlers)}
-              />
+              {isFixedCropShape && fixedCropGesture ? (
+                <GestureDetector gesture={fixedCropGesture}>
+                  <View
+                    style={[
+                      styles.moveHitbox,
+                      cropShape === 'circle' ? styles.moveHitboxCircle : null,
+                      cropShape === 'album' ? styles.moveHitboxAlbum : null,
+                      cropRectStyle,
+                    ]}
+                  />
+                </GestureDetector>
+              ) : (
+                <View
+                  style={[
+                    styles.moveHitbox,
+                    {
+                      left: cropRect.x + MOVE_HITBOX_INSET,
+                      top: cropRect.y + MOVE_HITBOX_INSET,
+                      width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
+                      height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
+                    },
+                  ]}
+                  {...moveRectResponder.panHandlers}
+                />
+              )}
 
-              {cropShape === 'circle' ? null : (
+              {isFixedCropShape ? null : (
                 <>
                   <View
                     style={[
@@ -692,6 +748,19 @@ export default function ImageCropperModal({
             </View>
           )}
         </View>
+
+        <View style={[styles.headerOverlay, { paddingTop: insets.top + 12 }]}>
+          <TouchableOpacity onPress={onCancel} style={styles.headerChip} disabled={processing}>
+            <Text style={styles.cancelText}>取消</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.title}>裁切圖片</Text>
+            {isFixedCropShape ? <Text style={styles.helperText}>拖曳與縮放</Text> : null}
+          </View>
+          <TouchableOpacity onPress={handleConfirm} style={styles.headerChip} disabled={processing || !cropRect}>
+            <Text style={styles.confirmText}>{processing ? '處理中...' : '完成'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Modal>
   );
@@ -702,20 +771,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0E17',
   },
-  header: {
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
-    paddingBottom: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#0F1522',
+    zIndex: 30,
+    elevation: 30,
   },
-  headerButton: {
-    minWidth: 56,
+  headerChip: {
+    minWidth: 64,
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(12, 18, 30, 0.72)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitleWrap: {
     alignItems: 'center',
+    paddingHorizontal: 12,
   },
   cancelText: {
     color: '#FFFFFF',
@@ -761,6 +842,9 @@ const styles = StyleSheet.create({
   cropCircle: {
     borderRadius: 999,
   },
+  cropAlbum: {
+    borderRadius: ALBUM_CROP_RADIUS,
+  },
   cornerHandle: {
     width: HANDLE_SIZE,
     height: HANDLE_SIZE,
@@ -797,6 +881,9 @@ const styles = StyleSheet.create({
   },
   moveHitboxCircle: {
     borderRadius: 999,
+  },
+  moveHitboxAlbum: {
+    borderRadius: ALBUM_CROP_RADIUS,
   },
   loadingContainer: {
     flex: 1,

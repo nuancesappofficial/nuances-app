@@ -1,4 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getAuthenticatedUserFromAuthorization } from '../ai-proxy/auth/resolveUserFromBearerToken.ts';
+import { createServiceRoleClient, resolveServerEntitlement } from '../_shared/entitlement.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,15 +83,26 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Missing AZURE_TTS_REGION or AZURE_TTS_ENDPOINT' }, 500);
   }
 
-  const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
-  const serviceRoleKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
-  if (!supabaseUrl || !serviceRoleKey) {
-    return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500);
+  const supabase = createServiceRoleClient();
+
+  const authUser = await getAuthenticatedUserFromAuthorization(req);
+  const userId = authUser?.id ?? null;
+  if (!userId) {
+    return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const entitlement = await resolveServerEntitlement({ supabase, userId, user: authUser });
+  if (entitlement.planType === 'free') {
+    return jsonResponse(
+      {
+        error: 'Premium or active trial required',
+        reason: 'premium_required',
+        planType: 'free',
+        paywallType: 'tts',
+      },
+      403
+    );
+  }
 
   let payload: TtsRequest;
   try {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Animated, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +15,6 @@ import {
   resolveThemeColors,
 } from '../../../theme/colors';
 
-const ALBUMS_PER_PAGE = 6;
 const GRID_COLUMNS = 3;
 const GRID_GAP = 12;
 const GRID_HORIZONTAL_PADDING = 12;
@@ -49,6 +48,8 @@ type Props = {
   onPressTodayReviewTuning: () => void;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
+  wordPopEnabled: boolean;
+  albumGridCount: number;
   onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
   searchResults: Array<{ cardId: string; text: string; translation?: string }>;
   onPressSearchResult: (item: { cardId: string; text: string; translation?: string }) => void;
@@ -57,11 +58,11 @@ type Props = {
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
   startY: SharedValue<number>;
-  hoveredAction: SharedValue<'none' | 'sort' | 'edit' | 'delete'>;
+  hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
   activeAlbumId: string | null;
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
-  onActionEnd: (album: DeckAlbum, action: 'none' | 'sort' | 'edit' | 'delete') => void;
+  onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => void;
 };
 
 export default function DeckMainScreenUI({
@@ -80,6 +81,8 @@ export default function DeckMainScreenUI({
   onPressTodayReviewTuning,
   slideshowItems,
   wordPopSlideMs,
+  wordPopEnabled,
+  albumGridCount,
   onPressSlideshowItem,
   searchResults,
   onPressSearchResult,
@@ -107,6 +110,8 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const wordOpacity = React.useRef(new Animated.Value(1)).current;
+  const albumsPerPage = albumGridCount === 3 || albumGridCount === 6 || albumGridCount === 9 ? albumGridCount : 6;
+  const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / GRID_COLUMNS));
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
   const albumItemWidth = Math.max(
     0,
@@ -145,12 +150,12 @@ export default function DeckMainScreenUI({
     TAB_BAR_BOTTOM_MARGIN_BUFFER +
     QUIZ_SAFE_BUFFER;
   const newWordsLevel = React.useMemo(() => {
-    if (todayReviewPendingCount <= 0) return 0;
-    if (todayReviewPendingCount <= 2) return 1;
-    if (todayReviewPendingCount <= 5) return 2;
+    if (todayReviewTotalCount <= 0) return 0;
+    if (todayReviewTotalCount <= 2) return 1;
+    if (todayReviewTotalCount <= 5) return 2;
     return 3;
-  }, [todayReviewPendingCount]);
-  const isTodayReviewActive = todayNewWordsOnly && newWordsLevel > 0;
+  }, [todayReviewTotalCount]);
+  const isTodayReviewActive = todayReviewPendingCount > 0;
 
   const searchAnimatedWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
@@ -195,13 +200,13 @@ export default function DeckMainScreenUI({
   });
 
   const albumPages = React.useMemo(() => {
-    if (albums.length <= ALBUMS_PER_PAGE) return [albums];
+    if (albums.length <= albumsPerPage) return [albums];
     const pages: DeckAlbum[][] = [];
-    for (let i = 0; i < albums.length; i += ALBUMS_PER_PAGE) {
-      pages.push(albums.slice(i, i + ALBUMS_PER_PAGE));
+    for (let i = 0; i < albums.length; i += albumsPerPage) {
+      pages.push(albums.slice(i, i + albumsPerPage));
     }
     return pages;
-  }, [albums]);
+  }, [albums, albumsPerPage]);
 
   React.useEffect(() => {
     const lastPage = Math.max(0, albumPages.length - 1);
@@ -288,12 +293,10 @@ export default function DeckMainScreenUI({
 
   const renderAlbumPage = React.useCallback(
     (pageAlbums: DeckAlbum[], pageIndex: number) => {
-      const rowCount = 2;
-
       return (
         <View style={[styles.page, { width: albumPageWidth }]}>
           <View style={styles.albumGridContent}>
-            {Array.from({ length: rowCount }).map((_, rowIndex) => {
+            {Array.from({ length: albumRowCount }).map((_, rowIndex) => {
               const rowAlbums = pageAlbums.slice(rowIndex * GRID_COLUMNS, (rowIndex + 1) * GRID_COLUMNS);
               return (
                 <View
@@ -301,7 +304,7 @@ export default function DeckMainScreenUI({
                   style={[
                     styles.albumRow,
                     { gap: compactGridGap, marginBottom: compactGridGap },
-                    rowIndex === rowCount - 1 ? styles.albumRowLast : null,
+                    rowIndex === albumRowCount - 1 ? styles.albumRowLast : null,
                   ]}
                 >
                   {Array.from({ length: GRID_COLUMNS }).map((__, colIndex) => {
@@ -336,7 +339,7 @@ export default function DeckMainScreenUI({
     },
     [
       albumPageWidth,
-      albumPages.length,
+      albumRowCount,
       onPressAlbum,
       isMenuVisible,
       startX,
@@ -396,6 +399,58 @@ export default function DeckMainScreenUI({
     inputRange: [0, 0.12, 0.85, 1],
     outputRange: [0, 0.2, 0.2, 0],
   });
+  const activeReviewCardTone = React.useMemo(() => {
+    if (isLight) {
+      if (newWordsLevel === 1) {
+        return {
+          overlayColor: 'rgba(78,175,244,0.16)',
+          borderColor: 'rgba(78,175,244,0.52)',
+          shadowColor: '#4EAFF4',
+        };
+      }
+      return {
+        overlayColor: newWordsLevel >= 3 ? 'rgba(78,175,244,0.2)' : 'rgba(78,175,244,0.18)',
+        borderColor: newWordsLevel >= 3 ? 'rgba(78,175,244,0.74)' : 'rgba(78,175,244,0.62)',
+        shadowColor: '#4EAFF4',
+      };
+    }
+
+    if (newWordsLevel === 1) {
+      return {
+        overlayColor: 'rgba(78,175,244,0.1)',
+        borderColor: 'rgba(137,206,255,0.42)',
+        shadowColor: '#4EAFF4',
+      };
+    }
+    return {
+      overlayColor: newWordsLevel >= 3 ? 'rgba(78,175,244,0.14)' : 'rgba(78,175,244,0.12)',
+      borderColor: newWordsLevel >= 3 ? 'rgba(176,222,255,0.72)' : 'rgba(137,206,255,0.56)',
+      shadowColor: '#4EAFF4',
+    };
+  }, [isLight, newWordsLevel]);
+  const activeReviewCardVisualStyle = React.useMemo(
+    () => ({
+      borderColor: activeReviewCardTone.borderColor,
+      shadowColor: activeReviewCardTone.shadowColor,
+    }),
+    [activeReviewCardTone.borderColor, activeReviewCardTone.shadowColor]
+  );
+  const inactiveReviewCardTone = React.useMemo(
+    () =>
+      isLight
+        ? {
+            backgroundColor: palette.containerBg,
+            borderColor: palette.borderSubtle,
+            borderWidth: 1,
+            shadowOpacity: 0.06,
+          }
+        : {
+            backgroundColor: palette.containerBg,
+            borderColor: 'rgba(176,222,255,0.32)',
+            shadowOpacity: 0.24,
+          },
+    [isLight, palette.containerBg]
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
@@ -528,58 +583,60 @@ export default function DeckMainScreenUI({
         />
       ) : null}
 
-      <View style={styles.wordShowcaseWrap}>
-        <TouchableOpacity
-          style={[
-            styles.wordShowcase,
-            {
-              minHeight: wordPopMinHeight,
-              paddingVertical: wordPopVerticalPadding,
-            },
-            isLight
-              ? {
-                  backgroundColor: palette.containerBg,
-                  borderColor: palette.borderSubtle,
-                  shadowOpacity: 0.05,
-                }
-              : null,
-          ]}
-          activeOpacity={0.88}
-          disabled={!activeShowcaseItem}
-          onPress={() => {
-            if (!activeShowcaseItem) return;
-            onPressSlideshowItem(activeShowcaseItem);
-          }}
-        >
-          <View style={styles.wordShowcaseContent}>
-            {activeShowcaseItem?.imageUri ? (
-              <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
-                <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordShowcaseHeroImage} />
-              </Animated.View>
-            ) : (
-              <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
-                <Text
-                  style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
-                  numberOfLines={wordPopSentenceLineLimit}
+      {wordPopEnabled ? (
+        <View style={styles.wordShowcaseWrap}>
+          <TouchableOpacity
+            style={[
+              styles.wordShowcase,
+              {
+                minHeight: wordPopMinHeight,
+                paddingVertical: wordPopVerticalPadding,
+              },
+              isLight
+                ? {
+                    backgroundColor: palette.containerBg,
+                    borderColor: palette.borderSubtle,
+                    shadowOpacity: 0.05,
+                  }
+                : null,
+            ]}
+            activeOpacity={0.88}
+            disabled={!activeShowcaseItem}
+            onPress={() => {
+              if (!activeShowcaseItem) return;
+              onPressSlideshowItem(activeShowcaseItem);
+            }}
+          >
+            <View style={styles.wordShowcaseContent}>
+              {activeShowcaseItem?.imageUri ? (
+                <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
+                  <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordShowcaseHeroImage} />
+                </Animated.View>
+              ) : (
+                <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
+                  <Text
+                    style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
+                    numberOfLines={wordPopSentenceLineLimit}
+                  >
+                    {activeShowcaseItem?.sentence || 'No original sentence yet.'}
+                  </Text>
+                </Animated.View>
+              )}
+              <View style={styles.wordShowcaseTextBlock}>
+                <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={1}>
+                  {activeShowcaseItem?.text || 'Start adding cards to generate words'}
+                </Animated.Text>
+                <Animated.Text
+                  style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
+                  numberOfLines={wordPopTextLineLimit}
                 >
-                  {activeShowcaseItem?.sentence || 'No original sentence yet.'}
-                </Text>
-              </Animated.View>
-            )}
-            <View style={styles.wordShowcaseTextBlock}>
-              <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={1}>
-                {activeShowcaseItem?.text || 'Start adding cards to generate words'}
-              </Animated.Text>
-              <Animated.Text
-                style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
-                numberOfLines={wordPopTextLineLimit}
-              >
-                {activeShowcaseItem?.translation || 'Tap to open card details'}
-              </Animated.Text>
+                  {activeShowcaseItem?.translation || 'Tap to open card details'}
+                </Animated.Text>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View style={styles.albumGroupShadow}>
         <View
@@ -644,22 +701,27 @@ export default function DeckMainScreenUI({
           }
         >
           {isTodayReviewActive ? (
-            <TouchableOpacity
-              style={[
+            <Pressable
+              style={({ pressed }) => [
                 styles.todayReviewCard,
                 styles.todayReviewCardActive,
                 newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
                 newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
-                isLight
-                  ? {
-                      backgroundColor: 'rgba(78,175,244,0.1)',
-                      borderColor: 'rgba(78,175,244,0.46)',
-                    }
-                  : null,
+                { backgroundColor: palette.containerBg },
+                activeReviewCardVisualStyle,
+                pressed ? styles.todayReviewCardPressed : null,
               ]}
-              activeOpacity={0.9}
               onPress={onPressTodayReview}
             >
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.todayReviewTintLayer,
+                  {
+                    backgroundColor: activeReviewCardTone.overlayColor,
+                  },
+                ]}
+              />
               <Animated.View
                 pointerEvents="none"
                 style={[
@@ -680,52 +742,40 @@ export default function DeckMainScreenUI({
                         newWordsLevel >= 3 ? styles.todayReviewBadgeTextUrgent : null,
                       ]}
                     >
-                      {todayReviewPendingCount}
+                      {todayReviewTotalCount}
                     </Text>
                   </View>
                 ) : null}
               </View>
-            </TouchableOpacity>
+            </Pressable>
           ) : (
             <View style={styles.todayReviewInactiveRow}>
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.todayReviewCard,
                   styles.todayReviewCardInactive,
                   styles.todayReviewQuickQuizButton,
-                  isLight
-                    ? {
-                        backgroundColor: palette.containerBg,
-                        borderColor: palette.borderSubtle,
-                        shadowOpacity: 0.05,
-                      }
-                    : null,
+                  inactiveReviewCardTone,
+                  pressed ? styles.todayReviewCardPressed : null,
                 ]}
-                activeOpacity={0.9}
                 onPress={onPressTodayReview}
               >
                 <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
                   <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
                   <Ionicons name="play" size={16} color={palette.textOnContainer} />
                 </View>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.todayReviewEqualizerButton,
-                  isLight
-                    ? {
-                        backgroundColor: palette.containerBg,
-                        borderColor: palette.borderSubtle,
-                        shadowOpacity: 0.05,
-                      }
-                    : null,
+                  inactiveReviewCardTone,
+                  pressed ? styles.todayReviewCardPressed : null,
                 ]}
-                activeOpacity={0.9}
                 onPress={onPressTodayReviewTuning}
               >
                 <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
-              </TouchableOpacity>
+              </Pressable>
             </View>
           )}
         </Animated.View>
@@ -901,6 +951,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  todayReviewCardPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
   todayReviewInactiveRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -977,6 +1031,10 @@ const styles = StyleSheet.create({
     bottom: -28,
     width: 120,
     backgroundColor: 'rgba(255,255,255,0.38)',
+  },
+  todayReviewTintLayer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
   },
   todayReviewBadge: {
     minWidth: 30,

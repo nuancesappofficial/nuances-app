@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../theme/stickerFonts';
 
 export type ClipboardMode = 'active' | 'passive';
-export type EntitlementMode = 'premium' | 'guest';
+export type EntitlementMode = 'trial' | 'free' | 'premium' | 'guest';
+export type PlanType = 'trial' | 'free' | 'premium';
 export type AIReplyLanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko';
 export type TTSVoice =
   | 'en-US-JennyNeural'
@@ -13,6 +14,7 @@ export type TTSVoice =
   | 'zh-TW-HsiaoChenNeural'
   | 'zh-CN-XiaoxiaoNeural';
 export type WordPopSlideMs = 1800 | 2600 | 3400 | 4200 | 5200;
+export type MainScreenAlbumGridCount = 3 | 6 | 9;
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
 export type ProficiencyStandardPreset =
   | 'cefr'
@@ -40,9 +42,18 @@ export type UserPersonalizationSettings = {
 export type UserAppSettings = {
   clipboardMode: ClipboardMode;
   entitlementMode: EntitlementMode;
+  planType: PlanType;
+  trialStartedAt: string | null;
+  trialEndsAt: string | null;
+  subscriptionExpiresAt: string | null;
+  lastEntitlementSyncAt: string | null;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
+  ttsVoiceByLanguage: Partial<Record<AIReplyLanguage, TTSVoice>>;
   wordPopSlideMs: WordPopSlideMs;
+  mainScreenAlbumGridCount: MainScreenAlbumGridCount;
+  mainScreenWordPopEnabled: boolean;
+  mainScreenAlbumOrder: string[];
   stickerFontKey: StickerFontKey;
   personalization: UserPersonalizationSettings;
 };
@@ -57,12 +68,32 @@ export type EffectiveAIPersonalization = {
 
 const SETTINGS_STORAGE_KEY = 'user_app_settings_v1';
 
+export function normalizeEntitlementMode(mode: EntitlementMode | PlanType | null | undefined): PlanType {
+  if (mode === 'premium' || mode === 'trial' || mode === 'free') return mode;
+  return 'free';
+}
+
 export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   clipboardMode: 'passive',
-  entitlementMode: 'guest',
+  entitlementMode: 'free',
+  planType: 'free',
+  trialStartedAt: null,
+  trialEndsAt: null,
+  subscriptionExpiresAt: null,
+  lastEntitlementSyncAt: null,
   aiReplyLanguage: 'zh-TW',
   ttsVoice: 'en-US-JennyNeural',
+  ttsVoiceByLanguage: {
+    'zh-TW': 'zh-TW-HsiaoChenNeural',
+    'zh-CN': 'zh-CN-XiaoxiaoNeural',
+    en: 'en-US-JennyNeural',
+    ja: 'ja-JP-NanamiNeural',
+    ko: 'ko-KR-SunHiNeural',
+  },
   wordPopSlideMs: 2600,
+  mainScreenAlbumGridCount: 6,
+  mainScreenWordPopEnabled: true,
+  mainScreenAlbumOrder: [],
   stickerFontKey: DEFAULT_STICKER_FONT_KEY,
   personalization: {
     learningGoalPreset: 'ielts',
@@ -100,10 +131,102 @@ export function getDefaultTTSVoiceForAIReplyLanguage(language: AIReplyLanguage):
   return DEFAULT_TTS_VOICE_BY_LANGUAGE[language];
 }
 
+export function resolveTTSVoiceForLanguage(
+  settings: Pick<UserAppSettings, 'ttsVoice' | 'ttsVoiceByLanguage'>,
+  language: AIReplyLanguage
+): TTSVoice {
+  const mappedVoice = settings.ttsVoiceByLanguage?.[language];
+  if (mappedVoice && isTTSVoiceCompatibleWithAIReplyLanguage(mappedVoice, language)) {
+    return mappedVoice;
+  }
+  if (isTTSVoiceCompatibleWithAIReplyLanguage(settings.ttsVoice, language)) {
+    return settings.ttsVoice;
+  }
+  return getDefaultTTSVoiceForAIReplyLanguage(language);
+}
+
+export function withUpdatedTTSVoiceForLanguage(
+  settings: UserAppSettings,
+  language: AIReplyLanguage,
+  voice: TTSVoice
+): UserAppSettings {
+  return {
+    ...settings,
+    aiReplyLanguage: language,
+    ttsVoice: voice,
+    ttsVoiceByLanguage: {
+      ...DEFAULT_USER_SETTINGS.ttsVoiceByLanguage,
+      ...(settings.ttsVoiceByLanguage || {}),
+      [language]: voice,
+    },
+  };
+}
+
 function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettings {
+  const normalizedPlanType = normalizeEntitlementMode(
+    partial?.planType ?? partial?.entitlementMode ?? DEFAULT_USER_SETTINGS.planType
+  );
+  const nextLanguage =
+    partial?.aiReplyLanguage && DEFAULT_TTS_VOICE_BY_LANGUAGE[partial.aiReplyLanguage]
+      ? partial.aiReplyLanguage
+      : DEFAULT_USER_SETTINGS.aiReplyLanguage;
+  const mergedVoiceMap: Partial<Record<AIReplyLanguage, TTSVoice>> = {
+    ...DEFAULT_USER_SETTINGS.ttsVoiceByLanguage,
+    ...(partial?.ttsVoiceByLanguage ?? {}),
+  };
+  if (partial?.ttsVoice && isTTSVoiceCompatibleWithAIReplyLanguage(partial.ttsVoice, nextLanguage)) {
+    mergedVoiceMap[nextLanguage] = partial.ttsVoice;
+  }
+  const resolvedCurrentVoice =
+    resolveTTSVoiceForLanguage(
+      {
+        ttsVoice: partial?.ttsVoice ?? DEFAULT_USER_SETTINGS.ttsVoice,
+        ttsVoiceByLanguage: mergedVoiceMap,
+      },
+      nextLanguage
+    );
+  const mainScreenAlbumGridCount =
+    partial?.mainScreenAlbumGridCount === 3 ||
+    partial?.mainScreenAlbumGridCount === 6 ||
+    partial?.mainScreenAlbumGridCount === 9
+      ? partial.mainScreenAlbumGridCount
+      : DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount;
+  const mainScreenAlbumOrder = Array.isArray(partial?.mainScreenAlbumOrder)
+    ? partial.mainScreenAlbumOrder
+        .filter((albumId): albumId is string => typeof albumId === 'string')
+        .map((albumId) => albumId.trim())
+        .filter(Boolean)
+    : DEFAULT_USER_SETTINGS.mainScreenAlbumOrder;
   return {
     ...DEFAULT_USER_SETTINGS,
     ...partial,
+    entitlementMode: normalizedPlanType,
+    planType: normalizedPlanType,
+    aiReplyLanguage: nextLanguage,
+    ttsVoice: resolvedCurrentVoice,
+    ttsVoiceByLanguage: mergedVoiceMap,
+    mainScreenAlbumGridCount,
+    mainScreenWordPopEnabled:
+      typeof partial?.mainScreenWordPopEnabled === 'boolean'
+        ? partial.mainScreenWordPopEnabled
+        : DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled,
+    mainScreenAlbumOrder,
+    trialStartedAt:
+      typeof partial?.trialStartedAt === 'string' && partial.trialStartedAt.trim()
+        ? partial.trialStartedAt
+        : null,
+    trialEndsAt:
+      typeof partial?.trialEndsAt === 'string' && partial.trialEndsAt.trim()
+        ? partial.trialEndsAt
+        : null,
+    subscriptionExpiresAt:
+      typeof partial?.subscriptionExpiresAt === 'string' && partial.subscriptionExpiresAt.trim()
+        ? partial.subscriptionExpiresAt
+        : null,
+    lastEntitlementSyncAt:
+      typeof partial?.lastEntitlementSyncAt === 'string' && partial.lastEntitlementSyncAt.trim()
+        ? partial.lastEntitlementSyncAt
+        : null,
     personalization: {
       ...DEFAULT_USER_SETTINGS.personalization,
       ...(partial?.personalization ?? {}),

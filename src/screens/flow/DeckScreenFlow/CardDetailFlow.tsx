@@ -22,7 +22,6 @@ import {
   Vibration,
   Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
@@ -62,6 +61,7 @@ import {
 } from '../../../components/UI/DeckScreenUI/cardCarouselConfig';
 import {
   ALBUM_TAG_PREFIX,
+  ALL_CARDS_ALBUM_ID,
   FAVORITES_ALBUM_ID,
   buildDeckAlbums,
   createCustomAlbum,
@@ -70,6 +70,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
+import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
 import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
@@ -111,8 +112,6 @@ const albumIdToCategoryTag: Record<string, string> = {
   work: 'work',
 };
 const HEADER_BUTTON_TOP_OFFSET = 0;
-const CARD_STICKY_NOTES_KEY = 'card_detail_sticky_notes_v1';
-
 function scaleFont(size: number): number {
   return Math.round(size * CARD_DETAIL_FONT_SCALE * 100) / 100;
 }
@@ -187,6 +186,10 @@ function deriveSelectedAlbums(tags: string[]): string[] {
   return Array.from(result);
 }
 
+function hasSecondaryAlbumBookmark(albumIds: string[]): boolean {
+  return albumIds.some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID);
+}
+
 function formatCardDate(input: Date | string | undefined | null): string {
   if (!input) return '';
   const d = new Date(input);
@@ -216,6 +219,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [displayIndex, setDisplayIndex] = React.useState<number | null>(null);
 
   const [isPlaying, setIsPlaying] = React.useState(false);
+  const [isTtsDownloading, setIsTtsDownloading] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [hasRecorded, setHasRecorded] = React.useState(false);
   const [showFeedback, setShowFeedback] = React.useState(false);
@@ -227,6 +231,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     Record<string, PronunciationResult>
   >({});
   const [lastRecordingUriByCardId, setLastRecordingUriByCardId] = React.useState<Record<string, string>>({});
+  const ttsDownloadCountRef = React.useRef(0);
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
   const [showStickyNoteModal, setShowStickyNoteModal] = React.useState(false);
@@ -485,16 +490,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   React.useEffect(() => {
     const hydrateStickyNotes = async () => {
-      try {
-        const raw = await AsyncStorage.getItem(CARD_STICKY_NOTES_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          setStickyNotesByCardId(parsed as Record<string, string>);
-        }
-      } catch (error) {
-        console.warn('[CardDetail] hydrate sticky notes failed:', error);
-      }
+      const parsed = await loadCardStickyNotes();
+      setStickyNotesByCardId(parsed);
     };
     void hydrateStickyNotes();
   }, []);
@@ -569,6 +566,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     await Speech.stop();
   }, [stopUserRecordingPreview]);
 
+  const handleTtsDownloadStart = React.useCallback(() => {
+    ttsDownloadCountRef.current += 1;
+    setIsTtsDownloading(true);
+  }, []);
+
+  const handleTtsDownloadEnd = React.useCallback(() => {
+    ttsDownloadCountRef.current = Math.max(0, ttsDownloadCountRef.current - 1);
+    if (ttsDownloadCountRef.current === 0) {
+      setIsTtsDownloading(false);
+    }
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
       return () => {
@@ -582,14 +591,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
       return;
     }
-    if (isPlaying) return;
-
     setIsPlaying(true);
     Vibration.vibrate(8);
     void speakEnglishNaturally(pronunciationText, {
+      onDownloadStart: handleTtsDownloadStart,
+      onDownloadEnd: handleTtsDownloadEnd,
       onDone: () => setIsPlaying(false),
       onStopped: () => setIsPlaying(false),
-      onError: () => setIsPlaying(false),
+      onError: () => {
+        handleTtsDownloadEnd();
+        setIsPlaying(false);
+      },
     });
   };
 
@@ -618,16 +630,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
       const quota = await SubscriptionService.consumeVoiceQuota(card.userId);
       if (!quota.allowed) {
-        Alert.alert('今日免費額度已用完', '升級 Premium 解鎖無限次精準發音糾正。', [
+        Alert.alert('升級解鎖發音評分', '免費版保留 OCR 與手動建卡；發音評分需要試用版或 Premium。', [
           { text: '稍後', style: 'cancel' },
           {
             text: '前往設定',
             onPress: () => {
               if (tabSwipeContext) {
                 tabSwipeContext.goToTab(2);
-                return;
               }
-              navigation.navigate('Profile');
             },
           },
         ]);
@@ -962,7 +972,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setStickyNotesByCardId(nextMap);
     setShowStickyNoteModal(false);
     try {
-      await AsyncStorage.setItem(CARD_STICKY_NOTES_KEY, JSON.stringify(nextMap));
+      await saveCardStickyNotes(nextMap);
     } catch (error) {
       console.warn('[CardDetail] save sticky note failed:', error);
     }
@@ -1108,9 +1118,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     (word: string) => {
       const text = (word || '').trim();
       if (!text) return;
-      void speakEnglishNaturally(text);
+      void speakEnglishNaturally(text, {
+        onDownloadStart: handleTtsDownloadStart,
+        onDownloadEnd: handleTtsDownloadEnd,
+        onError: handleTtsDownloadEnd,
+      });
     },
-    []
+    [handleTtsDownloadEnd, handleTtsDownloadStart]
   );
   const handlePlayPronunciationSyllable = React.useCallback((syllable: string) => {
     const raw = (syllable || '').trim();
@@ -1140,8 +1154,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     };
     const text = phonemeApproxMap[cleaned] || cleaned;
     if (!text) return;
-    void speakEnglishNaturally(text);
-  }, []);
+    void speakEnglishNaturally(text, {
+      onDownloadStart: handleTtsDownloadStart,
+      onDownloadEnd: handleTtsDownloadEnd,
+      onError: handleTtsDownloadEnd,
+    });
+  }, [handleTtsDownloadEnd, handleTtsDownloadStart]);
   const triggerHapticFeedback = React.useCallback(() => {
     if (!didMountIndexRef.current) return;
     void Haptics.selectionAsync();
@@ -1182,15 +1200,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
         return;
       }
-      if (isPlaying) return;
       setIsPlaying(true);
       void speakEnglishNaturally(itemPronunciationText, {
+        onDownloadStart: handleTtsDownloadStart,
+        onDownloadEnd: handleTtsDownloadEnd,
         onDone: () => setIsPlaying(false),
         onStopped: () => setIsPlaying(false),
-        onError: () => setIsPlaying(false),
+        onError: () => {
+          handleTtsDownloadEnd();
+          setIsPlaying(false);
+        },
       });
     },
-    [isPlaying, navigateToIndex]
+    [handleTtsDownloadEnd, handleTtsDownloadStart, navigateToIndex]
   );
 
   const handleToggleRecordCard = React.useCallback(
@@ -1220,8 +1242,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           : deriveSelectedAlbums(parseTags(item.tags)).includes(FAVORITES_ALBUM_ID);
       const isThisCardBookmarked =
         item.id === card?.id
-          ? selectedAlbums.length > 0
-          : deriveSelectedAlbums(parseTags(item.tags)).length > 0;
+          ? hasSecondaryAlbumBookmark(selectedAlbums)
+          : hasSecondaryAlbumBookmark(deriveSelectedAlbums(parseTags(item.tags)));
 
       return (
         <CardDetailCarouselCardUI
@@ -1346,6 +1368,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           sidePadding={SIDE_PADDING}
         />
       </View>
+
+      <Modal visible={isTtsDownloading} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.ttsDownloadBackdrop}>
+          <View style={styles.ttsDownloadModal}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+            <Text style={styles.ttsDownloadText}>downloading...</Text>
+          </View>
+        </View>
+      </Modal>
 
       <CardAlbumSheetModalUI
         visible={showAlbumSheet}
@@ -1502,7 +1533,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
             extrapolate: 'clamp',
           });
           return (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: '#000000' }}>
           <Animated.View
             style={{
               ...StyleSheet.absoluteFillObject,
@@ -1533,7 +1564,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
             <TouchableOpacity
               activeOpacity={1}
               onPress={() => closeFullscreenViewer('tap')}
-              style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+              style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000' }}
             >
               {fullscreenImageUri ? (
                 <Image
@@ -1626,12 +1657,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.36)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'transparent',
     zIndex: 12,
   },
   floatingHeaderAction: {
@@ -1640,6 +1668,30 @@ const styles = StyleSheet.create({
   },
   backText: { fontSize: 17, color: '#F4EDE6', fontWeight: '500' },
   content: { flex: 1, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0 },
+  ttsDownloadBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.46)',
+  },
+  ttsDownloadModal: {
+    minWidth: 168,
+    minHeight: 88,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(15,23,42,0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+  },
+  ttsDownloadText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   stageSection: {
     flex: 1,
     paddingTop: 4,

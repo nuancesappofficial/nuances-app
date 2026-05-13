@@ -24,6 +24,25 @@ CREATE TABLE public.profiles (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE public.subscriptions (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'revenuecat',
+    product_id TEXT,
+    entitlement_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'expired'
+        CHECK (status IN ('active', 'expired', 'revoked', 'grace_period')),
+    started_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    environment TEXT,
+    last_synced_at TIMESTAMPTZ,
+    raw_event JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE(user_id, provider, entitlement_id)
+);
+
 -- ============================================
 -- CACHED ITEMS TABLE
 -- ============================================
@@ -147,6 +166,7 @@ CREATE INDEX idx_cards_cached_item_id ON public.cards(cached_item_id);
 CREATE INDEX idx_review_history_user_id ON public.review_history(user_id);
 CREATE INDEX idx_review_history_card_id ON public.review_history(card_id);
 CREATE INDEX idx_review_history_reviewed_at ON public.review_history(reviewed_at DESC);
+CREATE INDEX idx_subscriptions_user_status ON public.subscriptions(user_id, status);
 
 -- ============================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
@@ -211,6 +231,13 @@ CREATE POLICY "Users can view their own review history"
 CREATE POLICY "Users can insert their own review history"
     ON public.review_history FOR INSERT
     WITH CHECK (auth.uid() = user_id);
+
+-- Subscriptions
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their own subscriptions"
+    ON public.subscriptions FOR SELECT
+    USING (auth.uid() = user_id);
 
 -- Sync Metadata
 ALTER TABLE public.sync_metadata ENABLE ROW LEVEL SECURITY;

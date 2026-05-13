@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { InteractionManager } from 'react-native';
 import { database } from '@database/index';
@@ -13,15 +14,19 @@ import ProfileMainScreenUI, {
 } from '../../../components/UI/ProfileScreenUI/ProfileMainScreenUI';
 import {
   DEFAULT_USER_SETTINGS,
-  getDefaultTTSVoiceForAIReplyLanguage,
-  isTTSVoiceCompatibleWithAIReplyLanguage,
   loadUserSettings,
+  resolveTTSVoiceForLanguage,
   saveUserSettings,
   type AIReplyLanguage,
   type EntitlementMode,
+  type MainScreenAlbumGridCount,
   type TTSVoice,
   type WordPopSlideMs,
+  withUpdatedTTSVoiceForLanguage,
 } from '@services/settings/userSettings';
+import { supabase } from '@services/supabase/client';
+import { getRevenueCatOfferingSummary, isRevenueCatConfigured } from '@services/subscription/revenueCat';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../../theme/stickerFonts';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
@@ -230,21 +235,27 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   React.useEffect(() => {
     return () => {
       tabSwipeContext?.setTabBarHidden?.(false);
-      tabSwipeContext?.setTabBarHiddenProgress?.(null);
     };
   }, [tabSwipeContext]);
   const [cards, setCards] = React.useState<Card[]>([]);
   const [profile, setProfile] = React.useState<Profile | null>(null);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
   const [currentDate, setCurrentDate] = React.useState(() => new Date());
-  const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
+  const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('free');
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
   const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const [stickerFontKey, setStickerFontKey] = React.useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
+  const [mainScreenAlbumGridCount, setMainScreenAlbumGridCount] =
+    React.useState<MainScreenAlbumGridCount>(DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount);
+  const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
+    DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
+  );
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
+  const [showMembershipModal, setShowMembershipModal] = React.useState(false);
+  const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoSize, setPendingProfilePhotoSize] = React.useState<{
@@ -341,11 +352,13 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const refreshAppSettings = React.useCallback(async () => {
     try {
       const settings = await loadUserSettings();
-      setEntitlementMode(settings.entitlementMode);
+      setEntitlementMode(settings.planType);
       setAiReplyLanguage(settings.aiReplyLanguage);
-      setTtsVoice(settings.ttsVoice);
+      setTtsVoice(resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage));
       setWordPopSlideMs(settings.wordPopSlideMs);
       setStickerFontKey(settings.stickerFontKey);
+      setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
+      setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -355,25 +368,80 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     void refreshAppSettings();
   }, [refreshAppSettings]);
 
-  const handleToggleEntitlementMode = React.useCallback(async () => {
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshAppSettings();
+    }, [refreshAppSettings])
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!isRevenueCatConfigured()) {
+        if (!cancelled) setMembershipPriceLabel(null);
+        return;
+      }
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
+        if (!cancelled) {
+          setMembershipPriceLabel(summary.priceLabel);
+        }
+      } catch (error) {
+        console.error('[Profiles] load RevenueCat offering summary failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleUpgradeMembership = React.useCallback(async () => {
     if (savingEntitlement) return;
     setSavingEntitlement(true);
     try {
-      const settings = await loadUserSettings();
-      const nextMode: EntitlementMode =
-        settings.entitlementMode === 'premium' ? 'guest' : 'premium';
-      await saveUserSettings({
-        ...settings,
-        entitlementMode: nextMode,
-      });
-      setEntitlementMode(nextMode);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) {
+        Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
+        return;
+      }
+      const snapshot = await SubscriptionService.purchasePremium(user.id);
+      setEntitlementMode(snapshot.planType);
+      setShowMembershipModal(false);
+      Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
+    } catch (error) {
+      console.error('[Profiles] purchase premium failed:', error);
+      Alert.alert('升級失敗', error instanceof Error ? error.message : '請稍後再試。');
+    } finally {
+      setSavingEntitlement(false);
+    }
+  }, [savingEntitlement]);
+
+  const handleRestoreMembership = React.useCallback(async () => {
+    if (savingEntitlement) return;
+    setSavingEntitlement(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) {
+        Alert.alert('尚未登入', '請先登入，再恢復購買。');
+        return;
+      }
+      const snapshot = await SubscriptionService.restorePurchases(user.id);
+      setEntitlementMode(snapshot.planType);
+      setShowMembershipModal(false);
       Alert.alert(
-        '已切換權限模式',
-        nextMode === 'premium' ? '目前為 Premium 模式。' : '目前為 Guest 模式。'
+        '恢復完成',
+        snapshot.planType === 'premium' ? '已恢復 Premium 購買。' : '目前沒有可恢復的有效 Premium 訂閱。'
       );
     } catch (error) {
-      console.error('[Profiles] toggle entitlement failed:', error);
-      Alert.alert('切換失敗', '請稍後再試。');
+      console.error('[Profiles] restore purchases failed:', error);
+      Alert.alert('恢復失敗', error instanceof Error ? error.message : '請稍後再試。');
     } finally {
       setSavingEntitlement(false);
     }
@@ -382,15 +450,10 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
-      const nextVoice = isTTSVoiceCompatibleWithAIReplyLanguage(settings.ttsVoice, language)
-        ? settings.ttsVoice
-        : getDefaultTTSVoiceForAIReplyLanguage(language);
-      if (settings.aiReplyLanguage === language && settings.ttsVoice === nextVoice) return;
-      await saveUserSettings({
-        ...settings,
-        aiReplyLanguage: language,
-        ttsVoice: nextVoice,
-      });
+      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
+      const nextVoice = resolveTTSVoiceForLanguage(settings, language);
+      if (settings.aiReplyLanguage === language && currentVoice === nextVoice) return;
+      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, language, nextVoice));
       setAiReplyLanguage(language);
       setTtsVoice(nextVoice);
     } catch (error) {
@@ -402,11 +465,9 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
     try {
       const settings = await loadUserSettings();
-      if (settings.ttsVoice === voice) return;
-      await saveUserSettings({
-        ...settings,
-        ttsVoice: voice,
-      });
+      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
+      if (currentVoice === voice) return;
+      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, settings.aiReplyLanguage, voice));
       setTtsVoice(voice);
     } catch (error) {
       console.error('[Profiles] update TTS voice failed:', error);
@@ -504,11 +565,18 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         initialMonthIndex={initialMonthIndex}
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
+        membershipPriceLabel={membershipPriceLabel}
+        membershipModalVisible={showMembershipModal}
+        mainScreenAlbumGridCount={mainScreenAlbumGridCount}
+        mainScreenWordPopEnabled={mainScreenWordPopEnabled}
         aiReplyLanguage={aiReplyLanguage}
         ttsVoice={ttsVoice}
         stickerFontKey={stickerFontKey}
         onPressUploadProfilePic={handleChangeProfilePhoto}
-        onToggleEntitlement={handleToggleEntitlementMode}
+        onOpenMembershipModal={() => setShowMembershipModal(true)}
+        onCloseMembershipModal={() => setShowMembershipModal(false)}
+        onUpgradeMembership={handleUpgradeMembership}
+        onRestoreMembership={handleRestoreMembership}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
         onChangeTTSVoice={handleChangeTTSVoice}
         onOpenSettingsOption={(kind) => {

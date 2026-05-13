@@ -3,15 +3,16 @@ import { Alert } from 'react-native';
 import ProfileSettingsModalUI from '../../../components/UI/ProfileScreenUI/ProfileSettingsModalUI';
 import {
   DEFAULT_USER_SETTINGS,
-  getDefaultTTSVoiceForAIReplyLanguage,
-  isTTSVoiceCompatibleWithAIReplyLanguage,
   loadUserSettings,
+  resolveTTSVoiceForLanguage,
   saveUserSettings,
   type AIReplyLanguage,
-  type EntitlementMode,
   type TTSVoice,
   type WordPopSlideMs,
+  withUpdatedTTSVoiceForLanguage,
 } from '@services/settings/userSettings';
+import SubscriptionService from '@services/subscription/SubscriptionService';
+import { supabase } from '@services/supabase/client';
 
 type RouteParams = {
   onPressUploadProfilePic?: () => void;
@@ -23,60 +24,42 @@ type Props = {
 };
 
 export default function ProfileSettingsFlow({ navigation, route }: Props) {
-  const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('guest');
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
   const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
-  const [savingEntitlement, setSavingEntitlement] = React.useState(false);
+  const [membershipLabel, setMembershipLabel] = React.useState<'Trial' | 'Free' | 'Premium'>('Free');
 
   React.useEffect(() => {
     void (async () => {
       try {
         const settings = await loadUserSettings();
-        setEntitlementMode(settings.entitlementMode);
         setAiReplyLanguage(settings.aiReplyLanguage);
-        setTtsVoice(settings.ttsVoice);
+        setTtsVoice(resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage));
         setWordPopSlideMs(settings.wordPopSlideMs);
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user?.id) {
+          const snapshot = await SubscriptionService.getEntitlementSnapshot(user.id);
+          setMembershipLabel(
+            snapshot.planType === 'premium' ? 'Premium' : snapshot.planType === 'trial' ? 'Trial' : 'Free'
+          );
+        }
       } catch (error) {
         console.error('[ProfileSettings] load app settings failed:', error);
       }
     })();
   }, []);
 
-  const handleToggleEntitlementMode = React.useCallback(async () => {
-    if (savingEntitlement) return;
-    setSavingEntitlement(true);
-    try {
-      const settings = await loadUserSettings();
-      const nextMode: EntitlementMode = settings.entitlementMode === 'premium' ? 'guest' : 'premium';
-      await saveUserSettings({
-        ...settings,
-        entitlementMode: nextMode,
-      });
-      setEntitlementMode(nextMode);
-      Alert.alert('已切換權限模式', nextMode === 'premium' ? '目前為 Premium 模式。' : '目前為 Guest 模式。');
-    } catch (error) {
-      console.error('[ProfileSettings] toggle entitlement failed:', error);
-      Alert.alert('切換失敗', '請稍後再試。');
-    } finally {
-      setSavingEntitlement(false);
-    }
-  }, [savingEntitlement]);
-
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
-      const nextVoice = isTTSVoiceCompatibleWithAIReplyLanguage(settings.ttsVoice, language)
-        ? settings.ttsVoice
-        : getDefaultTTSVoiceForAIReplyLanguage(language);
-      if (settings.aiReplyLanguage === language && settings.ttsVoice === nextVoice) return;
-      await saveUserSettings({
-        ...settings,
-        aiReplyLanguage: language,
-        ttsVoice: nextVoice,
-      });
+      const nextVoice = resolveTTSVoiceForLanguage(settings, language);
+      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
+      if (settings.aiReplyLanguage === language && currentVoice === nextVoice) return;
+      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, language, nextVoice));
       setAiReplyLanguage(language);
       setTtsVoice(nextVoice);
     } catch (error) {
@@ -88,11 +71,9 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
   const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
     try {
       const settings = await loadUserSettings();
-      if (settings.ttsVoice === voice) return;
-      await saveUserSettings({
-        ...settings,
-        ttsVoice: voice,
-      });
+      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
+      if (currentVoice === voice) return;
+      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, settings.aiReplyLanguage, voice));
       setTtsVoice(voice);
     } catch (error) {
       console.error('[ProfileSettings] update TTS voice failed:', error);
@@ -119,8 +100,7 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
     <ProfileSettingsModalUI
       visible
       renderAsStaticPage
-      entitlementMode={entitlementMode}
-      savingEntitlement={savingEntitlement}
+      membershipLabel={membershipLabel}
       aiReplyLanguage={aiReplyLanguage}
       ttsVoice={ttsVoice}
       wordPopSlideMs={wordPopSlideMs}
@@ -128,7 +108,6 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
       onPressUploadProfilePic={() => {
         route.params?.onPressUploadProfilePic?.();
       }}
-      onToggleEntitlement={handleToggleEntitlementMode}
       onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
       onChangeTTSVoice={handleChangeTTSVoice}
       onChangeWordPopSlideMs={handleChangeWordPopSlideMs}

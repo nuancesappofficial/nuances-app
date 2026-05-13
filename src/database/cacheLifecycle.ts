@@ -1,29 +1,14 @@
-import { Q, type Model } from '@nozbe/watermelondb';
+import { Q } from '@nozbe/watermelondb';
 import type CachedItem from '@database/models/CachedItem';
 import { database } from './index';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 
 const FREE_CACHE_TTL_MS = 10 * 60 * 1000;
 
-type UserSettingsRecord = Model & {
-  isPremium: boolean;
-};
-
-function asUserSettingsRecord(model: Model): UserSettingsRecord {
-  return model as unknown as UserSettingsRecord;
-}
-
-async function isPremiumUser(userId: string): Promise<boolean> {
-  const settingsCollection = database.get<Model>('user_settings');
-  const settings = await settingsCollection.query(Q.where('user_id', userId)).fetch();
-  const first = settings[0];
-  if (!first) return false;
-  return Boolean(asUserSettingsRecord(first).isPremium);
-}
-
 export async function purgeExpiredFreeCacheOnForeground(userId: string): Promise<number> {
   if (!userId) return 0;
-  const isPremium = await isPremiumUser(userId);
-  if (isPremium) return 0;
+  const entitlement = await SubscriptionService.getEntitlementSnapshot(userId);
+  if (entitlement.planType !== 'free') return 0;
 
   const cutoffTimestamp = Date.now() - FREE_CACHE_TTL_MS;
   const collection = database.get<CachedItem>('cached_items');

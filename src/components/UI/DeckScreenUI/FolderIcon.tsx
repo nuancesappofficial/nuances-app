@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View, useColorScheme, type ViewStyle } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View, useColorScheme, type ViewStyle } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { LinearGradient } from 'expo-linear-gradient';
 import { resolveThemeColors } from '../../../theme/colors';
@@ -18,6 +18,7 @@ type FolderIconProps = {
   accentColor?: string;
   iconEmoji?: string;
   coverColor?: string;
+  coverImageUri?: string;
   compact?: boolean;
 };
 
@@ -63,6 +64,7 @@ export function FolderIcon({
   accentColor = '#FFFFFF',
   iconEmoji,
   coverColor,
+  coverImageUri,
   compact = false,
 }: FolderIconProps) {
   const colorScheme = useColorScheme();
@@ -70,7 +72,8 @@ export function FolderIcon({
   void latestCards;
   const coverTheme = getCoverTheme(title);
   const isLight = colorScheme === 'light';
-  const frontColor = coverColor || '#1E293B';
+  const hasCoverImage = Boolean(coverImageUri);
+  const frontColor = hasCoverImage ? 'transparent' : coverColor || '#1E293B';
   const iconColor = isLight ? '#4EAFF4' : palette.textOnContainer;
   const bottomTitleColor = palette.albumCoverText;
   const titleColor = accentColor || palette.textOnContainer;
@@ -82,31 +85,43 @@ export function FolderIcon({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.iconCoverWrap}>
-        <View style={[styles.iconLayer, styles.iconLayerFront, { backgroundColor: frontColor }]}>
-          <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
-            {iconEmoji ? (
-              <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null, { color: iconColor }]}>
-                {iconEmoji}
-              </Text>
-            ) : canUseSymbols ? (
-              <SymbolView
-                name={coverTheme.symbol}
-                size={compact ? 42 : 56}
-                tintColor={iconColor}
-                type="monochrome"
-                style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
-                fallback={
-                  <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
-                    {coverTheme.fallback}
-                  </Text>
-                }
-              />
-            ) : (
-              <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
-                {coverTheme.fallback}
-              </Text>
-            )}
-          </View>
+        <View
+          style={[
+            styles.iconLayer,
+            styles.iconLayerFront,
+            hasCoverImage ? styles.iconLayerFrontImageCover : null,
+            { backgroundColor: frontColor },
+          ]}
+        >
+          {coverImageUri ? (
+            <Image source={{ uri: coverImageUri }} style={styles.coverImage} resizeMode="cover" />
+          ) : null}
+          {hasCoverImage ? null : (
+            <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
+              {iconEmoji ? (
+                <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null, { color: iconColor }]}>
+                  {iconEmoji}
+                </Text>
+              ) : canUseSymbols ? (
+                <SymbolView
+                  name={coverTheme.symbol}
+                  size={compact ? 42 : 56}
+                  tintColor={iconColor}
+                  type="monochrome"
+                  style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
+                  fallback={
+                    <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                      {coverTheme.fallback}
+                    </Text>
+                  }
+                />
+              ) : (
+                <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                  {coverTheme.fallback}
+                </Text>
+              )}
+            </View>
+          )}
           {compact ? (
             <LinearGradient
               colors={[palette.albumCoverShadeStart, palette.albumCoverShadeMid, palette.albumCoverShadeEnd]}
@@ -162,6 +177,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     overflow: 'hidden',
     paddingTop: 22,
+  },
+  iconLayerFrontImageCover: {
+    paddingTop: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'stretch',
+  },
+  coverImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   symbolWrap: {
     width: 68,

@@ -39,14 +39,12 @@ const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = 
 type Props = {
   visible: boolean;
   renderAsStaticPage?: boolean;
-  savingEntitlement: boolean;
-  entitlementMode: 'guest' | 'premium';
+  membershipLabel: 'Trial' | 'Free' | 'Premium';
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   wordPopSlideMs: WordPopSlideMs;
   onClose: () => void;
   onPressUploadProfilePic: () => void;
-  onToggleEntitlement: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
   onChangeWordPopSlideMs: (value: WordPopSlideMs) => void;
@@ -60,14 +58,12 @@ const PAGE_EXIT_DURATION_MS = 340;
 export default function ProfileSettingsModalUI({
   visible,
   renderAsStaticPage = false,
-  savingEntitlement,
-  entitlementMode,
+  membershipLabel,
   aiReplyLanguage,
   ttsVoice,
   wordPopSlideMs,
   onClose,
   onPressUploadProfilePic,
-  onToggleEntitlement,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
   onChangeWordPopSlideMs,
@@ -207,6 +203,26 @@ export default function ProfileSettingsModalUI({
     </View>
   );
 
+  const renderMembershipInfo = () => (
+    <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Membership</Text>
+      <View
+        style={[
+          styles.languageDropdownTrigger,
+          styles.membershipInfoRow,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
+      >
+        <View style={styles.membershipInfoTextWrap}>
+          <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{membershipLabel}</Text>
+          <Text style={[styles.membershipInfoCaption, { color: palette.secondaryText }]}>
+            Manage upgrades from the main settings page.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
   if (renderAsStaticPage) {
     return (
       <View style={[styles.page, { backgroundColor: palette.screenBg }]}>
@@ -225,24 +241,7 @@ export default function ProfileSettingsModalUI({
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
             <Text style={styles.primaryButtonText}>Upload profile pic</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.secondaryButton,
-              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-            ]}
-            activeOpacity={0.9}
-            onPress={onToggleEntitlement}
-          >
-            <Text style={[styles.secondaryButtonText, { color: palette.textOnContainer }]}>
-              {savingEntitlement
-                ? 'Updating...'
-                : entitlementMode === 'premium'
-                  ? 'Switch to Guest'
-                  : 'Switch to Premium'}
-            </Text>
-          </TouchableOpacity>
-
+          {renderMembershipInfo()}
           {renderLanguageDropdown()}
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
             <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
@@ -385,24 +384,7 @@ export default function ProfileSettingsModalUI({
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
             <Text style={styles.primaryButtonText}>Upload profile pic</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.secondaryButton,
-              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-            ]}
-            activeOpacity={0.9}
-            onPress={onToggleEntitlement}
-          >
-            <Text style={[styles.secondaryButtonText, { color: palette.textOnContainer }]}>
-              {savingEntitlement
-                ? 'Updating...'
-                : entitlementMode === 'premium'
-                  ? 'Switch to Guest'
-                  : 'Switch to Premium'}
-            </Text>
-          </TouchableOpacity>
-
+          {renderMembershipInfo()}
           {renderLanguageDropdown()}
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
             <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
@@ -647,6 +629,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
+  },
+  membershipInfoRow: {
+    alignItems: 'flex-start',
+  },
+  membershipInfoTextWrap: {
+    gap: 4,
+  },
+  membershipInfoCaption: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 18,
   },
   languageDropdownList: {
     marginTop: 8,

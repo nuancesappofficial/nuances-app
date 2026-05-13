@@ -5,7 +5,31 @@ export type AlbumReviewPreferences = {
   questionCount: number;
   pinnedCardIds: string[];
   todayNewWordsOnly?: boolean;
+  selectedQuestionTypes: ReviewQuestionType[];
 };
+
+export type ReviewQuestionType =
+  | 'fill_blank'
+  | 'translation_to_word'
+  | 'word_to_translation'
+  | 'sentence_to_translation'
+  | 'part_of_speech';
+
+export const REVIEW_QUESTION_TYPE_OPTIONS: Array<{
+  key: ReviewQuestionType;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: 'fill_blank', label: 'Fill in the blank', shortLabel: 'Blank' },
+  { key: 'translation_to_word', label: 'Translation → word', shortLabel: '翻譯→字' },
+  { key: 'word_to_translation', label: 'Word → translation', shortLabel: '字→翻譯' },
+  { key: 'sentence_to_translation', label: 'Sentence → translation', shortLabel: '句子→翻譯' },
+  { key: 'part_of_speech', label: 'Part of speech', shortLabel: '詞性' },
+];
+
+export const DEFAULT_REVIEW_QUESTION_TYPES: ReviewQuestionType[] = REVIEW_QUESTION_TYPE_OPTIONS.map(
+  (item) => item.key
+);
 
 const REVIEW_PREFS_KEY_PREFIX = 'deck_review_prefs_v1';
 const DEFAULT_QUESTION_COUNT = 5;
@@ -19,11 +43,22 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   const pinnedCardIds = Array.isArray(raw?.pinnedCardIds)
     ? raw!.pinnedCardIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : [];
+  const selectedQuestionTypes = Array.isArray(raw?.selectedQuestionTypes)
+    ? raw!.selectedQuestionTypes.filter(
+        (value): value is ReviewQuestionType =>
+          typeof value === 'string' &&
+          DEFAULT_REVIEW_QUESTION_TYPES.includes(value as ReviewQuestionType)
+      )
+    : [];
 
   return {
     questionCount,
     pinnedCardIds: Array.from(new Set(pinnedCardIds)),
     todayNewWordsOnly: raw?.todayNewWordsOnly === true,
+    selectedQuestionTypes:
+      selectedQuestionTypes.length > 0
+        ? Array.from(new Set(selectedQuestionTypes))
+        : DEFAULT_REVIEW_QUESTION_TYPES,
   };
 }
 

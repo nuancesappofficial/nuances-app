@@ -1,28 +1,54 @@
 import React from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import Reanimated, {
+  FadeIn,
+  FadeOut,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { generateContentForWord } from '@services/ai';
+import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 import { DEFAULT_USER_SETTINGS, loadUserSettings } from '@services/settings/userSettings';
 import { extractTextFromImage } from '@services/ocr/ocrService';
+import { getLocalPhoneticTranscription } from '@services/pronunciation/localPhonetics';
 import { supabase } from '@services/supabase/client';
 import { persistLocalCardImage } from '@services/media/localCardImageStore';
+import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
+import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import {
+  CONTAINER_NEON_GLOW,
+  CONTAINER_NEON_OUTLINE,
+  MODAL_CTA_COLOR,
+  MODAL_CTA_COLOR_BORDER,
+  TEXT_ON_CTA,
+  resolveThemeColors,
+} from '../../../theme/colors';
 
 type Props = {
   navigation: any;
@@ -31,7 +57,6 @@ type Props = {
 
 type GeneratingCard = {
   word: string;
-  progress: number;
   completed: boolean;
 };
 
@@ -45,12 +70,15 @@ type CompletedCard = {
   word: string;
   // AI 校正後（含詞形還原）的卡片顯示字
   displayWord: string;
+  targetPhrase?: string;
   partOfSpeech: string;
   definition: string;
   cultural: string;
-  aiExampleSentence: string;
-  collocations: CollocationItem[];
+  collocationsText: string;
   note: string;
+  phoneticTranscription?: string | null;
+  sourceSentence: string;
+  manualMode: boolean;
   addedToDeck: boolean;
 };
 
@@ -60,6 +88,63 @@ const STOP_WORDS = new Set([
   'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you',
   'he', 'she', 'it', 'we', 'they',
 ]);
+
+const GHOST_CARD_STATUS_TEXT = [
+  'Extracting vocabulary...',
+  'Analyzing linguistic context...',
+  'Structuring premium flashcard...',
+  'Finalizing definitions...',
+] as const;
+
+function getGhostCardTone(params: {
+  palette: ReturnType<typeof resolveThemeColors>;
+  isLight: boolean;
+}) {
+  const { palette, isLight } = params;
+  if (isLight) {
+    return {
+      pulseShadowColor: '#0F172A',
+      chipBg: 'rgba(15,23,42,0.06)',
+      chipBorder: 'rgba(15,23,42,0.08)',
+      iconBg: 'rgba(15,23,42,0.03)',
+      iconBorder: 'rgba(15,23,42,0.08)',
+      heroBg: 'rgba(15,23,42,0.05)',
+      heroBorder: 'rgba(15,23,42,0.08)',
+      divider: '#E2E8F0',
+      statusBg: 'rgba(15,23,42,0.035)',
+      statusBorder: 'rgba(15,23,42,0.08)',
+      lineStrong: 'rgba(15,23,42,0.07)',
+      lineSoft: 'rgba(15,23,42,0.06)',
+      footerBg: 'rgba(15,23,42,0.03)',
+      footerBorder: 'rgba(15,23,42,0.08)',
+      outlineBase: 0.22,
+      outlinePulse: 0.22,
+      shadowBase: 0.08,
+      shadowPulse: 0.08,
+    };
+  }
+
+  return {
+    pulseShadowColor: MODAL_CTA_COLOR,
+    chipBg: '#334155',
+    chipBorder: 'rgba(148,163,184,0.22)',
+    iconBg: 'rgba(255,255,255,0.03)',
+    iconBorder: 'rgba(148,163,184,0.22)',
+    heroBg: 'rgba(255,255,255,0.04)',
+    heroBorder: 'rgba(148,163,184,0.18)',
+    divider: '#334155',
+    statusBg: 'rgba(255,255,255,0.03)',
+    statusBorder: 'rgba(148,163,184,0.18)',
+    lineStrong: 'rgba(255,255,255,0.06)',
+    lineSoft: 'rgba(255,255,255,0.05)',
+    footerBg: 'rgba(255,255,255,0.02)',
+    footerBorder: 'rgba(148,163,184,0.18)',
+    outlineBase: 0.58,
+    outlinePulse: 0.28,
+    shadowBase: 0.18,
+    shadowPulse: 0.16,
+  };
+}
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
   if (Array.isArray(val)) return val;
@@ -108,6 +193,13 @@ function normalizeDisplayWord(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim();
 }
 
+function triggerBuzzHaptic() {
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  setTimeout(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  }, 90);
+}
+
 function tokenizeSourceText(text: string): string[] {
   const normalized = (text || '').normalize('NFKC');
   if (!normalized.trim()) return [];
@@ -129,6 +221,374 @@ function collocationsFromText(raw: string): CollocationItem[] {
     phrase,
     example: `Example: ${phrase}`,
   }));
+}
+
+function buildManualCardDraft(word: string, phoneticTranscription?: string | null): CompletedCard {
+  return {
+    word,
+    displayWord: normalizeDisplayWord(word) || word,
+    targetPhrase: undefined,
+    partOfSpeech: '',
+    definition: '',
+    cultural: '',
+    collocationsText: '',
+    note: '',
+    phoneticTranscription: phoneticTranscription || null,
+    sourceSentence: word,
+    manualMode: true,
+    addedToDeck: true,
+  };
+}
+
+type PreviewPhase = 'frontThinking' | 'frontReveal' | 'backReveal' | 'complete';
+
+type PreviewRevealState = {
+  showFrontWord: boolean;
+  showFrontDefinition: boolean;
+  showFrontSentence: boolean;
+  showFrontTranslation: boolean;
+  showFrontNotes: boolean;
+  showBackCollocation: boolean;
+  showBackExample: boolean;
+  showBackCultural: boolean;
+  showBackNote: boolean;
+};
+
+const EMPTY_PREVIEW_REVEAL: PreviewRevealState = {
+  showFrontWord: false,
+  showFrontDefinition: false,
+  showFrontSentence: false,
+  showFrontTranslation: false,
+  showFrontNotes: false,
+  showBackCollocation: false,
+  showBackExample: false,
+  showBackCultural: false,
+  showBackNote: false,
+};
+
+const COMPLETE_PREVIEW_REVEAL: PreviewRevealState = {
+  showFrontWord: true,
+  showFrontDefinition: true,
+  showFrontSentence: true,
+  showFrontTranslation: true,
+  showFrontNotes: true,
+  showBackCollocation: true,
+  showBackExample: true,
+  showBackCultural: true,
+  showBackNote: true,
+};
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildSentenceTranslationText(card: CompletedCard): string {
+  const raw = (card.cultural || '').trim();
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLine = lines[0] || `${card.displayWord}：${card.definition || 'Generating meaning...'}`;
+  const quotedWord = `「${card.displayWord}」`;
+  return firstLine.includes(quotedWord) ? firstLine : `${quotedWord}：${firstLine}`;
+}
+
+function buildSentenceNotesText(card: CompletedCard): string {
+  const raw = (card.cultural || '').trim();
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length > 1) return lines.slice(1).join('\n');
+  if (raw) return raw;
+  return card.manualMode ? 'Add your own sentence note.' : 'Context note is being prepared.';
+}
+
+function buildCulturalBackgroundText(card: CompletedCard): string {
+  return (card.cultural || '').trim() || 'No cultural background generated.';
+}
+
+function buildExampleSentenceText(card: CompletedCard): string {
+  const firstCollocation = collocationsFromText(card.collocationsText)[0]?.phrase || card.displayWord;
+  const baseSentence = (card.sourceSentence || '').trim();
+  if (!baseSentence) return `Try using "${firstCollocation}" in a sentence today.`;
+  return `A natural example using "${firstCollocation}" is: "${baseSentence}"`;
+}
+
+function ProgressiveText({
+  text,
+  active,
+  style,
+}: {
+  text: string;
+  active: boolean;
+  style: any;
+}) {
+  const [visibleCount, setVisibleCount] = React.useState(active ? 0 : 0);
+
+  React.useEffect(() => {
+    if (!active) {
+      setVisibleCount(0);
+      return;
+    }
+    const totalLength = text.length;
+    if (totalLength === 0) {
+      setVisibleCount(0);
+      return;
+    }
+    setVisibleCount(0);
+    const interval = setInterval(() => {
+      setVisibleCount((prev) => {
+        const next = Math.min(totalLength, prev + Math.max(1, Math.ceil(totalLength / 42)));
+        if (next >= totalLength) {
+          clearInterval(interval);
+        }
+        return next;
+      });
+    }, 54);
+    return () => clearInterval(interval);
+  }, [active, text]);
+
+  return <Text style={style}>{active ? text.slice(0, visibleCount) : ''}</Text>;
+}
+
+function CreateCardPreviewScene({
+  processingWord,
+  card,
+  palette,
+  isLight,
+  hasImage,
+  imageUri,
+  statusText,
+  revealState,
+  phase,
+  onBackCardLayout,
+}: {
+  processingWord: string;
+  card: CompletedCard | null;
+  palette: ReturnType<typeof resolveThemeColors>;
+  isLight: boolean;
+  hasImage: boolean;
+  imageUri: string | null;
+  statusText: string;
+  revealState: PreviewRevealState;
+  phase: PreviewPhase;
+  onBackCardLayout?: ((y: number) => void) | undefined;
+}) {
+  const pulse = useSharedValue(0);
+  const tone = React.useMemo(() => getGhostCardTone({ palette, isLight }), [isLight, palette]);
+  const previewWord = card?.displayWord || processingWord;
+  const previewPartOfSpeech = card?.partOfSpeech || 'Generating';
+  const previewDefinition = card?.definition || statusText;
+  const previewSourceSentence = card?.sourceSentence || processingWord;
+  const previewTranslation = card ? buildSentenceTranslationText(card) : statusText;
+  const previewSentenceNotes = card ? buildSentenceNotesText(card) : statusText;
+  const previewCollocations = card ? collocationsFromText(card.collocationsText) : [];
+  const previewCollocation = previewCollocations[0]?.phrase || previewWord;
+  const previewExample = card ? buildExampleSentenceText(card) : statusText;
+  const previewCultural = card ? buildCulturalBackgroundText(card) : statusText;
+  const previewPersonalNote = card?.note?.trim() || 'No personal note yet.';
+  const isThinking = phase === 'frontThinking';
+  const backVisible = phase === 'backReveal' || phase === 'complete';
+
+  React.useEffect(() => {
+    pulse.value = withRepeat(withTiming(1, { duration: 1400 }), -1, true);
+    return () => {
+      cancelAnimation(pulse);
+    };
+  }, [pulse]);
+
+  const animatedCardStyle = useAnimatedStyle(() => {
+    const borderTint = tone.outlineBase + pulse.value * tone.outlinePulse;
+    return {
+      borderColor: `rgba(78,175,244,${borderTint})`,
+      shadowOpacity: tone.shadowBase + pulse.value * tone.shadowPulse,
+      transform: [{ scale: 0.998 + pulse.value * 0.002 }],
+    };
+  }, [tone]);
+
+  return (
+    <View style={styles.previewScene}>
+      <Reanimated.View
+        style={[
+          styles.previewCardShell,
+          {
+            backgroundColor: palette.containerBg,
+            shadowColor: tone.pulseShadowColor,
+          },
+          animatedCardStyle,
+        ]}
+      >
+        {hasImage && imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.previewHeroImage} resizeMode="cover" />
+        ) : null}
+
+        <View style={styles.previewBody}>
+          <View style={styles.previewHeaderRow}>
+            <View style={styles.previewHeaderMain}>
+              <Reanimated.View entering={FadeIn.duration(240)}>
+                <ProgressiveText
+                  text={previewWord}
+                  active={revealState.showFrontWord || isThinking}
+                  style={[styles.previewWord, { color: palette.textOnContainer }]}
+                />
+              </Reanimated.View>
+              <Reanimated.View
+                entering={FadeIn.duration(220)}
+                style={[
+                  styles.previewPosChip,
+                  {
+                    backgroundColor: tone.chipBg,
+                    borderColor: tone.chipBorder,
+                  },
+                ]}
+              >
+                <ProgressiveText
+                  text={previewPartOfSpeech}
+                  active={revealState.showFrontWord || isThinking}
+                  style={[styles.previewPosChipText, { color: palette.secondaryText }]}
+                />
+              </Reanimated.View>
+            </View>
+            <View style={styles.previewAudioWrap}>
+              <Ionicons name="volume-medium-outline" size={28} color={palette.secondaryText} />
+            </View>
+          </View>
+
+          <View style={styles.previewDefinitionRow}>
+            <ProgressiveText
+              text={previewDefinition}
+              active={revealState.showFrontDefinition}
+              style={[styles.previewDefinitionText, { color: palette.textOnContainer }]}
+            />
+            {isThinking && !revealState.showFrontDefinition ? (
+              <View
+                style={[
+                  styles.previewStatusSlot,
+                  {
+                    backgroundColor: tone.statusBg,
+                    borderColor: tone.statusBorder,
+                  },
+                ]}
+              >
+                <Reanimated.Text
+                  key={statusText}
+                  entering={FadeIn.duration(280)}
+                  exiting={FadeOut.duration(220)}
+                  style={[styles.previewStatusText, { color: palette.textOnContainer }]}
+                >
+                  {statusText}
+                </Reanimated.Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
+
+          <View style={styles.previewFrontSection}>
+            <ProgressiveText
+              text={previewSourceSentence}
+              active={revealState.showFrontSentence}
+              style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
+            />
+            <ProgressiveText
+              text={previewTranslation}
+              active={revealState.showFrontTranslation}
+              style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
+            />
+          </View>
+
+          <View style={styles.previewSectionBlock}>
+            <Reanimated.Text
+              entering={FadeIn.duration(200)}
+              style={[styles.previewSectionLabel, { color: palette.secondaryText }]}
+            >
+              Sentence notes
+            </Reanimated.Text>
+            <ProgressiveText
+              text={previewSentenceNotes}
+              active={revealState.showFrontNotes}
+              style={[styles.previewSectionBody, { color: palette.secondaryText }]}
+            />
+          </View>
+
+          <View style={styles.previewFooterRow}>
+            {['mic-outline', 'share-outline', 'heart-outline', 'bookmark-outline'].map((iconName, index) => (
+              <View
+                key={`preview-front-${iconName}-${index}`}
+                style={[
+                  styles.previewFooterBtn,
+                  {
+                    borderColor: tone.footerBorder,
+                    backgroundColor: tone.footerBg,
+                  },
+                ]}
+              >
+                <Ionicons name={iconName as any} size={24} color={palette.secondaryText} />
+              </View>
+            ))}
+          </View>
+        </View>
+      </Reanimated.View>
+
+      <Reanimated.View
+        onLayout={(event) => {
+          onBackCardLayout?.(event.nativeEvent.layout.y);
+        }}
+        style={[
+          styles.previewCardShell,
+          {
+            backgroundColor: palette.containerBg,
+            shadowColor: tone.pulseShadowColor,
+            opacity: backVisible ? 1 : 0.9,
+          },
+          animatedCardStyle,
+        ]}
+      >
+        <View style={styles.previewBody}>
+          <View style={styles.previewSectionBlock}>
+            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Collocation</Text>
+            <ProgressiveText
+              text={`• ${previewCollocation}`}
+              active={revealState.showBackCollocation}
+              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
+            />
+          </View>
+
+          <View style={styles.previewSectionBlock}>
+            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Example sentence</Text>
+            <ProgressiveText
+              text={previewExample}
+              active={revealState.showBackExample}
+              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
+            />
+          </View>
+
+          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
+
+          <View style={styles.previewSectionBlock}>
+            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Cultural background</Text>
+            <ProgressiveText
+              text={previewCultural}
+              active={revealState.showBackCultural}
+              style={[styles.previewSectionBodyStrong, { color: palette.textOnContainer }]}
+            />
+          </View>
+
+          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
+
+          <View style={styles.previewSectionBlock}>
+            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Personal notes</Text>
+            <ProgressiveText
+              text={previewPersonalNote}
+              active={revealState.showBackNote}
+              style={[styles.previewSectionBody, { color: palette.textOnContainer }]}
+            />
+          </View>
+        </View>
+      </Reanimated.View>
+    </View>
+  );
 }
 
 function pickSentenceContainingWord(text: string, word: string): string {
@@ -214,16 +674,23 @@ async function uploadCardImageToSupabase(params: {
 }
 
 export default function CreateCardScreen({ navigation, route }: Props) {
+  const tabSwipeContext = React.useContext(TabSwipeContext);
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isLight = colorScheme === 'light';
+  const { height: windowHeight } = useWindowDimensions();
   const {
     cachedItem,
     croppedImageUri,
     originalImageUri: routeOriginalImageUri,
     runOcrOnLoad,
+    generationMode,
   } = route.params as {
     cachedItem: CachedItem;
     croppedImageUri?: string;
     originalImageUri?: string;
     runOcrOnLoad?: boolean;
+    generationMode?: 'manual' | 'ai-assisted';
   };
 
   const goToCacheHome = React.useCallback(() => {
@@ -284,18 +751,38 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [hasStarted, setHasStarted] = React.useState(false);
   const [generatingCards, setGeneratingCards] = React.useState<GeneratingCard[]>([]);
   const [completedCards, setCompletedCards] = React.useState<CompletedCard[]>([]);
+  const [entitlementSnapshot, setEntitlementSnapshot] = React.useState<EntitlementSnapshot | null>(null);
   const [showCollocations, setShowCollocations] = React.useState<Record<string, boolean>>({});
   const [generatedWords, setGeneratedWords] = React.useState<Set<string>>(new Set());
   const [saving, setSaving] = React.useState(false);
-
-  const timersRef = React.useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const [ghostStatusIndex, setGhostStatusIndex] = React.useState(0);
+  const scrollRef = React.useRef<ScrollView | null>(null);
+  const previewSceneYRef = React.useRef<number>(0);
+  const previewBackCardYRef = React.useRef<number>(0);
+  const previewRunIdRef = React.useRef(0);
+  const [activePreviewCard, setActivePreviewCard] = React.useState<CompletedCard | null>(null);
+  const [previewPhase, setPreviewPhase] = React.useState<PreviewPhase>('frontThinking');
+  const [previewRevealState, setPreviewRevealState] = React.useState<PreviewRevealState>(EMPTY_PREVIEW_REVEAL);
+  const effectiveGenerationMode = React.useMemo<'manual' | 'ai-assisted'>(() => {
+    if (generationMode) return generationMode;
+    if (!entitlementSnapshot) return 'manual';
+    return entitlementSnapshot.canUseAutoCardGeneration ? 'ai-assisted' : 'manual';
+  }, [entitlementSnapshot?.canUseAutoCardGeneration, generationMode]);
+  const isGhostGenerating = hasStarted && generatingCards.some((card) => !card.completed);
+  const isPreviewSceneActive = Boolean(activePreviewCard) || isGhostGenerating;
+  const isPreviewLocked = isGhostGenerating || previewPhase === 'frontReveal' || previewPhase === 'backReveal';
+  const shouldHideSourcePanels = hasStarted;
 
   React.useEffect(() => {
-    return () => {
-      timersRef.current.forEach((timer) => clearInterval(timer));
-      timersRef.current.clear();
-    };
-  }, []);
+    if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
+      setGhostStatusIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setGhostStatusIndex((prev) => (prev + 1) % GHOST_CARD_STATUS_TEXT.length);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [generatingCards, hasStarted]);
 
   React.useEffect(() => {
     let active = true;
@@ -332,6 +819,105 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     };
   }, [ocrImageUri, runOcrOnLoad]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await SubscriptionService.getEntitlementSnapshot(cachedItem.userId);
+        if (!cancelled) {
+          setEntitlementSnapshot(snapshot);
+        }
+      } catch (error) {
+        console.error('[CreateCard] load entitlement snapshot failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedItem.userId]);
+
+  const scrollToPreviewPosition = React.useCallback((targetY: number) => {
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, targetY),
+      animated: true,
+    });
+  }, []);
+
+  const scrollToPreviewFront = React.useCallback(() => {
+    scrollToPreviewPosition(previewSceneYRef.current - 10);
+  }, [scrollToPreviewPosition]);
+
+  const scrollToPreviewBack = React.useCallback((extraOffset = 0) => {
+    const focusOffset = Math.max(110, windowHeight * 0.28);
+    scrollToPreviewPosition(
+      previewSceneYRef.current + previewBackCardYRef.current + extraOffset - focusOffset
+    );
+  }, [scrollToPreviewPosition, windowHeight]);
+
+  const runCardRevealSequence = React.useCallback(
+    async (card: CompletedCard) => {
+      const runId = ++previewRunIdRef.current;
+      const stillCurrent = () => previewRunIdRef.current === runId;
+
+      setActivePreviewCard(card);
+      setPreviewPhase('frontReveal');
+      setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+      scrollToPreviewFront();
+      await wait(240);
+      if (!stillCurrent()) return;
+
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setPreviewRevealState((prev) => ({ ...prev, showFrontWord: true }));
+      await wait(280);
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showFrontDefinition: true }));
+      await wait(Math.max(900, Math.min(1800, card.definition.length * 18)));
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showFrontSentence: true }));
+      await wait(Math.max(700, Math.min(1600, card.sourceSentence.length * 12)));
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showFrontTranslation: true }));
+      await wait(820);
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showFrontNotes: true }));
+      await wait(920);
+      if (!stillCurrent()) return;
+
+      setPreviewPhase('backReveal');
+      scrollToPreviewBack(24);
+      await wait(420);
+      if (!stillCurrent()) return;
+
+      void Haptics.selectionAsync();
+      setPreviewRevealState((prev) => ({ ...prev, showBackCollocation: true }));
+      scrollToPreviewBack(56);
+      await wait(760);
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showBackExample: true }));
+      scrollToPreviewBack(146);
+      await wait(900);
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showBackCultural: true }));
+      scrollToPreviewBack(260);
+      await wait(Math.max(950, Math.min(2100, (card.cultural || '').length * 8)));
+      if (!stillCurrent()) return;
+
+      setPreviewRevealState((prev) => ({ ...prev, showBackNote: true }));
+      scrollToPreviewBack(360);
+      await wait(520);
+      if (!stillCurrent()) return;
+
+      setPreviewPhase('complete');
+    },
+    [scrollToPreviewBack, scrollToPreviewFront]
+  );
+
   const toggleWord = (word: string) => {
     const cleanWord = normalizeWord(word);
     if (!cleanWord) return;
@@ -341,65 +927,70 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     );
   };
 
-  const startProgressTimer = (word: string) => {
-    const timer = setInterval(() => {
-      setGeneratingCards((prev) =>
-        prev.map((card) => {
-          if (card.word !== word || card.completed) return card;
-          return {
-            ...card,
-            progress: Math.min(92, card.progress + Math.random() * 6),
-          };
-        })
-      );
-    }, 150);
-    timersRef.current.set(word, timer);
-  };
-
-  const stopProgressTimer = (word: string) => {
-    const timer = timersRef.current.get(word);
-    if (timer) {
-      clearInterval(timer);
-      timersRef.current.delete(word);
-    }
-  };
-
   const processWord = React.useCallback(
     async (word: string) => {
-      startProgressTimer(word);
+      const sentenceForCard = pickSentenceContainingWord(sourceText, word) || sourceText || word;
       try {
-        const sentenceForAI = pickSentenceContainingWord(sourceText, word) || sourceText || word;
-        const generated = await generateContentForWord(word, sentenceForAI, {
+        if (effectiveGenerationMode === 'manual') {
+          const localPhonetic = await getLocalPhoneticTranscription(word);
+          const card = {
+            ...buildManualCardDraft(word, localPhonetic),
+            sourceSentence: sentenceForCard,
+          };
+          setGeneratingCards((prev) =>
+            prev.map((item) =>
+              item.word === word ? { ...item, completed: true } : item
+            )
+          );
+          setCompletedCards((prev) => [...prev, card]);
+          setGeneratedWords((prev) => new Set([...prev, word]));
+          return;
+        }
+
+        const generated = await generateContentForWord(word, sentenceForCard, {
           replyLanguage: aiReplyLanguage,
         });
+        triggerBuzzHaptic();
         const resolvedDisplayWord =
           normalizeDisplayWord(generated.suggestedWord || word) || word;
+        const resolvedTargetPhrase =
+          generated.isPartOfPhrase && generated.detectedPhrase
+            ? normalizeDisplayWord(generated.detectedPhrase)
+            : undefined;
         const card: CompletedCard = {
           word,
           displayWord: resolvedDisplayWord,
+          targetPhrase:
+            resolvedTargetPhrase && resolvedTargetPhrase.toLowerCase() !== resolvedDisplayWord.toLowerCase()
+              ? resolvedTargetPhrase
+              : undefined,
           partOfSpeech: generated.partOfSpeech || 'noun',
           definition: generated.definition || `${resolvedDisplayWord}（待補充定義）`,
           cultural: generated.contextualExplanation || '',
-          aiExampleSentence: generated.exampleSentence || '',
-          collocations: collocationsFromText(generated.frequentCollocations || ''),
+          collocationsText: (generated.frequentCollocations || '').trim(),
           note: '',
+          phoneticTranscription: generated.phoneticTranscription || null,
+          sourceSentence: sentenceForCard,
+          manualMode: false,
           addedToDeck: true,
         };
 
-        stopProgressTimer(word);
         setGeneratingCards((prev) =>
           prev.map((item) =>
-            item.word === word ? { ...item, progress: 100, completed: true } : item
+            item.word === word ? { ...item, completed: true } : item
           )
         );
+        await runCardRevealSequence(card);
         setCompletedCards((prev) => [...prev, card]);
+        setActivePreviewCard(null);
+        setPreviewPhase('complete');
+        setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
         setGeneratedWords((prev) => new Set([...prev, word]));
       } catch (error) {
         console.error('[CreateCard] generate failed:', word, error);
-        stopProgressTimer(word);
         setGeneratingCards((prev) =>
           prev.map((item) =>
-            item.word === word ? { ...item, progress: 100, completed: true } : item
+            item.word === word ? { ...item, completed: true } : item
           )
         );
         setCompletedCards((prev) => [
@@ -407,40 +998,117 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           {
             word,
             displayWord: word,
-            partOfSpeech: 'noun',
-            definition: `${word}（待補充定義）`,
+            targetPhrase: undefined,
+            partOfSpeech: '',
+            definition: '',
             cultural: '',
-            aiExampleSentence: '',
-            collocations: [{ phrase: word, example: `Example of ${word}.` }],
+            collocationsText: '',
             note: '',
+            phoneticTranscription: null,
+            sourceSentence: sentenceForCard,
+            manualMode: true,
             addedToDeck: true,
           },
         ]);
+        setActivePreviewCard(null);
+        setPreviewPhase('complete');
+        setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
         setGeneratedWords((prev) => new Set([...prev, word]));
       }
     },
-    [aiReplyLanguage, sourceText]
+    [aiReplyLanguage, effectiveGenerationMode, runCardRevealSequence, sourceText]
   );
 
-  const handleGenerate = async () => {
+  const beginGenerate = React.useCallback(async () => {
     if (selectedWords.length === 0) return;
 
     const newWords = selectedWords.filter((word) => !generatedWords.has(word));
     if (newWords.length === 0) return;
 
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setHasStarted(true);
-    setGeneratingCards(newWords.map((word) => ({ word, progress: 0, completed: false })));
+    setActivePreviewCard(null);
+    setPreviewPhase('frontThinking');
+    setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+    scrollToPreviewFront();
 
-    await Promise.all(newWords.map((word) => processWord(word)));
+    for (const word of newWords) {
+      setPreviewPhase('frontThinking');
+      setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+      setGeneratingCards([{ word, completed: false }]);
+      await processWord(word);
+    }
 
     setTimeout(() => {
       setHasStarted(false);
       setGeneratingCards([]);
     }, 220);
-  };
+  }, [generatedWords, processWord, scrollToPreviewFront, selectedWords]);
+
+  const cardsToSave = completedCards.filter((card) => card.addedToDeck);
+  const newSelectedWords = selectedWords.filter((word) => !generatedWords.has(word));
+  const hasNewWords = newSelectedWords.length > 0;
+  const isPlanResolving = !generationMode && !entitlementSnapshot;
+  const isGenerateDisabled = selectedWords.length === 0 || isPlanResolving;
+
+  React.useEffect(() => {
+    if (!isGhostGenerating) return;
+    const timer = setTimeout(() => {
+      scrollToPreviewFront();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [isGhostGenerating, scrollToPreviewFront]);
+
+  const handleGenerate = React.useCallback(async () => {
+    if (selectedWords.length === 0 || isPlanResolving) return;
+    if (effectiveGenerationMode === 'manual') {
+      Alert.alert(
+        '免費版使用手動建卡',
+        '免費版可使用本地 OCR 與手動建卡；升級後可自動補上定義、搭配詞與語境說明。',
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: '前往升級',
+            onPress: () => {
+              tabSwipeContext?.goToTab(2);
+            },
+          },
+          {
+            text: '手動建卡',
+            onPress: () => {
+              void beginGenerate();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    await beginGenerate();
+  }, [beginGenerate, effectiveGenerationMode, isPlanResolving, selectedWords.length, tabSwipeContext]);
+
+  const handleOpenPremiumUpsell = React.useCallback((featureLabel: string) => {
+    Alert.alert(
+      `解鎖 ${featureLabel}`,
+      'Premium 可自動補上定義、搭配詞、例句與語境說明，幫你省下手動整理時間。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '前往升級',
+          onPress: () => {
+            tabSwipeContext?.goToTab(2);
+          },
+        },
+      ]
+    );
+  }, [tabSwipeContext]);
+
+  const updateCardField = React.useCallback((word: string, patch: Partial<CompletedCard>) => {
+    setCompletedCards((prev) => prev.map((card) => (card.word === word ? { ...card, ...patch } : card)));
+  }, []);
 
   const updateNote = (word: string, note: string) => {
-    setCompletedCards((prev) => prev.map((card) => (card.word === word ? { ...card, note } : card)));
+    updateCardField(word, { note });
   };
 
   const toggleCollocations = (word: string) => {
@@ -452,10 +1120,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       prev.map((card) => (card.word === word ? { ...card, addedToDeck: !card.addedToDeck } : card))
     );
   };
-
-  const cardsToSave = completedCards.filter((card) => card.addedToDeck);
-  const newSelectedWords = selectedWords.filter((word) => !generatedWords.has(word));
-  const hasNewWords = newSelectedWords.length > 0;
 
   const handleSave = async () => {
     if (cardsToSave.length === 0) {
@@ -470,75 +1134,64 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         cachedItem.imageStoragePath ||
         '';
 
-      let uploadedImageUrl: string | null = null;
-      if (imageSourceForUpload) {
-        uploadedImageUrl = await uploadCardImageToSupabase({
-          imageUri: imageSourceForUpload,
-          cachedItemId: cachedItem.id,
-        });
-        if (!uploadedImageUrl) {
-          throw new Error('圖片上傳失敗，未取得可用的後端圖片網址');
-        }
-        console.log('[CreateCard] image upload succeeded:', {
-          cachedItemId: cachedItem.id,
-          uploadedImageUrl,
-        });
-      }
-
       const cardsCollection = database.get<Card>('cards');
       const createdCardIds: string[] = [];
+      const stickyDraftsToPersist: Array<{ cardId: string; note: string }> = [];
       await database.write(async () => {
         for (const cardDraft of cardsToSave) {
           const created = await cardsCollection.create((card) => {
-            const sourceSentence = pickSentenceContainingWord(sourceText, cardDraft.word);
+            const sourceSentence = (cardDraft.sourceSentence || pickSentenceContainingWord(sourceText, cardDraft.word)).trim();
             card.userId = cachedItem.userId;
             card.cachedItemId = cachedItem.id;
             card.targetWord = cardDraft.displayWord;
-            card.targetPhrase = undefined;
+            card.targetPhrase = cardDraft.targetPhrase || undefined;
             card.originalSentence = sourceSentence || sourceText;
-            card.definition = cardDraft.definition;
-            card.partOfSpeech = cardDraft.partOfSpeech || undefined;
-            card.contextualExplanation = cardDraft.cultural || undefined;
-            card.frequentCollocations = cardDraft.collocations.map((c) => c.phrase).join(', ') || undefined;
-            card.phoneticTranscription = undefined;
+            card.definition = cardDraft.definition.trim() || `${cardDraft.displayWord}（待補充定義）`;
+            card.partOfSpeech = cardDraft.partOfSpeech.trim() || undefined;
+            card.contextualExplanation = cardDraft.cultural.trim() || undefined;
+            card.frequentCollocations = cardDraft.collocationsText.trim() || undefined;
+            card.phoneticTranscription = cardDraft.phoneticTranscription || undefined;
             const tags = [cachedItem.sourceApp, 'create-flow'].filter(Boolean) as string[];
             card.tags = tags.length > 0 ? tags : undefined;
             card.sourceApp = cachedItem.sourceApp;
-            card.imageUrl = uploadedImageUrl || undefined;
+            card.imageUrl = undefined;
             card.easeFactor = 2.5;
             card.intervalDays = 1;
             card.repetitions = 0;
             card.nextReviewAt = new Date();
           });
           createdCardIds.push(created.id);
+          if (cardDraft.note.trim()) {
+            stickyDraftsToPersist.push({
+              cardId: created.id,
+              note: cardDraft.note.trim(),
+            });
+          }
         }
 
         await cachedItem.update((item) => {
           item.convertedToCard = true;
-          item.imageStoragePath = uploadedImageUrl || item.imageStoragePath;
           item.deletedAt = new Date();
         });
       });
-      try {
-        const persisted = await Promise.all(
-          createdCardIds.map((id) => database.get<Card>('cards').find(id))
-        );
-        console.log(
-          '[CreateCard] persisted cards imageUrl check:',
-          persisted.map((row) => ({ id: row.id, imageUrl: row.imageUrl }))
-        );
-      } catch (persistCheckError) {
-        console.warn('[CreateCard] persisted card imageUrl check failed:', persistCheckError);
+
+      if (stickyDraftsToPersist.length > 0) {
+        const stickyNotesMap = await loadCardStickyNotes();
+        stickyDraftsToPersist.forEach((draft) => {
+          stickyNotesMap[draft.cardId] = draft.note;
+        });
+        await saveCardStickyNotes(stickyNotesMap);
       }
-      if (imageSourceForUpload) {
+      const localImageSource = originalImageUri || imageSourceForUpload;
+      if (localImageSource) {
         await Promise.all(
           createdCardIds.map(async (id) => {
             try {
-              const localUri = await persistLocalCardImage(id, originalImageUri || imageSourceForUpload);
+              const localUri = await persistLocalCardImage(id, localImageSource);
               if (!localUri) {
                 console.warn('[CreateCard] local card image persist skipped', {
                   cardId: id,
-                  imageSourceForUpload,
+                  imageSourceForUpload: localImageSource,
                 });
               }
             } catch (localPersistError) {
@@ -552,6 +1205,40 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       }
 
       goToCacheHome();
+
+      if (imageSourceForUpload) {
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const uploadedImageUrl = await uploadCardImageToSupabase({
+                imageUri: imageSourceForUpload,
+                cachedItemId: cachedItem.id,
+              });
+              if (!uploadedImageUrl) return;
+              await database.write(async () => {
+                await Promise.all(
+                  createdCardIds.map(async (id) => {
+                    const row = await database.get<Card>('cards').find(id);
+                    await row.update((card) => {
+                      card.imageUrl = uploadedImageUrl;
+                    });
+                  })
+                );
+                await cachedItem.update((item) => {
+                  item.imageStoragePath = uploadedImageUrl;
+                });
+              });
+              console.log('[CreateCard] background image upload succeeded:', {
+                cachedItemId: cachedItem.id,
+                uploadedImageUrl,
+                cardCount: createdCardIds.length,
+              });
+            } catch (backgroundUploadError) {
+              console.warn('[CreateCard] background image upload failed:', backgroundUploadError);
+            }
+          })();
+        }, 0);
+      }
     } catch (error) {
       console.error('[CreateCard] save failed:', error);
       const message = error instanceof Error ? error.message : '儲存卡片失敗，請稍後再試。';
@@ -562,30 +1249,51 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={goToCacheHome} style={styles.backButton}>
-          <Text style={styles.backButtonText}>‹</Text>
-        </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Create Card</Text>
-          <Text style={styles.headerSubTitle}>Select words to learn</Text>
-        </View>
-      </View>
-
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {originalImageUri ? (
-          <View style={styles.block}>
-            <Text style={styles.blockTitle}>Original Image</Text>
-            <Image source={{ uri: originalImageUri }} style={styles.originalImage} resizeMode="contain" />
-            {isOcrRunning ? <Text style={styles.ocrStatus}>OCR 辨識中...</Text> : null}
-            {ocrError ? <Text style={styles.ocrErrorText}>{ocrError}</Text> : null}
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.containerBg }]} edges={['top']}>
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: palette.screenBg }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        scrollEnabled={!isPreviewLocked}
+        showsVerticalScrollIndicator={!isPreviewLocked}
+      >
+        {!shouldHideSourcePanels && originalImageUri ? (
+          <View
+            style={[
+              styles.block,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                shadowOpacity: isLight ? 0.06 : 0.16,
+              },
+            ]}
+          >
+            <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Original Image</Text>
+            <Image
+              source={{ uri: originalImageUri }}
+              style={[styles.originalImage, { backgroundColor: palette.modalOptionBg }]}
+              resizeMode="contain"
+            />
+            {isOcrRunning ? <Text style={[styles.ocrStatus, { color: MODAL_CTA_COLOR }]}>OCR 辨識中...</Text> : null}
+            {ocrError ? <Text style={[styles.ocrErrorText, { color: palette.destructiveBg }]}>{ocrError}</Text> : null}
           </View>
         ) : null}
 
-        <View style={styles.block}>
-          <Text style={styles.blockTitle}>Original Context</Text>
+        {!shouldHideSourcePanels ? (
+        <View
+          style={[
+            styles.block,
+            {
+              backgroundColor: palette.containerBg,
+              borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+              shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+              shadowOpacity: isLight ? 0.06 : 0.16,
+            },
+          ]}
+        >
+          <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Original Context</Text>
           <View style={styles.wordsWrap}>
             {sourceTokens.map((token, idx) => {
               const clean = normalizeWord(token);
@@ -593,26 +1301,57 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               return (
                 <TouchableOpacity
                   key={`${token}-${idx}`}
-                  style={[styles.tokenBtn, isSelected && styles.tokenBtnSelected]}
+                  style={[
+                    styles.tokenBtn,
+                    {
+                      backgroundColor: isSelected ? MODAL_CTA_COLOR : palette.modalOptionBg,
+                      borderColor: isSelected ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
+                    },
+                  ]}
                   onPress={() => toggleWord(token)}
                 >
-                  <Text style={[styles.tokenText, isSelected && styles.tokenTextSelected]}>{token}</Text>
+                  <Text
+                    style={[
+                      styles.tokenText,
+                      { color: isSelected ? TEXT_ON_CTA : palette.textOnContainer },
+                      isSelected && styles.tokenTextSelected,
+                    ]}
+                  >
+                    {token}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </View>
         </View>
+        ) : null}
 
-        {selectedWords.length > 0 ? (
-          <View style={styles.block}>
-            <Text style={styles.blockTitle}>Keywords</Text>
+        {!shouldHideSourcePanels && selectedWords.length > 0 ? (
+          <View
+            style={[
+              styles.block,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                shadowOpacity: isLight ? 0.06 : 0.16,
+              },
+            ]}
+          >
+            <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Keywords</Text>
             <View style={styles.wordsWrap}>
               {selectedWords.map((word) => {
                 const isGenerated = generatedWords.has(word);
                 return (
                   <TouchableOpacity
                     key={word}
-                    style={[styles.keywordBtn, isGenerated ? styles.keywordBtnGenerated : styles.keywordBtnDefault]}
+                    style={[
+                      styles.keywordBtn,
+                      {
+                        backgroundColor: isGenerated ? '#10B981' : MODAL_CTA_COLOR,
+                        borderColor: isGenerated ? 'rgba(16,185,129,0.72)' : MODAL_CTA_COLOR_BORDER,
+                      },
+                    ]}
                     onPress={() => toggleWord(word)}
                   >
                     <Text style={styles.keywordText}>{word}{isGenerated ? ' ✓' : ''}</Text>
@@ -623,8 +1362,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
             {hasNewWords && completedCards.length > 0 ? (
               <View style={styles.generateInlineWrap}>
-                <TouchableOpacity style={styles.generateInlineBtn} onPress={() => void handleGenerate()}>
-                  <Text style={styles.generateInlineText}>
+                <TouchableOpacity
+                  style={[styles.generateInlineBtn, { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER }]}
+                  disabled={isGenerateDisabled}
+                  onPress={() => void handleGenerate()}
+                >
+                  <Text style={[styles.generateInlineText, { color: TEXT_ON_CTA }]}>
                     + Create {newSelectedWords.length} New Card{newSelectedWords.length > 1 ? 's' : ''}
                   </Text>
                 </TouchableOpacity>
@@ -637,103 +1380,84 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           <View>
             {selectedWords.length > 0 ? (
               <View style={styles.selectedSummary}>
-                <Text style={styles.selectedSummaryText}>
-                  ✨ {selectedWords.length} word{selectedWords.length > 1 ? 's' : ''} selected
+                <Text style={[styles.selectedSummaryText, { color: MODAL_CTA_COLOR }]}>
+                  {effectiveGenerationMode === 'manual' ? '✍️' : '✨'} {selectedWords.length} word{selectedWords.length > 1 ? 's' : ''} selected
                 </Text>
               </View>
             ) : null}
             <TouchableOpacity
               onPress={() => void handleGenerate()}
-              disabled={selectedWords.length === 0}
-              style={[styles.generateButton, selectedWords.length === 0 && styles.generateButtonDisabled]}
+              disabled={isGenerateDisabled}
+              style={[
+                styles.generateButton,
+                { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+                isGenerateDisabled && styles.generateButtonDisabled,
+              ]}
             >
-              <Text style={styles.generateButtonText}>
-                Generate {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
+              <Text style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}>
+                {effectiveGenerationMode === 'manual' ? 'Create' : 'Generate'} {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
               </Text>
             </TouchableOpacity>
           </View>
         ) : null}
 
-        {hasStarted && generatingCards.some((card) => !card.completed) ? (
-          <View style={styles.generatingWrap}>
-            {generatingCards.map((card) => (
-              <View key={card.word} style={styles.generatingCard}>
-                <View style={styles.generatingHeader}>
-                  <Text style={styles.generatingWord}>{card.word}</Text>
-                  {card.completed ? <Text style={styles.generatingDone}>✓</Text> : <ActivityIndicator size="small" color="#5B4BD6" />}
-                </View>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${Math.max(4, card.progress)}%` }]} />
-                </View>
-              </View>
+        {completedCards.length > 0 ? (
+          <View style={styles.previewStackWrap}>
+            {completedCards.map((card, index) => (
+              <CreateCardPreviewScene
+                key={`${card.word}-${card.sourceSentence}-${index}`}
+                processingWord={card.displayWord}
+                card={card}
+                palette={palette}
+                isLight={isLight}
+                hasImage={Boolean(originalImageUri)}
+                imageUri={originalImageUri || null}
+                statusText=""
+                revealState={COMPLETE_PREVIEW_REVEAL}
+                phase="complete"
+              />
             ))}
+          </View>
+        ) : null}
+
+        {isPreviewSceneActive ? (
+          <View
+            style={styles.previewSceneWrap}
+            onLayout={(event) => {
+              previewSceneYRef.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <CreateCardPreviewScene
+              processingWord={generatingCards[0]?.word || activePreviewCard?.displayWord || selectedWords[0] || 'Generating'}
+              card={activePreviewCard}
+              palette={palette}
+              isLight={isLight}
+              hasImage={Boolean(originalImageUri)}
+              imageUri={originalImageUri || null}
+              statusText={GHOST_CARD_STATUS_TEXT[ghostStatusIndex]}
+              revealState={previewRevealState}
+              phase={previewPhase}
+              onBackCardLayout={(y) => {
+                previewBackCardYRef.current = y;
+              }}
+            />
           </View>
         ) : null}
 
         {!hasStarted && completedCards.length > 0 ? (
           <View style={styles.completedWrap}>
-            {completedCards.map((card) => (
-              <View key={card.word} style={styles.cardBlock}>
-                <View style={styles.cardHead}>
-                  <View>
-                    <Text style={styles.cardWord}>{card.displayWord}</Text>
-                    <Text style={styles.cardPos}>{card.partOfSpeech}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.pickBtn, card.addedToDeck ? styles.pickBtnOn : styles.pickBtnOff]}
-                    onPress={() => toggleAddToDeck(card.word)}
-                  >
-                    <Text style={[styles.pickBtnText, card.addedToDeck && styles.pickBtnTextOn]}>✓</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.cardSection}>
-                  <Text style={styles.cardDefinition}>{card.definition}</Text>
-                </View>
-
-                <View style={styles.cardSection}>
-                  <Text style={styles.noteLabel}>Your Note</Text>
-                  <TextInput
-                    value={card.note}
-                    onChangeText={(value) => updateNote(card.word, value)}
-                    placeholder="Add a personal note..."
-                    multiline
-                    style={styles.noteInput}
-                  />
-                </View>
-
-                <TouchableOpacity style={styles.collocationToggle} onPress={() => toggleCollocations(card.word)}>
-                  <Text style={styles.collocationTitle}>Collocations</Text>
-                  <Text style={styles.collocationArrow}>{showCollocations[card.word] ? '⌃' : '⌄'}</Text>
-                </TouchableOpacity>
-
-                {showCollocations[card.word] ? (
-                  <View style={styles.collocationBody}>
-                    {card.collocations.length > 0 ? (
-                      card.collocations.map((col, idx) => (
-                        <View key={`${card.word}-col-${idx}`} style={styles.collocationRow}>
-                          <Text style={styles.collocationPhrase}>{col.phrase}</Text>
-                          <Text style={styles.collocationExample}>"{col.example}"</Text>
-                        </View>
-                      ))
-                    ) : (
-                      <Text style={styles.collocationExample}>No collocations generated.</Text>
-                    )}
-                  </View>
-                ) : null}
-              </View>
-            ))}
-
             <View style={styles.saveWrap}>
               <TouchableOpacity
                 onPress={() => void handleSave()}
                 disabled={cardsToSave.length === 0 || saving}
-                style={[styles.saveButton, (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled]}
+                style={[
+                  styles.saveButton,
+                  { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+                  (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled,
+                ]}
               >
-                <Text style={styles.saveButtonText}>
-                  {saving
-                    ? 'Saving...'
-                    : `Save ${cardsToSave.length > 0 ? `${cardsToSave.length} Card${cardsToSave.length > 1 ? 's' : ''}` : 'Cards'} to Deck`}
+                <Text style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}>
+                  {saving ? 'Saving...' : 'Save'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -751,9 +1475,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F7F9',
   },
   header: {
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 14,
@@ -768,7 +1490,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F2F2F5',
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -791,12 +1513,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 14,
-    paddingTop: 12,
+    paddingTop: 4,
     paddingBottom: 24,
     gap: 12,
   },
   block: {
-    backgroundColor: '#fff',
+    borderWidth: 1,
     borderRadius: 16,
     padding: 14,
   },
@@ -835,7 +1557,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#F2F2F5',
+    borderWidth: 1,
   },
   tokenBtnSelected: {
     backgroundColor: '#007AFF',
@@ -852,6 +1574,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 9,
+    borderWidth: 1,
   },
   keywordBtnDefault: {
     backgroundColor: '#007AFF',
@@ -869,8 +1592,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   generateInlineBtn: {
-    backgroundColor: '#007AFF',
     borderRadius: 10,
+    borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -889,8 +1612,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   generateButton: {
-    backgroundColor: '#007AFF',
     borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
@@ -903,45 +1626,152 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
-  generatingWrap: {
-    gap: 10,
+  previewSceneWrap: {
+    gap: 14,
   },
-  generatingCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
+  previewStackWrap: {
+    gap: 16,
   },
-  generatingHeader: {
+  previewScene: {
+    gap: 16,
+  },
+  previewCardShell: {
+    borderWidth: 1,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    shadowOffset: { width: 0, height: 14 },
+    shadowRadius: 22,
+    elevation: 10,
+  },
+  previewHeroImage: {
+    width: '100%',
+    height: 214,
+    borderRadius: 18,
+    marginBottom: 18,
+  },
+  previewBody: {
+    flex: 1,
+  },
+  previewHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'flex-start',
   },
-  generatingWord: {
-    fontSize: 15,
-    color: '#0D0D0D',
+  previewHeaderMain: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  previewWord: {
+    fontSize: 34,
+    fontWeight: '800',
+    lineHeight: 38,
+  },
+  previewPosChip: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
+  previewPosChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.35,
+  },
+  previewAudioWrap: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewDefinitionRow: {
+    marginTop: 18,
+  },
+  previewDefinitionText: {
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '700',
+  },
+  previewStatusSlot: {
+    minHeight: 104,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    justifyContent: 'center',
+  },
+  previewStatusText: {
+    fontSize: 23,
+    lineHeight: 31,
+    fontWeight: '700',
+  },
+  previewDivider: {
+    marginTop: 18,
+    height: 1,
+    borderRadius: 999,
+  },
+  previewFrontSection: {
+    marginTop: 18,
+    gap: 12,
+  },
+  previewSentenceText: {
+    fontSize: 20,
+    lineHeight: 28,
     fontWeight: '600',
   },
+  previewTranslationText: {
+    marginTop: 2,
+  },
+  previewSectionBlock: {
+    marginTop: 18,
+  },
+  previewSectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  previewSectionBody: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: '500',
+  },
+  previewSectionBodyStrong: {
+    fontSize: 19,
+    lineHeight: 27,
+    fontWeight: '600',
+  },
+  previewBackMainText: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: '600',
+  },
+  previewFooterRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  previewFooterBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   generatingDone: {
-    color: '#10B981',
-    fontSize: 16,
     fontWeight: '800',
-  },
-  progressTrack: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#F2F2F5',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
   },
   completedWrap: {
     gap: 12,
   },
   cardBlock: {
-    backgroundColor: '#fff',
+    borderWidth: 1,
     borderRadius: 16,
     overflow: 'hidden',
   },
@@ -969,6 +1799,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -997,6 +1828,9 @@ const styles = StyleSheet.create({
     color: '#0D0D0D',
     lineHeight: 22,
   },
+  definitionInput: {
+    minHeight: 82,
+  },
   noteLabel: {
     fontSize: 11,
     color: '#9A9AAA',
@@ -1007,12 +1841,63 @@ const styles = StyleSheet.create({
   noteInput: {
     minHeight: 68,
     borderRadius: 10,
-    backgroundColor: '#F7F7F9',
+    borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 9,
     textAlignVertical: 'top',
     fontSize: 13,
     color: '#0D0D0D',
+  },
+  singleLineInput: {
+    minHeight: 44,
+    paddingVertical: 10,
+  },
+  helperMetaText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  lockedAiPanel: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 6,
+    opacity: 0.84,
+  },
+  lockedAiPanelTight: {
+    marginTop: 2,
+  },
+  lockedAiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  lockedAiTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  lockedAiBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.35,
+    textTransform: 'uppercase',
+    color: TEXT_ON_CTA,
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    overflow: 'hidden',
+  },
+  lockedAiBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
   },
   collocationToggle: {
     paddingHorizontal: 16,
@@ -1037,6 +1922,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 10,
   },
+  collocationsEditor: {
+    minHeight: 78,
+  },
   collocationRow: {
     gap: 4,
   },
@@ -1055,8 +1943,8 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   saveButton: {
-    backgroundColor: '#0D0D0D',
     borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,

@@ -35,7 +35,7 @@ export default function CacheImageInputPanelUI({
         disabled={creatingImage}
       >
         <View style={styles.imageUploadIconWrap}>
-          <Text style={styles.imageUploadIcon}>🖼️</Text>
+          <Ionicons name="image-outline" size={34} color={TEXT_ON_CTA} />
         </View>
         <Text style={[styles.imageUploadText, palette ? { color: palette.textOnContainer } : null]}>
           {creatingImage ? 'processing image...' : 'upload image'}

@@ -14,6 +14,7 @@ import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
+  type ReviewQuestionType,
 } from '../../../features/deck/reviewPreferences';
 import { consumeAlbumPreload } from '../../../features/deck/albumPreloadCache';
 
@@ -90,6 +91,9 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   );
   const [reviewQuestionCount, setReviewQuestionCount] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
+  );
+  const [selectedQuestionTypes, setSelectedQuestionTypes] = React.useState<ReviewQuestionType[]>(
+    DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
   );
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
@@ -187,6 +191,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         const prefs = await loadAlbumReviewPreferences(album.id);
         if (active) {
           setReviewQuestionCount(prefs.questionCount);
+          setSelectedQuestionTypes(prefs.selectedQuestionTypes);
         }
       };
 
@@ -286,6 +291,14 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     [album.id]
   );
 
+  const handleChangeSelectedQuestionTypes = React.useCallback(
+    (nextTypes: ReviewQuestionType[]) => {
+      setSelectedQuestionTypes(nextTypes);
+      void saveAlbumReviewPreferences(album.id, { selectedQuestionTypes: nextTypes });
+    },
+    [album.id]
+  );
+
   const handlePressPlay = React.useCallback(() => {
     const sourceCards = processedCards.length > 0 ? processedCards : albumCards;
     if (!sourceCards.length) {
@@ -298,9 +311,10 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
       albumName: album.name || 'Made for You',
       cardIds: sourceCards.map((card) => card.id),
       questionCount: reviewQuestionCount,
+      selectedQuestionTypes,
       themeColor,
     });
-  }, [album.id, album.name, albumCards, navigation, processedCards, reviewQuestionCount, themeColor]);
+  }, [album.id, album.name, albumCards, navigation, processedCards, reviewQuestionCount, selectedQuestionTypes, themeColor]);
 
   return (
     <>
@@ -365,8 +379,10 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
       <ReviewTuningModalUI
         visible={showReviewTuningModal}
         questionCount={reviewQuestionCount}
+        selectedQuestionTypes={selectedQuestionTypes}
         onClose={() => setShowReviewTuningModal(false)}
         onChangeQuestionCount={handleChangeQuestionCount}
+        onChangeSelectedQuestionTypes={handleChangeSelectedQuestionTypes}
       />
     </>
   );

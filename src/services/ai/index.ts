@@ -81,12 +81,20 @@ export async function generateContentForWord(
   word: string,
   originalText: string,
   personalization?: AIPersonalizationOptions
-): Promise<Omit<AnalysisResult, 'keywords'> & { suggestedWord: string | null }> {
+): Promise<
+  Omit<AnalysisResult, 'keywords'> & {
+    suggestedWord: string | null;
+    isPartOfPhrase?: boolean;
+    detectedPhrase?: string;
+  }
+> {
   try {
     if (isOpenAIConfigured()) {
       const generated = await generateCardContent(word, originalText, personalization);
       return {
         suggestedWord: generated.normalizedTargetWord || word,
+        isPartOfPhrase: generated.isPartOfPhrase,
+        detectedPhrase: generated.detectedPhrase,
         definition: generated.definition,
         partOfSpeech: generated.partOfSpeech,
         contextualExplanation: generated.contextualExplanation,
@@ -105,6 +113,8 @@ export async function generateContentForWord(
 
     return {
       suggestedWord: word,
+      isPartOfPhrase: false,
+      detectedPhrase: '',
       definition: generateMockDefinition(word),
       partOfSpeech: '',
       contextualExplanation: generateMockExplanation(word, originalText),

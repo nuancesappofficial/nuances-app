@@ -146,12 +146,12 @@ export async function generateCardContent(
         replyLanguage?: string;
       },
       {
-        normalizedTargetWord?: string;
-        meaningInContext?: string;
-        isLikelyTypo?: boolean;
-        correctedTargetWord?: string;
-        typoReason?: string;
-        isPartOfPhrase?: boolean;
+      normalizedTargetWord?: string;
+      meaningInContext?: string;
+      isLikelyTypo?: boolean;
+      correctedTargetWord?: string;
+      typoReason?: string;
+      isPartOfPhrase?: boolean;
         detectedPhrase?: string;
         lemma?: string;
         targetWord?: string;
@@ -224,6 +224,8 @@ export async function analyzeAndGenerateCard(
 ): Promise<{
   keywords: string[];
   suggestedWord: string | null;
+  isPartOfPhrase?: boolean;
+  detectedPhrase?: string;
   definition: string;
   partOfSpeech: string;
   contextualExplanation: string;
@@ -249,6 +251,8 @@ export async function analyzeAndGenerateCard(
     {
       normalizedTargetWord?: string;
       correctedTargetWord?: string;
+      isPartOfPhrase?: boolean;
+      detectedPhrase?: string;
       lemma?: string;
       targetWord?: string;
       keyword?: string;
@@ -283,6 +287,8 @@ export async function analyzeAndGenerateCard(
   return {
     keywords: [resolvedHeadword],
     suggestedWord: resolvedHeadword,
+    isPartOfPhrase: Boolean(result.isPartOfPhrase),
+    detectedPhrase: normalizeOptionalString(result.detectedPhrase),
     definition: result.definition || '',
     partOfSpeech: result.partOfSpeech || result['part of speech'] || '',
     contextualExplanation: result.contextualExplanation || '',

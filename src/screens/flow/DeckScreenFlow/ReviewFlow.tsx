@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useColorScheme,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -17,9 +18,11 @@ import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
-import { SCREEN_BG } from '../../../theme/colors';
+import { resolveThemeColors } from '../../../theme/colors';
 import {
+  DEFAULT_REVIEW_QUESTION_TYPES,
   loadAlbumReviewPreferences,
+  type ReviewQuestionType,
   saveAlbumReviewPreferences,
 } from '../../../features/deck/reviewPreferences';
 import { markCardAsQuizReviewed } from '../../../features/deck/cardDetailSeen';
@@ -32,6 +35,7 @@ type Props = {
       albumName?: string;
       cardIds?: string[];
       questionCount?: number;
+      selectedQuestionTypes?: ReviewQuestionType[];
       themeColor?: string;
     };
   };
@@ -40,7 +44,7 @@ type Props = {
 type ReviewQuestion = {
   id: string;
   cardId: string;
-  questionType: 'fill_blank' | 'translation_to_word' | 'word_to_translation';
+  questionType: ReviewQuestionType;
   prompt: string;
   correctAnswer: string;
   options: string[];
@@ -62,6 +66,10 @@ function triggerWrongAnswerBuzzHaptic() {
   setTimeout(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   }, 90);
+}
+
+function triggerCorrectAnswerHaptic() {
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 }
 
 function shuffleArray<T>(items: T[]): T[] {
@@ -162,11 +170,36 @@ function buildDefinitionOptionPool(allCards: Card[], currentCard: Card): string[
   return shuffleArray(pool);
 }
 
+function buildPartOfSpeechOptionPool(allCards: Card[], currentCard: Card): string[] {
+  const correct = ((currentCard.partOfSpeech || 'word').trim() || 'word').toLowerCase();
+  const seen = new Set<string>([correct]);
+  const pool: string[] = [];
+
+  allCards.forEach((card) => {
+    const value = ((card.partOfSpeech || 'word').trim() || 'word');
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    pool.push(value);
+  });
+
+  const fallback = ['noun', 'verb', 'adjective', 'adverb', 'phrase'];
+  fallback.forEach((value) => {
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    pool.push(value);
+  });
+
+  return shuffleArray(pool);
+}
+
 function buildReviewQuestions(
   sourceCards: Card[],
   allCards: Card[],
   questionCount: number,
-  pinnedCardIds: string[]
+  pinnedCardIds: string[],
+  selectedQuestionTypes: ReviewQuestionType[]
 ): ReviewQuestion[] {
   const sourceById = new Map(sourceCards.map((card) => [card.id, card] as const));
   const pinnedCards = pinnedCardIds.map((id) => sourceById.get(id)).filter((card): card is Card => Boolean(card));
@@ -174,6 +207,8 @@ function buildReviewQuestions(
   const randomPool = shuffleArray(sourceCards.filter((card) => !pinnedSet.has(card.id)));
   const totalCount = Math.min(sourceCards.length, Math.max(questionCount, pinnedCards.length));
   const selected = [...pinnedCards, ...randomPool].slice(0, totalCount);
+
+  const questionTypes = selectedQuestionTypes.length > 0 ? selectedQuestionTypes : DEFAULT_REVIEW_QUESTION_TYPES;
 
   return selected.map((card, index) => {
     const word = pickDisplayAnswer(card);
@@ -183,9 +218,7 @@ function buildReviewQuestions(
     const contextualExplanation = (card.contextualExplanation || '').trim();
     const maskedSentence = buildMaskedSentence(card);
 
-    const typePattern = index % 3;
-    const questionType: ReviewQuestion['questionType'] =
-      typePattern === 0 ? 'fill_blank' : typePattern === 1 ? 'translation_to_word' : 'word_to_translation';
+    const questionType: ReviewQuestion['questionType'] = questionTypes[index % questionTypes.length];
 
     if (questionType === 'translation_to_word') {
       const distractors = buildOptionPool(allCards, card).slice(0, 3);
@@ -219,6 +252,49 @@ function buildReviewQuestions(
         prompt: 'Choose the correct translation',
         correctAnswer: definition,
         options: shuffleArray([definition, ...distractors]),
+        sentence: word,
+        sourceSentence,
+        partOfSpeech,
+        definition,
+        contextualExplanation,
+      };
+    }
+
+    if (questionType === 'sentence_to_translation') {
+      const distractors = buildDefinitionOptionPool(allCards, card).slice(0, 3);
+      while (distractors.length < 3) {
+        distractors.push(`${definition} (${distractors.length + 1})`);
+      }
+      return {
+        id: card.id,
+        cardId: card.id,
+        questionType,
+        prompt: 'Choose the meaning used in this sentence',
+        correctAnswer: definition,
+        options: shuffleArray([definition, ...distractors]),
+        sentence: sourceSentence || maskedSentence,
+        sourceSentence,
+        partOfSpeech,
+        definition,
+        contextualExplanation,
+      };
+    }
+
+    if (questionType === 'part_of_speech') {
+      const correctPartOfSpeech = partOfSpeech || 'word';
+      const distractors = buildPartOfSpeechOptionPool(allCards, card)
+        .filter((value) => value.toLowerCase() !== correctPartOfSpeech.toLowerCase())
+        .slice(0, 3);
+      while (distractors.length < 3) {
+        distractors.push(`type ${distractors.length + 1}`);
+      }
+      return {
+        id: card.id,
+        cardId: card.id,
+        questionType,
+        prompt: 'Choose the correct part of speech',
+        correctAnswer: correctPartOfSpeech,
+        options: shuffleArray([correctPartOfSpeech, ...distractors]),
         sentence: word,
         sourceSentence,
         partOfSpeech,
@@ -271,11 +347,90 @@ function getCelebrationValue(
 
 export default function ReviewFlow({ navigation, route }: Props) {
   const { width } = useWindowDimensions();
+  const colorScheme = useColorScheme();
+  const theme = resolveThemeColors(colorScheme);
+  const isLightMode = colorScheme === 'light';
   const albumId = route.params?.albumId || 'all-cards';
   const albumName = route.params?.albumName || 'Review';
   const requestedQuestionCount = route.params?.questionCount;
+  const requestedQuestionTypes = route.params?.selectedQuestionTypes;
   const themeColor = '#4EAFF4';
   const routeCardIds = route.params?.cardIds || [];
+  const palette = React.useMemo(
+    () =>
+      isLightMode
+        ? {
+            screenBg: theme.screenBg,
+            cardBg: '#FFFFFF',
+            cardBorder: 'rgba(0,0,0,0.06)',
+            primaryText: '#111111',
+            secondaryText: '#8A8E97',
+            softButtonBg: '#FFFFFF',
+            softButtonBorder: 'rgba(0,0,0,0.06)',
+            progressTrack: 'rgba(17,17,17,0.08)',
+            optionBg: '#F5F6FA',
+            optionBorder: '#ECECF0',
+            optionAnsweredBorder: 'rgba(17,17,17,0.12)',
+            optionCorrectBg: 'rgba(78,175,244,0.16)',
+            optionCorrectBorder: '#4EAFF4',
+            optionWrongBg: 'rgba(255,107,107,0.14)',
+            optionWrongBorder: '#FF6B6B',
+            answerCardBg: '#F5F6FA',
+            answerCardBorder: '#ECECF0',
+            nextTimeBg: '#FFFFFF',
+            nextTimeBorder: 'rgba(0,0,0,0.06)',
+            nextTimeActiveBg: '#E8F4FE',
+            nextTimeActiveBorder: '#4EAFF4',
+            nextTimeText: '#111111',
+            nextButtonBg: '#4EAFF4',
+            nextButtonText: '#0F172A',
+            summarySecondaryBg: '#FFFFFF',
+            summarySecondaryBorder: 'rgba(0,0,0,0.06)',
+            summarySecondaryText: '#111111',
+            successTint: 'rgba(78,175,244,0.16)',
+            errorTint: 'rgba(255,107,107,0.14)',
+            successText: '#4EAFF4',
+            errorText: '#FF6B6B',
+            celebrationIcon: '#4EAFF4',
+            celebrationOverlay: 'rgba(78,175,244,0.12)',
+          }
+        : {
+            screenBg: theme.screenBg,
+            cardBg: '#1E293B',
+            cardBorder: '#334155',
+            primaryText: '#F8FAFC',
+            secondaryText: '#94A3B8',
+            softButtonBg: 'rgba(255,255,255,0.08)',
+            softButtonBorder: '#334155',
+            progressTrack: 'rgba(255,255,255,0.08)',
+            optionBg: '#334155',
+            optionBorder: '#334155',
+            optionAnsweredBorder: 'rgba(248,250,252,0.2)',
+            optionCorrectBg: 'rgba(52,211,153,0.22)',
+            optionCorrectBorder: '#34D399',
+            optionWrongBg: 'rgba(255,107,107,0.22)',
+            optionWrongBorder: '#FF6B6B',
+            answerCardBg: '#334155',
+            answerCardBorder: '#334155',
+            nextTimeBg: '#1E293B',
+            nextTimeBorder: '#334155',
+            nextTimeActiveBg: '#334155',
+            nextTimeActiveBorder: '#4EAFF4',
+            nextTimeText: '#F8FAFC',
+            nextButtonBg: '#4EAFF4',
+            nextButtonText: '#0F172A',
+            summarySecondaryBg: '#1E293B',
+            summarySecondaryBorder: '#334155',
+            summarySecondaryText: '#F8FAFC',
+            successTint: 'rgba(78,175,244,0.18)',
+            errorTint: 'rgba(255,107,107,0.15)',
+            successText: '#4EAFF4',
+            errorText: '#FF6B6B',
+            celebrationIcon: '#E8FFF5',
+            celebrationOverlay: 'rgba(78,175,244,0.18)',
+          },
+    [isLightMode, theme]
+  );
 
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [questions, setQuestions] = React.useState<ReviewQuestion[]>([]);
@@ -283,6 +438,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
   const [results, setResults] = React.useState<Record<string, boolean>>({});
   const [pinnedCardIds, setPinnedCardIds] = React.useState<string[]>([]);
+  const [selectedQuestionTypes, setSelectedQuestionTypes] = React.useState<ReviewQuestionType[]>(
+    DEFAULT_REVIEW_QUESTION_TYPES
+  );
   const [loading, setLoading] = React.useState(true);
   const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
   const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
@@ -321,19 +479,26 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const prefs = await loadAlbumReviewPreferences(albumId);
     const nextPinned = prefs.pinnedCardIds.filter((id) => sourceCards.some((card) => card.id === id));
     const effectiveCount = requestedQuestionCount ?? prefs.questionCount;
+    const effectiveQuestionTypes =
+      requestedQuestionTypes && requestedQuestionTypes.length > 0
+        ? requestedQuestionTypes
+        : prefs.selectedQuestionTypes;
 
     setPinnedCardIds(nextPinned);
+    setSelectedQuestionTypes(effectiveQuestionTypes);
     setSelectedAnswers({});
     setResults({});
     setCurrentIndex(0);
     flipValuesRef.current = new Map();
-    setQuestions(buildReviewQuestions(sourceCards, allCards, effectiveCount, nextPinned));
+    setQuestions(
+      buildReviewQuestions(sourceCards, allCards, effectiveCount, nextPinned, effectiveQuestionTypes)
+    );
     setLoading(false);
 
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     });
-  }, [albumId, allCards, requestedQuestionCount, sourceCards]);
+  }, [albumId, allCards, requestedQuestionCount, requestedQuestionTypes, sourceCards]);
 
   React.useEffect(() => {
     if (!allCards.length || !sourceCards.length) {
@@ -361,12 +526,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
     if (selectedAnswers[question.id]) return;
 
     const isCorrect = option === question.correctAnswer;
+    if (isCorrect) {
+      triggerCorrectAnswerHaptic();
+    } else {
+      triggerWrongAnswerBuzzHaptic();
+    }
     setSelectedAnswers((prev) => ({ ...prev, [question.id]: option }));
     setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
     void markCardAsQuizReviewed(question.cardId);
-    if (!isCorrect) {
-      triggerWrongAnswerBuzzHaptic();
-    }
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
     setTimeout(() => {
@@ -376,7 +543,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (!finished || !isCorrect) return;
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const celebrate = getCelebrationValue(celebrationValuesRef, question.id);
         celebrate.setValue(0);
         Animated.sequence([
@@ -458,13 +624,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
             style={[
               styles.cardFace,
               styles.frontFace,
+              { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
               {
                 transform: [{ perspective: 1200 }, { rotateY: frontRotate }],
               },
             ]}
           >
-            <Text style={styles.questionEyebrow}>{question.prompt.toUpperCase()}</Text>
-            <Text style={styles.sentenceText}>{question.sentence}</Text>
+            <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>{question.prompt.toUpperCase()}</Text>
+            <Text style={[styles.sentenceText, { color: palette.primaryText }]}>{question.sentence}</Text>
 
             <View style={styles.optionsGrid}>
               {question.options.map((option) => {
@@ -476,16 +643,21 @@ export default function ReviewFlow({ navigation, route }: Props) {
                     key={option}
                     style={[
                       styles.optionCard,
-                      hasAnswered ? styles.optionCardAnswered : null,
-                      hasAnswered && isCorrectOption ? styles.optionCardCorrect : null,
-                      hasAnswered && wasChosen && !isCorrectOption ? styles.optionCardWrong : null,
+                      { backgroundColor: palette.optionBg, borderColor: palette.optionBorder },
+                      hasAnswered ? { borderColor: palette.optionAnsweredBorder } : null,
+                      hasAnswered && isCorrectOption
+                        ? { backgroundColor: palette.optionCorrectBg, borderColor: palette.optionCorrectBorder }
+                        : null,
+                      hasAnswered && wasChosen && !isCorrectOption
+                        ? { backgroundColor: palette.optionWrongBg, borderColor: palette.optionWrongBorder }
+                        : null,
                       hasAnswered && !wasChosen && !isCorrectOption ? styles.optionCardDisabled : null,
                     ]}
                     activeOpacity={0.92}
                     disabled={hasAnswered}
                     onPress={() => answerQuestion(question, option)}
                   >
-                    <Text style={styles.optionText}>{option}</Text>
+                    <Text style={[styles.optionText, { color: palette.primaryText }]}>{option}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -497,6 +669,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
             style={[
               styles.cardFace,
               styles.backFace,
+              { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
               {
                 transform: [{ perspective: 1200 }, { rotateY: backRotate }],
               },
@@ -507,7 +680,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 pointerEvents="none"
                 style={[
                   styles.celebrationOverlay,
-                  { opacity: celebrationOverlayOpacity },
+                  { opacity: celebrationOverlayOpacity, backgroundColor: palette.celebrationOverlay },
                 ]}
               />
             ) : null}
@@ -515,11 +688,11 @@ export default function ReviewFlow({ navigation, route }: Props) {
               <Animated.View
                 style={[
                   styles.resultBadge,
-                  { backgroundColor: isCorrect ? 'rgba(78,175,244,0.18)' : 'rgba(255,107,107,0.15)' },
+                  { backgroundColor: isCorrect ? palette.successTint : palette.errorTint },
                   isCorrect ? { transform: [{ scale: celebrationScale }] } : null,
                 ]}
               >
-                <Text style={[styles.resultBadgeText, { color: isCorrect ? '#4EAFF4' : '#FF6B6B' }]}>
+                <Text style={[styles.resultBadgeText, { color: isCorrect ? palette.successText : palette.errorText }]}>
                   {isCorrect ? 'Correct' : 'Not quite'}
                 </Text>
               </Animated.View>
@@ -533,46 +706,57 @@ export default function ReviewFlow({ navigation, route }: Props) {
                     },
                   ]}
                 >
-                  <Ionicons name="sparkles" size={16} color="#E8FFF5" />
+                  <Ionicons name="sparkles" size={16} color={palette.celebrationIcon} />
                 </Animated.View>
               ) : null}
             </View>
 
-            <Text style={styles.answerTitle}>Correct answer</Text>
+            <Text style={[styles.answerTitle, { color: palette.primaryText }]}>Correct answer</Text>
             {!isCorrect ? (
-              <Text style={styles.answerSubTitle}>
+              <Text style={[styles.answerSubTitle, { color: palette.secondaryText }]}>
                 Your answer: {selectedAnswer}
               </Text>
             ) : null}
-            <View style={styles.answerVocabCard}>
-              <Text style={styles.answerWord}>{question.correctAnswer}</Text>
-              <Text style={styles.answerPos}>{question.partOfSpeech || 'word'}</Text>
+            <View
+              style={[
+                styles.answerVocabCard,
+                { backgroundColor: palette.answerCardBg, borderColor: palette.answerCardBorder },
+              ]}
+            >
+              <Text style={[styles.answerWord, { color: palette.primaryText }]}>{question.correctAnswer}</Text>
+              <Text style={[styles.answerPos, { color: palette.secondaryText }]}>{question.partOfSpeech || 'word'}</Text>
               {question.definition ? (
-                <Text style={styles.answerDefinition}>{question.definition}</Text>
+                <Text style={[styles.answerDefinition, { color: palette.primaryText }]}>{question.definition}</Text>
               ) : null}
               {question.contextualExplanation ? (
-                <Text style={styles.answerSentence}>{question.contextualExplanation}</Text>
+                <Text style={[styles.answerSentence, { color: palette.primaryText }]}>{question.contextualExplanation}</Text>
               ) : question.sourceSentence ? (
-                <Text style={styles.answerSentence}>{question.sourceSentence}</Text>
+                <Text style={[styles.answerSentence, { color: palette.primaryText }]}>{question.sourceSentence}</Text>
               ) : null}
             </View>
 
             <TouchableOpacity
-              style={[styles.nextTimeButton, isPinned && styles.nextTimeButtonActive]}
+              style={[
+                styles.nextTimeButton,
+                { backgroundColor: palette.nextTimeBg, borderColor: palette.nextTimeBorder },
+                isPinned
+                  ? { backgroundColor: palette.nextTimeActiveBg, borderColor: palette.nextTimeActiveBorder }
+                  : null,
+              ]}
               onPress={() => void handleTogglePinned(question.cardId)}
             >
                 <Ionicons
                   name={isPinned ? 'bookmark' : 'bookmark-outline'}
                   size={16}
-                  color={isPinned ? '#EAF6FF' : '#FFFFFF'}
+                  color={palette.nextTimeText}
                 />
-              <Text style={[styles.nextTimeText, isPinned && styles.nextTimeTextActive]}>
+              <Text style={[styles.nextTimeText, { color: palette.nextTimeText }, isPinned && styles.nextTimeTextActive]}>
                 test me next time
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-              <Text style={styles.nextButtonText}>Next</Text>
+            <TouchableOpacity style={[styles.nextButton, { backgroundColor: palette.nextButtonBg }]} onPress={handleNext}>
+              <Text style={[styles.nextButtonText, { color: palette.nextButtonText }]}>Next</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -588,26 +772,41 @@ export default function ReviewFlow({ navigation, route }: Props) {
         ? { message: 'Outstanding. You are mastering these words.', color: '#4EAFF4' }
         : percentage <= 50
           ? { message: 'Good effort. One more round and you will level up fast.', color: '#FF6B6B' }
-          : { message: 'Great job. Your retention is getting really solid.', color: '#F8FAFC' };
+          : { message: 'Great job. Your retention is getting really solid.', color: palette.primaryText };
 
     return (
       <View style={[styles.slide, { width }]}>
-        <View style={[styles.cardShell, styles.summaryShell]}>
-          <Text style={styles.summaryScore}>{correctCount}/{total}</Text>
+        <View
+          style={[
+            styles.cardShell,
+            styles.summaryShell,
+            { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
+          ]}
+        >
+          <Text style={[styles.summaryScore, { color: palette.primaryText }]}>{correctCount}/{total}</Text>
           <Text style={[styles.summaryPercent, { color: summaryTone.color }]}>{percentage}% correct</Text>
-          <Text style={styles.summaryBody}>{summaryTone.message}</Text>
+          <Text style={[styles.summaryBody, { color: palette.secondaryText }]}>{summaryTone.message}</Text>
 
-          <TouchableOpacity style={styles.summarySecondaryButton} onPress={handleReplay}>
-            <Text style={styles.summarySecondaryText}>Play Again</Text>
+          <TouchableOpacity
+            style={[
+              styles.summarySecondaryButton,
+              { backgroundColor: palette.summarySecondaryBg, borderColor: palette.summarySecondaryBorder },
+            ]}
+            onPress={handleReplay}
+          >
+            <Text style={[styles.summarySecondaryText, { color: palette.summarySecondaryText }]}>Play Again</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.summaryPrimaryButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.summaryPrimaryText}>Done</Text>
+          <TouchableOpacity
+            style={[styles.summaryPrimaryButton, { backgroundColor: palette.nextButtonBg }]}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={[styles.summaryPrimaryText, { color: palette.nextButtonText }]}>Done</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
-  }, [correctCount, handleReplay, navigation, questions.length, width]);
+  }, [correctCount, handleReplay, navigation, palette.cardBg, palette.cardBorder, palette.nextButtonBg, palette.nextButtonText, palette.primaryText, palette.secondaryText, palette.summarySecondaryBg, palette.summarySecondaryBorder, palette.summarySecondaryText, questions.length, width]);
 
   const renderItem = React.useCallback(
     ({ item }: { item: ReviewSlide }) => {
@@ -631,9 +830,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
         <View style={styles.centerState}>
-          <Text style={styles.centerStateText}>Preparing your review…</Text>
+          <Text style={[styles.centerStateText, { color: palette.primaryText }]}>Preparing your review…</Text>
         </View>
       </SafeAreaView>
     );
@@ -641,41 +840,47 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
   if (!questions.length) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+          <TouchableOpacity
+            style={[styles.backButton, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
           </TouchableOpacity>
           <View style={styles.headerTextWrap}>
-            <Text style={styles.headerTitle}>{albumName}</Text>
-            <Text style={styles.headerSubTitle}>No cards available</Text>
+            <Text style={[styles.headerTitle, { color: palette.primaryText }]}>{albumName}</Text>
+            <Text style={[styles.headerSubTitle, { color: palette.secondaryText }]}>No cards available</Text>
           </View>
         </View>
         <View style={styles.centerState}>
-          <Text style={styles.centerStateText}>This album does not have enough cards to build a quiz yet.</Text>
+          <Text style={[styles.centerStateText, { color: palette.primaryText }]}>This album does not have enough cards to build a quiz yet.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
         </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
-          <Text style={styles.headerTitle}>{albumName}</Text>
-          <Text style={styles.headerSubTitle}>{headerProgressLabel}</Text>
+          <Text style={[styles.headerTitle, { color: palette.primaryText }]}>{albumName}</Text>
+          <Text style={[styles.headerSubTitle, { color: palette.secondaryText }]}>{headerProgressLabel}</Text>
         </View>
 
-        <View style={styles.scoreChip}>
-          <Text style={styles.scoreChipText}>{correctCount}</Text>
+        <View style={[styles.scoreChip, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}>
+          <Text style={[styles.scoreChipText, { color: palette.primaryText }]}>{correctCount}</Text>
         </View>
       </View>
 
-      <View style={styles.progressTrack}>
+      <View style={[styles.progressTrack, { backgroundColor: palette.progressTrack }]}>
         <View
           style={[
             styles.progressFill,
@@ -704,7 +909,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: SCREEN_BG,
   },
   header: {
     flexDirection: 'row',
@@ -717,7 +921,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -742,7 +946,7 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 10,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -775,9 +979,7 @@ const styles = StyleSheet.create({
   cardFace: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
-    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#334155',
     padding: 22,
     backfaceVisibility: 'hidden',
   },
@@ -813,26 +1015,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 18,
     justifyContent: 'center',
-    backgroundColor: '#334155',
     borderWidth: 1,
-    borderColor: 'rgba(248,250,252,0.12)',
   },
-  optionCardAnswered: {
-    borderColor: 'rgba(248,250,252,0.2)',
-  },
-  optionCardCorrect: {
-    backgroundColor: 'rgba(52,211,153,0.22)',
-    borderColor: '#34D399',
-  },
-  optionCardWrong: {
-    backgroundColor: 'rgba(255,107,107,0.22)',
-    borderColor: '#FF6B6B',
-  },
+  optionCardAnswered: {},
+  optionCardCorrect: {},
+  optionCardWrong: {},
   optionCardDisabled: {
     opacity: 0.56,
   },
   optionText: {
-    color: '#FFFFFF',
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '800',
@@ -867,9 +1058,7 @@ const styles = StyleSheet.create({
   answerVocabCard: {
     marginTop: 10,
     borderRadius: 20,
-    backgroundColor: '#334155',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 14,
     paddingVertical: 14,
     gap: 6,
@@ -905,25 +1094,18 @@ const styles = StyleSheet.create({
     minHeight: 54,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#334155',
-    backgroundColor: '#1E293B',
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  nextTimeButtonActive: {
-    backgroundColor: '#334155',
-    borderColor: '#4EAFF4',
-  },
+  nextTimeButtonActive: {},
   nextTimeText: {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
   nextTimeTextActive: {
-    color: '#FFFFFF',
   },
   celebrationSpark: {
     marginLeft: 8,
@@ -933,26 +1115,21 @@ const styles = StyleSheet.create({
   celebrationOverlay: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
-    backgroundColor: 'rgba(78,175,244,0.18)',
   },
   nextButton: {
     marginTop: 12,
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   nextButtonText: {
-    color: '#0F172A',
     fontSize: 17,
     fontWeight: '800',
   },
   summaryShell: {
     borderRadius: 28,
-    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#334155',
     paddingHorizontal: 26,
     paddingVertical: 28,
     justifyContent: 'center',
@@ -965,7 +1142,6 @@ const styles = StyleSheet.create({
   },
   summaryScore: {
     marginTop: 18,
-    color: '#F8FAFC',
     fontSize: 72,
     fontWeight: '900',
   },
@@ -977,7 +1153,6 @@ const styles = StyleSheet.create({
   },
   summaryBody: {
     marginTop: 18,
-    color: '#94A3B8',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -985,12 +1160,10 @@ const styles = StyleSheet.create({
     marginTop: 28,
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryPrimaryText: {
-    color: '#0F172A',
     fontSize: 17,
     fontWeight: '800',
   },
@@ -999,13 +1172,10 @@ const styles = StyleSheet.create({
     minHeight: 56,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#334155',
-    backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summarySecondaryText: {
-    color: '#F8FAFC',
     fontSize: 17,
     fontWeight: '800',
   },
@@ -1016,7 +1186,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   centerStateText: {
-    color: '#FFFFFF',
     fontSize: 18,
     lineHeight: 28,
     fontWeight: '600',

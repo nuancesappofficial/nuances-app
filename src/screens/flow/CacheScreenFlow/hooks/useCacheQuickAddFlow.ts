@@ -5,6 +5,10 @@ import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import {
+  formatCacheLimitReachedMessage,
+  getCacheCapacitySnapshot,
+} from '@services/cache/cacheLimitService';
 
 export type CropperFlowTarget = 'quick-add' | 'swipe-image';
 
@@ -46,8 +50,28 @@ export function useCacheQuickAddFlow({
       const validUris = imageUris.filter(Boolean);
       if (validUris.length === 0) return [];
 
+      const capacity = await getCacheCapacitySnapshot(userId);
+      if (capacity.isAtLimit) {
+        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
+        return [];
+      }
+
+      const allowedUris =
+        capacity.limit == null ? validUris : validUris.slice(0, Math.max(0, capacity.remainingSlots));
+      if (allowedUris.length === 0) {
+        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
+        return [];
+      }
+      if (allowedUris.length < validUris.length) {
+        const nextCount = capacity.currentCount + allowedUris.length;
+        Alert.alert(
+          '快取空間不足',
+          `免費版快取最多 ${capacity.limit} 張，這次只新增前 ${allowedUris.length} 張（${nextCount}/${capacity.limit}）。`
+        );
+      }
+
       const collection = database.get<CachedItem>('cached_items');
-      const preparedItems = validUris.map((uri) =>
+      const preparedItems = allowedUris.map((uri) =>
         collection.prepareCreate((item) => {
           item.userId = userId;
           item.contentType = 'image';
@@ -125,43 +149,31 @@ export function useCacheQuickAddFlow({
       const pickedAssets = result.assets.filter((asset) => Boolean(asset.uri));
       if (pickedAssets.length === 0) return;
 
-      if (pickedAssets.length > 1) {
-        setSuppressAddModalAnimation(true);
-        setShowAddModal(false);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        try {
-          const createdItemIds = await createQuickImageCachedItems(
-            pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
-          );
-          if (createdItemIds.length > 0) {
-            // The pending ids were registered before the DB batch, so the stack
-            // is ready before WatermelonDB emits the newly inserted rows.
-          } else {
-            Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
-          }
-        } catch (error) {
-          onBatchQuickAddCreated?.([]);
-          console.error('[CacheList] batch image create failed:', error);
-          Alert.alert('新增失敗', '批次新增圖片快取失敗，請稍後再試。');
+      setSuppressAddModalAnimation(true);
+      setShowAddModal(false);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      try {
+        const createdItemIds = await createQuickImageCachedItems(
+          pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
+        );
+        if (createdItemIds.length > 0) {
+          // The pending ids were registered before the DB batch, so the stack
+          // is ready before WatermelonDB emits the newly inserted rows.
+        } else {
+          Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
         }
-        return;
+      } catch (error) {
+        onBatchQuickAddCreated?.([]);
+        console.error('[CacheList] batch image create failed:', error);
+        Alert.alert('新增失敗', '批次新增圖片快取失敗，請稍後再試。');
       }
-
-      const picked = pickedAssets[0];
-      queueQuickAddCropperAfterModalDismiss({
-        imageUri: picked.uri,
-        imageSize:
-          typeof picked.width === 'number' && typeof picked.height === 'number'
-            ? { width: picked.width, height: picked.height }
-            : null,
-      });
     } catch (error) {
       console.error('[CacheList] upload picker failed:', error);
       Alert.alert('圖片選擇失敗', '無法開啟相簿，請稍後再試。');
     } finally {
       setCreatingImage(false);
     }
-  }, [createQuickImageCachedItems, onBatchQuickAddCreated, queueQuickAddCropperAfterModalDismiss, setShowAddModal]);
+  }, [createQuickImageCachedItems, onBatchQuickAddCreated, setShowAddModal]);
 
   const handleCaptureImage = React.useCallback(async () => {
     if (!quickCameraPermission?.granted) {
@@ -216,6 +228,12 @@ export function useCacheQuickAddFlow({
       const userId = await getCurrentAuthUserId();
       if (!userId) {
         Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
+        return null;
+      }
+
+      const capacity = await getCacheCapacitySnapshot(userId);
+      if (capacity.isAtLimit) {
+        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
         return null;
       }
 

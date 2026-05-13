@@ -9,6 +9,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { checkAndProcessSharedContent } from '../services/shareExtension/shareExtensionService';
 import { syncWithRetry } from '../services/sync';
 import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
+import { FREE_CACHE_CARD_LIMIT } from '../services/cache/cacheLimitService';
 
 export function useShareExtension(userId: string | null) {
   const appState = useRef(AppState.currentState);
@@ -18,10 +19,18 @@ export function useShareExtension(userId: string | null) {
     if (!userId) return;
 
     const runCheck = async () => {
-      const count = await checkAndProcessSharedContent(userId).catch(() => 0);
+      const result = await checkAndProcessSharedContent(userId).catch(() => ({
+        addedCount: 0,
+        blockedCount: 0,
+        currentCacheCount: 0,
+        planType: 'free' as const,
+      }));
 
-      if (typeof count === 'number' && count > 0) {
-        const message = `從上次離開到現在新增了 ${count} 個卡片`;
+      if (result.addedCount > 0 || result.blockedCount > 0) {
+        const message =
+          result.planType === 'free'
+            ? `${result.currentCacheCount}/${FREE_CACHE_CARD_LIMIT} cards in cache`
+            : `${result.currentCacheCount} cards in cache`;
         triggerShareSnackbar(message);
       }
 

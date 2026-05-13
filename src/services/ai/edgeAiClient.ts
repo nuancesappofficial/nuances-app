@@ -1,4 +1,5 @@
 import { supabase } from '@services/supabase/client';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 
 type AIProvider = 'openai' | 'gemini';
 type AIFeatureAction =
@@ -43,6 +44,27 @@ export class AIAuthError extends Error {
   constructor(message = 'Authentication required: please sign in first') {
     super(message);
     this.name = 'AIAuthError';
+  }
+}
+
+export class PremiumFeatureError extends Error {
+  constructor(message = 'Premium or active trial required') {
+    super(message);
+    this.name = 'PremiumFeatureError';
+  }
+}
+
+async function ensureCloudAIAccess(featureLabel: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.id) {
+    throw new AIAuthError('Authentication required: please sign in first');
+  }
+
+  const entitlement = await SubscriptionService.getEntitlementSnapshot(user.id);
+  if (!entitlement.canUseCloudAI) {
+    throw new PremiumFeatureError(`${featureLabel} 需要試用版或 Premium 才能使用。`);
   }
 }
 
@@ -230,6 +252,7 @@ function extractText(payload: unknown): string {
 }
 
 export async function callAIProxy(request: AIRequest): Promise<string> {
+  await ensureCloudAIAccess('AI 功能');
   let authHeaders = await getAuthHeader();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -269,6 +292,9 @@ export async function callAIAction<TPayload, TResult>(
   payload: TPayload,
   options: AsyncActionOptions = {}
 ): Promise<TResult> {
+  if (action !== 'usage_summary' && action !== 'get_task_result') {
+    await ensureCloudAIAccess('AI 自動生成');
+  }
   let authHeaders = await getAuthHeader();
   const normalizedPayload = normalizePayload(payload);
   const asyncThresholdChars = options.asyncThresholdChars ?? 700;

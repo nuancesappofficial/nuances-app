@@ -1,5 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { callAIAction } from '../ai/edgeAiClient';
+import { supabase } from '@services/supabase/client';
+import SubscriptionService from '@services/subscription/SubscriptionService';
 import type { PronunciationFeedback } from '../../types/database.types';
 
 export type WordFeedbackLevel = 'red' | 'yellow' | 'green';
@@ -398,6 +400,17 @@ export async function assessPronunciationCloud(params: {
   audioUri: string;
   locale?: string;
 }): Promise<CloudPronunciationResult> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.id) {
+    throw new Error('請先登入後再使用發音教練');
+  }
+  const entitlement = await SubscriptionService.getEntitlementSnapshot(user.id);
+  if (!entitlement.canUsePronunciationCoach) {
+    throw new Error('免費版無法使用發音評分，請升級試用版或 Premium。');
+  }
+
   const referenceText = params.referenceText.trim();
   if (!referenceText) {
     throw new Error('referenceText is required');

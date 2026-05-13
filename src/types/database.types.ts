@@ -9,6 +9,11 @@ export interface Database {
         Insert: ProfileInsert;
         Update: ProfileUpdate;
       };
+      subscriptions: {
+        Row: Subscription;
+        Insert: SubscriptionInsert;
+        Update: SubscriptionUpdate;
+      };
       cached_items: {
         Row: CachedItem;
         Insert: CachedItemInsert;
@@ -58,6 +63,28 @@ export type ProfileInsert = Omit<
 };
 
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>;
+
+export type SubscriptionStatus = 'active' | 'expired' | 'revoked' | 'grace_period';
+
+export type Subscription = {
+  id: string;
+  user_id: string;
+  provider: string;
+  product_id: string | null;
+  entitlement_id: string;
+  status: SubscriptionStatus;
+  started_at: string | null;
+  expires_at: string | null;
+  environment: string | null;
+  last_synced_at: string | null;
+  raw_event: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubscriptionInsert = Omit<Subscription, 'id' | 'created_at' | 'updated_at'>;
+
+export type SubscriptionUpdate = Partial<Omit<Subscription, 'id' | 'user_id' | 'created_at'>>;
 
 // Cached Item Types
 export type ContentType = 'text' | 'image' | 'video';

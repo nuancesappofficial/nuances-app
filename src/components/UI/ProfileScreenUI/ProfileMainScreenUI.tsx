@@ -26,6 +26,8 @@ import type Card from '@database/models/Card';
 import {
   isTTSVoiceCompatibleWithAIReplyLanguage,
   type AIReplyLanguage,
+  type EntitlementMode,
+  type MainScreenAlbumGridCount,
   type TTSVoice,
 } from '@services/settings/userSettings';
 import {
@@ -66,16 +68,23 @@ type Props = {
   todayDateKey: string;
   heatMapMonths: HeatMapMonth[];
   initialMonthIndex: number;
-  entitlementMode: 'guest' | 'premium';
+  entitlementMode: EntitlementMode;
   savingEntitlement: boolean;
+  membershipPriceLabel?: string | null;
+  membershipModalVisible: boolean;
+  mainScreenAlbumGridCount: MainScreenAlbumGridCount;
+  mainScreenWordPopEnabled: boolean;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   stickerFontKey: StickerFontKey;
   onPressUploadProfilePic: () => void;
-  onToggleEntitlement: () => void;
+  onOpenMembershipModal: () => void;
+  onCloseMembershipModal: () => void;
+  onUpgradeMembership: () => void;
+  onRestoreMembership: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
-  onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font') => void;
+  onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font' | 'main') => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
@@ -98,6 +107,15 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
 ];
+
+const MEMBERSHIP_FEATURES = [
+  { label: '本地 OCR 掃圖', free: 'Included', premium: 'Included' },
+  { label: '手動建卡', free: 'Included', premium: 'Included' },
+  { label: 'AI 自動建卡', free: 'Locked', premium: 'Unlimited' },
+  { label: '雲端 TTS', free: 'Locked', premium: 'Included' },
+  { label: '發音評分', free: 'Locked', premium: 'Included' },
+  { label: 'Cache 容量', free: '5 cards', premium: 'Extended' },
+] as const;
 
 const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
@@ -332,11 +350,18 @@ export default function ProfileMainScreenUI({
   initialMonthIndex,
   entitlementMode,
   savingEntitlement,
+  membershipPriceLabel,
+  membershipModalVisible,
+  mainScreenAlbumGridCount,
+  mainScreenWordPopEnabled,
   aiReplyLanguage,
   ttsVoice,
   stickerFontKey,
   onPressUploadProfilePic,
-  onToggleEntitlement,
+  onOpenMembershipModal,
+  onCloseMembershipModal,
+  onUpgradeMembership,
+  onRestoreMembership,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
   onOpenSettingsOption,
@@ -347,7 +372,10 @@ export default function ProfileMainScreenUI({
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
+  const planBadgeLabel =
+    entitlementMode === 'premium' ? 'Premium' : entitlementMode === 'trial' ? 'Trial' : 'Free';
   const isFocused = useIsFocused();
+  const optionNavigationLockRef = React.useRef(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const listRef = React.useRef<FlatList<any> | null>(null);
   const [pagerWidth, setPagerWidth] = React.useState<number>(0);
@@ -700,6 +728,21 @@ export default function ProfileMainScreenUI({
     TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ??
     'EN-US Jenny';
   const selectedStickerFont = resolveStickerFont(stickerFontKey);
+  const mainScreenSummary = `${mainScreenAlbumGridCount} per page · Word pop ${mainScreenWordPopEnabled ? 'on' : 'off'}`;
+
+  const triggerOpenSettingsOption = React.useCallback(
+    (kind: 'ai' | 'voice' | 'font' | 'main') => {
+      if (optionNavigationLockRef.current) return;
+      optionNavigationLockRef.current = true;
+      requestAnimationFrame(() => {
+        onOpenSettingsOption(kind);
+        setTimeout(() => {
+          optionNavigationLockRef.current = false;
+        }, 260);
+      });
+    },
+    [onOpenSettingsOption]
+  );
 
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
@@ -860,19 +903,56 @@ export default function ProfileMainScreenUI({
               },
             ]}
           >
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={onToggleEntitlement}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPress={onOpenMembershipModal}
+            >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Membership</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {savingEntitlement ? 'Updating...' : entitlementMode === 'premium' ? 'Premium' : 'Guest'}
+                  {savingEntitlement
+                    ? 'Updating...'
+                    : entitlementMode === 'premium'
+                      ? 'Premium'
+                      : entitlementMode === 'trial'
+                        ? 'Trial'
+                        : 'Free'}
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
 
             <View style={styles.settingsDivider} />
 
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('ai')}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPress={() => triggerOpenSettingsOption('main')}
+            >
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Main screen</Text>
+              <View style={styles.settingsRowRight}>
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]} numberOfLines={1}>
+                  {mainScreenSummary}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+              </View>
+            </Pressable>
+
+            <View style={styles.settingsDivider} />
+
+            <Pressable
+              unstable_pressDelay={0}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPressIn={() => triggerOpenSettingsOption('ai')}
+            >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Language</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
@@ -880,11 +960,18 @@ export default function ProfileMainScreenUI({
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
 
             <View style={styles.settingsDivider} />
 
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('voice')}>
+            <Pressable
+              unstable_pressDelay={0}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPressIn={() => triggerOpenSettingsOption('voice')}
+            >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Voice</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
@@ -892,11 +979,18 @@ export default function ProfileMainScreenUI({
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
 
             <View style={styles.settingsDivider} />
 
-            <TouchableOpacity style={styles.settingsRow} activeOpacity={0.88} onPress={() => onOpenSettingsOption('font')}>
+            <Pressable
+              unstable_pressDelay={0}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPressIn={() => triggerOpenSettingsOption('font')}
+            >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Font</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
@@ -904,10 +998,207 @@ export default function ProfileMainScreenUI({
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
+
+      <Modal
+        visible={membershipModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={onCloseMembershipModal}
+      >
+        <View style={styles.membershipBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onCloseMembershipModal} />
+          <View style={styles.membershipSheetContainer} pointerEvents="box-none">
+            <View
+              style={[
+                styles.membershipSheet,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  shadowColor: isLight ? '#0F172A' : '#000000',
+                },
+              ]}
+            >
+              <Text style={[styles.membershipTitle, { color: palette.textOnContainer }]}>Membership</Text>
+              <Text style={[styles.membershipSubtitle, { color: palette.secondaryText }]}>
+                {entitlementMode === 'premium'
+                  ? 'Premium 已解鎖 AI、雲端語音與發音評分。'
+                  : entitlementMode === 'trial'
+                    ? '你目前在 7 天試用期內，所有 Premium 雲端能力都已開放。'
+                    : '免費版保留 OCR 與手動建卡；升級後可使用 AI、雲端 TTS 與發音評分。'}
+              </Text>
+
+              <View style={styles.membershipPlanGrid}>
+                <View
+                  style={[
+                    styles.membershipPlanCard,
+                    {
+                      backgroundColor: isLight ? '#FFFFFF' : palette.modalOptionBg,
+                      borderColor:
+                        entitlementMode === 'premium'
+                          ? isLight
+                            ? palette.borderSubtle
+                            : CONTAINER_NEON_OUTLINE
+                          : '#4EAFF4',
+                    },
+                  ]}
+                >
+                  <View style={styles.membershipPlanHeader}>
+                    <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Free</Text>
+                    {entitlementMode !== 'premium' ? (
+                      <View
+                        style={[
+                          styles.membershipPlanBadge,
+                          {
+                            backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.16)',
+                            borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.membershipPlanBadgeText, { color: palette.textOnContainer }]}>
+                          Current
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>$0</Text>
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
+                    OCR + 手動建卡 + 基本複習
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.membershipPlanCard,
+                    styles.membershipPlanCardFeatured,
+                    {
+                      backgroundColor: isLight ? 'rgba(78,175,244,0.08)' : 'rgba(78,175,244,0.14)',
+                      borderColor: '#4EAFF4',
+                    },
+                  ]}
+                >
+                  <View style={styles.membershipPlanHeader}>
+                    <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Premium</Text>
+                    <View
+                      style={[
+                        styles.membershipPlanBadge,
+                        {
+                          backgroundColor: '#4EAFF4',
+                          borderColor: '#4EAFF4',
+                        },
+                      ]}
+                    >
+                      <Text style={styles.membershipPlanBadgeTextOnCta}>
+                        {entitlementMode === 'premium' ? 'Current' : 'Upgrade'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>
+                    {membershipPriceLabel || 'Premium'}
+                  </Text>
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
+                    AI 解釋、雲端 TTS、發音評分
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.membershipStatusPill,
+                  {
+                    backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.16)',
+                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  },
+                ]}
+              >
+                <Text style={[styles.membershipStatusText, { color: palette.textOnContainer }]}>
+                  Current plan: {planBadgeLabel}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.membershipFeatureCard,
+                  {
+                    backgroundColor: isLight ? '#FFFFFF' : palette.modalOptionBg,
+                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  },
+                ]}
+              >
+                {MEMBERSHIP_FEATURES.map((feature, index) => (
+                  <View key={feature.label}>
+                    <View style={styles.membershipFeatureRow}>
+                      <Text style={[styles.membershipFeatureLabel, { color: palette.textOnContainer }]}>
+                        {feature.label}
+                      </Text>
+                      <View style={styles.membershipFeatureValues}>
+                        <Text style={[styles.membershipFeatureValueMuted, { color: palette.secondaryText }]}>
+                          {feature.free}
+                        </Text>
+                        <Text style={[styles.membershipFeatureValueStrong, { color: palette.textOnContainer }]}>
+                          {feature.premium}
+                        </Text>
+                      </View>
+                    </View>
+                    {index < MEMBERSHIP_FEATURES.length - 1 ? (
+                      <View
+                        style={[
+                          styles.membershipFeatureDivider,
+                          { backgroundColor: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)' },
+                        ]}
+                      />
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.membershipPrimaryButton,
+                  pressed ? styles.membershipButtonPressed : null,
+                ]}
+                onPress={onUpgradeMembership}
+                disabled={savingEntitlement}
+              >
+                <Text style={styles.membershipPrimaryButtonText}>
+                  {savingEntitlement
+                    ? 'Updating...'
+                    : entitlementMode === 'premium'
+                      ? 'Keep Premium'
+                      : 'Upgrade to Premium'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.membershipSecondaryButton,
+                  {
+                    backgroundColor: palette.modalOptionBg,
+                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  },
+                  pressed ? styles.membershipButtonPressed : null,
+                ]}
+                onPress={onRestoreMembership}
+                disabled={savingEntitlement}
+              >
+                <Text style={[styles.membershipSecondaryButtonText, { color: palette.textOnContainer }]}>
+                  Restore purchases
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.membershipDismissButton, pressed ? styles.membershipButtonPressed : null]}
+                onPress={onCloseMembershipModal}
+              >
+                <Text style={[styles.membershipDismissText, { color: palette.secondaryText }]}>Not now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={monthPickerVisible}
@@ -1585,6 +1876,329 @@ const styles = StyleSheet.create({
   settingValue: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  membershipBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    justifyContent: 'flex-end',
+  },
+  membershipSheetContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+  },
+  membershipSheet: {
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 14,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  membershipTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  membershipSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  membershipStatusPill: {
+    marginTop: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  membershipStatusText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  membershipPlanGrid: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  membershipPlanCard: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  membershipPlanCardFeatured: {
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  membershipPlanHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  membershipPlanTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  membershipPlanBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  membershipPlanBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  membershipPlanBadgeTextOnCta: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  membershipPlanPrice: {
+    marginTop: 14,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  membershipPlanMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  membershipFeatureCard: {
+    marginTop: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  membershipFeatureRow: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  membershipFeatureLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  membershipFeatureValues: {
+    minWidth: 108,
+    alignItems: 'flex-end',
+    gap: 3,
+  },
+  membershipFeatureValueMuted: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  membershipFeatureValueStrong: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  membershipFeatureDivider: {
+    height: 1,
+    marginHorizontal: 14,
+  },
+  membershipPrimaryButton: {
+    marginTop: 18,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4EAFF4',
+  },
+  membershipPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  membershipSecondaryButton: {
+    marginTop: 10,
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  membershipDismissButton: {
+    marginTop: 8,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipDismissText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  membershipButtonPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  mainScreenSheetContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+  },
+  mainScreenSheet: {
+    maxHeight: '82%',
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  mainScreenModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  mainScreenModalTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  mainScreenModalSubtitle: {
+    marginTop: 5,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  mainScreenCloseButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mainScreenSection: {
+    marginTop: 18,
+  },
+  mainScreenSectionTitle: {
+    marginBottom: 9,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  mainScreenSegmentRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  mainScreenSegment: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mainScreenSegmentText: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  mainScreenToggleRow: {
+    marginTop: 16,
+    minHeight: 70,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  mainScreenToggleTextBlock: {
+    flex: 1,
+  },
+  mainScreenToggleTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  mainScreenToggleMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  mainScreenSwitchTrack: {
+    width: 52,
+    height: 32,
+    borderRadius: 16,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  mainScreenSwitchThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  mainScreenSwitchThumbOn: {
+    alignSelf: 'flex-end',
+  },
+  mainScreenAlbumList: {
+    maxHeight: 260,
+  },
+  mainScreenAlbumRow: {
+    minHeight: 54,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingLeft: 12,
+    paddingRight: 8,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  mainScreenAlbumIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mainScreenAlbumEmoji: {
+    width: 28,
+    fontSize: 20,
+    textAlign: 'center',
+  },
+  mainScreenAlbumName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  mainScreenAlbumControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  mainScreenReorderButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   settingOptionsList: {
     marginTop: 6,

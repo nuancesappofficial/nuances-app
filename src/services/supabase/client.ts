@@ -82,9 +82,17 @@ export const getCurrentSession = async () => {
 };
 
 export const signInWithGoogle = async () => {
+  return signInWithOAuthProvider('google');
+};
+
+export const signInWithApple = async () => {
+  return signInWithOAuthProvider('apple');
+};
+
+async function signInWithOAuthProvider(provider: 'google' | 'apple') {
   const redirectTo = getAuthRedirectTo();
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
+    provider,
     options: {
       redirectTo,
       skipBrowserRedirect: true,
@@ -99,13 +107,13 @@ export const signInWithGoogle = async () => {
   if (!authUrl) {
     return {
       data,
-      error: new Error('Google OAuth URL is empty. Please check provider settings.'),
+      error: new Error(`${provider} OAuth URL is empty. Please check provider settings.`),
     };
   }
   if (!/^https?:\/\//i.test(authUrl)) {
     return {
       data,
-      error: new Error(`Google OAuth URL is invalid: ${authUrl}`),
+      error: new Error(`${provider} OAuth URL is invalid: ${authUrl}`),
     };
   }
 
@@ -117,7 +125,7 @@ export const signInWithGoogle = async () => {
     redirectTo,
     error: null,
   };
-};
+}
 
 export const completeOAuthFromUrl = async (url: string) => {
   const code = getParamFromUrl(url, 'code');

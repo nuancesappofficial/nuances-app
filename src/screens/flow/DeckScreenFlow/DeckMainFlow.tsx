@@ -4,6 +4,7 @@ import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -14,6 +15,7 @@ import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreen
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
 import AlbumActionMenuOverlayUI from '../../../components/UI/DeckScreenUI/AlbumActionMenuOverlayUI';
 import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
+import ImageCropperModal from '../../../components/ImageCropperModal';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   buildDeckAlbums,
@@ -29,8 +31,13 @@ import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
   saveAlbumReviewPreferences,
+  type ReviewQuestionType,
 } from '../../../features/deck/reviewPreferences';
-import { DEFAULT_USER_SETTINGS, loadUserSettings } from '@services/settings/userSettings';
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  type MainScreenAlbumGridCount,
+} from '@services/settings/userSettings';
 
 type Props = {
   navigation: any;
@@ -60,6 +67,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
   const [settingsColor, setSettingsColor] = React.useState('#1E293B');
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
+  const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] = React.useState<string | null>(null);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
@@ -71,11 +79,24 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [todayNewWordsOnly, setTodayNewWordsOnly] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false
   );
+  const [todayReviewQuestionTypes, setTodayReviewQuestionTypes] = React.useState<ReviewQuestionType[]>(
+    DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
+  );
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<number>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
+  const [mainScreenAlbumGridCount, setMainScreenAlbumGridCount] = React.useState<MainScreenAlbumGridCount>(
+    DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount
+  );
+  const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
+    DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
+  );
+  const [mainScreenAlbumOrder, setMainScreenAlbumOrder] = React.useState<string[]>(
+    DEFAULT_USER_SETTINGS.mainScreenAlbumOrder
+  );
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
-  const hoveredAction = useSharedValue<'none' | 'sort' | 'edit' | 'delete'>('none');
+  const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
+  const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -133,6 +154,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     albumCoverOverrides,
     deletedAlbumIds,
   ]);
+
+  React.useEffect(() => {
+    return () => {
+      if (albumCoverCropOpenTimeoutRef.current) {
+        clearTimeout(albumCoverCropOpenTimeoutRef.current);
+        albumCoverCropOpenTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     const queryCards = database
@@ -256,16 +286,26 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
-      const hydrateWordPopSettings = async () => {
+      const hydrateMainScreenSettings = async () => {
         try {
           const settings = await loadUserSettings();
-          if (active) setWordPopSlideMs(settings.wordPopSlideMs);
+          if (active) {
+            setWordPopSlideMs(settings.wordPopSlideMs);
+            setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
+            setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
+            setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
+          }
         } catch (error) {
-          console.warn('[DeckMain] load word pop settings failed:', error);
-          if (active) setWordPopSlideMs(DEFAULT_USER_SETTINGS.wordPopSlideMs);
+          console.warn('[DeckMain] load main screen settings failed:', error);
+          if (active) {
+            setWordPopSlideMs(DEFAULT_USER_SETTINGS.wordPopSlideMs);
+            setMainScreenAlbumGridCount(DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount);
+            setMainScreenWordPopEnabled(DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled);
+            setMainScreenAlbumOrder(DEFAULT_USER_SETTINGS.mainScreenAlbumOrder);
+          }
         }
       };
-      void hydrateWordPopSettings();
+      void hydrateMainScreenSettings();
       return () => {
         active = false;
       };
@@ -281,12 +321,14 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           if (active) {
             setTodayReviewQuestionCount(prefs.questionCount);
             setTodayNewWordsOnly(prefs.todayNewWordsOnly ?? false);
+            setTodayReviewQuestionTypes(prefs.selectedQuestionTypes);
           }
         } catch (error) {
           console.warn('[DeckMain] load today review preferences failed:', error);
           if (active) {
             setTodayReviewQuestionCount(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
             setTodayNewWordsOnly(DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false);
+            setTodayReviewQuestionTypes(DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes);
           }
         }
       };
@@ -373,14 +415,20 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       });
     }
 
+    const orderIndex = new Map(mainScreenAlbumOrder.map((albumId, index) => [albumId, index]));
     result.sort((a, b) => {
+      const aOrder = orderIndex.get(a.id);
+      const bOrder = orderIndex.get(b.id);
+      if (aOrder != null && bOrder != null) return aOrder - bOrder;
+      if (aOrder != null) return -1;
+      if (bOrder != null) return 1;
       const aLatest = a.latestCards[0]?.createdAtMs ?? 0;
       const bLatest = b.latestCards[0]?.createdAtMs ?? 0;
       return sortOrder === 'desc' ? bLatest - aLatest : aLatest - bLatest;
     });
 
     return result;
-  }, [mergedAlbums, searchQuery, sortOrder]);
+  }, [mainScreenAlbumOrder, mergedAlbums, searchQuery, sortOrder]);
 
   const slideshowItems = React.useMemo(() => {
     const seen = new Set<string>();
@@ -448,16 +496,26 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       return;
     }
 
-    const shouldUseTodayCards = todayNewWordsOnly && todayCardIds.length > 0;
+    const hasPendingTodayReview = todayUnreviewedCount > 0;
+    const shouldUseTodayCards = hasPendingTodayReview || (todayNewWordsOnly && todayCardIds.length > 0);
 
     navigation.navigate('CardReview', {
       albumId: shouldUseTodayCards ? 'today-added' : 'all-cards',
       albumName: shouldUseTodayCards ? 'Today Review' : 'All cards',
       cardIds: shouldUseTodayCards ? todayCardIds : undefined,
       questionCount: todayReviewQuestionCount,
+      selectedQuestionTypes: todayReviewQuestionTypes,
       themeColor: '#2D9E66',
     });
-  }, [allCards.length, navigation, todayCardIds, todayNewWordsOnly, todayReviewQuestionCount]);
+  }, [
+    allCards.length,
+    navigation,
+    todayCardIds,
+    todayNewWordsOnly,
+    todayReviewQuestionCount,
+    todayReviewQuestionTypes,
+    todayUnreviewedCount,
+  ]);
 
   const handleChangeTodayReviewQuestionCount = React.useCallback((nextCount: number) => {
     setTodayReviewQuestionCount(nextCount);
@@ -467,6 +525,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const handleChangeTodayNewWordsOnly = React.useCallback((enabled: boolean) => {
     setTodayNewWordsOnly(enabled);
     void saveAlbumReviewPreferences('today-added', { todayNewWordsOnly: enabled });
+  }, []);
+
+  const handleChangeTodayReviewQuestionTypes = React.useCallback((nextTypes: ReviewQuestionType[]) => {
+    setTodayReviewQuestionTypes(nextTypes);
+    void saveAlbumReviewPreferences('today-added', { selectedQuestionTypes: nextTypes });
   }, []);
 
   const handleAddAlbum = React.useCallback(() => {
@@ -512,21 +575,45 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     setSettingsVisible(true);
   }, [albumCoverOverrides]);
 
-  const handleSaveAlbumSettings = React.useCallback(() => {
+  const handleChangeSettingsEmoji = React.useCallback((emoji: string) => {
+    setSettingsEmoji(emoji);
+    setSettingsCoverImageUri('');
+  }, []);
+
+  const handleChangeSettingsColor = React.useCallback((color: string) => {
+    setSettingsColor(color);
+    setSettingsCoverImageUri('');
+  }, []);
+
+  const handleSelectCoverTab = React.useCallback((tab: 'classic' | 'image') => {
+    if (tab === 'classic') {
+      setSettingsCoverImageUri('');
+    }
+  }, []);
+
+  const applyAlbumSettings = React.useCallback((nextCoverImageUri?: string) => {
     if (!settingsAlbum) return;
 
     const nextName = settingsName.trim();
     if (!nextName) {
       Alert.alert('名稱不可為空', '請輸入相簿名稱。');
-      return;
+      return false;
     }
+
+    const effectiveCoverImageUri = nextCoverImageUri ?? settingsCoverImageUri;
 
     const isCustomAlbum = customAlbums.some((it) => it.id === settingsAlbum.id);
     if (isCustomAlbum) {
       setCustomAlbums((prev) =>
         prev.map((it) =>
           it.id === settingsAlbum.id
-            ? { ...it, name: nextName, emoji: settingsEmoji, color: settingsColor }
+            ? {
+                ...it,
+                name: nextName,
+                emoji: settingsEmoji,
+                color: settingsColor,
+                coverImageUri: effectiveCoverImageUri || undefined,
+              }
             : it
         )
       );
@@ -534,12 +621,18 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
       setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
       setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
-      setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsCoverImageUri }));
+      setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: effectiveCoverImageUri }));
     }
 
+    setSettingsCoverImageUri(effectiveCoverImageUri);
     setSettingsVisible(false);
     setSettingsAlbum(null);
+    return true;
   }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
+
+  const handleSaveAlbumSettings = React.useCallback(() => {
+    applyAlbumSettings();
+  }, [applyAlbumSettings]);
 
   const handlePickAlbumCoverImage = React.useCallback(async () => {
     if (!settingsAlbum) return;
@@ -555,9 +648,27 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         quality: 0.9,
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
-      setSettingsCoverImageUri(result.assets[0].uri);
+      const normalizedImage = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [],
+        {
+          compress: 0.96,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+      if (albumCoverCropOpenTimeoutRef.current) {
+        clearTimeout(albumCoverCropOpenTimeoutRef.current);
+      }
+      setSettingsVisible(false);
+      albumCoverCropOpenTimeoutRef.current = setTimeout(() => {
+        setPendingAlbumCoverCropUri(normalizedImage.uri);
+        albumCoverCropOpenTimeoutRef.current = null;
+      }, 280);
     } catch (error) {
       console.error('[DeckMain] pick album cover failed:', error);
+      if (settingsAlbum) {
+        setSettingsVisible(true);
+      }
       Alert.alert('選擇失敗', '無法選擇封面圖片，請稍後再試。');
     }
   }, [settingsAlbum]);
@@ -586,7 +697,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, [customAlbums]);
 
   const handleActionEnd = React.useCallback(
-    (album: DeckAlbum, action: 'none' | 'sort' | 'edit' | 'delete') => {
+    (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
       if (action === 'edit') {
         openAlbumSettings(album);
         return;
@@ -686,6 +797,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
+        wordPopEnabled={mainScreenWordPopEnabled}
+        albumGridCount={mainScreenAlbumGridCount}
         onPressSlideshowItem={handlePressWordPopItem}
         searchResults={searchResults}
         onPressSearchResult={handlePressSearchResult}
@@ -705,9 +818,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         visible={showTodayReviewTuningModal}
         questionCount={todayReviewQuestionCount}
         todayNewWordsOnly={todayNewWordsOnly}
+        selectedQuestionTypes={todayReviewQuestionTypes}
         onChangeTodayNewWordsOnly={handleChangeTodayNewWordsOnly}
         onClose={() => setShowTodayReviewTuningModal(false)}
         onChangeQuestionCount={handleChangeTodayReviewQuestionCount}
+        onChangeSelectedQuestionTypes={handleChangeTodayReviewQuestionTypes}
       />
 
       <CreateAlbumModalUI
@@ -727,15 +842,42 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         settingsEmoji={settingsEmoji}
         settingsColor={settingsColor}
         hasCoverImage={Boolean(settingsCoverImageUri)}
+        coverImageUri={settingsCoverImageUri || undefined}
+        onSelectCoverTab={handleSelectCoverTab}
         onChangeName={setSettingsName}
-        onChangeEmoji={setSettingsEmoji}
-        onChangeColor={setSettingsColor}
+        onChangeEmoji={handleChangeSettingsEmoji}
+        onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
+          if (albumCoverCropOpenTimeoutRef.current) {
+            clearTimeout(albumCoverCropOpenTimeoutRef.current);
+            albumCoverCropOpenTimeoutRef.current = null;
+          }
         }}
         onSave={handleSaveAlbumSettings}
+      />
+
+      <ImageCropperModal
+        visible={!!pendingAlbumCoverCropUri}
+        imageUri={pendingAlbumCoverCropUri}
+        cropShape="album"
+        fixedCropSize={260}
+        modalAnimationType="slide"
+        onCancel={() => {
+          setPendingAlbumCoverCropUri(null);
+          if (settingsAlbum) {
+            setSettingsVisible(true);
+          }
+        }}
+        onConfirm={(croppedUri) => {
+          setPendingAlbumCoverCropUri(null);
+          setSettingsCoverImageUri(croppedUri);
+          if (settingsAlbum) {
+            setSettingsVisible(true);
+          }
+        }}
       />
 
       <AlbumActionMenuOverlayUI

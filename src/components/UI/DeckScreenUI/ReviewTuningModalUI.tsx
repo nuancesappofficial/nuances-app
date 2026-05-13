@@ -2,14 +2,20 @@ import React from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, TouchableOpacity, View, useColorScheme } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
+import {
+  REVIEW_QUESTION_TYPE_OPTIONS,
+  type ReviewQuestionType,
+} from '../../../features/deck/reviewPreferences';
 
 type Props = {
   visible: boolean;
   questionCount: number;
   todayNewWordsOnly?: boolean;
+  selectedQuestionTypes: ReviewQuestionType[];
   onClose: () => void;
   onChangeQuestionCount: (value: number) => void;
   onChangeTodayNewWordsOnly?: (value: boolean) => void;
+  onChangeSelectedQuestionTypes: (value: ReviewQuestionType[]) => void;
 };
 
 const QUICK_OPTIONS = [5, 10, 15, 20];
@@ -22,9 +28,11 @@ export default function ReviewTuningModalUI({
   visible,
   questionCount,
   todayNewWordsOnly = false,
+  selectedQuestionTypes,
   onClose,
   onChangeQuestionCount,
   onChangeTodayNewWordsOnly,
+  onChangeSelectedQuestionTypes,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -39,6 +47,18 @@ export default function ReviewTuningModalUI({
   const increment = React.useCallback(() => {
     onChangeQuestionCount(Math.min(50, questionCount + 1));
   }, [onChangeQuestionCount, questionCount]);
+
+  const toggleQuestionType = React.useCallback(
+    (type: ReviewQuestionType) => {
+      const hasType = selectedQuestionTypes.includes(type);
+      if (hasType && selectedQuestionTypes.length === 1) return;
+      const next = hasType
+        ? selectedQuestionTypes.filter((item) => item !== type)
+        : [...selectedQuestionTypes, type];
+      onChangeSelectedQuestionTypes(next);
+    },
+    [onChangeSelectedQuestionTypes, selectedQuestionTypes]
+  );
 
   React.useEffect(() => {
     if (visible) {
@@ -91,8 +111,6 @@ export default function ReviewTuningModalUI({
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
           <Pressable style={[styles.sheet, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
           <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>REVIEW TUNING</Text>
-          <Text style={[styles.title, { color: palette.textOnContainer }]}>Decide how many cards to play</Text>
-          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>This setting will be remembered for this album.</Text>
 
           <View style={styles.counterRow}>
             <TouchableOpacity style={[styles.counterButton, { backgroundColor: palette.modalOptionBg }]} onPress={decrement}>
@@ -124,30 +142,62 @@ export default function ReviewTuningModalUI({
             })}
           </View>
 
-          {onChangeTodayNewWordsOnly ? (
-            <View
-              style={[
-                styles.toggleRow,
-                {
-                  backgroundColor: palette.mutedSurface,
-                  borderColor: palette.modalOptionBorder,
-                },
-              ]}
-            >
-              <View style={styles.toggleCopy}>
-                <Text style={[styles.toggleLabel, { color: palette.textOnContainer }]}>Today&apos;s new words only</Text>
-                <Text style={[styles.toggleHint, { color: palette.secondaryText }]}>
-                  Off means Quick quiz samples from All cards.
-                </Text>
-              </View>
-              <Switch
-                value={todayNewWordsOnly}
-                onValueChange={onChangeTodayNewWordsOnly}
-                trackColor={{ false: palette.modalOptionBg, true: MODAL_CTA_COLOR }}
-                thumbColor={TEXT_ON_CTA}
-                ios_backgroundColor={palette.modalOptionBg}
-              />
+          <View style={[styles.sectionDivider, { backgroundColor: palette.modalOptionBorder }]} />
+
+          <View style={styles.questionTypeSection}>
+            <Text style={[styles.sectionTitle, { color: palette.textOnContainer }]}>Question types</Text>
+            <View style={styles.questionTypePillWrap}>
+              {REVIEW_QUESTION_TYPE_OPTIONS.map((item) => {
+                const active = selectedQuestionTypes.includes(item.key);
+                return (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[
+                      styles.questionTypePill,
+                      { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                      active ? styles.questionTypePillActive : null,
+                    ]}
+                    onPress={() => toggleQuestionType(item.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.questionTypePillText,
+                        { color: palette.textOnContainer },
+                        active ? styles.questionTypePillTextActive : null,
+                      ]}
+                    >
+                      {item.shortLabel}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </View>
+
+          {onChangeTodayNewWordsOnly ? (
+            <>
+              <View style={[styles.sectionDivider, { backgroundColor: palette.modalOptionBorder }]} />
+              <View
+                style={[
+                  styles.toggleRow,
+                  {
+                    backgroundColor: palette.mutedSurface,
+                    borderColor: palette.modalOptionBorder,
+                  },
+                ]}
+              >
+                <View style={styles.toggleCopy}>
+                  <Text style={[styles.toggleLabel, { color: palette.textOnContainer }]}>Today&apos;s new words only</Text>
+                </View>
+                <Switch
+                  value={todayNewWordsOnly}
+                  onValueChange={onChangeTodayNewWordsOnly}
+                  trackColor={{ false: palette.modalOptionBg, true: MODAL_CTA_COLOR }}
+                  thumbColor={TEXT_ON_CTA}
+                  ios_backgroundColor={palette.modalOptionBg}
+                />
+              </View>
+            </>
           ) : null}
 
           <TouchableOpacity style={[styles.doneButton, { backgroundColor: palette.modalSecondaryButtonBg }]} onPress={onClose}>
@@ -187,15 +237,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.6,
   },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
   },
-  subtitle: {
-    color: '#B4BBC8',
-    fontSize: 14,
-    lineHeight: 20,
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    width: '100%',
   },
   counterRow: {
     flexDirection: 'row',
@@ -239,6 +287,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  questionTypeSection: {
+    gap: 8,
+  },
+  questionTypePillWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  questionTypePill: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  questionTypePillActive: {
+    backgroundColor: MODAL_CTA_COLOR,
+    borderColor: MODAL_CTA_COLOR,
+  },
+  questionTypePillText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  questionTypePillTextActive: {
+    color: TEXT_ON_CTA,
+  },
   quickChip: {
     flex: 1,
     borderRadius: BUTTON_TOKENS.radius.md,
@@ -274,12 +349,6 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 15,
     fontWeight: '700',
-  },
-  toggleHint: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
   },
   doneButton: {
     marginTop: 4,

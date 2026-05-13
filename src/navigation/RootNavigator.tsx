@@ -7,7 +7,7 @@ import {
   StackActions,
   createNavigationContainerRef,
 } from '@react-navigation/native';
-import { createStackNavigator, useCardAnimation } from '@react-navigation/stack';
+import { createStackNavigator } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
@@ -59,6 +59,12 @@ const APP_DARK_THEME = {
   },
 };
 
+const IOS_CARD_SCREEN_OPTIONS = {
+  presentation: 'card' as const,
+  gestureEnabled: true,
+  gestureResponseDistance: 28,
+};
+
 function getActiveRouteName(state?: unknown): string | null {
   let current: any = state;
   while (current?.routes?.length) {
@@ -70,38 +76,16 @@ function getActiveRouteName(state?: unknown): string | null {
   return null;
 }
 
-/**
- * 核心：同步手勢物理進度的高階元件 (HOC)
- * 只要套用此 Wrapper，該頁面的滑動與進出場就會完美與導覽列升降 1:1 綁定
- */
-/**
- * 核心：同步手勢物理進度的高階元件 (HOC)
- * 只要套用此 Wrapper，該頁面的滑動與進出場就會完美與導覽列升降 1:1 綁定
- */
 function withNavBarSync<P extends object>(Component: React.ComponentType<P>) {
   return function WrappedComponent(props: P) {
-    const cardAnim = useCardAnimation();
-    const { fallbackTranslateY } = React.useContext(TabSwipeContext) as any;
-    const boundNodeRef = React.useRef<any>(null);
-    const progressNode = cardAnim?.current?.progress;
+    const tabSwipeContext = React.useContext(TabSwipeContext);
 
     React.useEffect(() => {
-      if (!progressNode) return;
-      if (boundNodeRef.current === progressNode) return;
-
-      boundNodeRef.current = progressNode;
-
-      const id = progressNode.addListener(({ value }: any) => {
-        fallbackTranslateY?.setValue(value * 90);
-      });
-
+      tabSwipeContext?.setTabBarHidden?.(true);
       return () => {
-        progressNode.removeListener(id);
-        if (boundNodeRef.current === progressNode) {
-          boundNodeRef.current = null;
-        }
+        tabSwipeContext?.setTabBarHidden?.(false);
       };
-    }, [progressNode, fallbackTranslateY]);
+    }, [tabSwipeContext]);
 
     return <Component {...props} />;
   };
@@ -161,7 +145,11 @@ function CacheStack({ onSwipeEnabledChange }: { onSwipeEnabledChange: (enabled: 
               return { presentation: 'modal' };
             }}
           />
-          <CacheStackNav.Screen name="CreateCard" component={SyncCreateCardFlow} options={{ presentation: 'modal' }} />
+          <CacheStackNav.Screen
+            name="CreateCard"
+            component={SyncCreateCardFlow}
+            options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }}
+          />
           <CacheStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
         </CacheStackNav.Navigator>
       </NavigationContainer>
@@ -227,8 +215,8 @@ function ProfileStack({ onSwipeEnabledChange }: { onSwipeEnabledChange: (enabled
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
           <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
-          <ProfileStackNav.Screen name="ProfileSettings" component={SyncProfileSettingsFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
-          <ProfileStackNav.Screen name="ProfileSettingOptions" component={SyncProfileSettingOptionsFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
+          <ProfileStackNav.Screen name="ProfileSettings" component={SyncProfileSettingsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <ProfileStackNav.Screen name="ProfileSettingOptions" component={SyncProfileSettingOptionsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
           <ProfileStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
         </ProfileStackNav.Navigator>
       </NavigationContainer>
@@ -324,7 +312,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({ 0: true, 1: true, 2: true });
   const [tabBarForcedHidden, setTabBarForcedHidden] = React.useState(false);
-  const [tabBarHiddenProgress, setTabBarHiddenProgress] = React.useState<any>(null);
 
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const fallbackTranslateY = React.useRef(new Animated.Value(0)).current;
@@ -375,9 +362,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   }, []);
 
   React.useEffect(() => {
-    // 若目前為手勢綁定狀態，則停用自動路由降下動畫
-    if (tabBarHiddenProgress !== null && typeof tabBarHiddenProgress !== 'number') return;
-
     const targetY = shouldShowTabBar ? 0 : 90;
     fallbackTranslateY.stopAnimation();
     Animated.timing(fallbackTranslateY, {
@@ -386,19 +370,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       duration: 300,
       easing: Easing.out(Easing.cubic),
     }).start();
-  }, [shouldShowTabBar, tabBarHiddenProgress, fallbackTranslateY]);
-
-  // 將手勢進度直接對應為 Y 軸位移
-  const finalTranslateY = React.useMemo(() => {
-    if (tabBarHiddenProgress !== null && typeof tabBarHiddenProgress !== 'number') {
-      return tabBarHiddenProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 90],
-        extrapolate: 'clamp',
-      });
-    }
-    return fallbackTranslateY;
-  }, [tabBarHiddenProgress, fallbackTranslateY]);
+  }, [shouldShowTabBar, fallbackTranslateY]);
 
   const tabSwipeContextValue = React.useMemo(
     () => ({
@@ -418,7 +390,6 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       },
       triggerCacheAddAction: () => cacheAddActionHandlerRef.current?.(),
       setTabBarHidden: setTabBarForcedHidden,
-      setTabBarHiddenProgress,
       fallbackTranslateY,
     }),
     [fallbackTranslateY, switchTabImmediately]
@@ -439,7 +410,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           </Animated.View>
         </View>
 
-        <Animated.View pointerEvents={shouldShowTabBar ? 'auto' : 'none'} style={[styles.tabBarAnimatedWrap, { transform: [{ translateY: finalTranslateY }] }]}>
+        <Animated.View pointerEvents={shouldShowTabBar ? 'auto' : 'none'} style={[styles.tabBarAnimatedWrap, { transform: [{ translateY: fallbackTranslateY }] }]}>
           <LiquidTabBar
             selectedTabIndex={selectedTabIndex}
             onSelectTab={(index: number) => {
