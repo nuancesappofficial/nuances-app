@@ -74,5 +74,10 @@ export async function speakEnglishNaturally(
     return;
   }
 
+  console.warn('[TTS] Azure/cache playback unavailable; no native speech fallback used', {
+    text: trimmed,
+    locale,
+    voice: selectedVoice || '(default)',
+  });
   options?.onError?.();
 }

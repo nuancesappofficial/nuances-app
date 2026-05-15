@@ -45,6 +45,7 @@ import {
 } from '@services/pronunciation/cloudCoach';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
@@ -71,6 +72,7 @@ import {
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
 import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
+import { loadPronunciationHistory, upsertPronunciationResult } from '../../../features/deck/pronunciationHistory';
 import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
 
 type Props = {
@@ -220,6 +222,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [isTtsDownloading, setIsTtsDownloading] = React.useState(false);
+  const [pronunciationDownloadTarget, setPronunciationDownloadTarget] = React.useState<string | null>(null);
   const [isRecording, setIsRecording] = React.useState(false);
   const [hasRecorded, setHasRecorded] = React.useState(false);
   const [showFeedback, setShowFeedback] = React.useState(false);
@@ -310,6 +313,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     void hydrateAlbumPrefs();
   }, [hydrateAlbumPrefs]);
 
+  React.useEffect(() => {
+    let isMounted = true;
+    loadPronunciationHistory()
+      .then((history) => {
+        if (isMounted) {
+          setPronunciationResultsByCardId(history);
+        }
+      })
+      .catch((error) => {
+        console.warn('[CardDetail][Pronunciation] load history failed:', error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
       void hydrateAlbumPrefs();
@@ -335,17 +354,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       return;
     }
     const data = pronunciationResultsByCardId[card.id];
-    if (!data) {
-      setPronunciationScore(null);
-      setPronunciationFeedbackLines([]);
-      setPhonemeFeedback([]);
-      setShowFeedback(false);
+    if (data) {
+      setPronunciationScore(data.score);
+      setPronunciationFeedbackLines(data.feedbackLines);
+      setPhonemeFeedback(data.phonemeFeedback);
+      setShowFeedback(data.showFeedback);
       return;
     }
-    setPronunciationScore(data.score);
-    setPronunciationFeedbackLines(data.feedbackLines);
-    setPhonemeFeedback(data.phonemeFeedback);
-    setShowFeedback(data.showFeedback);
+
+    setPronunciationScore(null);
+    setPronunciationFeedbackLines([]);
+    setPhonemeFeedback([]);
+    setShowFeedback(false);
   }, [card?.id, pronunciationResultsByCardId]);
 
   const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
@@ -563,6 +583,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const stopActiveAudio = React.useCallback(async () => {
     setIsPlaying(false);
     await stopUserRecordingPreview();
+    await stopAzureTtsPlayback();
     await Speech.stop();
   }, [stopUserRecordingPreview]);
 
@@ -577,6 +598,29 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setIsTtsDownloading(false);
     }
   }, []);
+
+  const createPronunciationDownloadHandlers = React.useCallback(
+    (target: string) => {
+      let didStartDownload = false;
+      const markEnd = () => {
+        if (!didStartDownload) return;
+        didStartDownload = false;
+        setPronunciationDownloadTarget((current) => (current === target ? null : current));
+        handleTtsDownloadEnd();
+      };
+
+      return {
+        onDownloadStart: () => {
+          didStartDownload = true;
+          setPronunciationDownloadTarget(target);
+          handleTtsDownloadStart();
+        },
+        onDownloadEnd: markEnd,
+        onError: markEnd,
+      };
+    },
+    [handleTtsDownloadEnd, handleTtsDownloadStart]
+  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -756,15 +800,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setShowFeedback(true);
       const analyzedCardId = pronunciationTargetCardIdRef.current;
       if (analyzedCardId) {
+        const nextResult = {
+          score: result.score,
+          feedbackLines: result.feedbackLines || [],
+          phonemeFeedback: result.phonemeFeedback || [],
+          showFeedback: true,
+        };
         setPronunciationResultsByCardId((prev) => ({
           ...prev,
-          [analyzedCardId]: {
-            score: result.score,
-            feedbackLines: result.feedbackLines || [],
-            phonemeFeedback: result.phonemeFeedback || [],
-            showFeedback: true,
-          },
+          [analyzedCardId]: nextResult,
         }));
+        void upsertPronunciationResult(analyzedCardId, nextResult).catch((storageError) => {
+          console.warn('[CardDetail][Pronunciation] save history failed:', storageError);
+        });
       }
       Vibration.vibrate(20);
     } catch (error) {
@@ -1111,55 +1159,74 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }).start();
   }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible]);
 
-  const phonemeChips = phonemeFeedback.slice(0, 5);
+  const phonemeChips = phonemeFeedback;
   const fullscreenCard = fullscreenCardIndex === null ? null : scopedCards[fullscreenCardIndex] ?? null;
   const fullscreenImageUri = fullscreenCard ? cardImageMap[fullscreenCard.id] ?? null : null;
   const handlePlayPronunciationWord = React.useCallback(
     (word: string) => {
       const text = (word || '').trim();
       if (!text) return;
+      const downloadHandlers = createPronunciationDownloadHandlers(`word:${text}`);
       void speakEnglishNaturally(text, {
-        onDownloadStart: handleTtsDownloadStart,
-        onDownloadEnd: handleTtsDownloadEnd,
-        onError: handleTtsDownloadEnd,
+        onDownloadStart: downloadHandlers.onDownloadStart,
+        onDownloadEnd: downloadHandlers.onDownloadEnd,
+        onError: downloadHandlers.onError,
       });
     },
-    [handleTtsDownloadEnd, handleTtsDownloadStart]
+    [createPronunciationDownloadHandlers]
   );
   const handlePlayPronunciationSyllable = React.useCallback((syllable: string) => {
     const raw = (syllable || '').trim();
     if (!raw) return;
     const cleaned = raw.replace(/^\/+|\/+$/g, '').trim();
-    const phonemeApproxMap: Record<string, string> = {
+    const phonemeApproxMap: Array<[string, string]> = [
       // Common IPA/phoneme fallbacks for better TTS output.
-      'ə': 'uh',
-      'ɚ': 'er',
-      'ɝ': 'er',
-      'æ': 'a',
-      'ɑ': 'ah',
-      'ɔ': 'aw',
-      'ʌ': 'uh',
-      'ɪ': 'ih',
-      'i': 'ee',
-      'u': 'oo',
-      'ʊ': 'oo',
-      'ɛ': 'eh',
-      'ŋ': 'ng',
-      'θ': 'th',
-      'ð': 'th',
-      'ʃ': 'sh',
-      'ʒ': 'zh',
-      'tʃ': 'ch',
-      'dʒ': 'j',
-    };
-    const text = phonemeApproxMap[cleaned] || cleaned;
+      ['tʃ', 'ch'],
+      ['dʒ', 'j'],
+      ['eɪ', 'ay'],
+      ['oʊ', 'oh'],
+      ['əʊ', 'oh'],
+      ['aɪ', 'eye'],
+      ['aʊ', 'ow'],
+      ['ɔɪ', 'oy'],
+      ['iː', 'ee'],
+      ['uː', 'oo'],
+      ['ɜː', 'er'],
+      ['ɔː', 'aw'],
+      ['ɑː', 'ah'],
+      ['ə', 'uh'],
+      ['ɚ', 'er'],
+      ['ɝ', 'er'],
+      ['æ', 'a'],
+      ['ɑ', 'ah'],
+      ['ɔ', 'aw'],
+      ['ʌ', 'uh'],
+      ['ɪ', 'ih'],
+      ['i', 'ee'],
+      ['u', 'oo'],
+      ['ʊ', 'oo'],
+      ['ɛ', 'eh'],
+      ['ŋ', 'ng'],
+      ['θ', 'th'],
+      ['ð', 'th'],
+      ['ʃ', 'sh'],
+      ['ʒ', 'zh'],
+      ['ˈ', ''],
+      ['ˌ', ''],
+      ['ː', ''],
+    ];
+    const text = phonemeApproxMap
+      .reduce((value, [ipa, approx]) => value.split(ipa).join(approx), cleaned)
+      .replace(/\s+/g, ' ')
+      .trim();
     if (!text) return;
+    const downloadHandlers = createPronunciationDownloadHandlers(`syllable:${raw}`);
     void speakEnglishNaturally(text, {
-      onDownloadStart: handleTtsDownloadStart,
-      onDownloadEnd: handleTtsDownloadEnd,
-      onError: handleTtsDownloadEnd,
+      onDownloadStart: downloadHandlers.onDownloadStart,
+      onDownloadEnd: downloadHandlers.onDownloadEnd,
+      onError: downloadHandlers.onError,
     });
-  }, [handleTtsDownloadEnd, handleTtsDownloadStart]);
+  }, [createPronunciationDownloadHandlers]);
   const triggerHapticFeedback = React.useCallback(() => {
     if (!didMountIndexRef.current) return;
     void Haptics.selectionAsync();
@@ -1462,6 +1529,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           <Animated.View
             style={[
               styles.pronunciationSheet,
+              isLightMode
+                ? {
+                    backgroundColor: palette.containerBg,
+                    borderColor: palette.borderSubtle,
+                    shadowColor: '#0F172A',
+                    shadowOpacity: 0.08,
+                    shadowRadius: 18,
+                    shadowOffset: { width: 0, height: 10 },
+                  }
+                : null,
               {
                 opacity: pronunciationModalAnim,
                 transform: [
@@ -1488,6 +1565,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 syllableRowPattern={undefined}
                 waveformValues={waveformValues}
                 itemWord={displayWord}
+                downloadingPronunciationTarget={pronunciationDownloadTarget}
                 onPlayWord={handlePlayPronunciationWord}
                 onPlaySyllable={handlePlayPronunciationSyllable}
                 onReset={() => void handleReset()}
@@ -1495,8 +1573,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 onPlayPreview={() => void playUserRecordingPreview()}
               />
               <View style={[styles.stickyButtonRow, { marginTop: 12 }]}>
-                <TouchableOpacity style={styles.stickyCancelBtn} onPress={() => setShowPronunciationModal(false)}>
-                  <Text style={styles.stickyCancelText}>Close</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.stickyCancelBtn,
+                    isLightMode
+                      ? {
+                          backgroundColor: palette.mutedSurface,
+                          borderWidth: 1,
+                          borderColor: palette.borderSubtle,
+                        }
+                      : null,
+                  ]}
+                  onPress={() => setShowPronunciationModal(false)}
+                >
+                  <Text style={[styles.stickyCancelText, isLightMode ? { color: palette.textOnContainer } : null]}>
+                    Close
+                  </Text>
                 </TouchableOpacity>
               </View>
             </Pressable>

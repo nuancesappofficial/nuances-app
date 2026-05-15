@@ -1,11 +1,13 @@
 import React from 'react';
-import { ActivityIndicator, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, TouchableOpacity, View, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { resolveThemeColors } from '../../../theme/colors';
 
 type PhonemeChip = {
   phoneme: string;
   letters?: string;
-  accuracy: number;
+  accuracy?: number | null;
+  spokenPhoneme?: string | null;
 };
 
 type Props = {
@@ -20,6 +22,7 @@ type Props = {
   syllableRowPattern?: number[];
   waveformValues: Animated.Value[];
   itemWord: string;
+  downloadingPronunciationTarget?: string | null;
   onPlayWord: (word: string) => void;
   onPlaySyllable: (syllable: string) => void;
   onReset: () => void;
@@ -39,12 +42,16 @@ export default function PronunciationCoachUI({
   syllableRowPattern,
   waveformValues,
   itemWord,
+  downloadingPronunciationTarget,
   onPlayWord,
   onPlaySyllable,
   onReset,
   onPrimaryAction,
   onPlayPreview,
 }: Props) {
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === 'light';
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const BLOCK_BASE = React.useMemo(
     () => ({
       paddingVertical: 20,
@@ -61,17 +68,18 @@ export default function PronunciationCoachUI({
     return 0.84;
   }, []);
   const isReviewState = isActiveCard && hasRecorded && !isRecording && !isAnalyzing;
-  const hasRunSummary =
-    isActiveCard &&
-    (pronunciationScore !== null || phonemeChips.length > 0 || pronunciationFeedbackLines.length > 0);
   const buttonBg = !isActiveCard
-    ? '#334155'
+    ? isLight
+      ? '#CBD5E1'
+      : '#334155'
     : isAnalyzing
       ? '#64748B'
-      : isRecording
+    : isRecording
         ? '#FF6B6B'
         : isReviewState
-          ? '#94A3B8'
+          ? isLight
+            ? '#CBD5E1'
+            : '#94A3B8'
           : '#4EAFF4';
   const buttonIconName: keyof typeof Ionicons.glyphMap = isAnalyzing
     ? 'hourglass-outline'
@@ -92,20 +100,33 @@ export default function PronunciationCoachUI({
 
   const scoreColor =
     pronunciationScore == null
-      ? '#94A3B8'
+      ? isLight
+        ? '#64748B'
+        : '#94A3B8'
       : pronunciationScore >= 85
         ? '#4EAFF4'
         : pronunciationScore >= 60
-          ? '#F8FAFC'
+          ? isLight
+            ? '#334155'
+            : '#F8FAFC'
           : '#FF6B6B';
   const scoreSemanticTextColor =
     pronunciationScore == null
-      ? '#CBD5E1'
+      ? isLight
+        ? '#64748B'
+        : '#CBD5E1'
       : pronunciationScore >= 85
-        ? '#BFE7FF'
+        ? isLight
+          ? '#0369A1'
+          : '#BFE7FF'
         : pronunciationScore >= 60
-          ? '#F8FAFC'
+          ? isLight
+            ? '#334155'
+            : '#F8FAFC'
           : '#FFD0D0';
+  const waveformTone = isRecording ? '#4EAFF4' : isAnalyzing ? '#94A3B8' : isLight ? '#64748B' : '#475569';
+  const wordDownloadTarget = itemWord.trim() ? `word:${itemWord.trim()}` : null;
+  const isWordDownloading = Boolean(wordDownloadTarget && downloadingPronunciationTarget === wordDownloadTarget);
   const phonemeRows = React.useMemo(() => {
     const chips = phonemeChips || [];
     const n = chips.length;
@@ -169,58 +190,101 @@ export default function PronunciationCoachUI({
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
     >
-      <View style={styles.waveLineWrap}>
+      <View
+        style={[
+          styles.waveLineWrap,
+          isLight
+            ? {
+                backgroundColor: '#F8FAFC',
+                borderColor: palette.borderSubtle,
+              }
+            : null,
+        ]}
+      >
         <View style={styles.waveHeaderRow}>
-          <Text style={styles.waveHeaderTitle}>Pronunciation coach</Text>
-          <TouchableOpacity
-            style={styles.playWordBtn}
-            activeOpacity={0.86}
-            onPress={() => onPlayWord(itemWord)}
-          >
-            <Ionicons name="volume-medium-outline" size={18} color="#CBD5E1" />
-          </TouchableOpacity>
+          <Text style={[styles.waveHeaderTitle, isLight ? { color: palette.textOnContainer } : null]}>
+            Pronunciation coach
+          </Text>
         </View>
-        <View style={styles.waveLineBase} />
+        <View style={[styles.waveGlow, isRecording ? styles.waveGlowActive : null]} />
+        <View style={[styles.waveLineBase, isLight ? { backgroundColor: 'rgba(15,23,42,0.10)' } : null]} />
         <View style={styles.waveBarsRow}>
-          {waveformValues.map((value, i) => (
-            <Animated.View
-              key={`wave-${i}`}
-              style={[
-                styles.waveBar,
-                {
-                  height: value,
-                  opacity: isActiveCard && isRecording ? 0.95 : 0.12,
-                  backgroundColor: isActiveCard && isRecording ? '#4EAFF4' : '#334155',
-                },
-              ]}
-            />
-          ))}
+          {waveformValues.map((value, i) => {
+            const idleHeight = 12 + Math.round(Math.abs(Math.sin(i * 0.72)) * 34);
+            return (
+              <Animated.View
+                key={`wave-${i}`}
+                style={[
+                  styles.waveBar,
+                  {
+                    height: isActiveCard && isRecording ? value : idleHeight,
+                    opacity: isActiveCard && isRecording ? 0.98 : isAnalyzing ? 0.34 : 0.18,
+                    backgroundColor: waveformTone,
+                    shadowColor: isActiveCard && isRecording ? '#4EAFF4' : '#000000',
+                    shadowOpacity: isActiveCard && isRecording ? 0.34 : 0,
+                  },
+                ]}
+              />
+            );
+          })}
         </View>
       </View>
 
-      {hasRunSummary ? (
+      {phonemeRows.length > 0 ? (
         <>
           {pronunciationScore !== null ? (
             <Text style={[styles.centerScore, { color: scoreColor }]}>{pronunciationScore}%</Text>
           ) : null}
 
-          {phonemeRows.length > 0 ? (
-            <View style={styles.syllableBlocksWrap}>
-              {phonemeRows.map((row, rowIndex) => (
-                <View key={`row-${rowIndex}`} style={styles.syllableRow}>
-                  {row.map((chip, idx) => {
-                    const rowScale = getRowScale(row.length);
-                    const dynPaddingVertical = Math.round(BLOCK_BASE.paddingVertical * rowScale);
-                    const dynLabelFontSize = Math.round(BLOCK_BASE.labelFontSize * rowScale);
-                    const dynLabelLineHeight = Math.round(BLOCK_BASE.labelLineHeight * rowScale);
-                    const dynScoreFontSize = Math.round(BLOCK_BASE.scoreFontSize * rowScale);
-                    const dynScoreLineHeight = Math.round(BLOCK_BASE.scoreLineHeight * rowScale);
-                    return (
-                    <TouchableOpacity
+          <View style={styles.syllableBlocksWrap}>
+            {phonemeRows.map((row, rowIndex) => (
+              <View key={`row-${rowIndex}`} style={styles.syllableRow}>
+                {row.map((chip, idx) => {
+                  const rowScale = getRowScale(row.length);
+                  const dynPaddingVertical = Math.round(BLOCK_BASE.paddingVertical * rowScale);
+                  const dynLabelFontSize = Math.round(BLOCK_BASE.labelFontSize * rowScale);
+                  const dynLabelLineHeight = Math.round(BLOCK_BASE.labelLineHeight * rowScale);
+                  const dynScoreFontSize = Math.round(BLOCK_BASE.scoreFontSize * rowScale);
+                  const dynScoreLineHeight = Math.round(BLOCK_BASE.scoreLineHeight * rowScale);
+                  const chipScore =
+                    typeof chip.accuracy === 'number' && Number.isFinite(chip.accuracy) ? chip.accuracy : null;
+                  const displayText = (chip.letters || chip.phoneme || '').trim() || `Part ${idx + 1}`;
+                  const pronunciationText = (chip.spokenPhoneme || chip.phoneme || chip.letters || '').trim();
+                  const isSyllableDownloading =
+                    Boolean(pronunciationText) && downloadingPronunciationTarget === `syllable:${pronunciationText}`;
+                  return (
+                    <Pressable
                       key={`${chip.phoneme}-${rowIndex}-${idx}`}
-                      activeOpacity={0.88}
-                      onPress={() => onPlaySyllable((chip.phoneme || chip.letters || '').trim())}
-                      style={[styles.syllableBlock, { paddingVertical: dynPaddingVertical }]}
+                      disabled={!isActiveCard || !pronunciationText}
+                      onPress={() => onPlaySyllable(pronunciationText)}
+                      style={({ pressed }) => [
+                        styles.syllableBlock,
+                        { paddingVertical: dynPaddingVertical },
+                        isLight
+                          ? {
+                              backgroundColor: '#F8FAFC',
+                              borderColor: palette.borderSubtle,
+                            }
+                          : null,
+                        isSyllableDownloading
+                          ? [
+                              styles.syllableBlockDownloading,
+                              {
+                                backgroundColor: isLight ? 'rgba(78,175,244,0.12)' : 'rgba(78,175,244,0.14)',
+                                borderColor: '#4EAFF4',
+                              },
+                            ]
+                          : null,
+                        pressed
+                          ? [
+                              styles.syllableBlockPressed,
+                              {
+                                backgroundColor: isLight ? 'rgba(78,175,244,0.16)' : 'rgba(78,175,244,0.18)',
+                                borderColor: '#4EAFF4',
+                              },
+                            ]
+                          : null,
+                      ]}
                     >
                       <Text
                         style={[
@@ -232,27 +296,43 @@ export default function PronunciationCoachUI({
                           },
                         ]}
                       >
-                        {(chip.letters || chip.phoneme || '').trim() || `Part ${idx + 1}`}
+                        {displayText}
                       </Text>
-                      <Text
-                        style={[
-                          styles.syllableBlockScore,
-                          {
-                            fontSize: dynScoreFontSize,
-                            lineHeight: dynScoreLineHeight,
-                            color:
-                              chip.accuracy >= 85 ? '#4EAFF4' : chip.accuracy >= 60 ? '#F8FAFC' : '#FF6B6B',
-                          },
-                        ]}
-                      >
-                        {Math.round(chip.accuracy)}%
-                      </Text>
-                    </TouchableOpacity>
-                  )})}
-                </View>
-              ))}
-            </View>
-          ) : null}
+                      <View style={[styles.syllableBlockScoreSlot, { minHeight: dynScoreLineHeight }]}>
+                        {isSyllableDownloading ? (
+                          <ActivityIndicator size="small" color="#4EAFF4" />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.syllableBlockScore,
+                              {
+                                fontSize: dynScoreFontSize,
+                                lineHeight: dynScoreLineHeight,
+                                color:
+                                  chipScore === null
+                                    ? isLight
+                                      ? '#94A3B8'
+                                      : '#64748B'
+                                    : chipScore >= 85
+                                    ? '#4EAFF4'
+                                    : chipScore >= 60
+                                      ? isLight
+                                        ? '#334155'
+                                        : '#F8FAFC'
+                                      : '#FF6B6B',
+                              },
+                            ]}
+                          >
+                            {chipScore === null ? '—' : `${Math.round(chipScore)}%`}
+                          </Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
 
           {pronunciationFeedbackLines.length > 0 ? (
             <Text style={[styles.summaryHint, { color: scoreSemanticTextColor }]}>
@@ -276,9 +356,52 @@ export default function PronunciationCoachUI({
           )}
         </TouchableOpacity>
 
+        <Pressable
+          style={({ pressed }) => [
+            styles.playWordBtn,
+            styles.controlSpeakerBtn,
+            isLight
+              ? {
+                  backgroundColor: 'rgba(78,175,244,0.10)',
+                  borderColor: palette.borderSubtle,
+                }
+              : null,
+            pressed
+              ? [
+                  styles.controlSpeakerBtnPressed,
+                  {
+                    backgroundColor: isLight ? 'rgba(78,175,244,0.18)' : 'rgba(78,175,244,0.16)',
+                    borderColor: '#4EAFF4',
+                  },
+                ]
+              : null,
+            isWordDownloading
+              ? [
+                  styles.controlSpeakerBtnDownloading,
+                  {
+                    backgroundColor: isLight ? 'rgba(78,175,244,0.16)' : 'rgba(78,175,244,0.18)',
+                    borderColor: '#4EAFF4',
+                  },
+                ]
+              : null,
+          ]}
+          disabled={!isActiveCard || isWordDownloading}
+          onPress={() => onPlayWord(itemWord)}
+        >
+          {isWordDownloading ? (
+            <ActivityIndicator size="small" color="#4EAFF4" />
+          ) : (
+            <Ionicons name="volume-medium-outline" size={20} color={isLight ? palette.textOnContainer : '#CBD5E1'} />
+          )}
+        </Pressable>
+
         {isReviewState ? (
-          <TouchableOpacity style={styles.retakeBtn} onPress={onReset} activeOpacity={0.85}>
-            <Ionicons name="refresh" size={16} color="#94A3B8" />
+          <TouchableOpacity
+            style={[styles.retakeBtn, isLight ? { backgroundColor: 'rgba(15,23,42,0.08)' } : null]}
+            onPress={onReset}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="refresh" size={16} color={isLight ? '#64748B' : '#94A3B8'} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -295,14 +418,20 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   waveLineWrap: {
-    height: 68,
+    height: 126,
     justifyContent: 'center',
-    paddingTop: 8,
-    paddingBottom: 10,
-    marginBottom: 10,
+    overflow: 'hidden',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(78,175,244,0.18)',
+    backgroundColor: 'rgba(15,23,42,0.48)',
+    paddingTop: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+    marginBottom: 14,
   },
   waveHeaderRow: {
-    marginBottom: 12,
+    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -322,24 +451,58 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
     backgroundColor: 'rgba(30,41,59,0.5)',
   },
+  controlSpeakerBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
+  controlSpeakerBtnPressed: {
+    transform: [{ scale: 0.94 }],
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  controlSpeakerBtnDownloading: {
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+  },
   waveLineBase: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 14,
+    right: 14,
+    top: 76,
     height: 2,
     borderRadius: 999,
-    backgroundColor: '#334155',
+    backgroundColor: 'rgba(148,163,184,0.14)',
+  },
+  waveGlow: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: 48,
+    height: 54,
+    borderRadius: 999,
+    backgroundColor: 'rgba(78,175,244,0.08)',
+    opacity: 0.4,
+  },
+  waveGlowActive: {
+    opacity: 0.82,
   },
   waveBarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    height: 26,
+    gap: 5,
+    height: 72,
   },
   waveBar: {
-    width: 2,
+    width: 5,
     borderRadius: 999,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
   controlsRow: {
     marginTop: 8,
@@ -377,6 +540,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  syllableBlockPressed: {
+    transform: [{ scale: 0.96 }],
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  syllableBlockDownloading: {
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   syllableBlockLabel: {
     color: '#F8FAFC',
     fontSize: 20,
@@ -384,10 +560,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   syllableBlockScore: {
-    marginTop: 4,
     fontSize: 25,
     lineHeight: 42,
     fontWeight: '800',
+  },
+  syllableBlockScoreSlot: {
+    marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   summaryHint: {
     color: '#94A3B8',

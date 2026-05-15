@@ -18,6 +18,8 @@ type SpeakOptions = {
 const TTS_EDGE_FUNCTION_NAME = process.env.EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME || 'tts-proxy';
 const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
+const DEV_DEFAULT_PLAN = (process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN || '').trim();
 const MAX_LOADED_LOCAL_SOUNDS = 24;
 
 type CloudSound = Awaited<ReturnType<typeof Audio.Sound.createAsync>>['sound'];
@@ -63,6 +65,20 @@ async function stopActiveCloudPlayback(): Promise<void> {
     await sound.unloadAsync();
   } catch {
     // ignore
+  }
+}
+
+async function prepareTtsPlaybackMode(): Promise<void> {
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  } catch (error) {
+    console.warn('[TTS] audio mode setup failed', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -207,6 +223,7 @@ async function playAudioUri({
 export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions): Promise<boolean> {
   const requestId = (latestPlaybackRequestId += 1);
   await stopActiveCloudPlayback();
+  await prepareTtsPlaybackMode();
   let didShowDownloadState = false;
 
   const input = text.trim();
@@ -281,6 +298,9 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
           'Content-Type': 'application/json',
           apikey: SUPABASE_ANON_KEY,
           Authorization: auth.Authorization,
+          ...(__DEV__ && DEV_BYPASS_ENABLED && DEV_DEFAULT_PLAN === 'premium'
+            ? { 'x-nuances-dev-plan': 'premium' }
+            : {}),
         },
         body: JSON.stringify({
           text: input,

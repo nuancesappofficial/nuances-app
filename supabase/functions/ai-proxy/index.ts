@@ -35,6 +35,9 @@ import {
   USAGE_RETENTION_DAYS,
 } from './_shared/runtimeConfig.ts';
 
+const DEV_ENTITLEMENT_BYPASS_ENABLED =
+  (Deno.env.get('SUBSCRIPTION_DEV_BYPASS') ?? '').trim().toLowerCase() === 'true';
+
 type Provider = 'openai' | 'gemini';
 type Action =
   | 'generate_card'
@@ -1021,7 +1024,11 @@ Deno.serve(async (req: Request) => {
     }
     const body = parsedBody as RequestBody;
     const supabase = createServiceRoleClient();
-    const entitlement = await resolveServerEntitlement({ supabase, userId, user: authUser });
+    const devPlan = (req.headers.get('x-nuances-dev-plan') ?? '').trim().toLowerCase();
+    const entitlement =
+      DEV_ENTITLEMENT_BYPASS_ENABLED && devPlan === 'premium'
+        ? { planType: 'premium' as const }
+        : await resolveServerEntitlement({ supabase, userId, user: authUser });
     const planType = entitlement.planType;
 
     if (isActionRequest(body)) {

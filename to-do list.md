@@ -3,7 +3,7 @@ UI list :
     pronunciation coach
     review tuning 
     ghost card
-    album settting
+    ✓ album settting
     membership modal
     login animation
 }
@@ -13,4 +13,7 @@ functions:
     folder sequence
     language setting
     revenue cat
+    gemini prompt
+    gemini paywall
+    azure paywall
 }

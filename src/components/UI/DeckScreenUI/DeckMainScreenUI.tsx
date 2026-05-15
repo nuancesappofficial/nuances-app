@@ -53,7 +53,7 @@ type Props = {
   onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
   searchResults: Array<{ cardId: string; text: string; translation?: string }>;
   onPressSearchResult: (item: { cardId: string; text: string; translation?: string }) => void;
-  albums: DeckAlbum[];
+  albums: Array<DeckAlbum | null>;
   onPressAlbum: (album: DeckAlbum) => void;
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
@@ -201,7 +201,7 @@ export default function DeckMainScreenUI({
 
   const albumPages = React.useMemo(() => {
     if (albums.length <= albumsPerPage) return [albums];
-    const pages: DeckAlbum[][] = [];
+    const pages: Array<Array<DeckAlbum | null>> = [];
     for (let i = 0; i < albums.length; i += albumsPerPage) {
       pages.push(albums.slice(i, i + albumsPerPage));
     }
@@ -292,7 +292,7 @@ export default function DeckMainScreenUI({
   }, [slideshowItems.length, wordIndex]);
 
   const renderAlbumPage = React.useCallback(
-    (pageAlbums: DeckAlbum[], pageIndex: number) => {
+    (pageAlbums: Array<DeckAlbum | null>, pageIndex: number) => {
       return (
         <View style={[styles.page, { width: albumPageWidth }]}>
           <View style={styles.albumGridContent}>

@@ -67,6 +67,22 @@ export type EffectiveAIPersonalization = {
 };
 
 const SETTINGS_STORAGE_KEY = 'user_app_settings_v1';
+const userSettingsListeners = new Set<(settings: UserAppSettings) => void>();
+export const MAIN_SCREEN_EMPTY_ALBUM_SLOT_PREFIX = '__nuances_empty_album_slot__:';
+const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
+const DEV_DEFAULT_PLAN = normalizeEntitlementMode(
+  process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN as PlanType | null | undefined
+);
+
+export function isMainScreenEmptyAlbumSlot(value: string): boolean {
+  return value.startsWith(MAIN_SCREEN_EMPTY_ALBUM_SLOT_PREFIX);
+}
+
+export function createMainScreenEmptyAlbumSlot(): string {
+  return `${MAIN_SCREEN_EMPTY_ALBUM_SLOT_PREFIX}${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
 
 export function normalizeEntitlementMode(mode: EntitlementMode | PlanType | null | undefined): PlanType {
   if (mode === 'premium' || mode === 'trial' || mode === 'free') return mode;
@@ -163,8 +179,11 @@ export function withUpdatedTTSVoiceForLanguage(
 }
 
 function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettings {
+  const shouldUseDevDefaultPlan = DEV_BYPASS_ENABLED && DEV_DEFAULT_PLAN !== 'free';
   const normalizedPlanType = normalizeEntitlementMode(
-    partial?.planType ?? partial?.entitlementMode ?? DEFAULT_USER_SETTINGS.planType
+    shouldUseDevDefaultPlan
+      ? DEV_DEFAULT_PLAN
+      : partial?.planType ?? partial?.entitlementMode ?? DEFAULT_USER_SETTINGS.planType
   );
   const nextLanguage =
     partial?.aiReplyLanguage && DEFAULT_TTS_VOICE_BY_LANGUAGE[partial.aiReplyLanguage]
@@ -237,18 +256,26 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
 export async function loadUserSettings(): Promise<UserAppSettings> {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return DEFAULT_USER_SETTINGS;
+    if (!raw) return mergeSettings(null);
     const parsed = JSON.parse(raw) as Partial<UserAppSettings>;
     return mergeSettings(parsed);
   } catch (error) {
     console.error('[Settings] Failed to load user settings:', error);
-    return DEFAULT_USER_SETTINGS;
+    return mergeSettings(null);
   }
 }
 
 export async function saveUserSettings(next: UserAppSettings): Promise<void> {
   const merged = mergeSettings(next);
   await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+  userSettingsListeners.forEach((listener) => listener(merged));
+}
+
+export function subscribeUserSettings(listener: (settings: UserAppSettings) => void): () => void {
+  userSettingsListeners.add(listener);
+  return () => {
+    userSettingsListeners.delete(listener);
+  };
 }
 
 export function getEffectiveLearningGoal(

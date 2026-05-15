@@ -82,6 +82,8 @@ type Props = {
   onCloseMembershipModal: () => void;
   onUpgradeMembership: () => void;
   onRestoreMembership: () => void;
+  devBypassEnabled?: boolean;
+  onDevSetMembership?: (mode: 'free' | 'trial' | 'premium') => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
   onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font' | 'main') => void;
@@ -107,15 +109,6 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
 ];
-
-const MEMBERSHIP_FEATURES = [
-  { label: '本地 OCR 掃圖', free: 'Included', premium: 'Included' },
-  { label: '手動建卡', free: 'Included', premium: 'Included' },
-  { label: 'AI 自動建卡', free: 'Locked', premium: 'Unlimited' },
-  { label: '雲端 TTS', free: 'Locked', premium: 'Included' },
-  { label: '發音評分', free: 'Locked', premium: 'Included' },
-  { label: 'Cache 容量', free: '5 cards', premium: 'Extended' },
-] as const;
 
 const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
@@ -372,8 +365,6 @@ export default function ProfileMainScreenUI({
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
-  const planBadgeLabel =
-    entitlementMode === 'premium' ? 'Premium' : entitlementMode === 'trial' ? 'Trial' : 'Free';
   const isFocused = useIsFocused();
   const optionNavigationLockRef = React.useRef(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -1022,29 +1013,17 @@ export default function ProfileMainScreenUI({
                 },
               ]}
             >
-              <Text style={[styles.membershipTitle, { color: palette.textOnContainer }]}>Membership</Text>
-              <Text style={[styles.membershipSubtitle, { color: palette.secondaryText }]}>
-                {entitlementMode === 'premium'
-                  ? 'Premium 已解鎖 AI、雲端語音與發音評分。'
-                  : entitlementMode === 'trial'
-                    ? '你目前在 7 天試用期內，所有 Premium 雲端能力都已開放。'
-                    : '免費版保留 OCR 與手動建卡；升級後可使用 AI、雲端 TTS 與發音評分。'}
-              </Text>
-
               <View style={styles.membershipPlanGrid}>
-                <View
-                  style={[
+                <Pressable
+                  style={({ pressed }) => [
                     styles.membershipPlanCard,
                     {
                       backgroundColor: isLight ? '#FFFFFF' : palette.modalOptionBg,
-                      borderColor:
-                        entitlementMode === 'premium'
-                          ? isLight
-                            ? palette.borderSubtle
-                            : CONTAINER_NEON_OUTLINE
-                          : '#4EAFF4',
+                      borderColor: entitlementMode === 'premium' ? palette.borderSubtle : '#4EAFF4',
                     },
+                    pressed ? styles.membershipButtonPressed : null,
                   ]}
+                  onPress={onCloseMembershipModal}
                 >
                   <View style={styles.membershipPlanHeader}>
                     <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Free</Text>
@@ -1058,143 +1037,89 @@ export default function ProfileMainScreenUI({
                           },
                         ]}
                       >
-                        <Text style={[styles.membershipPlanBadgeText, { color: palette.textOnContainer }]}>
-                          Current
-                        </Text>
+                        <Text style={[styles.membershipPlanBadgeText, { color: palette.textOnContainer }]}>Current</Text>
                       </View>
                     ) : null}
                   </View>
                   <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>$0</Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
-                    OCR + 手動建卡 + 基本複習
-                  </Text>
-                </View>
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>OCR + manual cards</Text>
+                </Pressable>
 
-                <View
-                  style={[
+                <Pressable
+                  style={({ pressed }) => [
                     styles.membershipPlanCard,
                     styles.membershipPlanCardFeatured,
                     {
                       backgroundColor: isLight ? 'rgba(78,175,244,0.08)' : 'rgba(78,175,244,0.14)',
                       borderColor: '#4EAFF4',
                     },
+                    pressed ? styles.membershipButtonPressed : null,
                   ]}
+                  onPress={onUpgradeMembership}
+                  disabled={savingEntitlement}
                 >
                   <View style={styles.membershipPlanHeader}>
                     <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Premium</Text>
-                    <View
-                      style={[
-                        styles.membershipPlanBadge,
-                        {
-                          backgroundColor: '#4EAFF4',
-                          borderColor: '#4EAFF4',
-                        },
-                      ]}
-                    >
+                    <View style={[styles.membershipPlanBadge, { backgroundColor: '#4EAFF4', borderColor: '#4EAFF4' }]}>
                       <Text style={styles.membershipPlanBadgeTextOnCta}>
-                        {entitlementMode === 'premium' ? 'Current' : 'Upgrade'}
+                        {savingEntitlement ? 'Updating' : entitlementMode === 'premium' ? 'Current' : 'Upgrade'}
                       </Text>
                     </View>
                   </View>
                   <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>
                     {membershipPriceLabel || 'Premium'}
                   </Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
-                    AI 解釋、雲端 TTS、發音評分
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.membershipStatusPill,
-                  {
-                    backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.16)',
-                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  },
-                ]}
-              >
-                <Text style={[styles.membershipStatusText, { color: palette.textOnContainer }]}>
-                  Current plan: {planBadgeLabel}
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.membershipFeatureCard,
-                  {
-                    backgroundColor: isLight ? '#FFFFFF' : palette.modalOptionBg,
-                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  },
-                ]}
-              >
-                {MEMBERSHIP_FEATURES.map((feature, index) => (
-                  <View key={feature.label}>
-                    <View style={styles.membershipFeatureRow}>
-                      <Text style={[styles.membershipFeatureLabel, { color: palette.textOnContainer }]}>
-                        {feature.label}
-                      </Text>
-                      <View style={styles.membershipFeatureValues}>
-                        <Text style={[styles.membershipFeatureValueMuted, { color: palette.secondaryText }]}>
-                          {feature.free}
-                        </Text>
-                        <Text style={[styles.membershipFeatureValueStrong, { color: palette.textOnContainer }]}>
-                          {feature.premium}
-                        </Text>
-                      </View>
-                    </View>
-                    {index < MEMBERSHIP_FEATURES.length - 1 ? (
-                      <View
-                        style={[
-                          styles.membershipFeatureDivider,
-                          { backgroundColor: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)' },
-                        ]}
-                      />
-                    ) : null}
-                  </View>
-                ))}
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>AI + voice + coach</Text>
+                </Pressable>
               </View>
 
               <Pressable
                 style={({ pressed }) => [
-                  styles.membershipPrimaryButton,
-                  pressed ? styles.membershipButtonPressed : null,
+                  styles.membershipActionPrimary,
+                  pressed || savingEntitlement ? styles.membershipButtonPressed : null,
                 ]}
                 onPress={onUpgradeMembership}
                 disabled={savingEntitlement}
               >
-                <Text style={styles.membershipPrimaryButtonText}>
+                <Text style={styles.membershipActionPrimaryText}>
                   {savingEntitlement
                     ? 'Updating...'
                     : entitlementMode === 'premium'
-                      ? 'Keep Premium'
-                      : 'Upgrade to Premium'}
+                      ? 'Premium active'
+                      : 'Upgrade'}
                 </Text>
               </Pressable>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.membershipSecondaryButton,
-                  {
-                    backgroundColor: palette.modalOptionBg,
-                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  },
-                  pressed ? styles.membershipButtonPressed : null,
-                ]}
-                onPress={onRestoreMembership}
-                disabled={savingEntitlement}
-              >
-                <Text style={[styles.membershipSecondaryButtonText, { color: palette.textOnContainer }]}>
-                  Restore purchases
-                </Text>
-              </Pressable>
+              <View style={styles.membershipActionRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.membershipActionSecondary,
+                    {
+                      backgroundColor: palette.modalOptionBg,
+                      borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                    },
+                    pressed ? styles.membershipButtonPressed : null,
+                  ]}
+                  onPress={onRestoreMembership}
+                  disabled={savingEntitlement}
+                >
+                  <Text style={[styles.membershipActionSecondaryText, { color: palette.textOnContainer }]}>Restore</Text>
+                </Pressable>
 
-              <Pressable
-                style={({ pressed }) => [styles.membershipDismissButton, pressed ? styles.membershipButtonPressed : null]}
-                onPress={onCloseMembershipModal}
-              >
-                <Text style={[styles.membershipDismissText, { color: palette.secondaryText }]}>Not now</Text>
-              </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.membershipActionSecondary,
+                    {
+                      backgroundColor: palette.modalOptionBg,
+                      borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                    },
+                    pressed ? styles.membershipButtonPressed : null,
+                  ]}
+                  onPress={onCloseMembershipModal}
+                >
+                  <Text style={[styles.membershipActionSecondaryText, { color: palette.textOnContainer }]}>Close</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -1897,26 +1822,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 10,
   },
-  membershipTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  membershipSubtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  membershipStatusPill: {
-    marginTop: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  membershipStatusText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
   membershipPlanGrid: {
     marginTop: 16,
     flexDirection: 'row',
@@ -1971,77 +1876,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  membershipFeatureCard: {
+  membershipActionPrimary: {
     marginTop: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  membershipFeatureRow: {
-    minHeight: 52,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  membershipFeatureLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  membershipFeatureValues: {
-    minWidth: 108,
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  membershipFeatureValueMuted: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  membershipFeatureValueStrong: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  membershipFeatureDivider: {
-    height: 1,
-    marginHorizontal: 14,
-  },
-  membershipPrimaryButton: {
-    marginTop: 18,
     minHeight: 50,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4EAFF4',
   },
-  membershipPrimaryButtonText: {
+  membershipActionPrimaryText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
   },
-  membershipSecondaryButton: {
+  membershipActionRow: {
     marginTop: 10,
-    minHeight: 48,
-    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  membershipActionSecondary: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 15,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  membershipSecondaryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  membershipDismissButton: {
-    marginTop: 8,
-    minHeight: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  membershipDismissText: {
+  membershipActionSecondaryText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   membershipButtonPressed: {
     opacity: 0.94,

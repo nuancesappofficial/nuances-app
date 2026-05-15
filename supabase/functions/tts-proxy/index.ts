@@ -3,7 +3,7 @@ import { createServiceRoleClient, resolveServerEntitlement } from '../_shared/en
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-nuances-dev-plan',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -44,6 +44,8 @@ const AZURE_TTS_REGION = (Deno.env.get('AZURE_TTS_REGION') ?? Deno.env.get('AZUR
 const AZURE_TTS_VOICE = (Deno.env.get('AZURE_TTS_VOICE') ?? 'en-US-AndrewNeural').trim();
 const AZURE_TTS_ENDPOINT = (Deno.env.get('AZURE_TTS_ENDPOINT') ?? '').trim();
 const AZURE_TTS_TIMEOUT_MS = Number(Deno.env.get('AZURE_TTS_TIMEOUT_MS') ?? '15000');
+const DEV_ENTITLEMENT_BYPASS_ENABLED =
+  (Deno.env.get('SUBSCRIPTION_DEV_BYPASS') ?? '').trim().toLowerCase() === 'true';
 
 function resolveTtsEndpoint(region: string, endpoint: string): string {
   if (endpoint) {
@@ -91,7 +93,11 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Unauthorized: missing valid JWT' }, 401);
   }
 
-  const entitlement = await resolveServerEntitlement({ supabase, userId, user: authUser });
+  const devPlan = (req.headers.get('x-nuances-dev-plan') ?? '').trim().toLowerCase();
+  const entitlement =
+    DEV_ENTITLEMENT_BYPASS_ENABLED && devPlan === 'premium'
+      ? { planType: 'premium' }
+      : await resolveServerEntitlement({ supabase, userId, user: authUser });
   if (entitlement.planType === 'free') {
     return jsonResponse(
       {

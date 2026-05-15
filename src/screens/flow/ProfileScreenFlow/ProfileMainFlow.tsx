@@ -447,6 +447,36 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     }
   }, [savingEntitlement]);
 
+  const handleDevSetMembership = React.useCallback(async (mode: 'free' | 'trial' | 'premium') => {
+    if (!__DEV__ || !SubscriptionService.isDevBypassEnabled()) return;
+    try {
+      const settings = await loadUserSettings();
+      const now = new Date();
+      const trialStartedAt = mode === 'trial' ? now.toISOString() : settings.trialStartedAt;
+      const trialEndsAt =
+        mode === 'trial'
+          ? new Date(now.getTime() + SubscriptionService.TRIAL_DURATION_MS).toISOString()
+          : settings.trialEndsAt;
+      await saveUserSettings({
+        ...settings,
+        entitlementMode: mode,
+        planType: mode,
+        trialStartedAt,
+        trialEndsAt,
+        subscriptionExpiresAt:
+          mode === 'premium'
+            ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            : null,
+        lastEntitlementSyncAt: now.toISOString(),
+      });
+      setEntitlementMode(mode);
+      Alert.alert('Dev override updated', `Current plan is now ${mode}.`);
+    } catch (error) {
+      console.error('[Profiles] dev entitlement override failed:', error);
+      Alert.alert('Dev override failed', error instanceof Error ? error.message : 'Please try again.');
+    }
+  }, []);
+
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
@@ -577,6 +607,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         onCloseMembershipModal={() => setShowMembershipModal(false)}
         onUpgradeMembership={handleUpgradeMembership}
         onRestoreMembership={handleRestoreMembership}
+        devBypassEnabled={SubscriptionService.isDevBypassEnabled()}
+        onDevSetMembership={handleDevSetMembership}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
         onChangeTTSVoice={handleChangeTTSVoice}
         onOpenSettingsOption={(kind) => {

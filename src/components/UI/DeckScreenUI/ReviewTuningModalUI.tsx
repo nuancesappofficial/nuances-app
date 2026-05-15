@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   },
   questionTypePill: {
     minHeight: 42,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
     borderColor: MODAL_CTA_COLOR,
   },
   questionTypePillText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   questionTypePillTextActive: {

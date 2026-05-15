@@ -39,6 +39,8 @@ const AI_EDGE_FUNCTION_NAME =
   process.env.EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME || 'ai-proxy';
 const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
+const DEV_DEFAULT_PLAN = (process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN || '').trim();
 
 export class AIAuthError extends Error {
   constructor(message = 'Authentication required: please sign in first') {
@@ -72,6 +74,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function buildEdgeHeaders(authHeaders: { Authorization: string }): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: authHeaders.Authorization,
+    ...(__DEV__ && DEV_BYPASS_ENABLED && DEV_DEFAULT_PLAN === 'premium'
+      ? { 'x-nuances-dev-plan': 'premium' }
+      : {}),
+  };
 }
 
 export function isAIProxyConfigured(): boolean {
@@ -167,11 +180,7 @@ async function invokeAIEndpoint(
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: authHeaders.Authorization,
-      },
+      headers: buildEdgeHeaders(authHeaders),
       body: JSON.stringify(body),
     });
 
@@ -391,11 +400,7 @@ export async function streamOpenAIProxy(
   const endpoint = `${SUPABASE_URL}/functions/v1/${AI_EDGE_FUNCTION_NAME}`;
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: authHeaders.Authorization,
-    },
+    headers: buildEdgeHeaders(authHeaders),
     body: JSON.stringify({
       provider: 'openai',
       messages: request.messages,

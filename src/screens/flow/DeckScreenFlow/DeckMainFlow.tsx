@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -35,7 +36,9 @@ import {
 } from '../../../features/deck/reviewPreferences';
 import {
   DEFAULT_USER_SETTINGS,
+  isMainScreenEmptyAlbumSlot,
   loadUserSettings,
+  subscribeUserSettings,
   type MainScreenAlbumGridCount,
 } from '@services/settings/userSettings';
 
@@ -44,6 +47,21 @@ type Props = {
   onPressAvatar?: () => void;
   onPressCacheFab?: () => void;
 };
+
+const ALBUM_COVER_DIR = `${FileSystem.documentDirectory || ''}album-covers/`;
+
+async function persistAlbumCoverImage(sourceUri: string): Promise<string> {
+  if (!ALBUM_COVER_DIR) return sourceUri;
+  const dirInfo = await FileSystem.getInfoAsync(ALBUM_COVER_DIR);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(ALBUM_COVER_DIR, { intermediates: true });
+  }
+  const targetUri = `${ALBUM_COVER_DIR}album-cover-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.jpg`;
+  await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
+  return targetUri;
+}
 
 export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFab }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
@@ -99,6 +117,18 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filterPills = ['群組', '隱私', '已封存'];
+
+  const applyMainScreenSettings = React.useCallback((settings: {
+    wordPopSlideMs: number;
+    mainScreenAlbumGridCount: MainScreenAlbumGridCount;
+    mainScreenWordPopEnabled: boolean;
+    mainScreenAlbumOrder: string[];
+  }) => {
+    setWordPopSlideMs(settings.wordPopSlideMs);
+    setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
+    setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
+    setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
+  }, []);
 
   const toDayKey = React.useCallback((input: Date | string) => {
     const date = new Date(input);
@@ -290,18 +320,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         try {
           const settings = await loadUserSettings();
           if (active) {
-            setWordPopSlideMs(settings.wordPopSlideMs);
-            setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
-            setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
-            setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
+            applyMainScreenSettings(settings);
           }
         } catch (error) {
           console.warn('[DeckMain] load main screen settings failed:', error);
           if (active) {
-            setWordPopSlideMs(DEFAULT_USER_SETTINGS.wordPopSlideMs);
-            setMainScreenAlbumGridCount(DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount);
-            setMainScreenWordPopEnabled(DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled);
-            setMainScreenAlbumOrder(DEFAULT_USER_SETTINGS.mainScreenAlbumOrder);
+            applyMainScreenSettings(DEFAULT_USER_SETTINGS);
           }
         }
       };
@@ -309,7 +333,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       return () => {
         active = false;
       };
-    }, [])
+    }, [applyMainScreenSettings])
+  );
+
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        applyMainScreenSettings(settings);
+      }),
+    [applyMainScreenSettings]
   );
 
   useFocusEffect(
@@ -415,8 +447,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       });
     }
 
-    const orderIndex = new Map(mainScreenAlbumOrder.map((albumId, index) => [albumId, index]));
-    result.sort((a, b) => {
+    const orderIndex = new Map(
+      mainScreenAlbumOrder
+        .filter((slot) => !isMainScreenEmptyAlbumSlot(slot))
+        .map((albumId, index) => [albumId, index])
+    );
+    const sortedAlbums = [...result].sort((a, b) => {
       const aOrder = orderIndex.get(a.id);
       const bOrder = orderIndex.get(b.id);
       if (aOrder != null && bOrder != null) return aOrder - bOrder;
@@ -427,7 +463,34 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       return sortOrder === 'desc' ? bLatest - aLatest : aLatest - bLatest;
     });
 
-    return result;
+    if (keyword || mainScreenAlbumOrder.length === 0) return sortedAlbums;
+
+    const albumById = new Map(sortedAlbums.map((album) => [album.id, album]));
+    const usedAlbumIds = new Set<string>();
+    const laidOutAlbums: Array<DeckAlbum | null> = [];
+
+    mainScreenAlbumOrder.forEach((slot) => {
+      if (isMainScreenEmptyAlbumSlot(slot)) {
+        laidOutAlbums.push(null);
+        return;
+      }
+      const album = albumById.get(slot);
+      if (!album || usedAlbumIds.has(slot)) return;
+      usedAlbumIds.add(slot);
+      laidOutAlbums.push(album);
+    });
+
+    sortedAlbums.forEach((album) => {
+      if (!usedAlbumIds.has(album.id)) {
+        laidOutAlbums.push(album);
+      }
+    });
+
+    while (laidOutAlbums.length > 0 && laidOutAlbums[laidOutAlbums.length - 1] == null) {
+      laidOutAlbums.pop();
+    }
+
+    return laidOutAlbums.length > 0 ? laidOutAlbums : sortedAlbums;
   }, [mainScreenAlbumOrder, mergedAlbums, searchQuery, sortOrder]);
 
   const slideshowItems = React.useMemo(() => {
@@ -601,6 +664,17 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     }
 
     const effectiveCoverImageUri = nextCoverImageUri ?? settingsCoverImageUri;
+    const writeCoverOverride = (albumId: string, uri: string) => {
+      setAlbumCoverOverrides((prev) => {
+        const next = { ...prev };
+        if (uri) {
+          next[albumId] = uri;
+        } else {
+          delete next[albumId];
+        }
+        return next;
+      });
+    };
 
     const isCustomAlbum = customAlbums.some((it) => it.id === settingsAlbum.id);
     if (isCustomAlbum) {
@@ -617,11 +691,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
             : it
         )
       );
+      writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
     } else {
       setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
       setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
       setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
-      setAlbumCoverOverrides((prev) => ({ ...prev, [settingsAlbum.id]: effectiveCoverImageUri }));
+      writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
     }
 
     setSettingsCoverImageUri(effectiveCoverImageUri);
@@ -658,17 +733,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       );
       if (albumCoverCropOpenTimeoutRef.current) {
         clearTimeout(albumCoverCropOpenTimeoutRef.current);
-      }
-      setSettingsVisible(false);
-      albumCoverCropOpenTimeoutRef.current = setTimeout(() => {
-        setPendingAlbumCoverCropUri(normalizedImage.uri);
         albumCoverCropOpenTimeoutRef.current = null;
-      }, 280);
+      }
+      setPendingAlbumCoverCropUri(normalizedImage.uri);
     } catch (error) {
       console.error('[DeckMain] pick album cover failed:', error);
-      if (settingsAlbum) {
-        setSettingsVisible(true);
-      }
       Alert.alert('選擇失敗', '無法選擇封面圖片，請稍後再試。');
     }
   }, [settingsAlbum]);
@@ -857,28 +926,30 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           }
         }}
         onSave={handleSaveAlbumSettings}
-      />
-
-      <ImageCropperModal
-        visible={!!pendingAlbumCoverCropUri}
-        imageUri={pendingAlbumCoverCropUri}
-        cropShape="album"
-        fixedCropSize={260}
-        modalAnimationType="slide"
-        onCancel={() => {
-          setPendingAlbumCoverCropUri(null);
-          if (settingsAlbum) {
-            setSettingsVisible(true);
-          }
-        }}
-        onConfirm={(croppedUri) => {
-          setPendingAlbumCoverCropUri(null);
-          setSettingsCoverImageUri(croppedUri);
-          if (settingsAlbum) {
-            setSettingsVisible(true);
-          }
-        }}
-      />
+      >
+        <ImageCropperModal
+          visible={!!pendingAlbumCoverCropUri}
+          imageUri={pendingAlbumCoverCropUri}
+          cropShape="album"
+          fixedCropSize={260}
+          modalAnimationType="slide"
+          onCancel={() => {
+            setPendingAlbumCoverCropUri(null);
+          }}
+          onConfirm={(croppedUri) => {
+            setSettingsCoverImageUri(croppedUri);
+            setPendingAlbumCoverCropUri(null);
+            void persistAlbumCoverImage(croppedUri)
+              .then((stableUri) => {
+                setSettingsCoverImageUri(stableUri);
+              })
+              .catch((error) => {
+                console.warn('[DeckMain] persist album cover failed:', error);
+                setSettingsCoverImageUri(croppedUri);
+              });
+          }}
+        />
+      </AlbumSettingsModalUI>
 
       <AlbumActionMenuOverlayUI
         isMenuVisible={isMenuVisible}

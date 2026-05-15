@@ -37,6 +37,7 @@ type Props = {
   onCancel: () => void;
   onSave: () => void;
   onDidClose?: () => void;
+  children?: React.ReactNode;
 };
 
 const EMOJI_OPTIONS = ['✨', '🔖', '❤️', '🕒', '📁', '💬', '🎬', '💼'];
@@ -73,6 +74,7 @@ export default function AlbumSettingsModalUI({
   onCancel,
   onSave,
   onDidClose,
+  children,
 }: Props) {
   const colorScheme = useColorScheme();
   const { width: screenWidth } = useWindowDimensions();
@@ -318,7 +320,21 @@ export default function AlbumSettingsModalUI({
                       onPress={onPickCoverImage}
                     >
                       {coverImageUri ? (
-                        <Image source={{ uri: coverImageUri }} style={styles.coverPreviewImage} resizeMode="cover" />
+                        <>
+                          <View pointerEvents="none" style={styles.coverPreviewImageWrap}>
+                            <Image
+                              key={coverImageUri}
+                              source={{ uri: coverImageUri }}
+                              style={styles.coverPreviewImage}
+                              resizeMode="cover"
+                            />
+                          </View>
+                          <View pointerEvents="none" style={styles.coverEditOverlay}>
+                            <View style={[styles.coverPlusCircle, styles.coverEditCircle, { backgroundColor: MODAL_CTA_COLOR }]}>
+                              <Text style={styles.coverEditText}>+</Text>
+                            </View>
+                          </View>
+                        </>
                       ) : (
                         <>
                           <View style={[styles.coverBlurLine, styles.coverBlurLineOne]} />
@@ -352,6 +368,7 @@ export default function AlbumSettingsModalUI({
             </View>
           </Pressable>
         </Animated.View>
+        {children}
       </Pressable>
     </Modal>
   );
@@ -519,6 +536,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  coverPreviewImageWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  coverEditOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2,6,23,0.18)',
+  },
   coverBlurLine: {
     position: 'absolute',
     left: 30,
@@ -550,10 +576,22 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 4 },
   },
+  coverEditCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
   coverPlusText: {
     color: TEXT_ON_CTA,
     fontSize: 34,
     lineHeight: 38,
+    fontWeight: '700',
+    marginTop: -2,
+  },
+  coverEditText: {
+    color: TEXT_ON_CTA,
+    fontSize: 30,
+    lineHeight: 34,
     fontWeight: '700',
     marginTop: -2,
   },

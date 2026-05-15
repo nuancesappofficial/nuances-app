@@ -1,16 +1,39 @@
 import React from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View, useColorScheme } from 'react-native';
+import {
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
+import * as Haptics from 'expo-haptics';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
-import { buildDeckAlbums, loadDeckAlbumPreferences } from '../../../features/deck/albums';
+import {
+  buildDeckAlbums,
+  createCustomAlbum,
+  loadDeckAlbumPreferences,
+  saveDeckAlbumPreferences,
+} from '../../../features/deck/albums';
+import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import {
   DEFAULT_USER_SETTINGS,
+  createMainScreenEmptyAlbumSlot,
   isTTSVoiceCompatibleWithAIReplyLanguage,
+  isMainScreenEmptyAlbumSlot,
   loadUserSettings,
   type MainScreenAlbumGridCount,
   resolveTTSVoiceForLanguage,
@@ -52,6 +75,54 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
 ];
 
+const PREVIEW_GRID_COLUMNS = 3;
+const PREVIEW_GRID_GAP = 10;
+const PREVIEW_PAGE_GAP = 20;
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+
+function normalizeMainScreenSlots(
+  albums: DeckAlbum[],
+  storedOrder: string[],
+  slotsPerPage: MainScreenAlbumGridCount
+): string[] {
+  const albumIds = new Set(albums.map((album) => album.id));
+  const usedAlbumIds = new Set<string>();
+  const slots: string[] = [];
+
+  storedOrder.forEach((slot) => {
+    if (isMainScreenEmptyAlbumSlot(slot)) {
+      slots.push(slot);
+      return;
+    }
+    if (!albumIds.has(slot) || usedAlbumIds.has(slot)) return;
+    usedAlbumIds.add(slot);
+    slots.push(slot);
+  });
+
+  albums.forEach((album) => {
+    if (!usedAlbumIds.has(album.id)) {
+      usedAlbumIds.add(album.id);
+      slots.push(album.id);
+    }
+  });
+
+  const lastAlbumIndex = slots.reduce((latest, slot, index) => {
+    return isMainScreenEmptyAlbumSlot(slot) ? latest : index;
+  }, -1);
+  const desiredSlotCount =
+    Math.ceil(Math.max(slotsPerPage, lastAlbumIndex + 1, albums.length) / slotsPerPage) * slotsPerPage;
+  const trimmedSlots = slots.slice(0, desiredSlotCount);
+  while (trimmedSlots.length < desiredSlotCount) {
+    trimmedSlots.push(createMainScreenEmptyAlbumSlot());
+  }
+
+  return trimmedSlots;
+}
+
 function getTitle(kind: SettingOptionKind): string {
   if (kind === 'ai') return 'Language';
   if (kind === 'voice') return 'Voice';
@@ -66,6 +137,23 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const isLight = colorScheme === 'light';
   const [settings, setSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
   const [mainScreenAlbums, setMainScreenAlbums] = React.useState<DeckAlbum[]>([]);
+  const [previewGridWidth, setPreviewGridWidth] = React.useState(0);
+  const [draggingAlbumId, setDraggingAlbumId] = React.useState<string | null>(null);
+  const [previewEditMode, setPreviewEditMode] = React.useState(false);
+  const [draftAlbumSlots, setDraftAlbumSlots] = React.useState<string[]>([]);
+  const [createAlbumModalVisible, setCreateAlbumModalVisible] = React.useState(false);
+  const [newAlbumName, setNewAlbumName] = React.useState('');
+  const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<string | null>(null);
+  const dragTranslate = React.useRef(new Animated.ValueXY()).current;
+  const previewPositionValuesRef = React.useRef<Record<string, Animated.ValueXY>>({});
+  const previewPositionTargetsRef = React.useRef<Record<string, { x: number; y: number }>>({});
+  const previewWiggleValue = React.useRef(new Animated.Value(0)).current;
+  const lastPreviewTargetIndexRef = React.useRef<number | null>(null);
+  const draftAlbumSlotsRef = React.useRef<string[]>([]);
+  const dragBasePositionRef = React.useRef({ x: 0, y: 0 });
+  const pendingDragAlbumRef = React.useRef<{ albumId: string; index: number } | null>(null);
+  const activeDragAlbumIdRef = React.useRef<string | null>(null);
+  const previewPanActiveRef = React.useRef(false);
 
   React.useEffect(() => {
     if (kind !== 'ai' && kind !== 'voice' && kind !== 'font' && kind !== 'main') {
@@ -128,6 +216,64 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     });
   }, [mainScreenAlbums, settings.mainScreenAlbumOrder]);
 
+  const mainScreenAlbumById = React.useMemo(
+    () => new Map(mainScreenAlbums.map((album) => [album.id, album])),
+    [mainScreenAlbums]
+  );
+
+  React.useEffect(() => {
+    if (kind !== 'main') return;
+    const nextSlots = normalizeMainScreenSlots(
+      orderedMainScreenAlbums,
+      settings.mainScreenAlbumOrder,
+      settings.mainScreenAlbumGridCount
+    );
+    setDraftAlbumSlots((prev) => {
+      if (areStringArraysEqual(prev, nextSlots)) return prev;
+      draftAlbumSlotsRef.current = nextSlots;
+      return nextSlots;
+    });
+  }, [kind, orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+
+  React.useEffect(() => {
+    draftAlbumSlotsRef.current = draftAlbumSlots;
+  }, [draftAlbumSlots]);
+
+  React.useEffect(() => {
+    if (!previewEditMode) {
+      previewWiggleValue.stopAnimation();
+      previewWiggleValue.setValue(0);
+      return;
+    }
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(previewWiggleValue, {
+          toValue: 1,
+          duration: 92,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(previewWiggleValue, {
+          toValue: -1,
+          duration: 120,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(previewWiggleValue, {
+          toValue: 0,
+          duration: 92,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [previewEditMode, previewWiggleValue]);
+
   const handleSelectLanguage = React.useCallback(
     async (language: AIReplyLanguage) => {
       try {
@@ -171,6 +317,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const handleSelectMainScreenAlbumGridCount = React.useCallback(
     async (count: MainScreenAlbumGridCount) => {
       try {
+        if (settings.mainScreenWordPopEnabled && count === 9) return;
         if (settings.mainScreenAlbumGridCount === count) return;
         await persistSettings({ ...settings, mainScreenAlbumGridCount: count });
       } catch (error) {
@@ -183,9 +330,12 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
   const handleToggleWordPop = React.useCallback(async () => {
     try {
+      const nextWordPopEnabled = !settings.mainScreenWordPopEnabled;
       await persistSettings({
         ...settings,
-        mainScreenWordPopEnabled: !settings.mainScreenWordPopEnabled,
+        mainScreenWordPopEnabled: nextWordPopEnabled,
+        mainScreenAlbumGridCount:
+          nextWordPopEnabled && settings.mainScreenAlbumGridCount === 9 ? 6 : settings.mainScreenAlbumGridCount,
       });
     } catch (error) {
       console.error('[ProfileSettingOptions] update word pop visibility failed:', error);
@@ -193,21 +343,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     }
   }, [persistSettings, settings]);
 
-  const handleMoveAlbum = React.useCallback(
-    async (albumId: string, direction: 'up' | 'down') => {
+  const persistAlbumOrder = React.useCallback(
+    async (nextOrder: string[]) => {
       try {
-        const albumIds = orderedMainScreenAlbums.map((album) => album.id);
-        const currentOrder = [
-          ...settings.mainScreenAlbumOrder.filter((id) => albumIds.includes(id)),
-          ...albumIds.filter((id) => !settings.mainScreenAlbumOrder.includes(id)),
-        ];
-        const currentIndex = currentOrder.indexOf(albumId);
-        if (currentIndex < 0) return;
-        const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-        if (nextIndex < 0 || nextIndex >= currentOrder.length) return;
-        const nextOrder = [...currentOrder];
-        [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
-        await persistSettings({ ...settings, mainScreenAlbumOrder: nextOrder });
+        const normalizedOrder = normalizeMainScreenSlots(
+          orderedMainScreenAlbums,
+          nextOrder,
+          settings.mainScreenAlbumGridCount
+        );
+        await persistSettings({ ...settings, mainScreenAlbumOrder: normalizedOrder });
       } catch (error) {
         console.error('[ProfileSettingOptions] update album order failed:', error);
         Alert.alert('更新失敗', '無法儲存相簿順序，請稍後再試。');
@@ -215,6 +359,200 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     },
     [orderedMainScreenAlbums, persistSettings, settings]
   );
+
+  const persistRawAlbumSlots = React.useCallback(
+    async (nextOrder: string[]) => {
+      try {
+        await persistSettings({ ...settings, mainScreenAlbumOrder: nextOrder });
+      } catch (error) {
+        console.error('[ProfileSettingOptions] update raw album slots failed:', error);
+        Alert.alert('更新失敗', '無法儲存主畫面相簿位置，請稍後再試。');
+      }
+    },
+    [persistSettings, settings]
+  );
+
+  const moveDraftAlbumToPreviewIndex = React.useCallback((albumId: string, targetIndex: number) => {
+    setDraftAlbumSlots((prev) => {
+      const currentIndex = prev.indexOf(albumId);
+      if (currentIndex < 0) return prev;
+      const clampedTargetIndex = Math.max(0, Math.min(targetIndex, prev.length - 1));
+      if (currentIndex === clampedTargetIndex) return prev;
+
+      const nextSlots = [...prev];
+      const targetSlot = nextSlots[clampedTargetIndex];
+      if (isMainScreenEmptyAlbumSlot(targetSlot)) {
+        nextSlots[currentIndex] = targetSlot;
+        nextSlots[clampedTargetIndex] = albumId;
+        draftAlbumSlotsRef.current = nextSlots;
+        return nextSlots;
+      }
+
+      const [moved] = nextSlots.splice(currentIndex, 1);
+      nextSlots.splice(clampedTargetIndex, 0, moved);
+      draftAlbumSlotsRef.current = nextSlots;
+      return nextSlots;
+    });
+  }, []);
+
+  const ensurePreviewEditPage = React.useCallback(() => {
+    if (!previewEditMode) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setPreviewEditMode(true);
+    setDraftAlbumSlots((prev) => {
+      const baseSlots =
+        prev.length > 0
+          ? prev
+          : normalizeMainScreenSlots(
+              orderedMainScreenAlbums,
+              settings.mainScreenAlbumOrder,
+              settings.mainScreenAlbumGridCount
+            );
+      const emptyTail = baseSlots.slice(-settings.mainScreenAlbumGridCount);
+      const alreadyHasEmptyPage =
+        emptyTail.length === settings.mainScreenAlbumGridCount &&
+        emptyTail.every((slot) => isMainScreenEmptyAlbumSlot(slot));
+      const nextSlots = alreadyHasEmptyPage
+        ? baseSlots
+        : [
+            ...baseSlots,
+            ...Array.from({ length: settings.mainScreenAlbumGridCount }, () => createMainScreenEmptyAlbumSlot()),
+          ];
+      draftAlbumSlotsRef.current = nextSlots;
+      return areStringArraysEqual(prev, nextSlots) ? prev : nextSlots;
+    });
+  }, [orderedMainScreenAlbums, previewEditMode, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+
+  const finishPreviewEditMode = React.useCallback(() => {
+    setPreviewEditMode(false);
+    const normalizedSlots = normalizeMainScreenSlots(
+      orderedMainScreenAlbums,
+      draftAlbumSlotsRef.current.length > 0 ? draftAlbumSlotsRef.current : settings.mainScreenAlbumOrder,
+      settings.mainScreenAlbumGridCount
+    );
+    draftAlbumSlotsRef.current = normalizedSlots;
+    setDraftAlbumSlots((prev) => (areStringArraysEqual(prev, normalizedSlots) ? prev : normalizedSlots));
+  }, [orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+
+  const deletePreviewAlbum = React.useCallback(
+    async (album: DeckAlbum) => {
+      if (album.isDefault) {
+        Alert.alert('無法刪除', '預設資料夾不能刪除。');
+        return;
+      }
+
+      const baseSlots =
+        draftAlbumSlotsRef.current.length > 0
+          ? draftAlbumSlotsRef.current
+          : normalizeMainScreenSlots(
+              orderedMainScreenAlbums,
+              settings.mainScreenAlbumOrder,
+              settings.mainScreenAlbumGridCount
+            );
+      const nextSlots = baseSlots.map((slot) => (slot === album.id ? createMainScreenEmptyAlbumSlot() : slot));
+      draftAlbumSlotsRef.current = nextSlots;
+      setDraftAlbumSlots(nextSlots);
+      setMainScreenAlbums((prev) => prev.filter((item) => item.id !== album.id));
+      await persistRawAlbumSlots(nextSlots);
+
+      const prefs = await loadDeckAlbumPreferences();
+      const isCustomAlbum = prefs.customAlbums.some((item) => item.id === album.id);
+      await saveDeckAlbumPreferences({
+        ...prefs,
+        customAlbums: isCustomAlbum ? prefs.customAlbums.filter((item) => item.id !== album.id) : prefs.customAlbums,
+        deletedAlbumIds:
+          isCustomAlbum || prefs.deletedAlbumIds.includes(album.id)
+            ? prefs.deletedAlbumIds
+            : [...prefs.deletedAlbumIds, album.id],
+      });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPreviewEditMode(false);
+    },
+    [orderedMainScreenAlbums, persistRawAlbumSlots, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]
+  );
+
+  const confirmDeletePreviewAlbum = React.useCallback(
+    (album: DeckAlbum) => {
+      Alert.alert('刪除相簿', `確定要刪除「${album.name}」嗎？`, [
+        {
+          text: '取消',
+          style: 'cancel',
+          onPress: () => {
+            setPreviewEditMode(true);
+          },
+        },
+        {
+          text: '刪除',
+          style: 'destructive',
+          onPress: () => {
+            void deletePreviewAlbum(album);
+          },
+        },
+      ]);
+    },
+    [deletePreviewAlbum]
+  );
+
+  const openCreateAlbumAtSlot = React.useCallback((slotId: string) => {
+    setPendingCreateSlotId(slotId);
+    setNewAlbumName('');
+    setCreateAlbumModalVisible(true);
+  }, []);
+
+  const cancelCreateAlbumAtSlot = React.useCallback(() => {
+    setCreateAlbumModalVisible(false);
+    setPendingCreateSlotId(null);
+    setNewAlbumName('');
+  }, []);
+
+  const confirmCreateAlbumAtSlot = React.useCallback(async () => {
+    const trimmedName = newAlbumName.trim();
+    if (!trimmedName || !pendingCreateSlotId) return;
+
+    try {
+      const newAlbum = createCustomAlbum(trimmedName);
+      const prefs = await loadDeckAlbumPreferences();
+      await saveDeckAlbumPreferences({
+        ...prefs,
+        customAlbums: [newAlbum, ...prefs.customAlbums],
+      });
+
+      const baseSlots =
+        draftAlbumSlotsRef.current.length > 0
+          ? draftAlbumSlotsRef.current
+          : normalizeMainScreenSlots(
+              orderedMainScreenAlbums,
+              settings.mainScreenAlbumOrder,
+              settings.mainScreenAlbumGridCount
+            );
+      const targetIndex = baseSlots.indexOf(pendingCreateSlotId);
+      const nextSlots = [...baseSlots];
+      if (targetIndex >= 0) {
+        nextSlots[targetIndex] = newAlbum.id;
+      } else {
+        nextSlots.push(newAlbum.id);
+      }
+
+      draftAlbumSlotsRef.current = nextSlots;
+      setDraftAlbumSlots(nextSlots);
+      setMainScreenAlbums((prev) => [...prev, newAlbum]);
+      await persistRawAlbumSlots(nextSlots);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      cancelCreateAlbumAtSlot();
+    } catch (error) {
+      console.error('[ProfileSettingOptions] create album from preview slot failed:', error);
+      Alert.alert('建立失敗', '無法建立相簿，請稍後再試。');
+    }
+  }, [
+    cancelCreateAlbumAtSlot,
+    newAlbumName,
+    orderedMainScreenAlbums,
+    pendingCreateSlotId,
+    persistRawAlbumSlots,
+    settings.mainScreenAlbumGridCount,
+    settings.mainScreenAlbumOrder,
+  ]);
 
   const rows = React.useMemo(() => {
     if (kind === 'ai') {
@@ -237,18 +575,205 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
     if (kind === 'font') {
       return STICKER_FONT_OPTIONS.map((item) => ({
-      key: item.key,
-      selected: item.key === settings.stickerFontKey,
-      content: <StickerFontPreview label="Nuances" fontKey={item.key} />,
-      onPress: () => void handleSelectFont(item.key),
+        key: item.key,
+        selected: item.key === settings.stickerFontKey,
+        content: <StickerFontPreview label="Nuances" fontKey={item.key} />,
+        onPress: () => void handleSelectFont(item.key),
       }));
     }
 
     return [];
   }, [handleSelectFont, handleSelectLanguage, handleSelectVoice, kind, palette.textOnContainer, settings, visibleTTSVoiceOptions]);
 
-  const previewAlbums = orderedMainScreenAlbums.slice(0, settings.mainScreenAlbumGridCount);
-  const previewFillerCount = Math.max(0, settings.mainScreenAlbumGridCount - previewAlbums.length);
+  const previewSlots = React.useMemo(
+    () =>
+      draftAlbumSlots.length > 0
+        ? draftAlbumSlots
+        : normalizeMainScreenSlots(
+            orderedMainScreenAlbums,
+            settings.mainScreenAlbumOrder,
+            settings.mainScreenAlbumGridCount
+          ),
+    [draftAlbumSlots, orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]
+  );
+  const previewGridSlotCount = previewSlots.length;
+  const previewPageCount = Math.max(1, Math.ceil(previewGridSlotCount / settings.mainScreenAlbumGridCount));
+  const previewRowsPerPage = Math.max(1, Math.ceil(settings.mainScreenAlbumGridCount / PREVIEW_GRID_COLUMNS));
+  const previewCellWidth =
+    previewGridWidth > 0
+      ? (previewGridWidth - PREVIEW_GRID_GAP * (PREVIEW_GRID_COLUMNS - 1)) / PREVIEW_GRID_COLUMNS
+      : 0;
+  const previewCellHeight = previewCellWidth > 0 ? previewCellWidth + 25 : 0;
+  const previewPageHeight =
+    previewCellHeight > 0
+      ? previewRowsPerPage * previewCellHeight + PREVIEW_GRID_GAP * Math.max(0, previewRowsPerPage - 1)
+      : 0;
+  const previewCanvasHeight =
+    previewPageHeight > 0
+      ? previewPageCount * previewPageHeight + PREVIEW_PAGE_GAP * Math.max(0, previewPageCount - 1)
+      : 0;
+  const mainScreenGridCountOptions = React.useMemo(
+    () =>
+      (settings.mainScreenWordPopEnabled ? [3, 6] : [3, 6, 9]) as MainScreenAlbumGridCount[],
+    [settings.mainScreenWordPopEnabled]
+  );
+
+  const getPreviewSlotPosition = React.useCallback(
+    (index: number) => {
+      const pageIndex = Math.floor(index / settings.mainScreenAlbumGridCount);
+      const indexInPage = index % settings.mainScreenAlbumGridCount;
+      const row = Math.floor(indexInPage / PREVIEW_GRID_COLUMNS);
+      const col = indexInPage % PREVIEW_GRID_COLUMNS;
+      return {
+        x: col * (previewCellWidth + PREVIEW_GRID_GAP),
+        y: pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP) + row * (previewCellHeight + PREVIEW_GRID_GAP),
+      };
+    },
+    [previewCellHeight, previewCellWidth, previewPageHeight, settings.mainScreenAlbumGridCount]
+  );
+
+  const beginPreviewAlbumDrag = React.useCallback(
+    (albumId: string, startIndex: number) => {
+      const startPosition = getPreviewSlotPosition(startIndex);
+      dragBasePositionRef.current = startPosition;
+      lastPreviewTargetIndexRef.current = startIndex;
+      activeDragAlbumIdRef.current = albumId;
+      setDraggingAlbumId(albumId);
+      dragTranslate.setValue({ x: 0, y: 0 });
+    },
+    [dragTranslate, getPreviewSlotPosition]
+  );
+
+  const getPreviewTargetIndexFromGesture = React.useCallback(
+    (gestureDx: number, gestureDy: number) => {
+      if (previewCellWidth <= 0 || previewCellHeight <= 0 || previewPageHeight <= 0) return null;
+      const centerX = dragBasePositionRef.current.x + gestureDx + previewCellWidth / 2;
+      const centerY = dragBasePositionRef.current.y + gestureDy + previewCellHeight / 2;
+      const pageBand = previewPageHeight + PREVIEW_PAGE_GAP;
+      const pageIndex = Math.max(0, Math.min(previewPageCount - 1, Math.floor(centerY / Math.max(1, pageBand))));
+      const yInPage = centerY - pageIndex * pageBand;
+      const row = Math.max(
+        0,
+        Math.min(previewRowsPerPage - 1, Math.floor(yInPage / Math.max(1, previewCellHeight + PREVIEW_GRID_GAP)))
+      );
+      const col = Math.max(
+        0,
+        Math.min(PREVIEW_GRID_COLUMNS - 1, Math.floor(centerX / Math.max(1, previewCellWidth + PREVIEW_GRID_GAP)))
+      );
+      return Math.max(
+        0,
+        Math.min(previewSlots.length - 1, pageIndex * settings.mainScreenAlbumGridCount + row * PREVIEW_GRID_COLUMNS + col)
+      );
+    },
+    [
+      previewCellHeight,
+      previewCellWidth,
+      previewPageCount,
+      previewRowsPerPage,
+      previewSlots.length,
+      settings.mainScreenAlbumGridCount,
+    ]
+  );
+
+  React.useEffect(() => {
+    if (previewCellWidth <= 0 || previewCellHeight <= 0) return;
+    previewSlots.forEach((slot, index) => {
+      const nextPosition = getPreviewSlotPosition(index);
+      if (!previewPositionValuesRef.current[slot]) {
+        previewPositionValuesRef.current[slot] = new Animated.ValueXY(nextPosition);
+        previewPositionTargetsRef.current[slot] = nextPosition;
+        return;
+      }
+      if (draggingAlbumId === slot) return;
+      const currentTarget = previewPositionTargetsRef.current[slot];
+      const alreadyAtTarget =
+        currentTarget && currentTarget.x === nextPosition.x && currentTarget.y === nextPosition.y;
+      if (alreadyAtTarget) return;
+      previewPositionTargetsRef.current[slot] = nextPosition;
+      if (!previewEditMode) {
+        previewPositionValuesRef.current[slot].setValue(nextPosition);
+        return;
+      }
+      Animated.spring(previewPositionValuesRef.current[slot], {
+        toValue: nextPosition,
+        tension: 170,
+        friction: 26,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [draggingAlbumId, getPreviewSlotPosition, previewCellHeight, previewCellWidth, previewEditMode, previewSlots]);
+
+  const endPreviewAlbumDrag = React.useCallback(
+    (shouldPersist: boolean) => {
+      const albumId = activeDragAlbumIdRef.current;
+      if (albumId) {
+        const releaseTargetIndex = draftAlbumSlotsRef.current.indexOf(albumId);
+        if (releaseTargetIndex >= 0 && previewPositionValuesRef.current[albumId]) {
+          const releasePosition = getPreviewSlotPosition(releaseTargetIndex);
+          previewPositionValuesRef.current[albumId].setValue(releasePosition);
+          previewPositionTargetsRef.current[albumId] = releasePosition;
+        }
+      }
+      setDraggingAlbumId(null);
+      activeDragAlbumIdRef.current = null;
+      pendingDragAlbumRef.current = null;
+      previewPanActiveRef.current = false;
+      dragTranslate.setValue({ x: 0, y: 0 });
+      lastPreviewTargetIndexRef.current = null;
+      if (shouldPersist) {
+        void persistAlbumOrder(draftAlbumSlotsRef.current);
+      }
+    },
+    [dragTranslate, getPreviewSlotPosition, persistAlbumOrder]
+  );
+
+  const previewGridPanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          (previewEditMode || !!activeDragAlbumIdRef.current) &&
+          (!!pendingDragAlbumRef.current || !!activeDragAlbumIdRef.current) &&
+          (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          (previewEditMode || !!activeDragAlbumIdRef.current) &&
+          (!!pendingDragAlbumRef.current || !!activeDragAlbumIdRef.current) &&
+          (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
+        onPanResponderGrant: () => {
+          previewPanActiveRef.current = true;
+          if (activeDragAlbumIdRef.current) return;
+          const pendingDrag = pendingDragAlbumRef.current;
+          if (!pendingDrag) return;
+          beginPreviewAlbumDrag(pendingDrag.albumId, pendingDrag.index);
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const albumId = activeDragAlbumIdRef.current;
+          if (!albumId) return;
+          dragTranslate.setValue({ x: gestureState.dx, y: gestureState.dy });
+          const targetIndex = getPreviewTargetIndexFromGesture(gestureState.dx, gestureState.dy);
+          if (targetIndex == null) return;
+          if (lastPreviewTargetIndexRef.current === targetIndex) return;
+          lastPreviewTargetIndexRef.current = targetIndex;
+          void Haptics.selectionAsync();
+          moveDraftAlbumToPreviewIndex(albumId, targetIndex);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          endPreviewAlbumDrag(Math.abs(gestureState.dx) >= 2 || Math.abs(gestureState.dy) >= 2);
+        },
+        onPanResponderTerminate: () => {
+          endPreviewAlbumDrag(false);
+        },
+      }),
+    [
+      beginPreviewAlbumDrag,
+      dragTranslate,
+      endPreviewAlbumDrag,
+      getPreviewTargetIndexFromGesture,
+      moveDraftAlbumToPreviewIndex,
+      previewEditMode,
+    ]
+  );
 
   if (kind === 'main') {
     return (
@@ -266,6 +791,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
           <ScrollView
             style={styles.mainScroll}
             contentContainerStyle={styles.mainScrollContent}
+            scrollEnabled={!draggingAlbumId}
             showsVerticalScrollIndicator={false}
           >
             <View
@@ -278,61 +804,228 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               ]}
             >
               <View style={styles.mainSectionHeader}>
-                <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>Grid preview</Text>
-                <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>
-                  {settings.mainScreenAlbumGridCount} per page
+                <Text style={[styles.mainInstructionText, { color: palette.textOnContainer }]}>
+                  Hold an album, then drag it to change places or move it to another page.
                 </Text>
+                {previewEditMode ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.previewDoneButton,
+                      { backgroundColor: MODAL_CTA_COLOR },
+                      pressed ? styles.pressed : null,
+                    ]}
+                    onPress={finishPreviewEditMode}
+                  >
+                    <Text style={styles.previewDoneText}>Done</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>
+                    {settings.mainScreenAlbumGridCount} per page
+                  </Text>
+                )}
               </View>
-              <View style={styles.previewGrid}>
-                {previewAlbums.map((album) => (
-                  <View key={`preview-${album.id}`} style={styles.previewAlbumCell}>
-                    <View
-                      style={[
-                        styles.previewAlbumCover,
-                        {
-                          backgroundColor: album.coverImageUri ? palette.modalOptionBg : album.color || palette.modalOptionBg,
-                          borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                        },
-                      ]}
-                    >
-                      {album.coverImageUri ? (
-                        <Image source={{ uri: album.coverImageUri }} style={styles.previewAlbumImage} resizeMode="cover" />
-                      ) : (
-                        <Text style={styles.previewAlbumEmoji}>{album.emoji || '📁'}</Text>
-                      )}
-                    </View>
-                    <Text style={[styles.previewAlbumName, { color: palette.textOnContainer }]} numberOfLines={1}>
-                      {album.name}
-                    </Text>
-                  </View>
-                ))}
-                {Array.from({ length: previewFillerCount }).map((_, index) => (
-                  <View key={`preview-filler-${index}`} style={styles.previewAlbumCell}>
-                    <View
-                      style={[
-                        styles.previewAlbumCover,
-                        styles.previewAlbumFiller,
-                        {
-                          backgroundColor: palette.modalOptionBg,
-                          borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.previewFillerLine, styles.previewFillerLineOne]} />
-                      <View style={[styles.previewFillerLine, styles.previewFillerLineTwo]} />
-                      <View style={[styles.previewFillerLine, styles.previewFillerLineThree]} />
-                      <View style={styles.previewFillerPlusCircle}>
-                        <Text style={styles.previewFillerPlusText}>+</Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.previewAlbumName, { color: palette.secondaryText }]} numberOfLines={1}>
-                      Empty
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+              <Animated.View
+                style={[styles.previewGrid, previewCanvasHeight > 0 ? { height: previewCanvasHeight } : null]}
+                onLayout={(event) => {
+                  const width = Math.round(event.nativeEvent.layout.width);
+                  setPreviewGridWidth((prev) => (prev === width ? prev : width));
+                }}
+                {...previewGridPanResponder.panHandlers}
+              >
+                {Array.from({ length: previewPageCount }).map((_, pageIndex) => (
+                      <View
+                        key={`preview-page-bg-${pageIndex}`}
+                        pointerEvents="none"
+                        style={[
+                          styles.previewPageBackground,
+                          {
+                            top: pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP),
+                            height: previewPageHeight,
+                            borderColor: isLight ? 'rgba(148,163,184,0.2)' : 'rgba(78,175,244,0.14)',
+                          },
+                        ]}
+                      />
+                    ))}
 
+                {previewSlots.map((slot, index) => {
+                  const slotPosition = getPreviewSlotPosition(index);
+                  if (isMainScreenEmptyAlbumSlot(slot)) {
+                    if (!previewPositionValuesRef.current[slot]) {
+                      previewPositionValuesRef.current[slot] = new Animated.ValueXY(slotPosition);
+                    }
+                    return (
+                      <Animated.View
+                        key={`preview-filler-${slot}`}
+                        style={[
+                          styles.previewAlbumCell,
+                          styles.previewAbsoluteCell,
+                          previewCellWidth > 0 ? { width: previewCellWidth } : null,
+                          previewPositionValuesRef.current[slot].getLayout(),
+                        ]}
+                      >
+                        <Pressable
+                          style={styles.previewAlbumPressable}
+                          onPress={() => openCreateAlbumAtSlot(slot)}
+                        >
+                          <View
+                            style={[
+                              styles.previewAlbumCover,
+                              styles.previewAlbumFiller,
+                              {
+                                backgroundColor: palette.modalOptionBg,
+                                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                              },
+                            ]}
+                          >
+                            <View style={[styles.previewFillerLine, styles.previewFillerLineOne]} />
+                            <View style={[styles.previewFillerLine, styles.previewFillerLineTwo]} />
+                            <View style={[styles.previewFillerLine, styles.previewFillerLineThree]} />
+                            <View style={styles.previewFillerPlusCircle}>
+                              <Text style={styles.previewFillerPlusText}>+</Text>
+                            </View>
+                          </View>
+                          <View style={styles.previewFillerLabelSpacer} />
+                        </Pressable>
+                      </Animated.View>
+                    );
+                  }
+
+                  const album = mainScreenAlbumById.get(slot);
+                  if (!album) return null;
+                  if (!previewPositionValuesRef.current[album.id]) {
+                    previewPositionValuesRef.current[album.id] = new Animated.ValueXY(slotPosition);
+                  }
+                  const isDragging = draggingAlbumId === album.id;
+                  const wiggleRotate = previewWiggleValue.interpolate({
+                    inputRange: [-1, 0, 1],
+                    outputRange: index % 2 === 0 ? ['-1.4deg', '0deg', '1.4deg'] : ['1.2deg', '0deg', '-1.2deg'],
+                  });
+                  const wiggleTranslateY = previewWiggleValue.interpolate({
+                    inputRange: [-1, 0, 1],
+                    outputRange: index % 2 === 0 ? [-0.8, 0, 0.8] : [0.8, 0, -0.8],
+                  });
+                  return (
+                    <Animated.View
+                      key={`preview-${album.id}`}
+                      style={[
+                        styles.previewAlbumCell,
+                        styles.previewAbsoluteCell,
+                        previewCellWidth > 0 ? { width: previewCellWidth } : null,
+                        previewPositionValuesRef.current[album.id].getLayout(),
+                        isDragging
+                          ? {
+                              opacity: 0,
+                            }
+                          : previewEditMode
+                            ? {
+                                transform: [{ translateY: wiggleTranslateY }, { rotate: wiggleRotate }],
+                              }
+                          : null,
+                      ]}
+                    >
+                      <Pressable
+                        onPressIn={() => {
+                          pendingDragAlbumRef.current = { albumId: album.id, index };
+                        }}
+                        onPressOut={() => {
+                          if (activeDragAlbumIdRef.current === album.id && !previewPanActiveRef.current) {
+                            endPreviewAlbumDrag(false);
+                            return;
+                          }
+                          if (!activeDragAlbumIdRef.current && !previewPanActiveRef.current) {
+                            pendingDragAlbumRef.current = null;
+                          }
+                        }}
+                        onLongPress={() => {
+                          pendingDragAlbumRef.current = { albumId: album.id, index };
+                          ensurePreviewEditPage();
+                          beginPreviewAlbumDrag(album.id, index);
+                        }}
+                        delayLongPress={220}
+                        style={styles.previewAlbumPressable}
+                      >
+                        {previewEditMode ? (
+                          <Pressable
+                            hitSlop={8}
+                            style={({ pressed }) => [
+                              styles.previewDeleteButton,
+                              {
+                                backgroundColor: isLight ? 'rgba(148,163,184,0.78)' : 'rgba(71,85,105,0.86)',
+                              },
+                              pressed ? styles.previewDeleteButtonPressed : null,
+                            ]}
+                            onPress={() => confirmDeletePreviewAlbum(album)}
+                          >
+                            <Ionicons name="close" size={13} color="#FFFFFF" />
+                          </Pressable>
+                        ) : null}
+                        <View
+                          style={[
+                            styles.previewAlbumCover,
+                            {
+                              backgroundColor: album.coverImageUri ? palette.modalOptionBg : album.color || palette.modalOptionBg,
+                              borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                            },
+                          ]}
+                        >
+                          {album.coverImageUri ? (
+                            <Image source={{ uri: album.coverImageUri }} style={styles.previewAlbumImage} resizeMode="cover" />
+                          ) : (
+                            <Text style={styles.previewAlbumEmoji}>{album.emoji || '📁'}</Text>
+                          )}
+                        </View>
+                        <Text style={[styles.previewAlbumName, { color: palette.textOnContainer }]} numberOfLines={1}>
+                          {album.name}
+                        </Text>
+                      </Pressable>
+                    </Animated.View>
+                  );
+                })}
+                {draggingAlbumId && mainScreenAlbumById.get(draggingAlbumId) && previewCellWidth > 0 ? (() => {
+                      const album = mainScreenAlbumById.get(draggingAlbumId);
+                      if (!album) return null;
+                      return (
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            styles.previewAlbumCell,
+                            styles.previewAbsoluteCell,
+                            styles.previewDragOverlay,
+                            {
+                              width: previewCellWidth,
+                              left: dragBasePositionRef.current.x,
+                              top: dragBasePositionRef.current.y,
+                              transform: [
+                                { translateX: dragTranslate.x },
+                                { translateY: dragTranslate.y },
+                                { scale: 1.04 },
+                              ],
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.previewAlbumCover,
+                              {
+                                backgroundColor: album.coverImageUri ? palette.modalOptionBg : album.color || palette.modalOptionBg,
+                                borderColor: MODAL_CTA_COLOR,
+                              },
+                            ]}
+                          >
+                            {album.coverImageUri ? (
+                              <Image source={{ uri: album.coverImageUri }} style={styles.previewAlbumImage} resizeMode="cover" />
+                            ) : (
+                              <Text style={styles.previewAlbumEmoji}>{album.emoji || '📁'}</Text>
+                            )}
+                          </View>
+                          <Text style={[styles.previewAlbumName, { color: palette.textOnContainer }]} numberOfLines={1}>
+                            {album.name}
+                          </Text>
+                        </Animated.View>
+                      );
+                    })() : null}
+              </Animated.View>
+            </View>
             <View
               style={[
                 styles.card,
@@ -348,7 +1041,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               <View style={styles.mainBlock}>
                 <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>Albums per page</Text>
                 <View style={styles.segmentRow}>
-                  {([3, 6, 9] as MainScreenAlbumGridCount[]).map((count) => {
+                  {mainScreenGridCountOptions.map((count) => {
                     const active = settings.mainScreenAlbumGridCount === count;
                     return (
                       <Pressable
@@ -389,57 +1082,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               </View>
             </View>
 
-            <View
-              style={[
-                styles.card,
-                styles.mainSettingsCard,
-                {
-                  backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-                  shadowOpacity: isLight ? 0.08 : 0.18,
-                },
-              ]}
-            >
-              <View style={styles.mainBlock}>
-                <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>Album sequence</Text>
-              </View>
-              {orderedMainScreenAlbums.map((album, index) => (
-                <React.Fragment key={album.id}>
-                  <View style={styles.sequenceRow}>
-                    <View style={styles.sequenceIdentity}>
-                      <View style={[styles.sequenceIcon, { backgroundColor: album.color || palette.modalOptionBg }]}>
-                        <Text style={styles.sequenceEmoji}>{album.emoji || '📁'}</Text>
-                      </View>
-                      <Text style={[styles.settingLabel, { color: palette.textOnContainer }]} numberOfLines={1}>
-                        {album.name}
-                      </Text>
-                    </View>
-                    <View style={styles.sequenceControls}>
-                      <TouchableOpacity
-                        style={[styles.reorderButton, index === 0 ? styles.reorderButtonDisabled : null]}
-                        disabled={index === 0}
-                        onPress={() => void handleMoveAlbum(album.id, 'up')}
-                      >
-                        <Ionicons name="chevron-up" size={18} color={palette.textOnContainer} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.reorderButton, index === orderedMainScreenAlbums.length - 1 ? styles.reorderButtonDisabled : null]}
-                        disabled={index === orderedMainScreenAlbums.length - 1}
-                        onPress={() => void handleMoveAlbum(album.id, 'down')}
-                      >
-                        <Ionicons name="chevron-down" size={18} color={palette.textOnContainer} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  {index < orderedMainScreenAlbums.length - 1 ? (
-                    <View style={[styles.divider, { backgroundColor: isLight ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.32)' }]} />
-                  ) : null}
-                </React.Fragment>
-              ))}
-            </View>
           </ScrollView>
         </SafeAreaView>
+        <CreateAlbumModalUI
+          visible={createAlbumModalVisible}
+          albumName={newAlbumName}
+          onChangeAlbumName={setNewAlbumName}
+          onCancel={cancelCreateAlbumAtSlot}
+          onConfirm={() => void confirmCreateAlbumAtSlot()}
+        />
       </View>
     );
   }
@@ -581,18 +1232,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  mainInstructionText: {
+    flex: 1,
+    paddingRight: 12,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
   mainSectionMeta: {
     marginTop: 4,
     fontSize: 12,
     fontWeight: '600',
   },
   previewGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    position: 'relative',
+    width: '100%',
+    minHeight: 120,
   },
   previewAlbumCell: {
     width: '31%',
+  },
+  previewAbsoluteCell: {
+    position: 'absolute',
+  },
+  previewDragOverlay: {
+    zIndex: 40,
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  previewAlbumPressable: {
+    width: '100%',
+  },
+  previewDeleteButton: {
+    position: 'absolute',
+    top: -8,
+    left: -8,
+    zIndex: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.62)',
+  },
+  previewDeleteButtonPressed: {
+    transform: [{ scale: 0.92 }],
+  },
+  previewPageBackground: {
+    position: 'absolute',
+    left: -4,
+    right: -4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  previewDoneButton: {
+    minHeight: 30,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewDoneText: {
+    color: TEXT_ON_CTA,
+    fontSize: 12,
+    fontWeight: '800',
   },
   previewAlbumCover: {
     width: '100%',
@@ -657,6 +1364,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  previewFillerLabelSpacer: {
+    height: 19,
+    marginTop: 6,
+  },
   mainSettingsCard: {
     marginTop: 0,
     marginHorizontal: 0,
@@ -694,44 +1405,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 14,
-  },
-  sequenceRow: {
-    minHeight: 58,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  sequenceIdentity: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  sequenceIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sequenceEmoji: {
-    fontSize: 18,
-  },
-  sequenceControls: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  reorderButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reorderButtonDisabled: {
-    opacity: 0.3,
   },
 });

@@ -20,11 +20,11 @@ export const REVIEW_QUESTION_TYPE_OPTIONS: Array<{
   label: string;
   shortLabel: string;
 }> = [
-  { key: 'fill_blank', label: 'Fill in the blank', shortLabel: 'Blank' },
-  { key: 'translation_to_word', label: 'Translation → word', shortLabel: '翻譯→字' },
-  { key: 'word_to_translation', label: 'Word → translation', shortLabel: '字→翻譯' },
-  { key: 'sentence_to_translation', label: 'Sentence → translation', shortLabel: '句子→翻譯' },
-  { key: 'part_of_speech', label: 'Part of speech', shortLabel: '詞性' },
+  { key: 'fill_blank', label: 'Cloze: choose the missing word', shortLabel: '克漏字' },
+  { key: 'translation_to_word', label: 'Definition to word: choose the matching word', shortLabel: '定義選字' },
+  { key: 'word_to_translation', label: 'Word to meaning: choose the correct meaning', shortLabel: '單字選義' },
+  { key: 'sentence_to_translation', label: 'Sentence context: choose the meaning in context', shortLabel: '情境選義' },
+  { key: 'part_of_speech', label: 'Part of speech: choose the grammar type', shortLabel: '詞性判斷' },
 ];
 
 export const DEFAULT_REVIEW_QUESTION_TYPES: ReviewQuestionType[] = REVIEW_QUESTION_TYPE_OPTIONS.map(
