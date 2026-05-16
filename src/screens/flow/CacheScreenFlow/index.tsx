@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   useDerivedValue, // <-- 新增此行
+  runOnJS,
   withRepeat,
   withSpring, // 新增此行
   withTiming,
@@ -97,34 +98,68 @@ const STICKER_GRID_HEIGHT = 188;
 const STICKER_MIN_WIDTH = 36;
 const STICKER_MAX_WIDTH = 420;
 const STICKER_OUTLINE_SAFETY_PAD = 6;
+const STICKER_HORIZONTAL_PAD = 4;
+const STICKER_FONT_WIDTH_SCALE = 0.68;
+const STICKER_SVG_BLEED = 10;
+const STICKER_COL_CENTER_ANCHORS = [18, 50, 82];
+const STICKER_ROW_TOP_STEP = 34;
+const STICKER_VERTICAL_OFFSETS = [0, 8, 3, 12, 5, 15, 2, 10, 6, 14, 4, 11];
+
+function getStickerFontSize(textLength: number): number {
+  return Math.max(16, 23 - Math.max(0, textLength - 8) * 0.55);
+}
 
 function estimateStickerWidth(label: string): number {
   const text = normalizeStickerText(label);
   let units = 0;
   for (const ch of text) {
     if (/\s/.test(ch)) {
-      units += 0.42;
-    } else if (/[A-Za-z0-9]/.test(ch)) {
-      units += 0.58;
+      units += 0.28;
+    } else if (/[ilI1|'`.,:;]/.test(ch)) {
+      units += 0.24;
+    } else if (/[mwMW@#%&]/.test(ch)) {
+      units += 0.74;
+    } else if (/[A-Z0-9]/.test(ch)) {
+      units += 0.62;
+    } else if (/[a-z]/.test(ch)) {
+      units += 0.52;
     } else {
       // CJK / emoji / symbols tend to occupy wider visual space.
       units += 1.0;
     }
   }
-  // 字母會重疊，寬度要比一般字寬更緊
-  // Include extra space for thick white outline so right edge won't be clipped.
-  const estimated = Math.ceil(units * 13.6 + 24 + STICKER_OUTLINE_SAFETY_PAD);
+  const fontSize = getStickerFontSize(text.length);
+  const widthUnit = fontSize * STICKER_FONT_WIDTH_SCALE;
+  const estimated = Math.ceil(
+    units * widthUnit + STICKER_HORIZONTAL_PAD * 2 + STICKER_OUTLINE_SAFETY_PAD * 2
+  );
   return Math.max(STICKER_MIN_WIDTH, Math.min(STICKER_MAX_WIDTH, estimated));
 }
 
-function getStickerAnchor(index: number): { baseLeftPct: number; baseTop: number } {
-  const colAnchors = [6, 38, 70];
+function getStickerCenterAnchorPct(index: number): number {
+  'worklet';
   const row = Math.floor(index / 3);
   const col = index % 3;
-  return {
-    baseLeftPct: colAnchors[col] + (row % 2 === 0 ? -2 : 2),
-    baseTop: row * 34,
-  };
+  return STICKER_COL_CENTER_ANCHORS[col] + (row % 2 === 0 ? -1.5 : 1.5);
+}
+
+function getStickerBaseTop(index: number): number {
+  'worklet';
+  const row = Math.floor(index / 3);
+  return row * STICKER_ROW_TOP_STEP + STICKER_VERTICAL_OFFSETS[index % STICKER_VERTICAL_OFFSETS.length];
+}
+
+function getStickerStartX(
+  index: number,
+  containerWidth: number,
+  stickerWidth: number,
+  edgeInsetX: number
+): number {
+  'worklet';
+  const rawCenterX = (containerWidth * getStickerCenterAnchorPct(index)) / 100;
+  const rawStartX = rawCenterX - stickerWidth / 2;
+  const maxStartX = Math.max(edgeInsetX, containerWidth - stickerWidth - edgeInsetX);
+  return Math.max(edgeInsetX, Math.min(maxStartX, rawStartX));
 }
 
 function TiltSticker({
@@ -153,12 +188,14 @@ function TiltSticker({
   const stickerTiltDeg = ((index % 5) - 2) * 1.2;
   const stickerFont = resolveStickerFont(stickerFontKey);
   const labelText = normalizeStickerText(item.label);
-  const dynamicFontSize = Math.max(16, 23 - Math.max(0, labelText.length - 8) * 0.55);
+  const isLightMode = useColorScheme() !== 'dark';
+  const dynamicFontSize = getStickerFontSize(labelText.length);
   const dynamicLineHeight = Math.round(dynamicFontSize * 1.16);
   const svgHeight = Math.max(34, dynamicLineHeight + 10);
   const strokeWidth = Math.max(3.4, Math.min(5.2, dynamicFontSize * 0.22));
   const textY = Math.round(svgHeight * 0.72);
   const textX = Math.round(stickerWidth / 2);
+  const svgRenderWidth = stickerWidth + STICKER_SVG_BLEED * 2;
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -190,11 +227,28 @@ function TiltSticker({
       >
         <View style={styles.stickerWordWrap} pointerEvents="none">
           <Svg
-            width={stickerWidth}
+            width={svgRenderWidth}
             height={svgHeight}
-            viewBox={`0 0 ${stickerWidth} ${svgHeight}`}
-            style={styles.stickerWordSvg}
+            viewBox={`${-STICKER_SVG_BLEED} 0 ${svgRenderWidth} ${svgHeight}`}
+            style={[styles.stickerWordSvg, { marginHorizontal: -STICKER_SVG_BLEED }]}
           >
+            {isLightMode ? (
+              <SvgText
+                x={textX + 1.2}
+                y={textY + 2}
+                fill="none"
+                stroke="rgba(0, 0, 0, 0.28)"
+                strokeWidth={strokeWidth + 2.2}
+                strokeLinejoin="round"
+                fontSize={dynamicFontSize}
+                fontWeight="900"
+                fontFamily={stickerFont.fontFamily}
+                textAnchor="middle"
+                letterSpacing={stickerFont.letterSpacing}
+              >
+                {labelText}
+              </SvgText>
+            ) : null}
             <SvgText
               x={textX}
               y={textY}
@@ -264,6 +318,15 @@ function VocabStickerCloud({
   const posYList = useSharedValue<number[]>([]);
   const velXList = useSharedValue<number[]>([]);
   const velYList = useSharedValue<number[]>([]);
+  const borderContactList = useSharedValue<boolean[]>([]);
+  const lastBorderHapticAt = useRef(0);
+
+  const triggerBorderHaptic = useCallback(() => {
+    const now = Date.now();
+    if (now - lastBorderHapticAt.current < 180) return;
+    lastBorderHapticAt.current = now;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const count = limitedStickers.length;
@@ -271,14 +334,16 @@ function VocabStickerCloud({
     posYList.value = Array.from({ length: count }, (_, i) => ((i + 1) % 2 === 0 ? -1 : 1));
     velXList.value = Array.from({ length: count }, () => 0);
     velYList.value = Array.from({ length: count }, () => 0);
-  }, [limitedStickers.length, posXList, posYList, velXList, velYList]);
+    borderContactList.value = Array.from({ length: count }, () => false);
+  }, [borderContactList, limitedStickers.length, posXList, posYList, velXList, velYList]);
 
   const EDGE_INSET_X = 1;
   const BOUNCE = 0.55;
   const COLLISION_BOUNCE = 0.62;
   const FRICTION = 0.93;
-  const GRAVITY_MULTIPLIER = 400;
-  const COL_ANCHORS = [6, 38, 70];
+  const GRAVITY_MULTIPLIER = 220;
+  const BORDER_CONTACT_EPS = 0.5;
+  const BORDER_RELEASE_DISTANCE = 9;
 
   useFrameCallback((frameInfo) => {
     'worklet';
@@ -296,17 +361,14 @@ function VocabStickerCloud({
     const py = posYList.value.slice();
     const vx = velXList.value.slice();
     const vy = velYList.value.slice();
+    const previousBorderContacts = borderContactList.value.slice();
+    const nextBorderContacts = previousBorderContacts.slice();
+    let didEnterBorder = false;
 
     for (let i = 0; i < count; i += 1) {
-      const row = Math.floor(i / 3);
-      const col = i % 3;
-      const rawBaseLeftPct = COL_ANCHORS[col] + (row % 2 === 0 ? -2 : 2);
-      const baseTop = row * 34;
       const currentWidth = stickerWidths[i] ?? STICKER_WIDTH;
-      const rawStartX = (containerWidth * rawBaseLeftPct) / 100;
-      const maxStartX = Math.max(EDGE_INSET_X, containerWidth - currentWidth - EDGE_INSET_X);
-      const startX = Math.max(EDGE_INSET_X, Math.min(maxStartX, rawStartX));
-      const startY = baseTop;
+      const startX = getStickerStartX(i, containerWidth, currentWidth, EDGE_INSET_X);
+      const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
       const limitUp = -startY + 1;
@@ -341,25 +403,15 @@ function VocabStickerCloud({
 
     // 貼紙-貼紙碰撞：分離重疊並交換速度分量，避免互相穿透
     for (let i = 0; i < count; i += 1) {
-      const aiRow = Math.floor(i / 3);
-      const aiCol = i % 3;
-      const aiRawBaseLeftPct = COL_ANCHORS[aiCol] + (aiRow % 2 === 0 ? -2 : 2);
-      const aiBaseTop = aiRow * 34;
       const aiWidth = stickerWidths[i] ?? STICKER_WIDTH;
-      const aiRawStartX = (containerWidth * aiRawBaseLeftPct) / 100;
-      const aiMaxStartX = Math.max(EDGE_INSET_X, containerWidth - aiWidth - EDGE_INSET_X);
-      const aiStartX = Math.max(EDGE_INSET_X, Math.min(aiMaxStartX, aiRawStartX));
+      const aiStartX = getStickerStartX(i, containerWidth, aiWidth, EDGE_INSET_X);
+      const aiBaseTop = getStickerBaseTop(i);
       const ax0 = aiStartX + (px[i] ?? 0);
       const ay0 = aiBaseTop + (py[i] ?? 0);
       for (let j = i + 1; j < count; j += 1) {
-        const ajRow = Math.floor(j / 3);
-        const ajCol = j % 3;
-        const ajRawBaseLeftPct = COL_ANCHORS[ajCol] + (ajRow % 2 === 0 ? -2 : 2);
-        const ajBaseTop = ajRow * 34;
         const ajWidth = stickerWidths[j] ?? STICKER_WIDTH;
-        const ajRawStartX = (containerWidth * ajRawBaseLeftPct) / 100;
-        const ajMaxStartX = Math.max(EDGE_INSET_X, containerWidth - ajWidth - EDGE_INSET_X);
-        const ajStartX = Math.max(EDGE_INSET_X, Math.min(ajMaxStartX, ajRawStartX));
+        const ajStartX = getStickerStartX(j, containerWidth, ajWidth, EDGE_INSET_X);
+        const ajBaseTop = getStickerBaseTop(j);
         const bx0 = ajStartX + (px[j] ?? 0);
         const by0 = ajBaseTop + (py[j] ?? 0);
 
@@ -389,15 +441,9 @@ function VocabStickerCloud({
 
     // 碰撞後再次套用邊界夾制
     for (let i = 0; i < count; i += 1) {
-      const row = Math.floor(i / 3);
-      const col = i % 3;
-      const rawBaseLeftPct = COL_ANCHORS[col] + (row % 2 === 0 ? -2 : 2);
-      const baseTop = row * 34;
       const currentWidth = stickerWidths[i] ?? STICKER_WIDTH;
-      const rawStartX = (containerWidth * rawBaseLeftPct) / 100;
-      const maxStartX = Math.max(EDGE_INSET_X, containerWidth - currentWidth - EDGE_INSET_X);
-      const startX = Math.max(EDGE_INSET_X, Math.min(maxStartX, rawStartX));
-      const startY = baseTop;
+      const startX = getStickerStartX(i, containerWidth, currentWidth, EDGE_INSET_X);
+      const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
       const limitUp = -startY + 1;
@@ -405,22 +451,47 @@ function VocabStickerCloud({
 
       px[i] = Math.max(limitLeft, Math.min(limitRight, px[i] ?? 0));
       py[i] = Math.max(limitUp, Math.min(limitDown, py[i] ?? 0));
+
+      const touchingBorder =
+        px[i] <= limitLeft + BORDER_CONTACT_EPS ||
+        px[i] >= limitRight - BORDER_CONTACT_EPS ||
+        py[i] <= limitUp + BORDER_CONTACT_EPS ||
+        py[i] >= limitDown - BORDER_CONTACT_EPS;
+      const releasedBorder =
+        px[i] > limitLeft + BORDER_RELEASE_DISTANCE &&
+        px[i] < limitRight - BORDER_RELEASE_DISTANCE &&
+        py[i] > limitUp + BORDER_RELEASE_DISTANCE &&
+        py[i] < limitDown - BORDER_RELEASE_DISTANCE;
+
+      if (touchingBorder) {
+        if (!previousBorderContacts[i]) {
+          didEnterBorder = true;
+        }
+        nextBorderContacts[i] = true;
+      } else if (releasedBorder) {
+        nextBorderContacts[i] = false;
+      } else {
+        nextBorderContacts[i] = previousBorderContacts[i] ?? false;
+      }
     }
 
     posXList.value = px;
     posYList.value = py;
     velXList.value = vx;
     velYList.value = vy;
+    borderContactList.value = nextBorderContacts;
+
+    if (didEnterBorder) {
+      runOnJS(triggerBorderHaptic)();
+    }
   });
 
   return (
     <View style={styles.stickerGrid}>
       {limitedStickers.map((item, index) => {
-        const { baseLeftPct: rawBaseLeftPct, baseTop } = getStickerAnchor(index);
         const currentWidth = stickerWidths[index] ?? STICKER_WIDTH;
-        const rawStartX = (containerWidth * rawBaseLeftPct) / 100;
-        const maxStartX = Math.max(EDGE_INSET_X, containerWidth - currentWidth - EDGE_INSET_X);
-        const safeStartX = Math.max(EDGE_INSET_X, Math.min(maxStartX, rawStartX));
+        const baseTop = getStickerBaseTop(index);
+        const safeStartX = getStickerStartX(index, containerWidth, currentWidth, EDGE_INSET_X);
         const safeBaseLeftPct = (safeStartX / containerWidth) * 100;
         return (
           <TiltSticker
@@ -1197,11 +1268,11 @@ const styles = StyleSheet.create({
     borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: BUTTON_TOKENS.shadow.color,
-    shadowOpacity: BUTTON_TOKENS.shadow.opacity,
-    shadowRadius: BUTTON_TOKENS.shadow.radius,
-    shadowOffset: { width: 0, height: BUTTON_TOKENS.shadow.offsetY },
-    elevation: BUTTON_TOKENS.shadow.elevation,
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
   uploadBarButtonLabel: {
     color: TEXT_ON_CTA,

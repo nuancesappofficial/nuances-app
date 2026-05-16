@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Animated, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -456,13 +456,12 @@ export default function DeckMainScreenUI({
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={[styles.topRightRow, isSearchExpanded ? styles.topRightRowExpanded : null]}>
         {!isSearchExpanded ? (
-          <TouchableOpacity
-            style={styles.brandIconButton}
-            activeOpacity={0.8}
+          <Pressable
+            style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
             onPress={() => onPressCacheFab?.()}
           >
             <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
-          </TouchableOpacity>
+          </Pressable>
         ) : null}
         <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
           <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
@@ -498,7 +497,10 @@ export default function DeckMainScreenUI({
                 />
               </Animated.View>
 
-              <TouchableOpacity style={styles.searchToggleButton} activeOpacity={0.8} onPress={handleSearchToggle}>
+              <Pressable
+                style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.deckIconButtonPressed : null]}
+                onPress={handleSearchToggle}
+              >
                 <Animated.View
                   style={[
                     styles.iconLayer,
@@ -522,7 +524,7 @@ export default function DeckMainScreenUI({
                 >
                   <Ionicons name="close" size={30} color={palette.textOnBg} />
                 </Animated.View>
-              </TouchableOpacity>
+              </Pressable>
             </Animated.View>
 
             {isSearchExpanded && searchQuery.trim().length > 0 ? (
@@ -539,10 +541,13 @@ export default function DeckMainScreenUI({
                 <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
                   {searchResults.length > 0 ? (
                     searchResults.map((item) => (
-                      <TouchableOpacity
+                      <Pressable
                         key={`${item.cardId}-${item.text}`}
-                        style={[styles.searchResultItem, { borderBottomColor: palette.searchDropdownDivider }]}
-                        activeOpacity={0.85}
+                        style={({ pressed }) => [
+                          styles.searchResultItem,
+                          { borderBottomColor: palette.searchDropdownDivider },
+                          pressed ? styles.deckMediumButtonPressed : null,
+                        ]}
                         onPress={() => onPressSearchResult(item)}
                       >
                         <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
@@ -553,7 +558,7 @@ export default function DeckMainScreenUI({
                             {item.translation}
                           </Text>
                         ) : null}
-                      </TouchableOpacity>
+                      </Pressable>
                     ))
                   ) : (
                     <View style={styles.searchResultEmpty}>
@@ -568,25 +573,27 @@ export default function DeckMainScreenUI({
           </Animated.View>
 
           {!isSearchExpanded ? (
-            <TouchableOpacity style={styles.rawIconButton} activeOpacity={0.7} onPress={onOpenCreateAlbum}>
+            <Pressable
+              style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+              onPress={onOpenCreateAlbum}
+            >
               <Ionicons name="add" size={38} color={palette.textOnBg} />
-            </TouchableOpacity>
+            </Pressable>
           ) : null}
         </View>
       </View>
 
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
-        <TouchableOpacity
+        <Pressable
           style={[styles.searchBackdropMask, { backgroundColor: palette.searchBackdropMask }]}
-          activeOpacity={1}
           onPress={handleSearchToggle}
         />
       ) : null}
 
       {wordPopEnabled ? (
         <View style={styles.wordShowcaseWrap}>
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.wordShowcase,
               {
                 minHeight: wordPopMinHeight,
@@ -599,8 +606,8 @@ export default function DeckMainScreenUI({
                     shadowOpacity: 0.05,
                   }
                 : null,
+              pressed && activeShowcaseItem ? styles.deckMediumButtonPressed : null,
             ]}
-            activeOpacity={0.88}
             disabled={!activeShowcaseItem}
             onPress={() => {
               if (!activeShowcaseItem) return;
@@ -634,7 +641,7 @@ export default function DeckMainScreenUI({
                 </Animated.Text>
               </View>
             </View>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : null}
 
@@ -1165,5 +1172,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '600',
+  },
+  deckMediumButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  deckIconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
 });

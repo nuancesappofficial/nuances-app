@@ -5,9 +5,9 @@ import {
   Image,
   Modal,
   PanResponder,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -750,16 +750,27 @@ export default function ImageCropperModal({
         </View>
 
         <View style={[styles.headerOverlay, { paddingTop: insets.top + 12 }]}>
-          <TouchableOpacity onPress={onCancel} style={styles.headerChip} disabled={processing}>
+          <Pressable
+            onPress={onCancel}
+            style={({ pressed }) => [styles.headerChip, pressed && !processing ? styles.pressableChipPressed : null]}
+            disabled={processing}
+          >
             <Text style={styles.cancelText}>取消</Text>
-          </TouchableOpacity>
+          </Pressable>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.title}>裁切圖片</Text>
             {isFixedCropShape ? <Text style={styles.helperText}>拖曳與縮放</Text> : null}
           </View>
-          <TouchableOpacity onPress={handleConfirm} style={styles.headerChip} disabled={processing || !cropRect}>
+          <Pressable
+            onPress={handleConfirm}
+            style={({ pressed }) => [
+              styles.headerChip,
+              pressed && !processing && cropRect ? styles.pressableChipPressed : null,
+            ]}
+            disabled={processing || !cropRect}
+          >
             <Text style={styles.confirmText}>{processing ? '處理中...' : '完成'}</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -793,6 +804,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  pressableChipPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
   headerTitleWrap: {
     alignItems: 'center',

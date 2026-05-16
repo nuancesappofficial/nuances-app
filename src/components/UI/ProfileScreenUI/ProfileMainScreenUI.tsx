@@ -11,7 +11,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   useColorScheme,
   useWindowDimensions,
   View,
@@ -309,9 +308,11 @@ function HeatMapCircle({
   );
 
   return (
-    <TouchableOpacity
-      style={styles.dayWrap}
-      activeOpacity={hasCards ? 0.88 : 1}
+    <Pressable
+      style={({ pressed }) => [
+        styles.dayWrap,
+        pressed && hasCards ? styles.profileMediumButtonPressed : null,
+      ]}
       onPress={() => {
         if (!hasCards) return;
         onPressDay(item);
@@ -329,7 +330,7 @@ function HeatMapCircle({
         </>
       ) : null}
       {content}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -741,30 +742,36 @@ export default function ProfileMainScreenUI({
         <View style={styles.monthHeaderRow}>
           <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
           <View style={styles.monthControlRow}>
-            <TouchableOpacity
-              style={[styles.monthNavButton, isLight ? { backgroundColor: palette.containerBg } : null]}
-              activeOpacity={0.85}
+            <Pressable
+              style={({ pressed }) => [
+                styles.monthNavButton,
+                isLight ? { backgroundColor: palette.containerBg } : null,
+                pressed ? styles.profileIconButtonPressed : null,
+              ]}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
             >
               <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>‹</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
                 styles.monthSelectButton,
                 isLight ? { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle } : null,
+                pressed ? styles.profileMediumButtonPressed : null,
               ]}
-              activeOpacity={0.85}
               onPress={openMonthPicker}
             >
               <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.monthNavButton, isLight ? { backgroundColor: palette.containerBg } : null]}
-              activeOpacity={0.85}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.monthNavButton,
+                isLight ? { backgroundColor: palette.containerBg } : null,
+                pressed ? styles.profileIconButtonPressed : null,
+              ]}
               onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
             >
               <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>›</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
 
@@ -1013,13 +1020,29 @@ export default function ProfileMainScreenUI({
                 },
               ]}
             >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.membershipCloseIcon,
+                  {
+                    backgroundColor: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.07)',
+                    borderColor: isLight ? palette.borderSubtle : 'rgba(255,255,255,0.10)',
+                  },
+                  pressed ? styles.membershipButtonPressed : null,
+                ]}
+                onPress={onCloseMembershipModal}
+                hitSlop={10}
+              >
+                <Ionicons name="close" size={18} color={palette.secondaryText} />
+              </Pressable>
+
               <View style={styles.membershipPlanGrid}>
                 <Pressable
                   style={({ pressed }) => [
                     styles.membershipPlanCard,
+                    styles.membershipPlanCardMuted,
                     {
-                      backgroundColor: isLight ? '#FFFFFF' : palette.modalOptionBg,
-                      borderColor: entitlementMode === 'premium' ? palette.borderSubtle : '#4EAFF4',
+                      backgroundColor: isLight ? 'rgba(255,255,255,0.70)' : 'rgba(15,23,42,0.44)',
+                      borderColor: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(148,163,184,0.16)',
                     },
                     pressed ? styles.membershipButtonPressed : null,
                   ]}
@@ -1042,7 +1065,7 @@ export default function ProfileMainScreenUI({
                     ) : null}
                   </View>
                   <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>$0</Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>OCR + manual cards</Text>
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>Manual entry only</Text>
                 </Pressable>
 
                 <Pressable
@@ -1050,26 +1073,29 @@ export default function ProfileMainScreenUI({
                     styles.membershipPlanCard,
                     styles.membershipPlanCardFeatured,
                     {
-                      backgroundColor: isLight ? 'rgba(78,175,244,0.08)' : 'rgba(78,175,244,0.14)',
-                      borderColor: '#4EAFF4',
+                      backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.13)',
+                      borderColor: '#00E5FF',
                     },
                     pressed ? styles.membershipButtonPressed : null,
                   ]}
                   onPress={onUpgradeMembership}
                   disabled={savingEntitlement}
                 >
+                  <View style={styles.membershipPremiumGlow} pointerEvents="none" />
                   <View style={styles.membershipPlanHeader}>
                     <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Premium</Text>
-                    <View style={[styles.membershipPlanBadge, { backgroundColor: '#4EAFF4', borderColor: '#4EAFF4' }]}>
+                    <View style={[styles.membershipPlanBadge, { backgroundColor: '#00E5FF', borderColor: '#00E5FF' }]}>
                       <Text style={styles.membershipPlanBadgeTextOnCta}>
-                        {savingEntitlement ? 'Updating' : entitlementMode === 'premium' ? 'Current' : 'Upgrade'}
+                        {entitlementMode === 'premium' ? 'Active' : 'Pro'}
                       </Text>
                     </View>
                   </View>
                   <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>
                     {membershipPriceLabel || 'Premium'}
                   </Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>AI + voice + coach</Text>
+                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
+                    AI generation, native voice, & coach
+                  </Text>
                 </Pressable>
               </View>
 
@@ -1086,40 +1112,21 @@ export default function ProfileMainScreenUI({
                     ? 'Updating...'
                     : entitlementMode === 'premium'
                       ? 'Premium active'
-                      : 'Upgrade'}
+                      : 'Start 7-Day Free Trial'}
                 </Text>
               </Pressable>
 
-              <View style={styles.membershipActionRow}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.membershipActionSecondary,
-                    {
-                      backgroundColor: palette.modalOptionBg,
-                      borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                    },
-                    pressed ? styles.membershipButtonPressed : null,
-                  ]}
-                  onPress={onRestoreMembership}
-                  disabled={savingEntitlement}
-                >
-                  <Text style={[styles.membershipActionSecondaryText, { color: palette.textOnContainer }]}>Restore</Text>
-                </Pressable>
+              <Text style={[styles.membershipRenewalCopy, { color: palette.secondaryText }]}>
+                Cancel anytime. Auto-renews after trial.
+              </Text>
 
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.membershipActionSecondary,
-                    {
-                      backgroundColor: palette.modalOptionBg,
-                      borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                    },
-                    pressed ? styles.membershipButtonPressed : null,
-                  ]}
-                  onPress={onCloseMembershipModal}
-                >
-                  <Text style={[styles.membershipActionSecondaryText, { color: palette.textOnContainer }]}>Close</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                style={({ pressed }) => [styles.membershipRestoreLink, pressed ? styles.membershipRestoreLinkPressed : null]}
+                onPress={onRestoreMembership}
+                disabled={savingEntitlement}
+              >
+                <Text style={[styles.membershipRestoreText, { color: palette.secondaryText }]}>Restore purchases</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -1143,19 +1150,19 @@ export default function ProfileMainScreenUI({
               >
             <View style={styles.monthPickerHandle} />
             <View style={styles.monthPickerTopBar}>
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.monthPickerDoneButton,
                   {
                     backgroundColor: palette.containerBg,
                     borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
                   },
+                  pressed ? styles.profileMediumButtonPressed : null,
                 ]}
-                activeOpacity={0.9}
                 onPress={handleConfirmMonthPicker}
               >
                 <Text style={[styles.monthPickerDoneText, { color: palette.textOnContainer }]}>完成</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             <View
@@ -1815,15 +1822,27 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: 22,
     paddingBottom: 14,
     shadowOpacity: 0.18,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 10,
   },
+  membershipCloseIcon: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 3,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   membershipPlanGrid: {
-    marginTop: 16,
+    marginTop: 22,
     flexDirection: 'row',
     gap: 10,
   },
@@ -1833,13 +1852,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 14,
+    overflow: 'hidden',
+  },
+  membershipPlanCardMuted: {
+    opacity: 0.78,
   },
   membershipPlanCardFeatured: {
-    shadowColor: '#4EAFF4',
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 5,
+  },
+  membershipPremiumGlow: {
+    position: 'absolute',
+    right: -34,
+    top: -34,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: 'rgba(0,229,255,0.18)',
   },
   membershipPlanHeader: {
     flexDirection: 'row',
@@ -1868,7 +1900,7 @@ const styles = StyleSheet.create({
   },
   membershipPlanPrice: {
     marginTop: 14,
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: '900',
   },
   membershipPlanMeta: {
@@ -1877,34 +1909,41 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   membershipActionPrimary: {
-    marginTop: 14,
+    marginTop: 16,
     minHeight: 50,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4EAFF4',
+    backgroundColor: '#00AEEF',
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
   membershipActionPrimaryText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
   },
-  membershipActionRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 10,
+  membershipRenewalCopy: {
+    marginTop: 8,
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
   },
-  membershipActionSecondary: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 15,
-    borderWidth: 1,
+  membershipRestoreLink: {
+    minHeight: 34,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  membershipActionSecondaryText: {
-    fontSize: 14,
-    fontWeight: '800',
+  membershipRestoreLinkPressed: {
+    opacity: 0.65,
+  },
+  membershipRestoreText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   membershipButtonPressed: {
     opacity: 0.94,
@@ -2101,5 +2140,13 @@ const styles = StyleSheet.create({
   inlineSettingBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  profileMediumButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  profileIconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
 });

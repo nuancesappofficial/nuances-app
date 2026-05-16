@@ -5,9 +5,9 @@ import {
   FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   useColorScheme,
   useWindowDimensions,
   View,
@@ -639,9 +639,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 const isCorrectOption = option === question.correctAnswer;
                 const hasAnswered = Boolean(selectedAnswer);
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={option}
-                    style={[
+                    style={({ pressed }) => [
                       styles.optionCard,
                       { backgroundColor: palette.optionBg, borderColor: palette.optionBorder },
                       hasAnswered ? { borderColor: palette.optionAnsweredBorder } : null,
@@ -652,13 +652,13 @@ export default function ReviewFlow({ navigation, route }: Props) {
                         ? { backgroundColor: palette.optionWrongBg, borderColor: palette.optionWrongBorder }
                         : null,
                       hasAnswered && !wasChosen && !isCorrectOption ? styles.optionCardDisabled : null,
+                      pressed && !hasAnswered ? styles.optionCardPressed : null,
                     ]}
-                    activeOpacity={0.92}
                     disabled={hasAnswered}
                     onPress={() => answerQuestion(question, option)}
                   >
                     <Text style={[styles.optionText, { color: palette.primaryText }]}>{option}</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
@@ -735,13 +735,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
               ) : null}
             </View>
 
-            <TouchableOpacity
-              style={[
+            <Pressable
+              style={({ pressed }) => [
                 styles.nextTimeButton,
                 { backgroundColor: palette.nextTimeBg, borderColor: palette.nextTimeBorder },
                 isPinned
                   ? { backgroundColor: palette.nextTimeActiveBg, borderColor: palette.nextTimeActiveBorder }
                   : null,
+                pressed ? styles.secondaryButtonPressed : null,
               ]}
               onPress={() => void handleTogglePinned(question.cardId)}
             >
@@ -753,11 +754,18 @@ export default function ReviewFlow({ navigation, route }: Props) {
               <Text style={[styles.nextTimeText, { color: palette.nextTimeText }, isPinned && styles.nextTimeTextActive]}>
                 test me next time
               </Text>
-            </TouchableOpacity>
+            </Pressable>
 
-            <TouchableOpacity style={[styles.nextButton, { backgroundColor: palette.nextButtonBg }]} onPress={handleNext}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.nextButton,
+                { backgroundColor: palette.nextButtonBg },
+                pressed ? styles.primaryButtonPressed : null,
+              ]}
+              onPress={handleNext}
+            >
               <Text style={[styles.nextButtonText, { color: palette.nextButtonText }]}>Next</Text>
-            </TouchableOpacity>
+            </Pressable>
           </Animated.View>
         </View>
       </View>
@@ -787,22 +795,27 @@ export default function ReviewFlow({ navigation, route }: Props) {
           <Text style={[styles.summaryPercent, { color: summaryTone.color }]}>{percentage}% correct</Text>
           <Text style={[styles.summaryBody, { color: palette.secondaryText }]}>{summaryTone.message}</Text>
 
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.summarySecondaryButton,
               { backgroundColor: palette.summarySecondaryBg, borderColor: palette.summarySecondaryBorder },
+              pressed ? styles.primaryButtonPressed : null,
             ]}
             onPress={handleReplay}
           >
             <Text style={[styles.summarySecondaryText, { color: palette.summarySecondaryText }]}>Play Again</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={[styles.summaryPrimaryButton, { backgroundColor: palette.nextButtonBg }]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.summaryPrimaryButton,
+              { backgroundColor: palette.nextButtonBg },
+              pressed ? styles.primaryButtonPressed : null,
+            ]}
             onPress={() => navigation.goBack()}
           >
             <Text style={[styles.summaryPrimaryText, { color: palette.nextButtonText }]}>Done</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     );
@@ -842,12 +855,16 @@ export default function ReviewFlow({ navigation, route }: Props) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
+              pressed ? styles.iconButtonPressed : null,
+            ]}
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
-          </TouchableOpacity>
+          </Pressable>
           <View style={styles.headerTextWrap}>
             <Text style={[styles.headerTitle, { color: palette.primaryText }]}>{albumName}</Text>
             <Text style={[styles.headerSubTitle, { color: palette.secondaryText }]}>No cards available</Text>
@@ -863,12 +880,16 @@ export default function ReviewFlow({ navigation, route }: Props) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={[styles.backButton, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.backButton,
+            { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
+            pressed ? styles.iconButtonPressed : null,
+          ]}
           onPress={() => navigation.goBack()}
         >
           <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
-        </TouchableOpacity>
+        </Pressable>
 
         <View style={styles.headerTextWrap}>
           <Text style={[styles.headerTitle, { color: palette.primaryText }]}>{albumName}</Text>
@@ -1178,6 +1199,22 @@ const styles = StyleSheet.create({
   summarySecondaryText: {
     fontSize: 17,
     fontWeight: '800',
+  },
+  primaryButtonPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  secondaryButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  optionCardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  iconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
   centerState: {
     flex: 1,

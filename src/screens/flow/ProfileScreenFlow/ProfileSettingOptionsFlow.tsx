@@ -780,10 +780,13 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} activeOpacity={0.86} onPress={() => navigation.goBack()}>
+            <Pressable
+              style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+              onPress={() => navigation.goBack()}
+            >
               <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
               <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
-            </TouchableOpacity>
+            </Pressable>
             <Text style={[styles.title, { color: palette.textOnBg }]}>Main screen</Text>
             <View style={styles.headerSpacer} />
           </View>
@@ -1099,10 +1102,13 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} activeOpacity={0.86} onPress={() => navigation.goBack()}>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+            onPress={() => navigation.goBack()}
+          >
             <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
             <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
-          </TouchableOpacity>
+          </Pressable>
           <Text style={[styles.title, { color: palette.textOnBg }]}>{getTitle(kind)}</Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -1165,6 +1171,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     minWidth: 64,
+  },
+  backButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
   backText: {
     fontSize: 16,

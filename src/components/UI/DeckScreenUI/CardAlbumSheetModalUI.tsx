@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   CONTAINER_BG,
@@ -85,9 +85,12 @@ export default function CardAlbumSheetModalUI({
 
         <View style={styles.sheetHeader}>
           <Text style={[styles.sheetTitle, { color: palette.textOnBg }]}>Add to Album</Text>
-          <TouchableOpacity onPress={onDone}>
+          <Pressable
+            onPress={onDone}
+            style={({ pressed }) => (pressed ? styles.headerTextBtnPressed : null)}
+          >
             <Text style={[styles.sheetDone, { color: palette.textOnBg }]}>Done</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <View style={[styles.sheetCardPreview, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]}>
@@ -105,20 +108,24 @@ export default function CardAlbumSheetModalUI({
         </View>
 
         <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={styles.sheetScrollContent}>
-          <TouchableOpacity style={styles.createAlbumBtn} onPress={onOpenCreateAlbum}>
+          <Pressable
+            style={({ pressed }) => [styles.createAlbumBtn, pressed ? styles.primaryBtnPressed : null]}
+            onPress={onOpenCreateAlbum}
+          >
             <Text style={styles.createAlbumIcon}>➕</Text>
             <Text style={styles.createAlbumText}>Create New Album</Text>
-          </TouchableOpacity>
+          </Pressable>
 
           {allAlbums.map((album) => {
             const isSelected = selectedAlbums.includes(album.id);
             return (
-              <TouchableOpacity
+              <Pressable
                 key={album.id}
-                style={[
+                style={({ pressed }) => [
                   styles.albumRow,
                   { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
                   isSelected && styles.albumRowSelected,
+                  pressed ? styles.albumRowPressed : null,
                 ]}
                 onPress={() => onToggleAlbum(album.id)}
               >
@@ -134,7 +141,7 @@ export default function CardAlbumSheetModalUI({
                     <Text style={styles.albumCheckText}>✓</Text>
                   </View>
                 ) : null}
-              </TouchableOpacity>
+              </Pressable>
             );
           })}
         </ScrollView>
@@ -173,6 +180,10 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sheetTitle: { fontSize: 24, fontWeight: '800', color: TEXT_ON_BG },
   sheetDone: { color: TEXT_ON_BG, fontSize: BUTTON_TOKENS.text.strong, fontWeight: BUTTON_TOKENS.weight.regular },
+  headerTextBtnPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.96 }],
+  },
   sheetCardPreview: {
     backgroundColor: CONTAINER_BG,
     borderWidth: 1,
@@ -209,6 +220,10 @@ const styles = StyleSheet.create({
   },
   createAlbumIcon: { color: TEXT_ON_CTA, fontSize: 18 },
   createAlbumText: { color: TEXT_ON_CTA, fontSize: BUTTON_TOKENS.text.strong, fontWeight: BUTTON_TOKENS.weight.regular },
+  primaryBtnPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
   albumRow: {
     borderRadius: BUTTON_TOKENS.radius.md,
     borderWidth: 1,
@@ -222,6 +237,10 @@ const styles = StyleSheet.create({
   albumRowSelected: {
     borderColor: MODAL_CTA_COLOR_BORDER,
     backgroundColor: 'rgba(78,175,244,0.16)',
+  },
+  albumRowPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
   albumEmojiWrap: {
     width: 44,

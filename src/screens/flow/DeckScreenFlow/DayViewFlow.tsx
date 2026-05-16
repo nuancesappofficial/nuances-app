@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SCREEN_BG } from '../../../theme/colors';
 import { Q } from '@nozbe/watermelondb';
@@ -84,10 +84,13 @@ export default function DayViewScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.backButton, pressed ? styles.iconButtonPressed : null]}
+        >
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backText}>Deck</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -108,10 +111,13 @@ export default function DayViewScreen({ navigation, route }: Props) {
             {dayCards.map((card, index) => {
               const mastery = getMasteryIndex(card);
               return (
-                <TouchableOpacity
+                <Pressable
                   key={card.id}
-                  style={[styles.cardTile, { backgroundColor: masteryColors[mastery], opacity: 1 - Math.min(index, 6) * 0.03 }]}
-                  activeOpacity={0.9}
+                  style={({ pressed }) => [
+                    styles.cardTile,
+                    { backgroundColor: masteryColors[mastery], opacity: 1 - Math.min(index, 6) * 0.03 },
+                    pressed ? styles.cardTilePressed : null,
+                  ]}
                   onPress={() =>
                     navigation.navigate('CardDetail', {
                       cardId: card.id,
@@ -135,7 +141,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
                   <Text style={styles.definition} numberOfLines={2}>
                     {card.definition || 'No definition'}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -274,5 +280,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#8E8E93',
+  },
+  cardTilePressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  iconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
 });

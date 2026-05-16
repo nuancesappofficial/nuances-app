@@ -4,7 +4,6 @@ import {
   Pressable,
   View,
   StyleSheet,
-  TouchableOpacity,
   Text,
   Animated,
   PanResponder,
@@ -329,10 +328,11 @@ export default function CacheInputModalUI({
             },
           ]}
         >
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.tabBtn,
               addTab === 'text' && styles.tabBtnActive,
+              pressed ? styles.tabBtnPressed : null,
             ]}
             onPress={() => handleTabPress('text')}
           >
@@ -349,11 +349,12 @@ export default function CacheInputModalUI({
             >
               Text
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
               styles.tabBtn,
               addTab === 'image' && styles.tabBtnActive,
+              pressed ? styles.tabBtnPressed : null,
             ]}
             onPress={() => handleTabPress('image')}
           >
@@ -370,7 +371,7 @@ export default function CacheInputModalUI({
             >
               Image
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <View
@@ -401,13 +402,14 @@ export default function CacheInputModalUI({
 
         {addTab === 'text' ? (
           <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[
+            <Pressable
+              style={({ pressed }) => [
                 styles.actionBtn,
                 textPrimaryAction === 'clear'
                   ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
                   : [styles.pasteBtn, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }],
                 textPrimaryAction === 'paste' && !pasteEnabled && styles.actionBtnDisabled,
+                pressed && (textPrimaryAction === 'clear' || pasteEnabled) ? styles.actionBtnPressed : null,
               ]}
               disabled={textPrimaryAction === 'paste' ? !pasteEnabled : false}
               onPress={textPrimaryAction === 'clear' ? onPressClearText : onPressPaste}
@@ -421,14 +423,19 @@ export default function CacheInputModalUI({
               >
                 {textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.addBtn, !manualText.trim() && styles.actionBtnDisabled]}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                styles.addBtn,
+                !manualText.trim() && styles.actionBtnDisabled,
+                pressed && Boolean(manualText.trim()) ? styles.actionBtnPressed : null,
+              ]}
               disabled={!manualText.trim()}
               onPress={onSubmitText}
             >
               <Text style={[styles.actionBtnText, styles.addBtnText]}>Add</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : null}
       </Animated.View>
@@ -490,6 +497,10 @@ const styles = StyleSheet.create({
   tabBtnActive: {
     backgroundColor: MODAL_CTA_COLOR,
   },
+  tabBtnPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
   tabText: {
     color: '#8D93A1',
     fontWeight: '700',
@@ -538,6 +549,10 @@ const styles = StyleSheet.create({
   },
   actionBtnDisabled: {
     opacity: 0.45,
+  },
+  actionBtnPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
   },
   actionBtnText: {
     fontWeight: BUTTON_TOKENS.weight.regular,

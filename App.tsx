@@ -9,7 +9,6 @@ import {
   Easing,
   StyleSheet,
   View,
-  ActivityIndicator,
   Text,
   TouchableOpacity,
   Alert,
@@ -54,10 +53,12 @@ import { resolveThemeColors } from './src/theme/colors';
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
 WebBrowser.maybeCompleteAuthSession();
-const APP_ICON = require('./assets/NUANCES_ICON8.png');
 const APP_CUTOUT_ICON = require('./assets/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
+const CURTAIN_PULL_IDLE_X = 52;
+const CURTAIN_HANDLE_SIZE = 86;
+const CURTAIN_EDGE_WIDTH = 90;
 
 function ShareExtensionSync({
   userId,
@@ -68,6 +69,146 @@ function ShareExtensionSync({
 }) {
   useShareExtension(userId);
   return <>{children}</>;
+}
+
+function BootCurtainOverlay({
+  opening,
+  onOpened,
+}: {
+  opening: boolean;
+  onOpened?: () => void;
+}) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const pullAnim = React.useRef(new Animated.Value(CURTAIN_PULL_IDLE_X)).current;
+  const shimmerAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    shimmerAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(shimmerAnim, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shimmerAnim]);
+
+  React.useEffect(() => {
+    pullAnim.stopAnimation();
+    if (opening) {
+      Animated.sequence([
+        Animated.timing(pullAnim, {
+          toValue: Math.max(CURTAIN_PULL_IDLE_X, width * 0.18),
+          duration: 180,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pullAnim, {
+          toValue: width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH,
+          duration: 860,
+          easing: Easing.bezier(0.22, 0.8, 0.24, 1),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) onOpened?.();
+      });
+      return;
+    }
+
+    const tugLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pullAnim, {
+          toValue: CURTAIN_PULL_IDLE_X + 26,
+          duration: 760,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pullAnim, {
+          toValue: CURTAIN_PULL_IDLE_X,
+          duration: 820,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    tugLoop.start();
+    return () => tugLoop.stop();
+  }, [opening, onOpened, pullAnim, width]);
+
+  const handleTranslateX = pullAnim.interpolate({
+    inputRange: [0, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
+    outputRange: [0, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
+    extrapolate: 'clamp',
+  });
+  const handleRotate = pullAnim.interpolate({
+    inputRange: [CURTAIN_PULL_IDLE_X, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
+    outputRange: ['-7deg', '10deg'],
+    extrapolate: 'clamp',
+  });
+  const shimmerTranslate = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-width * 0.8, width * 0.9],
+  });
+  const handleTop = height * 0.5 - CURTAIN_HANDLE_SIZE / 2;
+
+  return (
+    <View pointerEvents="none" style={styles.bootCurtainRoot}>
+      <View style={[styles.bootRevealBase, opening ? styles.bootRevealBaseHidden : null]}>
+        <LinearGradient
+          colors={['#02213D', '#05325B', '#02213D']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <Text style={[styles.bootRevealTitle, { paddingTop: Math.max(insets.top + 20, 44) }]}>Nuances</Text>
+      </View>
+
+      <Animated.View
+        style={[
+          styles.bootCurtainPanel,
+          {
+            width: width + CURTAIN_EDGE_WIDTH,
+            transform: [{ translateX: Animated.subtract(handleTranslateX, width) }],
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={['#011A31', '#02213D', '#06365F']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <Animated.View
+          style={[
+            styles.bootCurtainSheen,
+            {
+              transform: [{ translateX: shimmerTranslate }, { rotateZ: '-18deg' }],
+            },
+          ]}
+        />
+        <View style={[styles.bootCurtainCave, { top: handleTop - 78 }]} />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.bootCurtainHandle,
+          {
+            top: handleTop,
+            transform: [
+              { translateX: Animated.subtract(handleTranslateX, CURTAIN_HANDLE_SIZE / 2) },
+              { rotateZ: handleRotate },
+            ],
+          },
+        ]}
+      >
+        <Image source={APP_CUTOUT_ICON} style={styles.bootCurtainIcon} resizeMode="contain" />
+      </Animated.View>
+    </View>
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -311,11 +452,11 @@ function GlobalThemeCrossFadeOverlay() {
 
 export default function App() {
   const colorScheme = useColorScheme();
-  const theme = resolveThemeColors(colorScheme);
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [allowOfflineAccess, setAllowOfflineAccess] = useState(false);
+  const [showBootCurtain, setShowBootCurtain] = useState(true);
   const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
 
@@ -521,53 +662,34 @@ export default function App() {
     }
   }, [handleOAuthCallback]);
 
-  if (!isReady) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.screenBg }]}>
-        <View
-          style={[
-            styles.loadingPanel,
-            {
-              backgroundColor: theme.containerBg,
-              borderColor: theme.borderSubtle,
-              shadowColor: colorScheme === 'light' ? '#0F172A' : '#000000',
-            },
-          ]}
-        >
-          <Image source={APP_ICON} style={styles.loadingIcon} resizeMode="contain" />
-          <ActivityIndicator size="large" color="#4EAFF4" />
-          <Text style={[styles.loadingText, { color: theme.textOnContainer }]}>Loading Nuances...</Text>
-          <Text style={[styles.loadingHelperText, { color: theme.secondaryText }]}>
-            正在準備本機資料、同步狀態與字卡體驗
-          </Text>
-        </View>
-        {isExpoGo && (
-          <Text style={[styles.previewText, { color: theme.secondaryText }]}>
-            📱 Expo Go Preview Mode{'\n'}
-            (UI only - database disabled)
-          </Text>
-        )}
-      </View>
-    );
-  }
+  const handleBootCurtainOpened = React.useCallback(() => {
+    setShowBootCurtain(false);
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ShareExtensionProvider>
-          <ShareExtensionSync userId={userId}>
-            {userId || allowOfflineAccess ? (
-              <RootNavigator isExpoGo={isExpoGo} />
-            ) : (
-              <AuthGate
-                onPressGoogle={handleGoogleSignIn}
-                onPressApple={handleAppleSignIn}
-                loading={authLoading}
-              />
-            )}
-          </ShareExtensionSync>
-          <StatusBar style={colorScheme === 'light' ? 'dark' : 'light'} />
-        </ShareExtensionProvider>
+        {isReady ? (
+          <ShareExtensionProvider>
+            <ShareExtensionSync userId={userId}>
+              {userId || allowOfflineAccess ? (
+                <RootNavigator isExpoGo={isExpoGo} />
+              ) : (
+                <AuthGate
+                  onPressGoogle={handleGoogleSignIn}
+                  onPressApple={handleAppleSignIn}
+                  loading={authLoading}
+                />
+              )}
+            </ShareExtensionSync>
+            <StatusBar style={colorScheme === 'light' ? 'dark' : 'light'} />
+          </ShareExtensionProvider>
+        ) : (
+          <View style={styles.bootLoadingBase} />
+        )}
+        {showBootCurtain ? (
+          <BootCurtainOverlay opening={isReady} onOpened={handleBootCurtainOpened} />
+        ) : null}
         <GlobalThemeCrossFadeOverlay />
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -575,46 +697,69 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  bootLoadingBase: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: '#02213D',
   },
-  loadingPanel: {
-    width: '100%',
-    maxWidth: 440,
-    borderRadius: 28,
-    borderWidth: 1,
+  bootCurtainRoot: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    zIndex: 999,
+  },
+  bootRevealBase: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bootRevealBaseHidden: {
+    opacity: 0,
+  },
+  bootRevealTitle: {
+    color: '#F8FAFC',
+    textAlign: 'center',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.9,
+  },
+  bootCurtainPanel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    overflow: 'visible',
+  },
+  bootCurtainSheen: {
+    position: 'absolute',
+    top: '-12%',
+    width: 90,
+    height: '124%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  bootCurtainCave: {
+    position: 'absolute',
+    left: -48,
+    width: 96,
+    height: 242,
+    borderRadius: 52,
+    backgroundColor: '#02213D',
+    opacity: 0.96,
+    transform: [{ scaleX: 0.54 }],
+  },
+  bootCurtainHandle: {
+    position: 'absolute',
+    left: 0,
+    width: CURTAIN_HANDLE_SIZE,
+    height: CURTAIN_HANDLE_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 36,
-    paddingHorizontal: 28,
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 16 },
+    shadowColor: '#020617',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
     elevation: 10,
   },
-  loadingIcon: {
-    width: 88,
-    height: 88,
-    marginBottom: 20,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  loadingHelperText: {
-    marginTop: 10,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  previewText: {
-    marginTop: 18,
-    fontSize: 12,
-    textAlign: 'center',
+  bootCurtainIcon: {
+    width: '100%',
+    height: '100%',
   },
   authContainer: {
     flex: 1,

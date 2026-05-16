@@ -1,7 +1,7 @@
 UI list :
 {
     pronunciation coach
-    review tuning 
+    ✓ review tuning
     ghost card
     ✓ album settting
     membership modal
@@ -10,7 +10,7 @@ UI list :
 
 functions:
 {
-    folder sequence
+    ✓ folder sequence
     language setting
     revenue cat
     gemini prompt

@@ -11,23 +11,13 @@ import {
   TextInput,
   TouchableOpacity,
   useColorScheme,
-  useWindowDimensions,
   View,
 } from 'react-native';
-import Reanimated, {
-  FadeIn,
-  FadeOut,
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
+import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
@@ -39,8 +29,25 @@ import { extractTextFromImage } from '@services/ocr/ocrService';
 import { getLocalPhoneticTranscription } from '@services/pronunciation/localPhonetics';
 import { supabase } from '@services/supabase/client';
 import { persistLocalCardImage } from '@services/media/localCardImageStore';
+import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
+import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
+import {
+  ALBUM_TAG_PREFIX,
+  ALL_CARDS_ALBUM_ID,
+  FAVORITES_ALBUM_ID,
+  buildDeckAlbums,
+  createCustomAlbum,
+  loadDeckAlbumPreferences,
+  saveDeckAlbumPreferences,
+  type DeckAlbumPreferences,
+} from '../../../features/deck/albums';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import {
+  CreateCardGhostPreviewScene as CreateCardPreviewScene,
+  GHOST_CARD_STATUS_TEXT,
+  getPreviewTypingDuration,
+} from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import {
   CONTAINER_NEON_GLOW,
   CONTAINER_NEON_OUTLINE,
@@ -80,6 +87,13 @@ type CompletedCard = {
   sourceSentence: string;
   manualMode: boolean;
   addedToDeck: boolean;
+  selectedAlbumIds?: string[];
+};
+
+const albumIdToCategoryTag: Record<string, string> = {
+  slang: 'slang',
+  culture: 'culture',
+  work: 'work',
 };
 
 const STOP_WORDS = new Set([
@@ -89,62 +103,6 @@ const STOP_WORDS = new Set([
   'he', 'she', 'it', 'we', 'they',
 ]);
 
-const GHOST_CARD_STATUS_TEXT = [
-  'Extracting vocabulary...',
-  'Analyzing linguistic context...',
-  'Structuring premium flashcard...',
-  'Finalizing definitions...',
-] as const;
-
-function getGhostCardTone(params: {
-  palette: ReturnType<typeof resolveThemeColors>;
-  isLight: boolean;
-}) {
-  const { palette, isLight } = params;
-  if (isLight) {
-    return {
-      pulseShadowColor: '#0F172A',
-      chipBg: 'rgba(15,23,42,0.06)',
-      chipBorder: 'rgba(15,23,42,0.08)',
-      iconBg: 'rgba(15,23,42,0.03)',
-      iconBorder: 'rgba(15,23,42,0.08)',
-      heroBg: 'rgba(15,23,42,0.05)',
-      heroBorder: 'rgba(15,23,42,0.08)',
-      divider: '#E2E8F0',
-      statusBg: 'rgba(15,23,42,0.035)',
-      statusBorder: 'rgba(15,23,42,0.08)',
-      lineStrong: 'rgba(15,23,42,0.07)',
-      lineSoft: 'rgba(15,23,42,0.06)',
-      footerBg: 'rgba(15,23,42,0.03)',
-      footerBorder: 'rgba(15,23,42,0.08)',
-      outlineBase: 0.22,
-      outlinePulse: 0.22,
-      shadowBase: 0.08,
-      shadowPulse: 0.08,
-    };
-  }
-
-  return {
-    pulseShadowColor: MODAL_CTA_COLOR,
-    chipBg: '#334155',
-    chipBorder: 'rgba(148,163,184,0.22)',
-    iconBg: 'rgba(255,255,255,0.03)',
-    iconBorder: 'rgba(148,163,184,0.22)',
-    heroBg: 'rgba(255,255,255,0.04)',
-    heroBorder: 'rgba(148,163,184,0.18)',
-    divider: '#334155',
-    statusBg: 'rgba(255,255,255,0.03)',
-    statusBorder: 'rgba(148,163,184,0.18)',
-    lineStrong: 'rgba(255,255,255,0.06)',
-    lineSoft: 'rgba(255,255,255,0.05)',
-    footerBg: 'rgba(255,255,255,0.02)',
-    footerBorder: 'rgba(148,163,184,0.18)',
-    outlineBase: 0.58,
-    outlinePulse: 0.28,
-    shadowBase: 0.18,
-    shadowPulse: 0.16,
-  };
-}
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
   if (Array.isArray(val)) return val;
@@ -237,6 +195,7 @@ function buildManualCardDraft(word: string, phoneticTranscription?: string | nul
     sourceSentence: word,
     manualMode: true,
     addedToDeck: true,
+    selectedAlbumIds: [],
   };
 }
 
@@ -315,281 +274,6 @@ function buildExampleSentenceText(card: CompletedCard): string {
   return `A natural example using "${firstCollocation}" is: "${baseSentence}"`;
 }
 
-function ProgressiveText({
-  text,
-  active,
-  style,
-}: {
-  text: string;
-  active: boolean;
-  style: any;
-}) {
-  const [visibleCount, setVisibleCount] = React.useState(active ? 0 : 0);
-
-  React.useEffect(() => {
-    if (!active) {
-      setVisibleCount(0);
-      return;
-    }
-    const totalLength = text.length;
-    if (totalLength === 0) {
-      setVisibleCount(0);
-      return;
-    }
-    setVisibleCount(0);
-    const interval = setInterval(() => {
-      setVisibleCount((prev) => {
-        const next = Math.min(totalLength, prev + Math.max(1, Math.ceil(totalLength / 42)));
-        if (next >= totalLength) {
-          clearInterval(interval);
-        }
-        return next;
-      });
-    }, 54);
-    return () => clearInterval(interval);
-  }, [active, text]);
-
-  return <Text style={style}>{active ? text.slice(0, visibleCount) : ''}</Text>;
-}
-
-function CreateCardPreviewScene({
-  processingWord,
-  card,
-  palette,
-  isLight,
-  hasImage,
-  imageUri,
-  statusText,
-  revealState,
-  phase,
-  onBackCardLayout,
-}: {
-  processingWord: string;
-  card: CompletedCard | null;
-  palette: ReturnType<typeof resolveThemeColors>;
-  isLight: boolean;
-  hasImage: boolean;
-  imageUri: string | null;
-  statusText: string;
-  revealState: PreviewRevealState;
-  phase: PreviewPhase;
-  onBackCardLayout?: ((y: number) => void) | undefined;
-}) {
-  const pulse = useSharedValue(0);
-  const tone = React.useMemo(() => getGhostCardTone({ palette, isLight }), [isLight, palette]);
-  const previewWord = card?.displayWord || processingWord;
-  const previewPartOfSpeech = card?.partOfSpeech || 'Generating';
-  const previewDefinition = card?.definition || statusText;
-  const previewSourceSentence = card?.sourceSentence || processingWord;
-  const previewTranslation = card ? buildSentenceTranslationText(card) : statusText;
-  const previewSentenceNotes = card ? buildSentenceNotesText(card) : statusText;
-  const previewCollocations = card ? collocationsFromText(card.collocationsText) : [];
-  const previewCollocation = previewCollocations[0]?.phrase || previewWord;
-  const previewExample = card ? buildExampleSentenceText(card) : statusText;
-  const previewCultural = card ? buildCulturalBackgroundText(card) : statusText;
-  const previewPersonalNote = card?.note?.trim() || 'No personal note yet.';
-  const isThinking = phase === 'frontThinking';
-  const backVisible = phase === 'backReveal' || phase === 'complete';
-
-  React.useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 1400 }), -1, true);
-    return () => {
-      cancelAnimation(pulse);
-    };
-  }, [pulse]);
-
-  const animatedCardStyle = useAnimatedStyle(() => {
-    const borderTint = tone.outlineBase + pulse.value * tone.outlinePulse;
-    return {
-      borderColor: `rgba(78,175,244,${borderTint})`,
-      shadowOpacity: tone.shadowBase + pulse.value * tone.shadowPulse,
-      transform: [{ scale: 0.998 + pulse.value * 0.002 }],
-    };
-  }, [tone]);
-
-  return (
-    <View style={styles.previewScene}>
-      <Reanimated.View
-        style={[
-          styles.previewCardShell,
-          {
-            backgroundColor: palette.containerBg,
-            shadowColor: tone.pulseShadowColor,
-          },
-          animatedCardStyle,
-        ]}
-      >
-        {hasImage && imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.previewHeroImage} resizeMode="cover" />
-        ) : null}
-
-        <View style={styles.previewBody}>
-          <View style={styles.previewHeaderRow}>
-            <View style={styles.previewHeaderMain}>
-              <Reanimated.View entering={FadeIn.duration(240)}>
-                <ProgressiveText
-                  text={previewWord}
-                  active={revealState.showFrontWord || isThinking}
-                  style={[styles.previewWord, { color: palette.textOnContainer }]}
-                />
-              </Reanimated.View>
-              <Reanimated.View
-                entering={FadeIn.duration(220)}
-                style={[
-                  styles.previewPosChip,
-                  {
-                    backgroundColor: tone.chipBg,
-                    borderColor: tone.chipBorder,
-                  },
-                ]}
-              >
-                <ProgressiveText
-                  text={previewPartOfSpeech}
-                  active={revealState.showFrontWord || isThinking}
-                  style={[styles.previewPosChipText, { color: palette.secondaryText }]}
-                />
-              </Reanimated.View>
-            </View>
-            <View style={styles.previewAudioWrap}>
-              <Ionicons name="volume-medium-outline" size={28} color={palette.secondaryText} />
-            </View>
-          </View>
-
-          <View style={styles.previewDefinitionRow}>
-            <ProgressiveText
-              text={previewDefinition}
-              active={revealState.showFrontDefinition}
-              style={[styles.previewDefinitionText, { color: palette.textOnContainer }]}
-            />
-            {isThinking && !revealState.showFrontDefinition ? (
-              <View
-                style={[
-                  styles.previewStatusSlot,
-                  {
-                    backgroundColor: tone.statusBg,
-                    borderColor: tone.statusBorder,
-                  },
-                ]}
-              >
-                <Reanimated.Text
-                  key={statusText}
-                  entering={FadeIn.duration(280)}
-                  exiting={FadeOut.duration(220)}
-                  style={[styles.previewStatusText, { color: palette.textOnContainer }]}
-                >
-                  {statusText}
-                </Reanimated.Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
-
-          <View style={styles.previewFrontSection}>
-            <ProgressiveText
-              text={previewSourceSentence}
-              active={revealState.showFrontSentence}
-              style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
-            />
-            <ProgressiveText
-              text={previewTranslation}
-              active={revealState.showFrontTranslation}
-              style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
-            />
-          </View>
-
-          <View style={styles.previewSectionBlock}>
-            <Reanimated.Text
-              entering={FadeIn.duration(200)}
-              style={[styles.previewSectionLabel, { color: palette.secondaryText }]}
-            >
-              Sentence notes
-            </Reanimated.Text>
-            <ProgressiveText
-              text={previewSentenceNotes}
-              active={revealState.showFrontNotes}
-              style={[styles.previewSectionBody, { color: palette.secondaryText }]}
-            />
-          </View>
-
-          <View style={styles.previewFooterRow}>
-            {['mic-outline', 'share-outline', 'heart-outline', 'bookmark-outline'].map((iconName, index) => (
-              <View
-                key={`preview-front-${iconName}-${index}`}
-                style={[
-                  styles.previewFooterBtn,
-                  {
-                    borderColor: tone.footerBorder,
-                    backgroundColor: tone.footerBg,
-                  },
-                ]}
-              >
-                <Ionicons name={iconName as any} size={24} color={palette.secondaryText} />
-              </View>
-            ))}
-          </View>
-        </View>
-      </Reanimated.View>
-
-      <Reanimated.View
-        onLayout={(event) => {
-          onBackCardLayout?.(event.nativeEvent.layout.y);
-        }}
-        style={[
-          styles.previewCardShell,
-          {
-            backgroundColor: palette.containerBg,
-            shadowColor: tone.pulseShadowColor,
-            opacity: backVisible ? 1 : 0.9,
-          },
-          animatedCardStyle,
-        ]}
-      >
-        <View style={styles.previewBody}>
-          <View style={styles.previewSectionBlock}>
-            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Collocation</Text>
-            <ProgressiveText
-              text={`• ${previewCollocation}`}
-              active={revealState.showBackCollocation}
-              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
-            />
-          </View>
-
-          <View style={styles.previewSectionBlock}>
-            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Example sentence</Text>
-            <ProgressiveText
-              text={previewExample}
-              active={revealState.showBackExample}
-              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
-            />
-          </View>
-
-          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
-
-          <View style={styles.previewSectionBlock}>
-            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Cultural background</Text>
-            <ProgressiveText
-              text={previewCultural}
-              active={revealState.showBackCultural}
-              style={[styles.previewSectionBodyStrong, { color: palette.textOnContainer }]}
-            />
-          </View>
-
-          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
-
-          <View style={styles.previewSectionBlock}>
-            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Personal notes</Text>
-            <ProgressiveText
-              text={previewPersonalNote}
-              active={revealState.showBackNote}
-              style={[styles.previewSectionBody, { color: palette.textOnContainer }]}
-            />
-          </View>
-        </View>
-      </Reanimated.View>
-    </View>
-  );
-}
 
 function pickSentenceContainingWord(text: string, word: string): string {
   const source = (text || '').trim();
@@ -678,7 +362,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
-  const { height: windowHeight } = useWindowDimensions();
   const {
     cachedItem,
     croppedImageUri,
@@ -755,10 +438,22 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [showCollocations, setShowCollocations] = React.useState<Record<string, boolean>>({});
   const [generatedWords, setGeneratedWords] = React.useState<Set<string>>(new Set());
   const [saving, setSaving] = React.useState(false);
+  const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const [albumPrefs, setAlbumPrefs] = React.useState<DeckAlbumPreferences>({
+    customAlbums: [],
+    albumNameOverrides: {},
+    albumEmojiOverrides: {},
+    albumColorOverrides: {},
+    albumCoverOverrides: {},
+    deletedAlbumIds: [],
+  });
+  const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
+  const [albumTargetWord, setAlbumTargetWord] = React.useState<string | null>(null);
+  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
+  const [newAlbumName, setNewAlbumName] = React.useState('');
   const [ghostStatusIndex, setGhostStatusIndex] = React.useState(0);
   const scrollRef = React.useRef<ScrollView | null>(null);
   const previewSceneYRef = React.useRef<number>(0);
-  const previewBackCardYRef = React.useRef<number>(0);
   const previewRunIdRef = React.useRef(0);
   const [activePreviewCard, setActivePreviewCard] = React.useState<CompletedCard | null>(null);
   const [previewPhase, setPreviewPhase] = React.useState<PreviewPhase>('frontThinking');
@@ -770,8 +465,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, [entitlementSnapshot?.canUseAutoCardGeneration, generationMode]);
   const isGhostGenerating = hasStarted && generatingCards.some((card) => !card.completed);
   const isPreviewSceneActive = Boolean(activePreviewCard) || isGhostGenerating;
-  const isPreviewLocked = isGhostGenerating || previewPhase === 'frontReveal' || previewPhase === 'backReveal';
   const shouldHideSourcePanels = hasStarted;
+  const allAlbums = React.useMemo(
+    () => buildDeckAlbums(allCards, {}, albumPrefs).filter((album) => album.id !== ALL_CARDS_ALBUM_ID),
+    [albumPrefs, allCards]
+  );
+  const albumTargetCard = React.useMemo(
+    () =>
+      (albumTargetWord && completedCards.find((card) => card.word === albumTargetWord)) ||
+      (albumTargetWord && activePreviewCard?.word === albumTargetWord ? activePreviewCard : null),
+    [activePreviewCard, albumTargetWord, completedCards]
+  );
 
   React.useEffect(() => {
     if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
@@ -780,7 +484,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     }
     const timer = setInterval(() => {
       setGhostStatusIndex((prev) => (prev + 1) % GHOST_CARD_STATUS_TEXT.length);
-    }, 1500);
+    }, 3200);
     return () => clearInterval(timer);
   }, [generatingCards, hasStarted]);
 
@@ -836,6 +540,36 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     };
   }, [cachedItem.userId]);
 
+  React.useEffect(() => {
+    const queryCards = database
+      .get<Card>('cards')
+      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+
+    void queryCards.fetch().then(setAllCards).catch((error) => {
+      console.error('[CreateCard] load deck cards failed:', error);
+      setAllCards([]);
+    });
+
+    const sub = queryCards.observe().subscribe((data) => {
+      setAllCards(data);
+    });
+    return () => sub.unsubscribe();
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadDeckAlbumPreferences()
+      .then((prefs) => {
+        if (!cancelled) setAlbumPrefs(prefs);
+      })
+      .catch((error) => {
+        console.error('[CreateCard] load album preferences failed:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const scrollToPreviewPosition = React.useCallback((targetY: number) => {
     scrollRef.current?.scrollTo({
       y: Math.max(0, targetY),
@@ -846,13 +580,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const scrollToPreviewFront = React.useCallback(() => {
     scrollToPreviewPosition(previewSceneYRef.current - 10);
   }, [scrollToPreviewPosition]);
-
-  const scrollToPreviewBack = React.useCallback((extraOffset = 0) => {
-    const focusOffset = Math.max(110, windowHeight * 0.28);
-    scrollToPreviewPosition(
-      previewSceneYRef.current + previewBackCardYRef.current + extraOffset - focusOffset
-    );
-  }, [scrollToPreviewPosition, windowHeight]);
 
   const runCardRevealSequence = React.useCallback(
     async (card: CompletedCard) => {
@@ -868,54 +595,49 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setPreviewRevealState((prev) => ({ ...prev, showFrontWord: true }));
-      await wait(280);
+      await wait(getPreviewTypingDuration(`${card.displayWord}${card.partOfSpeech}`));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showFrontDefinition: true }));
-      await wait(Math.max(900, Math.min(1800, card.definition.length * 18)));
+      await wait(getPreviewTypingDuration(card.definition));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showFrontSentence: true }));
-      await wait(Math.max(700, Math.min(1600, card.sourceSentence.length * 12)));
+      await wait(getPreviewTypingDuration(card.sourceSentence));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showFrontTranslation: true }));
-      await wait(820);
+      await wait(getPreviewTypingDuration(buildSentenceTranslationText(card)));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showFrontNotes: true }));
-      await wait(920);
+      await wait(getPreviewTypingDuration(buildSentenceNotesText(card)));
       if (!stillCurrent()) return;
 
       setPreviewPhase('backReveal');
-      scrollToPreviewBack(24);
       await wait(420);
       if (!stillCurrent()) return;
 
       void Haptics.selectionAsync();
       setPreviewRevealState((prev) => ({ ...prev, showBackCollocation: true }));
-      scrollToPreviewBack(56);
-      await wait(760);
+      await wait(getPreviewTypingDuration(`• ${collocationsFromText(card.collocationsText)[0]?.phrase || card.displayWord}`));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showBackExample: true }));
-      scrollToPreviewBack(146);
-      await wait(900);
+      await wait(getPreviewTypingDuration(buildExampleSentenceText(card)));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showBackCultural: true }));
-      scrollToPreviewBack(260);
-      await wait(Math.max(950, Math.min(2100, (card.cultural || '').length * 8)));
+      await wait(getPreviewTypingDuration(buildCulturalBackgroundText(card)));
       if (!stillCurrent()) return;
 
       setPreviewRevealState((prev) => ({ ...prev, showBackNote: true }));
-      scrollToPreviewBack(360);
-      await wait(520);
+      await wait(getPreviewTypingDuration(card.note?.trim() || 'No personal note yet.'));
       if (!stillCurrent()) return;
 
       setPreviewPhase('complete');
     },
-    [scrollToPreviewBack, scrollToPreviewFront]
+    [scrollToPreviewFront]
   );
 
   const toggleWord = (word: string) => {
@@ -936,6 +658,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           const card = {
             ...buildManualCardDraft(word, localPhonetic),
             sourceSentence: sentenceForCard,
+            selectedAlbumIds: [],
           };
           setGeneratingCards((prev) =>
             prev.map((item) =>
@@ -973,6 +696,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           sourceSentence: sentenceForCard,
           manualMode: false,
           addedToDeck: true,
+          selectedAlbumIds: [],
         };
 
         setGeneratingCards((prev) =>
@@ -1008,6 +732,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             sourceSentence: sentenceForCard,
             manualMode: true,
             addedToDeck: true,
+            selectedAlbumIds: [],
           },
         ]);
         setActivePreviewCard(null);
@@ -1105,6 +830,78 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
   const updateCardField = React.useCallback((word: string, patch: Partial<CompletedCard>) => {
     setCompletedCards((prev) => prev.map((card) => (card.word === word ? { ...card, ...patch } : card)));
+    setActivePreviewCard((prev) => (prev?.word === word ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const updateCardAlbums = React.useCallback((word: string, updater: (albumIds: string[]) => string[]) => {
+    const apply = (card: CompletedCard): CompletedCard => ({
+      ...card,
+      selectedAlbumIds: updater(card.selectedAlbumIds || []),
+    });
+    setCompletedCards((prev) => prev.map((card) => (card.word === word ? apply(card) : card)));
+    setActivePreviewCard((prev) => (prev?.word === word ? apply(prev) : prev));
+  }, []);
+
+  const toggleDraftFavorite = React.useCallback(
+    (word: string) => {
+      updateCardAlbums(word, (albumIds) =>
+        albumIds.includes(FAVORITES_ALBUM_ID)
+          ? albumIds.filter((id) => id !== FAVORITES_ALBUM_ID)
+          : Array.from(new Set([...albumIds, FAVORITES_ALBUM_ID]))
+      );
+    },
+    [updateCardAlbums]
+  );
+
+  const toggleDraftAlbum = React.useCallback(
+    (albumId: string) => {
+      if (!albumTargetWord) return;
+      updateCardAlbums(albumTargetWord, (albumIds) =>
+        albumIds.includes(albumId) ? albumIds.filter((id) => id !== albumId) : Array.from(new Set([...albumIds, albumId]))
+      );
+    },
+    [albumTargetWord, updateCardAlbums]
+  );
+
+  const openDraftAlbumSheet = React.useCallback((word: string) => {
+    setAlbumTargetWord(word);
+    setShowAlbumSheet(true);
+  }, []);
+
+  const openCreateAlbumModal = React.useCallback(() => {
+    setShowAlbumSheet(false);
+    requestAnimationFrame(() => {
+      setIsCreateAlbumModalVisible(true);
+    });
+  }, []);
+
+  const createAlbum = React.useCallback(async () => {
+    const name = newAlbumName.trim();
+    if (!name) return;
+
+    const newAlbum = createCustomAlbum(name);
+    const nextPrefs: DeckAlbumPreferences = {
+      ...albumPrefs,
+      customAlbums: [newAlbum, ...albumPrefs.customAlbums],
+    };
+
+    try {
+      await saveDeckAlbumPreferences(nextPrefs);
+      setAlbumPrefs(nextPrefs);
+      if (albumTargetWord) {
+        updateCardAlbums(albumTargetWord, (albumIds) => Array.from(new Set([...albumIds, newAlbum.id])));
+      }
+      setIsCreateAlbumModalVisible(false);
+      setNewAlbumName('');
+      setShowAlbumSheet(true);
+    } catch (error) {
+      console.error('[CreateCard] create album failed:', error);
+      Alert.alert('建立失敗', '建立資料夾時發生問題，請再試一次。');
+    }
+  }, [albumPrefs, albumTargetWord, newAlbumName, updateCardAlbums]);
+
+  const openDraftPronunciationModal = React.useCallback(() => {
+    Alert.alert('Pronunciation Coach', 'Save this card first, then you can practice pronunciation from the card detail screen.');
   }, []);
 
   const updateNote = (word: string, note: string) => {
@@ -1151,7 +948,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             card.contextualExplanation = cardDraft.cultural.trim() || undefined;
             card.frequentCollocations = cardDraft.collocationsText.trim() || undefined;
             card.phoneticTranscription = cardDraft.phoneticTranscription || undefined;
-            const tags = [cachedItem.sourceApp, 'create-flow'].filter(Boolean) as string[];
+            const selectedAlbumIds = cardDraft.selectedAlbumIds || [];
+            const albumTags = selectedAlbumIds.map((id) => `${ALBUM_TAG_PREFIX}${id}`);
+            const categoryTags = selectedAlbumIds
+              .map((id) => albumIdToCategoryTag[id])
+              .filter((tag): tag is string => Boolean(tag));
+            const tags = Array.from(
+              new Set([cachedItem.sourceApp, 'create-flow', ...albumTags, ...categoryTags].filter(Boolean) as string[])
+            );
             card.tags = tags.length > 0 ? tags : undefined;
             card.sourceApp = cachedItem.sourceApp;
             card.imageUrl = undefined;
@@ -1255,8 +1059,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        scrollEnabled={!isPreviewLocked}
-        showsVerticalScrollIndicator={!isPreviewLocked}
       >
         {!shouldHideSourcePanels && originalImageUri ? (
           <View
@@ -1299,14 +1101,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               const clean = normalizeWord(token);
               const isSelected = selectedWords.includes(clean);
               return (
-                <TouchableOpacity
+                <Pressable
                   key={`${token}-${idx}`}
-                  style={[
+                  style={({ pressed }) => [
                     styles.tokenBtn,
                     {
                       backgroundColor: isSelected ? MODAL_CTA_COLOR : palette.modalOptionBg,
                       borderColor: isSelected ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
                     },
+                    pressed ? styles.pressableChipPressed : null,
                   ]}
                   onPress={() => toggleWord(token)}
                 >
@@ -1319,7 +1122,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   >
                     {token}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -1343,34 +1146,39 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               {selectedWords.map((word) => {
                 const isGenerated = generatedWords.has(word);
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={word}
-                    style={[
+                    style={({ pressed }) => [
                       styles.keywordBtn,
                       {
                         backgroundColor: isGenerated ? '#10B981' : MODAL_CTA_COLOR,
                         borderColor: isGenerated ? 'rgba(16,185,129,0.72)' : MODAL_CTA_COLOR_BORDER,
                       },
+                      pressed ? styles.pressableChipPressed : null,
                     ]}
                     onPress={() => toggleWord(word)}
                   >
                     <Text style={styles.keywordText}>{word}{isGenerated ? ' ✓' : ''}</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
 
             {hasNewWords && completedCards.length > 0 ? (
               <View style={styles.generateInlineWrap}>
-                <TouchableOpacity
-                  style={[styles.generateInlineBtn, { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER }]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.generateInlineBtn,
+                    { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+                    pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
+                  ]}
                   disabled={isGenerateDisabled}
                   onPress={() => void handleGenerate()}
                 >
                   <Text style={[styles.generateInlineText, { color: TEXT_ON_CTA }]}>
                     + Create {newSelectedWords.length} New Card{newSelectedWords.length > 1 ? 's' : ''}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             ) : null}
           </View>
@@ -1385,19 +1193,20 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 </Text>
               </View>
             ) : null}
-            <TouchableOpacity
+            <Pressable
               onPress={() => void handleGenerate()}
               disabled={isGenerateDisabled}
-              style={[
+              style={({ pressed }) => [
                 styles.generateButton,
                 { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
                 isGenerateDisabled && styles.generateButtonDisabled,
+                pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
               ]}
             >
               <Text style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}>
                 {effectiveGenerationMode === 'manual' ? 'Create' : 'Generate'} {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : null}
 
@@ -1415,6 +1224,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 statusText=""
                 revealState={COMPLETE_PREVIEW_REVEAL}
                 phase="complete"
+                isFavorite={(card.selectedAlbumIds || []).includes(FAVORITES_ALBUM_ID)}
+                isBookmarked={(card.selectedAlbumIds || []).some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID)}
+                onOpenPronunciationModal={openDraftPronunciationModal}
+                onToggleFavorite={() => toggleDraftFavorite(card.word)}
+                onOpenAlbumSheet={() => openDraftAlbumSheet(card.word)}
               />
             ))}
           </View>
@@ -1437,9 +1251,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               statusText={GHOST_CARD_STATUS_TEXT[ghostStatusIndex]}
               revealState={previewRevealState}
               phase={previewPhase}
-              onBackCardLayout={(y) => {
-                previewBackCardYRef.current = y;
-              }}
+              isFavorite={(activePreviewCard?.selectedAlbumIds || []).includes(FAVORITES_ALBUM_ID)}
+              isBookmarked={(activePreviewCard?.selectedAlbumIds || []).some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID)}
+              onOpenPronunciationModal={activePreviewCard ? openDraftPronunciationModal : undefined}
+              onToggleFavorite={activePreviewCard ? () => toggleDraftFavorite(activePreviewCard.word) : undefined}
+              onOpenAlbumSheet={activePreviewCard ? () => openDraftAlbumSheet(activePreviewCard.word) : undefined}
             />
           </View>
         ) : null}
@@ -1447,23 +1263,48 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         {!hasStarted && completedCards.length > 0 ? (
           <View style={styles.completedWrap}>
             <View style={styles.saveWrap}>
-              <TouchableOpacity
+              <Pressable
                 onPress={() => void handleSave()}
                 disabled={cardsToSave.length === 0 || saving}
-                style={[
+                style={({ pressed }) => [
                   styles.saveButton,
                   { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
                   (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled,
+                  pressed && cardsToSave.length > 0 && !saving ? styles.pressablePrimaryPressed : null,
                 ]}
               >
                 <Text style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}>
                   {saving ? 'Saving...' : 'Save'}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         ) : null}
       </ScrollView>
+
+      <CardAlbumSheetModalUI
+        visible={showAlbumSheet}
+        displayWord={albumTargetCard?.displayWord || ''}
+        partOfSpeech={albumTargetCard?.partOfSpeech || 'unknown'}
+        selectedAlbums={albumTargetCard?.selectedAlbumIds || []}
+        allAlbums={allAlbums}
+        onClose={() => setShowAlbumSheet(false)}
+        onDone={() => setShowAlbumSheet(false)}
+        onOpenCreateAlbum={openCreateAlbumModal}
+        onToggleAlbum={toggleDraftAlbum}
+      />
+
+      <CreateAlbumModalUI
+        visible={isCreateAlbumModalVisible}
+        albumName={newAlbumName}
+        onChangeAlbumName={setNewAlbumName}
+        onCancel={() => {
+          setIsCreateAlbumModalVisible(false);
+          setNewAlbumName('');
+          if (albumTargetWord) setShowAlbumSheet(true);
+        }}
+        onConfirm={() => void createAlbum()}
+      />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1696,17 +1537,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   previewStatusSlot: {
-    minHeight: 104,
-    borderRadius: 18,
+    minHeight: 78,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     justifyContent: 'center',
   },
   previewStatusText: {
-    fontSize: 23,
-    lineHeight: 31,
-    fontWeight: '700',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    opacity: 0.56,
   },
   previewDivider: {
     marginTop: 18,
@@ -1956,5 +1799,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#fff',
     fontWeight: '700',
+  },
+  pressablePrimaryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  pressableChipPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
 });

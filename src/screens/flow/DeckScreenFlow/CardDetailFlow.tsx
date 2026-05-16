@@ -653,7 +653,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     const normalized = Math.max(8, Math.min(72, ((metering + 60) / 60) * 72));
     const index = waveformPointerRef.current % waveformValues.length;
     waveformPointerRef.current += 1;
-    waveformValues[index].setValue(normalized);
+    Animated.spring(waveformValues[index], {
+      toValue: normalized,
+      friction: 6,
+      tension: 42,
+      useNativeDriver: false,
+    }).start();
   };
 
   const startPronunciationRecording = async () => {
@@ -834,6 +839,24 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
     await startPronunciationRecording();
   };
+
+  const closePronunciationModal = React.useCallback(async () => {
+    const activeRecording = recordingRef.current;
+    if (activeRecording) {
+      try {
+        activeRecording.setOnRecordingStatusUpdate(null);
+        await activeRecording.stopAndUnloadAsync();
+      } catch {
+        // Closing the modal should never surface recorder cleanup noise to the user.
+      } finally {
+        recordingRef.current = null;
+        recordingTransitionRef.current = false;
+        pronunciationTargetCardIdRef.current = null;
+        setIsRecording(false);
+      }
+    }
+    setShowPronunciationModal(false);
+  }, []);
 
   const playUserRecordingPreview = async () => {
     const uri = card?.id ? lastRecordingUriByCardId[card.id] || null : null;
@@ -1393,9 +1416,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     return (
       <View style={[styles.loadingWrap, isLightMode ? { backgroundColor: '#FFFFFF' } : null]}>
         <Text style={[styles.errorText, isLightMode ? { color: '#111111' } : null]}>找不到這張卡片</Text>
-        <TouchableOpacity style={styles.errorBackBtn} onPress={() => navigation.goBack()}>
+        <Pressable
+          style={({ pressed }) => [styles.errorBackBtn, pressed ? styles.pressablePrimaryPressed : null]}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={styles.errorBackText}>返回</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     );
   }
@@ -1403,12 +1429,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={[]}>
       <View pointerEvents="box-none" style={styles.floatingHeaderLayer}>
-        <TouchableOpacity
+        <Pressable
           onPress={() => navigation.goBack()}
-          style={[styles.floatingIconButton, styles.floatingBackButton, { top: floatingHeaderTop }]}
+          style={({ pressed }) => [
+            styles.floatingIconButton,
+            styles.floatingBackButton,
+            { top: floatingHeaderTop },
+            pressed ? styles.pressableIconPressed : null,
+          ]}
         >
           <Ionicons name="chevron-back" size={30} color={isLightMode ? '#111111' : '#F4EDE6'} />
-        </TouchableOpacity>
+        </Pressable>
 
         {/* 新增的置中標題與卡片計數 */}
         <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
@@ -1507,12 +1538,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               style={styles.stickyInput}
             />
             <View style={styles.stickyButtonRow}>
-              <TouchableOpacity style={styles.stickyCancelBtn} onPress={() => setShowStickyNoteModal(false)}>
+              <Pressable
+                style={({ pressed }) => [styles.stickyCancelBtn, pressed ? styles.pressablePrimaryPressed : null]}
+                onPress={() => setShowStickyNoteModal(false)}
+              >
                 <Text style={styles.stickyCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.stickySaveBtn} onPress={() => void saveStickyNote()}>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.stickySaveBtn, pressed ? styles.pressablePrimaryPressed : null]}
+                onPress={() => void saveStickyNote()}
+              >
                 <Text style={styles.stickySaveText}>Save</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
             </TouchableOpacity>
           </Animated.View>
@@ -1523,9 +1560,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         visible={showPronunciationModal}
         transparent
         animationType="none"
-        onRequestClose={() => setShowPronunciationModal(false)}
+        onRequestClose={() => void closePronunciationModal()}
       >
-        <Pressable style={styles.pronunciationBackdrop} onPress={() => setShowPronunciationModal(false)}>
+        <Pressable style={styles.pronunciationBackdrop} onPress={() => void closePronunciationModal()}>
           <Animated.View
             style={[
               styles.pronunciationSheet,
@@ -1570,11 +1607,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 onPlaySyllable={handlePlayPronunciationSyllable}
                 onReset={() => void handleReset()}
                 onPrimaryAction={() => void togglePronunciationRecording()}
-                onPlayPreview={() => void playUserRecordingPreview()}
               />
               <View style={[styles.stickyButtonRow, { marginTop: 12 }]}>
-                <TouchableOpacity
-                  style={[
+                <Pressable
+                  style={({ pressed }) => [
                     styles.stickyCancelBtn,
                     isLightMode
                       ? {
@@ -1583,13 +1619,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                           borderColor: palette.borderSubtle,
                         }
                       : null,
+                    pressed ? styles.pressablePrimaryPressed : null,
                   ]}
-                  onPress={() => setShowPronunciationModal(false)}
+                  onPress={() => void closePronunciationModal()}
                 >
                   <Text style={[styles.stickyCancelText, isLightMode ? { color: palette.textOnContainer } : null]}>
                     Close
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             </Pressable>
           </Animated.View>
@@ -1671,16 +1708,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity
+            <Pressable
               onPress={() => closeFullscreenViewer('tap')}
-              activeOpacity={0.85}
-              style={[
+              style={({ pressed }) => [
                 styles.fullscreenCloseButton,
                 { top: Math.max(insets.top, 14), left: 14 },
+                pressed ? styles.pressableIconPressed : null,
               ]}
             >
               <Ionicons name="close" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
+            </Pressable>
           </Animated.View>
         </View>
           );
@@ -2567,4 +2604,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   albumCheckText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  pressablePrimaryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  pressableIconPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
+  },
 });

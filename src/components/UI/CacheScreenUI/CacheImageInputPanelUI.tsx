@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Text, Pressable, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONTAINER_BG, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, TEXT_ON_CTA, resolveThemeColors } from '../../../theme/colors';
 
@@ -21,16 +21,16 @@ export default function CacheImageInputPanelUI({
   return (
     <>
       <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Capture or upload image</Text>
-      <TouchableOpacity
-        style={[
+      <Pressable
+        style={({ pressed }) => [
           styles.imageUploadPanel,
           {
             height: uploadPanelHeight,
             backgroundColor: palette?.containerBg ?? CONTAINER_BG,
             borderColor: palette?.modalOptionBorder ?? 'rgba(255,255,255,0.12)',
           },
+          pressed && !creatingImage ? styles.panelPressed : null,
         ]}
-        activeOpacity={0.9}
         onPress={onUploadImage}
         disabled={creatingImage}
       >
@@ -40,14 +40,18 @@ export default function CacheImageInputPanelUI({
         <Text style={[styles.imageUploadText, palette ? { color: palette.textOnContainer } : null]}>
           {creatingImage ? 'processing image...' : 'upload image'}
         </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.primaryAction, styles.imageAction]}
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [
+          styles.primaryAction,
+          styles.imageAction,
+          pressed && !creatingImage ? styles.primaryPressed : null,
+        ]}
         onPress={onCaptureImage}
         disabled={creatingImage}
       >
         <Ionicons name="camera" size={22} color={TEXT_ON_CTA} />
-      </TouchableOpacity>
+      </Pressable>
     </>
   );
 }
@@ -103,5 +107,13 @@ const styles = StyleSheet.create({
     color: '#111111',
     fontWeight: '800',
     fontSize: 16,
+  },
+  panelPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  primaryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
   },
 });

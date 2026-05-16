@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
 
 type Props = {
@@ -42,22 +42,31 @@ export default function CameraModalUI({
         )}
 
         <View style={styles.cameraTopBar}>
-          <TouchableOpacity style={styles.cameraTopButton} onPress={onClose}>
+          <Pressable
+            style={({ pressed }) => [styles.cameraTopButton, pressed ? styles.iconButtonPressed : null]}
+            onPress={onClose}
+          >
             <Text style={styles.cameraTopButtonText}>✕</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cameraTopButton} onPress={onToggleFacing}>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.cameraTopButton, pressed ? styles.iconButtonPressed : null]}
+            onPress={onToggleFacing}
+          >
             <Text style={styles.cameraTopButtonText}>↺</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <View style={styles.cameraBottomBar}>
-          <TouchableOpacity
-            style={styles.shutterOuter}
+          <Pressable
+            style={({ pressed }) => [
+              styles.shutterOuter,
+              pressed && hasPermission ? styles.shutterPressed : null,
+            ]}
             onPress={onCapture}
             disabled={!hasPermission}
           >
             <View style={styles.shutterInner} />
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -118,6 +127,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  iconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
+  },
+  shutterPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
   },
   shutterInner: {
     width: 64,

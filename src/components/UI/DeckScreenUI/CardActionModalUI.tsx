@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, TouchableOpacity, useColorScheme } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useColorScheme } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { resolveThemeColors } from '../../../theme/colors';
 
@@ -74,24 +74,26 @@ export default function CardActionModalUI({ visible, title, onClose, onDelete }:
           <Pressable style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
           <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>CARD OPTIONS</Text>
           <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>{title}</Text>
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.deleteOptionBtn,
               { backgroundColor: palette.destructiveBg, borderColor: palette.destructiveBorder },
+              pressed ? styles.optionBtnPressed : null,
             ]}
             onPress={onDelete}
           >
             <Text style={[styles.deleteOptionText, { color: palette.destructiveText }]}>刪掉卡片</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
               styles.cancelOptionBtn,
               { backgroundColor: palette.modalSecondaryButtonBg, borderColor: palette.modalOptionBorder },
+              pressed ? styles.optionBtnPressed : null,
             ]}
             onPress={onClose}
           >
             <Text style={[styles.cancelOptionText, { color: palette.modalSecondaryButtonText }]}>取消</Text>
-          </TouchableOpacity>
+          </Pressable>
           </Pressable>
         </Animated.View>
       </Pressable>
@@ -161,5 +163,9 @@ const styles = StyleSheet.create({
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
     textAlign: 'center',
+  },
+  optionBtnPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
   },
 });

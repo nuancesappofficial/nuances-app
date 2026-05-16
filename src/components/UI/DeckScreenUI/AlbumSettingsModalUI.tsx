@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useColorScheme,
   useWindowDimensions,
   View,
@@ -208,9 +207,9 @@ export default function AlbumSettingsModalUI({
                   {(['classic', 'image'] as const).map((tab) => {
                     const active = coverTab === tab;
                     return (
-                      <TouchableOpacity
+                      <Pressable
                         key={tab}
-                        style={[
+                        style={({ pressed }) => [
                           styles.tabButton,
                           active
                             ? styles.tabButtonActive
@@ -218,9 +217,9 @@ export default function AlbumSettingsModalUI({
                                 backgroundColor: 'transparent',
                                 borderColor: 'transparent',
                               },
+                          pressed ? styles.pressableMediumPressed : null,
                         ]}
                         onPress={() => handleSelectTab(tab)}
-                        activeOpacity={0.88}
                       >
                         <Text
                           style={[
@@ -230,7 +229,7 @@ export default function AlbumSettingsModalUI({
                         >
                           {tab === 'classic' ? 'Classic' : 'Image'}
                         </Text>
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
                 </View>
@@ -266,18 +265,18 @@ export default function AlbumSettingsModalUI({
                       <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Icon</Text>
                       <View style={styles.optionRow}>
                         {EMOJI_OPTIONS.map((emoji) => (
-                          <TouchableOpacity
+                          <Pressable
                             key={emoji}
-                            style={[
+                            style={({ pressed }) => [
                               styles.emojiOption,
                               { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
                               settingsEmoji === emoji && styles.emojiOptionActive,
+                              pressed ? styles.pressableIconPressed : null,
                             ]}
                             onPress={() => onChangeEmoji(emoji)}
-                            activeOpacity={0.88}
                           >
                             <Text style={styles.emojiOptionText}>{emoji}</Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ))}
                       </View>
                     </View>
@@ -290,11 +289,14 @@ export default function AlbumSettingsModalUI({
                         {COVER_COLOR_OPTIONS.map((option) => {
                           const active = settingsColor === option.value;
                           return (
-                            <TouchableOpacity
+                            <Pressable
                               key={option.value}
-                              style={[styles.colorOptionRow, active ? styles.colorOptionRowActive : null]}
+                              style={({ pressed }) => [
+                                styles.colorOptionRow,
+                                active ? styles.colorOptionRowActive : null,
+                                pressed ? styles.pressableIconPressed : null,
+                              ]}
                               onPress={() => onChangeColor(option.value)}
-                              activeOpacity={0.88}
                             >
                               <View
                                 style={[
@@ -303,7 +305,7 @@ export default function AlbumSettingsModalUI({
                                   active ? styles.colorSwatchActive : null,
                                 ]}
                               />
-                            </TouchableOpacity>
+                            </Pressable>
                           );
                         })}
                       </View>
@@ -311,12 +313,12 @@ export default function AlbumSettingsModalUI({
                   </View>
 
                   <View style={[styles.tabPanel, styles.imagePanel, { width: panelWidth }]}>
-                    <TouchableOpacity
-                      style={[
+                    <Pressable
+                      style={({ pressed }) => [
                         styles.coverUploadTile,
                         { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                        pressed ? styles.pressableMediumPressed : null,
                       ]}
-                      activeOpacity={0.9}
                       onPress={onPickCoverImage}
                     >
                       {coverImageUri ? (
@@ -345,26 +347,29 @@ export default function AlbumSettingsModalUI({
                           </View>
                         </>
                       )}
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 </Animated.View>
               </View>
             </View>
 
             <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.cancelButton,
                   { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                  pressed ? styles.pressablePrimaryPressed : null,
                 ]}
                 onPress={onCancel}
-                activeOpacity={0.9}
               >
                 <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={onSave} activeOpacity={0.9}>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
+                onPress={onSave}
+              >
                 <Text style={styles.saveText}>Save</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </Pressable>
         </Animated.View>
@@ -626,5 +631,17 @@ const styles = StyleSheet.create({
     color: TEXT_ON_CTA,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
+  },
+  pressablePrimaryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  pressableMediumPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  pressableIconPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
 });

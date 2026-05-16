@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useColorScheme,
   useWindowDimensions,
   View,
@@ -186,20 +185,23 @@ export default function CreateAlbumModalUI({
             />
 
             <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
+              <Pressable
+                style={({ pressed }) => [
                   styles.cancelButton,
                   { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                  pressed ? styles.pressablePrimaryPressed : null,
                 ]}
                 onPress={onCancel}
-                activeOpacity={0.9}
               >
                 <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} activeOpacity={0.9}>
+              <Pressable
+                style={({ pressed }) => [styles.confirmButton, pressed ? styles.pressablePrimaryPressed : null]}
+                onPress={onConfirm}
+              >
                 <Text style={styles.confirmText}>Create</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </Pressable>
         </Animated.View>
@@ -299,5 +301,9 @@ const styles = StyleSheet.create({
     color: TEXT_ON_CTA,
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
+  },
+  pressablePrimaryPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
   },
 });

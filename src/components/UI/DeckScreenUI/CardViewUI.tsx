@@ -3,10 +3,10 @@ import {
   Animated,
   FlatList,
   Image,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useColorScheme,
   useWindowDimensions,
   View,
@@ -139,9 +139,12 @@ export default function CardViewUI({
           style={[styles.backAnimatedWrap, { width: backWidth, opacity: backOpacity }]}
           pointerEvents={isSearchVisible ? 'none' : 'auto'}
         >
-          <TouchableOpacity onPress={onPressBack} style={styles.iconHitArea}>
+          <Pressable
+            onPress={onPressBack}
+            style={({ pressed }) => [styles.iconHitArea, pressed ? styles.iconButtonPressed : null]}
+          >
                 <Ionicons name="chevron-back" size={30} color={headerIconColor} />
-          </TouchableOpacity>
+          </Pressable>
         </Animated.View>
 
         <View style={styles.topNavRightRow}>
@@ -178,21 +181,27 @@ export default function CardViewUI({
                 />
               </Animated.View>
 
-              <TouchableOpacity style={styles.searchToggleButton} activeOpacity={0.82} onPress={onPressSearch}>
+              <Pressable
+                style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.iconButtonPressed : null]}
+                onPress={onPressSearch}
+              >
                 <Animated.View style={[styles.iconLayer, { opacity: searchIconOpacity }]}>
                   <Ionicons name="search" size={30} color={headerIconColor} />
                 </Animated.View>
                 <Animated.View style={[styles.iconLayer, styles.iconLayerOverlay, { opacity: closeIconOpacity }]}>
                   <Ionicons name="close" size={30} color={headerIconColor} />
                 </Animated.View>
-              </TouchableOpacity>
+              </Pressable>
             </Animated.View>
           </Animated.View>
 
           {!isSearchVisible ? (
-            <TouchableOpacity style={styles.rawIconButton} onPress={onPressSort}>
+            <Pressable
+              style={({ pressed }) => [styles.rawIconButton, pressed ? styles.iconButtonPressed : null]}
+              onPress={onPressSort}
+            >
               <Ionicons name="swap-vertical" size={30} color={headerIconColor} />
-            </TouchableOpacity>
+            </Pressable>
           ) : null}
         </View>
       </View>
@@ -207,21 +216,27 @@ export default function CardViewUI({
       </View>
 
       <View style={styles.actionButtonsRow}>
-        <TouchableOpacity
-          style={[styles.playButton, { backgroundColor: MODAL_CTA_COLOR }]}
-          activeOpacity={0.9}
+        <Pressable
+          style={({ pressed }) => [
+            styles.playButton,
+            { backgroundColor: MODAL_CTA_COLOR },
+            pressed ? styles.primaryButtonPressed : null,
+          ]}
           onPress={onPressPlay}
         >
           <Ionicons name="play" size={16} color={palette.screenBg} />
           <Text style={[styles.actionButtonText, { color: palette.screenBg }]}>Play</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tuningButton, { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle }]}
-          activeOpacity={0.9}
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.tuningButton,
+            { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle },
+            pressed ? styles.iconButtonPressed : null,
+          ]}
           onPress={onPressReviewTuning}
         >
           <Ionicons name="options-outline" size={18} color={palette.textOnContainer} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );
@@ -268,9 +283,12 @@ export default function CardViewUI({
             const imageUri = cardImageMap[item.id];
 
             return (
-              <TouchableOpacity
-                style={[styles.cardRow, { backgroundColor: rowBg, borderColor: rowBorder }]}
-                activeOpacity={0.9}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cardRow,
+                  { backgroundColor: rowBg, borderColor: rowBorder },
+                  pressed ? styles.cardRowPressed : null,
+                ]}
                 onPress={() => onPressCard(item)}
               >
                 <View style={styles.thumbnailWrap}>
@@ -305,17 +323,21 @@ export default function CardViewUI({
                 </View>
 
                 <View style={styles.moreWrap}>
-                  <TouchableOpacity
-                    style={[styles.moreButton, { backgroundColor: palette.mutedSurface }]}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.moreButton,
+                      { backgroundColor: palette.mutedSurface },
+                      pressed ? styles.iconButtonPressed : null,
+                    ]}
                     onPress={(event) => {
                       event.stopPropagation?.();
                       onPressMoreCard(item);
                     }}
                   >
                     <Text style={[styles.moreIcon, { color: rowMuted }]}>⋯</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
-              </TouchableOpacity>
+              </Pressable>
             );
           }}
           ListEmptyComponent={
@@ -560,5 +582,17 @@ const styles = StyleSheet.create({
     color: '#E6ECFA',
     fontSize: 14,
     fontWeight: '500',
+  },
+  primaryButtonPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
+  cardRowPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  iconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
 });

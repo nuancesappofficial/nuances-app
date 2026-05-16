@@ -539,12 +539,12 @@ function CardDetailCarouselCardUI({
             >
               {hasHeroImage ? (
                 <View ref={heroMediaRef} collapsable={false} style={styles.heroMediaWrap}>
-                  <TouchableOpacity
-                    activeOpacity={0.95}
+                  <Pressable
+                    style={({ pressed }) => (pressed ? localStyles.heroMediaPressed : null)}
                     onPress={handleOpenHeroFullscreen}
                   >
                     <Image source={{ uri: resolvedHeroImageUri }} style={styles.heroMedia} resizeMode="cover" />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               ) : null}
 
@@ -575,12 +575,16 @@ function CardDetailCarouselCardUI({
                       {itemWord}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={[styles.referencePlayBtn, { position: 'absolute', right: textBlockHorizontalInset + 2, top: 0, width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent' }]}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.referencePlayBtn,
+                      { position: 'absolute', right: textBlockHorizontalInset + 2, top: 0, width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent' },
+                      pressed ? localStyles.actionIconBtnPressed : null,
+                    ]}
                     onPress={() => onPlayCard(itemPronunciationText, isActiveCard, index)}
                   >
                     <Ionicons name={isActiveCard && isPlaying ? 'volume-high' : 'volume-medium-outline'} size={28} color={ui.icon} />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
 
                 <ScrollView
@@ -655,29 +659,53 @@ function CardDetailCarouselCardUI({
 
                 {/* ----- 第一頁底部操作列 ----- */}
                 <View style={localStyles.cardActionRow}>
-                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenPronunciationModal}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      localStyles.actionIconBtn,
+                      pressed ? localStyles.actionIconBtnPressed : null,
+                    ]}
+                    onPress={onOpenPronunciationModal}
+                  >
                     <Ionicons name="mic-outline" size={28} color={ui.icon} />
-                  </TouchableOpacity>
+                  </Pressable>
 
-                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={handleSharePress}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      localStyles.actionIconBtn,
+                      pressed ? localStyles.actionIconBtnPressed : null,
+                    ]}
+                    onPress={handleSharePress}
+                  >
                     <Ionicons name="share-outline" size={28} color={ui.icon} />
-                  </TouchableOpacity>
+                  </Pressable>
 
-                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onToggleFavorite}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      localStyles.actionIconBtn,
+                      pressed ? localStyles.actionIconBtnPressed : null,
+                    ]}
+                    onPress={onToggleFavorite}
+                  >
                     <Ionicons
                       name={isFavorite ? 'heart' : 'heart-outline'}
                       size={28}
                       color={isFavorite ? ui.starActive : ui.starInactive}
                     />
-                  </TouchableOpacity>
+                  </Pressable>
 
-                  <TouchableOpacity style={localStyles.actionIconBtn} onPress={onOpenAlbumSheet}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      localStyles.actionIconBtn,
+                      pressed ? localStyles.actionIconBtnPressed : null,
+                    ]}
+                    onPress={onOpenAlbumSheet}
+                  >
                     <Ionicons
                       name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
                       size={28}
                       color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
                 {/* ----------------------------- */}
 
@@ -748,12 +776,16 @@ function CardDetailCarouselCardUI({
                       >
                         "{apiExampleSentence}"
                       </Text>
-                      <TouchableOpacity
-                        style={[styles.referencePlayBtn, { width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent', marginTop: 4 }]}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.referencePlayBtn,
+                          { width: 28, height: 28, borderRadius: 0, backgroundColor: 'transparent', marginTop: 4 },
+                          pressed ? localStyles.actionIconBtnPressed : null,
+                        ]}
                         onPress={() => onPlayCard(apiExampleSentence, isActiveCard, index)}
                       >
                         <Ionicons name="volume-medium-outline" size={28} color={ui.icon} />
-                      </TouchableOpacity>
+                      </Pressable>
                     </View>
                   </View>
 
@@ -801,12 +833,18 @@ function CardDetailCarouselCardUI({
                         {stickyNoteText?.trim()}
                       </Text>
                     ) : null}
-                    <TouchableOpacity style={localStyles.noteActionBtn} onPress={onOpenStickyNote} activeOpacity={0.88}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        localStyles.noteActionBtn,
+                        pressed ? localStyles.actionIconBtnPressed : null,
+                      ]}
+                      onPress={onOpenStickyNote}
+                    >
                       <Ionicons name={hasStickyNote ? 'create-outline' : 'add'} size={16} color={ui.icon} />
                       <Text style={[localStyles.noteActionText, { color: ui.icon }]}>
                         {hasStickyNote ? 'Edit note' : 'Add a note'}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 </ScrollView>
                 </View>
@@ -939,6 +977,10 @@ function CardDetailCarouselCardUI({
 }
 
 const localStyles = StyleSheet.create({
+  heroMediaPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.985 }],
+  },
   frontBodyScroll: {
     flex: 1,
     minHeight: 120,
@@ -1022,6 +1064,10 @@ const localStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  actionIconBtnPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.94 }],
   },
   shareModalBackdrop: {
     flex: 1,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SymbolView } from 'expo-symbols';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -147,9 +147,8 @@ export default function AlbumIconItemUI({
         ref={cardRef}
         style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
       >
-        <TouchableOpacity
-          style={styles.albumPressArea}
-          activeOpacity={0.92}
+        <Pressable
+          style={({ pressed }) => [styles.albumPressArea, pressed ? styles.albumPressAreaPressed : null]}
           onPress={() => {
             if (suppressPressRef.current) return;
             onPress(item);
@@ -165,7 +164,7 @@ export default function AlbumIconItemUI({
             compact
             style={styles.folderIcon}
           />
-        </TouchableOpacity>
+        </Pressable>
       </Reanimated.View>
     </GestureDetector>
   );
@@ -213,6 +212,10 @@ const styles = StyleSheet.create({
   albumPressArea: {
     width: '100%',
     overflow: 'visible',
+  },
+  albumPressAreaPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
   folderIcon: {
     width: '100%',
