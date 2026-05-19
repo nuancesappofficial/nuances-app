@@ -318,7 +318,8 @@ function VocabStickerCloud({
   const posYList = useSharedValue<number[]>([]);
   const velXList = useSharedValue<number[]>([]);
   const velYList = useSharedValue<number[]>([]);
-  const borderContactList = useSharedValue<boolean[]>([]);
+  const borderContactList = useSharedValue<number[]>([]);
+  const borderContactInitialized = useSharedValue(false);
   const lastBorderHapticAt = useRef(0);
 
   const triggerBorderHaptic = useCallback(() => {
@@ -334,8 +335,17 @@ function VocabStickerCloud({
     posYList.value = Array.from({ length: count }, (_, i) => ((i + 1) % 2 === 0 ? -1 : 1));
     velXList.value = Array.from({ length: count }, () => 0);
     velYList.value = Array.from({ length: count }, () => 0);
-    borderContactList.value = Array.from({ length: count }, () => false);
-  }, [borderContactList, limitedStickers.length, posXList, posYList, velXList, velYList]);
+    borderContactList.value = Array.from({ length: count }, () => 0);
+    borderContactInitialized.value = false;
+  }, [
+    borderContactInitialized,
+    borderContactList,
+    limitedStickers.length,
+    posXList,
+    posYList,
+    velXList,
+    velYList,
+  ]);
 
   const EDGE_INSET_X = 1;
   const BOUNCE = 0.55;
@@ -344,6 +354,10 @@ function VocabStickerCloud({
   const GRAVITY_MULTIPLIER = 220;
   const BORDER_CONTACT_EPS = 0.5;
   const BORDER_RELEASE_DISTANCE = 9;
+  const BORDER_LEFT = 1;
+  const BORDER_RIGHT = 2;
+  const BORDER_TOP = 4;
+  const BORDER_BOTTOM = 8;
 
   useFrameCallback((frameInfo) => {
     'worklet';
@@ -363,6 +377,8 @@ function VocabStickerCloud({
     const vy = velYList.value.slice();
     const previousBorderContacts = borderContactList.value.slice();
     const nextBorderContacts = previousBorderContacts.slice();
+    const hasInitializedBorderContacts = borderContactInitialized.value;
+    const impactCandidates = Array.from({ length: count }, () => 0);
     let didEnterBorder = false;
 
     for (let i = 0; i < count; i += 1) {
@@ -381,24 +397,30 @@ function VocabStickerCloud({
 
       let nextX = (px[i] ?? 0) + vx[i] * dt;
       let nextY = (py[i] ?? 0) + vy[i] * dt;
+      let impactMask = 0;
 
       if (nextX <= limitLeft) {
         nextX = limitLeft;
         vx[i] = Math.abs(vx[i]) * BOUNCE;
+        impactMask |= BORDER_LEFT;
       } else if (nextX >= limitRight) {
         nextX = limitRight;
         vx[i] = -Math.abs(vx[i]) * BOUNCE;
+        impactMask |= BORDER_RIGHT;
       }
       if (nextY <= limitUp) {
         nextY = limitUp;
         vy[i] = Math.abs(vy[i]) * BOUNCE;
+        impactMask |= BORDER_TOP;
       } else if (nextY >= limitDown) {
         nextY = limitDown;
         vy[i] = -Math.abs(vy[i]) * BOUNCE;
+        impactMask |= BORDER_BOTTOM;
       }
 
       px[i] = nextX;
       py[i] = nextY;
+      impactCandidates[i] = impactMask;
     }
 
     // 貼紙-貼紙碰撞：分離重疊並交換速度分量，避免互相穿透
@@ -452,27 +474,24 @@ function VocabStickerCloud({
       px[i] = Math.max(limitLeft, Math.min(limitRight, px[i] ?? 0));
       py[i] = Math.max(limitUp, Math.min(limitDown, py[i] ?? 0));
 
-      const touchingBorder =
-        px[i] <= limitLeft + BORDER_CONTACT_EPS ||
-        px[i] >= limitRight - BORDER_CONTACT_EPS ||
-        py[i] <= limitUp + BORDER_CONTACT_EPS ||
-        py[i] >= limitDown - BORDER_CONTACT_EPS;
-      const releasedBorder =
-        px[i] > limitLeft + BORDER_RELEASE_DISTANCE &&
-        px[i] < limitRight - BORDER_RELEASE_DISTANCE &&
-        py[i] > limitUp + BORDER_RELEASE_DISTANCE &&
-        py[i] < limitDown - BORDER_RELEASE_DISTANCE;
+      let touchingMask = 0;
+      if (px[i] <= limitLeft + BORDER_CONTACT_EPS) touchingMask |= BORDER_LEFT;
+      if (px[i] >= limitRight - BORDER_CONTACT_EPS) touchingMask |= BORDER_RIGHT;
+      if (py[i] <= limitUp + BORDER_CONTACT_EPS) touchingMask |= BORDER_TOP;
+      if (py[i] >= limitDown - BORDER_CONTACT_EPS) touchingMask |= BORDER_BOTTOM;
 
-      if (touchingBorder) {
-        if (!previousBorderContacts[i]) {
-          didEnterBorder = true;
-        }
-        nextBorderContacts[i] = true;
-      } else if (releasedBorder) {
-        nextBorderContacts[i] = false;
-      } else {
-        nextBorderContacts[i] = previousBorderContacts[i] ?? false;
+      const previousMask = previousBorderContacts[i] ?? 0;
+      const newImpactMask = impactCandidates[i] & touchingMask & ~previousMask;
+      if (hasInitializedBorderContacts && newImpactMask !== 0) {
+        didEnterBorder = true;
       }
+
+      let nextMask = previousMask | touchingMask;
+      if (px[i] > limitLeft + BORDER_RELEASE_DISTANCE) nextMask &= ~BORDER_LEFT;
+      if (px[i] < limitRight - BORDER_RELEASE_DISTANCE) nextMask &= ~BORDER_RIGHT;
+      if (py[i] > limitUp + BORDER_RELEASE_DISTANCE) nextMask &= ~BORDER_TOP;
+      if (py[i] < limitDown - BORDER_RELEASE_DISTANCE) nextMask &= ~BORDER_BOTTOM;
+      nextBorderContacts[i] = nextMask;
     }
 
     posXList.value = px;
@@ -480,6 +499,7 @@ function VocabStickerCloud({
     velXList.value = vx;
     velYList.value = vy;
     borderContactList.value = nextBorderContacts;
+    borderContactInitialized.value = true;
 
     if (didEnterBorder) {
       runOnJS(triggerBorderHaptic)();

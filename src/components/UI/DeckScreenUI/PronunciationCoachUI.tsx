@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { resolveThemeColors } from '../../../theme/colors';
 
 type PhonemeChip = {
@@ -16,6 +17,8 @@ type Props = {
   hasRecorded: boolean;
   showFeedback: boolean;
   isAnalyzing: boolean;
+  analysisError?: string | null;
+  resultRevealStep?: number;
   pronunciationScore: number | null;
   pronunciationFeedbackLines: string[];
   phonemeChips: PhonemeChip[];
@@ -35,6 +38,8 @@ export default function PronunciationCoachUI({
   hasRecorded,
   showFeedback,
   isAnalyzing,
+  analysisError,
+  resultRevealStep = 3,
   pronunciationScore,
   pronunciationFeedbackLines,
   phonemeChips,
@@ -65,6 +70,26 @@ export default function PronunciationCoachUI({
     if (count === 2) return 1.0;
     return 0.84;
   }, []);
+  const ghostStatusTexts = React.useMemo(
+    () => [
+      'Listening to waveform...',
+      'Mapping phonemes...',
+      'Comparing native timing...',
+      'Scoring pronunciation...',
+    ],
+    []
+  );
+  const [ghostStatusIndex, setGhostStatusIndex] = React.useState(0);
+  React.useEffect(() => {
+    if (!isAnalyzing) {
+      setGhostStatusIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setGhostStatusIndex((current) => (current + 1) % ghostStatusTexts.length);
+    }, 1550);
+    return () => clearInterval(timer);
+  }, [ghostStatusTexts.length, isAnalyzing]);
   const scoreColor =
     pronunciationScore == null
       ? isLight
@@ -152,6 +177,12 @@ export default function PronunciationCoachUI({
   }, [itemWord, phonemeChips, syllableRowPattern]);
   const hasResultContent = pronunciationScore !== null || phonemeRows.length > 0 || pronunciationFeedbackLines.length > 0;
   const isReviewState = isActiveCard && hasRecorded && hasResultContent && !isRecording && !isAnalyzing;
+  const showLoadingState = isActiveCard && isAnalyzing;
+  const showFailState = isActiveCard && Boolean(analysisError) && !isRecording && !isAnalyzing;
+  const showScoreResult = pronunciationScore !== null && resultRevealStep >= 1;
+  const showPhonemeResult = phonemeRows.length > 0 && resultRevealStep >= 2;
+  const showSummaryResult = pronunciationFeedbackLines.length > 0 && resultRevealStep >= 3;
+  const showRevealPreparingState = isActiveCard && hasResultContent && !isRecording && !isAnalyzing && resultRevealStep <= 0;
   const buttonBg = !isActiveCard
     ? isLight
       ? '#CBD5E1'
@@ -194,15 +225,62 @@ export default function PronunciationCoachUI({
       onMoveShouldSetResponder={() => true}
     >
       <View style={styles.resultsPanel}>
-        {phonemeRows.length > 0 ? (
+        {showLoadingState || showRevealPreparingState ? (
+          <View style={styles.analysisGhostPanel}>
+            <View style={styles.ghostScoreSlot}>
+              <Text style={[styles.ghostScoreText, isLight ? { color: 'rgba(15,23,42,0.16)' } : null]}>--%</Text>
+            </View>
+            <View style={styles.ghostPhonemeRow}>
+              {[0, 1, 2].map((item) => (
+                <View
+                  key={`ghost-phoneme-${item}`}
+                  style={[
+                    styles.ghostPhonemeBlock,
+                    isLight
+                      ? {
+                          backgroundColor: 'rgba(15,23,42,0.04)',
+                          borderColor: 'rgba(15,23,42,0.08)',
+                        }
+                      : null,
+                  ]}
+                />
+              ))}
+            </View>
+            <Reanimated.Text
+              key={ghostStatusTexts[ghostStatusIndex]}
+              entering={FadeIn.duration(260)}
+              exiting={FadeOut.duration(180)}
+              style={[styles.analysisGhostStatus, isLight ? { color: '#64748B' } : null]}
+            >
+              {showRevealPreparingState ? 'Preparing score...' : ghostStatusTexts[ghostStatusIndex]}
+            </Reanimated.Text>
+          </View>
+        ) : showFailState ? (
+          <View style={styles.analysisStatePanel}>
+            <View style={[styles.analysisStateIcon, styles.analysisStateIconError]}>
+              <Ionicons name="warning-outline" size={22} color="#FF6B6B" />
+            </View>
+            <Text style={[styles.analysisStateTitle, isLight ? { color: '#0F172A' } : null]}>
+              Analysis failed
+            </Text>
+            <Text style={[styles.analysisStateBody, isLight ? { color: '#64748B' } : null]}>
+              {analysisError}
+            </Text>
+            <Text style={[styles.analysisStateHint, isLight ? { color: '#0369A1' } : null]}>
+              Tap the mic below to try again.
+            </Text>
+          </View>
+        ) : hasResultContent ? (
           <>
-            {pronunciationScore !== null ? (
-              <Text style={[styles.centerScore, { color: scoreColor }]}>{pronunciationScore}%</Text>
+            {showScoreResult ? (
+              <Reanimated.Text entering={FadeIn.duration(220)} style={[styles.centerScore, { color: scoreColor }]}>
+                {pronunciationScore}%
+              </Reanimated.Text>
             ) : null}
 
-            <View style={styles.syllableBlocksWrap}>
+            {showPhonemeResult ? <View style={styles.syllableBlocksWrap}>
               {phonemeRows.map((row, rowIndex) => (
-                <View key={`row-${rowIndex}`} style={styles.syllableRow}>
+                <Reanimated.View key={`row-${rowIndex}`} entering={FadeIn.duration(220).delay(rowIndex * 70)} style={styles.syllableRow}>
                   {row.map((chip, idx) => {
                     const rowScale = getRowScale(row.length);
                     const dynPaddingVertical = Math.round(BLOCK_BASE.paddingVertical * rowScale);
@@ -294,14 +372,14 @@ export default function PronunciationCoachUI({
                       </Pressable>
                     );
                   })}
-                </View>
+                </Reanimated.View>
               ))}
-            </View>
+            </View> : null}
 
-            {pronunciationFeedbackLines.length > 0 ? (
-              <Text style={[styles.summaryHint, { color: scoreSemanticTextColor }]}>
+            {showSummaryResult ? (
+              <Reanimated.Text entering={FadeIn.duration(220)} style={[styles.summaryHint, { color: scoreSemanticTextColor }]}>
                 {pronunciationFeedbackLines[0]}
-              </Text>
+              </Reanimated.Text>
             ) : null}
           </>
         ) : null}
@@ -429,6 +507,98 @@ const styles = StyleSheet.create({
   resultsPanel: {
     height: 206,
     justifyContent: 'flex-start',
+  },
+  analysisGhostPanel: {
+    minHeight: 192,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  ghostScoreSlot: {
+    minHeight: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ghostScoreText: {
+    color: 'rgba(148,163,184,0.20)',
+    fontSize: 52,
+    lineHeight: 56,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  ghostPhonemeRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  ghostPhonemeBlock: {
+    flex: 1,
+    height: 72,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.18)',
+    backgroundColor: 'rgba(30,41,59,0.38)',
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  analysisGhostStatus: {
+    marginTop: 12,
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    letterSpacing: 0.35,
+    opacity: 0.68,
+    textAlign: 'center',
+  },
+  analysisStatePanel: {
+    minHeight: 192,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  analysisStateIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    backgroundColor: 'rgba(78,175,244,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(78,175,244,0.34)',
+  },
+  analysisStateIconLight: {
+    backgroundColor: 'rgba(78,175,244,0.10)',
+    borderColor: 'rgba(78,175,244,0.26)',
+  },
+  analysisStateIconError: {
+    backgroundColor: 'rgba(255,107,107,0.12)',
+    borderColor: 'rgba(255,107,107,0.34)',
+  },
+  analysisStateTitle: {
+    color: '#F8FAFC',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  analysisStateBody: {
+    marginTop: 8,
+    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  analysisStateHint: {
+    marginTop: 10,
+    color: '#BFE7FF',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   audioControlCenter: {
     marginTop: 10,

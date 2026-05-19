@@ -14,10 +14,7 @@ import {
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
-import {
-  REVIEW_QUESTION_TYPE_OPTIONS,
-  type ReviewQuestionType,
-} from '../../../features/deck/reviewPreferences';
+import type { ReviewQuestionType } from '../../../features/deck/reviewPreferences';
 
 type Props = {
   visible: boolean;
@@ -41,11 +38,9 @@ export default function ReviewTuningModalUI({
   visible,
   questionCount,
   todayNewWordsOnly = false,
-  selectedQuestionTypes,
   onClose,
   onChangeQuestionCount,
   onChangeTodayNewWordsOnly,
-  onChangeSelectedQuestionTypes,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -81,18 +76,6 @@ export default function ReviewTuningModalUI({
   const handleSliderLayout = React.useCallback((event: LayoutChangeEvent) => {
     setSliderWidth(event.nativeEvent.layout.width);
   }, []);
-
-  const toggleQuestionType = React.useCallback(
-    (type: ReviewQuestionType) => {
-      const hasType = selectedQuestionTypes.includes(type);
-      if (hasType && selectedQuestionTypes.length === 1) return;
-      const next = hasType
-        ? selectedQuestionTypes.filter((item) => item !== type)
-        : [...selectedQuestionTypes, type];
-      onChangeSelectedQuestionTypes(next);
-    },
-    [onChangeSelectedQuestionTypes, selectedQuestionTypes]
-  );
 
   React.useEffect(() => {
     if (visible) {
@@ -212,39 +195,6 @@ export default function ReviewTuningModalUI({
             </View>
           </View>
 
-          <View style={[styles.sectionDivider, { backgroundColor: palette.modalOptionBorder }]} />
-
-          <View style={styles.questionTypeSection}>
-            <Text style={[styles.sectionTitle, { color: palette.textOnContainer }]}>Question types</Text>
-            <View style={styles.questionTypePillWrap}>
-              {REVIEW_QUESTION_TYPE_OPTIONS.map((item) => {
-                const active = selectedQuestionTypes.includes(item.key);
-                return (
-                  <Pressable
-                    key={item.key}
-                    style={({ pressed }) => [
-                      styles.questionTypePill,
-                      { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-                      active ? styles.questionTypePillActive : null,
-                      pressed ? styles.pressableMediumPressed : null,
-                    ]}
-                    onPress={() => toggleQuestionType(item.key)}
-                  >
-                    <Text
-                      style={[
-                        styles.questionTypePillText,
-                        { color: palette.textOnContainer },
-                        active ? styles.questionTypePillTextActive : null,
-                      ]}
-                    >
-                      {item.shortLabel}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
           {onChangeTodayNewWordsOnly ? (
             <>
               <View style={[styles.sectionDivider, { backgroundColor: palette.modalOptionBorder }]} />
@@ -314,10 +264,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1.6,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
   },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
@@ -399,33 +345,6 @@ const styles = StyleSheet.create({
   sliderBoundText: {
     fontSize: 12,
     fontWeight: '700',
-  },
-  questionTypeSection: {
-    gap: 8,
-  },
-  questionTypePillWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  questionTypePill: {
-    minHeight: 42,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  questionTypePillActive: {
-    backgroundColor: MODAL_CTA_COLOR,
-    borderColor: MODAL_CTA_COLOR,
-  },
-  questionTypePillText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  questionTypePillTextActive: {
-    color: TEXT_ON_CTA,
   },
   toggleRow: {
     borderRadius: 18,

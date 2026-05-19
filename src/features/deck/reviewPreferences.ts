@@ -4,6 +4,7 @@ import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 export type AlbumReviewPreferences = {
   questionCount: number;
   pinnedCardIds: string[];
+  skippedPronunciationCardIds: string[];
   todayNewWordsOnly?: boolean;
   selectedQuestionTypes: ReviewQuestionType[];
 };
@@ -13,7 +14,8 @@ export type ReviewQuestionType =
   | 'translation_to_word'
   | 'word_to_translation'
   | 'sentence_to_translation'
-  | 'part_of_speech';
+  | 'part_of_speech'
+  | 'pronunciation';
 
 export const REVIEW_QUESTION_TYPE_OPTIONS: Array<{
   key: ReviewQuestionType;
@@ -25,6 +27,7 @@ export const REVIEW_QUESTION_TYPE_OPTIONS: Array<{
   { key: 'word_to_translation', label: 'Word to meaning: choose the correct meaning', shortLabel: '單字選義' },
   { key: 'sentence_to_translation', label: 'Sentence context: choose the meaning in context', shortLabel: '情境選義' },
   { key: 'part_of_speech', label: 'Part of speech: choose the grammar type', shortLabel: '詞性判斷' },
+  { key: 'pronunciation', label: 'Pronunciation: say the word with 60%+ accuracy', shortLabel: '發音挑戰' },
 ];
 
 export const DEFAULT_REVIEW_QUESTION_TYPES: ReviewQuestionType[] = REVIEW_QUESTION_TYPE_OPTIONS.map(
@@ -43,6 +46,11 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   const pinnedCardIds = Array.isArray(raw?.pinnedCardIds)
     ? raw!.pinnedCardIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : [];
+  const skippedPronunciationCardIds = Array.isArray(raw?.skippedPronunciationCardIds)
+    ? raw!.skippedPronunciationCardIds.filter(
+        (value): value is string => typeof value === 'string' && value.trim().length > 0
+      )
+    : [];
   const selectedQuestionTypes = Array.isArray(raw?.selectedQuestionTypes)
     ? raw!.selectedQuestionTypes.filter(
         (value): value is ReviewQuestionType =>
@@ -54,6 +62,7 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   return {
     questionCount,
     pinnedCardIds: Array.from(new Set(pinnedCardIds)),
+    skippedPronunciationCardIds: Array.from(new Set(skippedPronunciationCardIds)),
     todayNewWordsOnly: raw?.todayNewWordsOnly === true,
     selectedQuestionTypes:
       selectedQuestionTypes.length > 0

@@ -108,6 +108,10 @@ const MAX_PRONUNCIATION_RECORDING_MS = 10_000;
 const MIN_PRONUNCIATION_RECORDING_MS = 350;
 const CARD_DETAIL_FONT_SCALE = 0.7;
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const albumIdToCategoryTag: Record<string, string> = {
   slang: 'slang',
   culture: 'culture',
@@ -227,6 +231,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [hasRecorded, setHasRecorded] = React.useState(false);
   const [showFeedback, setShowFeedback] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [pronunciationAnalysisError, setPronunciationAnalysisError] = React.useState<string | null>(null);
+  const [pronunciationRevealStep, setPronunciationRevealStep] = React.useState(3);
   const [pronunciationScore, setPronunciationScore] = React.useState<number | null>(null);
   const [pronunciationFeedbackLines, setPronunciationFeedbackLines] = React.useState<string[]>([]);
   const [phonemeFeedback, setPhonemeFeedback] = React.useState<CloudPhonemeFeedback[]>([]);
@@ -257,6 +263,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const recordingRef = React.useRef<any | null>(null);
   const pronunciationTargetCardIdRef = React.useRef<string | null>(null);
   const recordingTransitionRef = React.useRef(false);
+  const pronunciationRevealRunIdRef = React.useRef(0);
   const lastRecordingUriRef = React.useRef<string | null>(null);
   const userRecordingSoundRef = React.useRef<any | null>(null);
   const waveformPointerRef = React.useRef(0);
@@ -345,27 +352,52 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [allCards, routeCardIds]);
 
   const card = currentIndex === null ? null : scopedCards[currentIndex] ?? null;
+  const runPronunciationRevealSequence = React.useCallback(async () => {
+    const runId = ++pronunciationRevealRunIdRef.current;
+    const stillCurrent = () => pronunciationRevealRunIdRef.current === runId;
+
+    setPronunciationRevealStep(0);
+    await wait(140);
+    if (!stillCurrent()) return;
+    setPronunciationRevealStep(1);
+    await wait(220);
+    if (!stillCurrent()) return;
+    setPronunciationRevealStep(2);
+    await wait(260);
+    if (!stillCurrent()) return;
+    setPronunciationRevealStep(3);
+  }, []);
+
   React.useEffect(() => {
     if (!card?.id) {
+      pronunciationRevealRunIdRef.current += 1;
       setPronunciationScore(null);
       setPronunciationFeedbackLines([]);
       setPhonemeFeedback([]);
       setShowFeedback(false);
+      setPronunciationAnalysisError(null);
+      setPronunciationRevealStep(3);
       return;
     }
     const data = pronunciationResultsByCardId[card.id];
     if (data) {
+      pronunciationRevealRunIdRef.current += 1;
       setPronunciationScore(data.score);
       setPronunciationFeedbackLines(data.feedbackLines);
       setPhonemeFeedback(data.phonemeFeedback);
       setShowFeedback(data.showFeedback);
+      setPronunciationAnalysisError(null);
+      setPronunciationRevealStep(3);
       return;
     }
 
+    pronunciationRevealRunIdRef.current += 1;
     setPronunciationScore(null);
     setPronunciationFeedbackLines([]);
     setPhonemeFeedback([]);
     setShowFeedback(false);
+    setPronunciationAnalysisError(null);
+    setPronunciationRevealStep(3);
   }, [card?.id, pronunciationResultsByCardId]);
 
   const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
@@ -704,6 +736,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPhonemeFeedback([]);
       setShowFeedback(false);
       setHasRecorded(false);
+      pronunciationRevealRunIdRef.current += 1;
+      setPronunciationAnalysisError(null);
+      setPronunciationRevealStep(3);
       pronunciationTargetCardIdRef.current = targetCardId;
       await stopUserRecordingPreview();
       const staleRecording = recordingRef.current;
@@ -793,6 +828,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
 
       setIsAnalyzing(true);
+      setPronunciationAnalysisError(null);
+      setPronunciationRevealStep(0);
       const result = await assessPronunciationCloud({
         referenceText: pronunciationText,
         audioUri: uri,
@@ -803,6 +840,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPronunciationFeedbackLines(result.feedbackLines);
       setPhonemeFeedback(result.phonemeFeedback || []);
       setShowFeedback(true);
+      setPronunciationAnalysisError(null);
+      setIsAnalyzing(false);
+      await runPronunciationRevealSequence();
       const analyzedCardId = pronunciationTargetCardIdRef.current;
       if (analyzedCardId) {
         const nextResult = {
@@ -823,7 +863,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
       const message = error instanceof Error ? error.message : '無法完成發音分析，請稍後再試。';
-      Alert.alert('分析失敗', message);
+      setPronunciationAnalysisError(message);
+      setShowFeedback(false);
+      setPronunciationRevealStep(3);
     } finally {
       setIsAnalyzing(false);
       pronunciationTargetCardIdRef.current = null;
@@ -841,6 +883,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   };
 
   const closePronunciationModal = React.useCallback(async () => {
+    pronunciationRevealRunIdRef.current += 1;
     const activeRecording = recordingRef.current;
     if (activeRecording) {
       try {
@@ -889,9 +932,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setShowFeedback(false);
     setIsRecording(false);
     setIsAnalyzing(false);
+    pronunciationRevealRunIdRef.current += 1;
     setPronunciationScore(null);
     setPronunciationFeedbackLines([]);
     setPhonemeFeedback([]);
+    setPronunciationAnalysisError(null);
+    setPronunciationRevealStep(3);
     if (card?.id) {
       setPronunciationResultsByCardId((prev) => {
         const next = { ...prev };
@@ -1596,6 +1642,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 hasRecorded={hasRecorded}
                 showFeedback={showFeedback}
                 isAnalyzing={isAnalyzing}
+                analysisError={pronunciationAnalysisError}
+                resultRevealStep={pronunciationRevealStep}
                 pronunciationScore={pronunciationScore}
                 pronunciationFeedbackLines={pronunciationFeedbackLines}
                 phonemeChips={phonemeChips}

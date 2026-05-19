@@ -21,26 +21,30 @@ export default function CacheImageInputPanelUI({
   return (
     <>
       <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Capture or upload image</Text>
-      <Pressable
-        style={({ pressed }) => [
+      <View
+        style={[
           styles.imageUploadPanel,
           {
             height: uploadPanelHeight,
             backgroundColor: palette?.containerBg ?? CONTAINER_BG,
             borderColor: palette?.modalOptionBorder ?? 'rgba(255,255,255,0.12)',
           },
-          pressed && !creatingImage ? styles.panelPressed : null,
         ]}
-        onPress={onUploadImage}
-        disabled={creatingImage}
       >
-        <View style={styles.imageUploadIconWrap}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.imageUploadIconWrap,
+            pressed && !creatingImage ? styles.uploadCirclePressed : null,
+          ]}
+          onPress={onUploadImage}
+          disabled={creatingImage}
+        >
           <Ionicons name="image-outline" size={34} color={TEXT_ON_CTA} />
-        </View>
+        </Pressable>
         <Text style={[styles.imageUploadText, palette ? { color: palette.textOnContainer } : null]}>
           {creatingImage ? 'processing image...' : 'upload image'}
         </Text>
-      </Pressable>
+      </View>
       <Pressable
         style={({ pressed }) => [
           styles.primaryAction,
@@ -108,9 +112,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 16,
   },
-  panelPressed: {
+  uploadCirclePressed: {
     opacity: 0.9,
-    transform: [{ scale: 0.96 }],
+    transform: [{ scale: 0.94 }],
   },
   primaryPressed: {
     opacity: 0.94,

@@ -1,10 +1,10 @@
 import React from 'react';
 import {
-  Alert,
   Animated,
   FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -15,9 +15,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import { assessPronunciationCloud } from '@services/pronunciation/cloudCoach';
+import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { resolveThemeColors } from '../../../theme/colors';
 import {
   DEFAULT_REVIEW_QUESTION_TYPES,
@@ -53,6 +57,9 @@ type ReviewQuestion = {
   partOfSpeech: string;
   definition: string;
   contextualExplanation: string;
+  fullSentence: string;
+  sentenceTranslation: string;
+  contextPreview: string;
 };
 
 type ReviewSlide =
@@ -60,6 +67,26 @@ type ReviewSlide =
   | { id: 'summary'; type: 'summary' };
 
 const OPTION_FEEDBACK_DURATION_MS = 320;
+const PRONUNCIATION_PASS_SCORE = 60;
+const MIN_PRONUNCIATION_RECORDING_MS = 350;
+
+const REVIEW_PRONUNCIATION_RECORDING_OPTIONS = {
+  android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+  ios: {
+    extension: '.wav',
+    audioQuality:
+      (Audio as any).RECORDING_OPTION_IOS_AUDIO_QUALITY_MAX ??
+      Audio.RecordingOptionsPresets.HIGH_QUALITY.ios.audioQuality,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 256000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: Audio.RecordingOptionsPresets.HIGH_QUALITY.web,
+  isMeteringEnabled: true,
+} as const;
 
 function triggerWrongAnswerBuzzHaptic() {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -112,9 +139,30 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function pickFillBlankSentence(card: Card): string {
+  const target = (card.targetPhrase || card.targetWord || '').trim();
+  const contextSections = parseCardContextSections({
+    raw: card.contextualExplanation,
+    displayWord: target,
+    definition: card.definition,
+    sourceSentence: card.originalSentence,
+  });
+  const candidates = [
+    contextSections.exampleSentence,
+    card.originalSentence,
+  ]
+    .map((value) => (value || '').trim())
+    .filter(Boolean);
+
+  if (!target) return candidates[0] || '';
+
+  const targetMatcher = new RegExp(escapeRegex(target), 'i');
+  return candidates.find((sentence) => targetMatcher.test(sentence)) || candidates[0] || '';
+}
+
 function buildMaskedSentence(card: Card): string {
   const target = (card.targetPhrase || card.targetWord || '').trim();
-  const baseSentence = (card.originalSentence || '').trim();
+  const baseSentence = pickFillBlankSentence(card);
 
   if (!baseSentence) {
     return `_____`;
@@ -130,6 +178,72 @@ function buildMaskedSentence(card: Card): string {
   }
 
   return `${baseSentence}\n\nMissing word: _____`;
+}
+
+function quoteTargetInText(text: string, target: string): string {
+  const trimmedText = (text || '').trim();
+  const trimmedTarget = (target || '').trim();
+  if (!trimmedText || !trimmedTarget) return trimmedText;
+
+  const hasCjk = /[\u3040-\u30ff\u3400-\u9fff]/.test(trimmedText);
+  const [openQuote, closeQuote] = hasCjk ? ['「', '」'] : ['“', '”'];
+  const bracketMatcher = new RegExp(`\\[\\s*${escapeRegex(trimmedTarget)}\\s*\\]`, 'i');
+  if (bracketMatcher.test(trimmedText)) {
+    return trimmedText.replace(bracketMatcher, `${openQuote}${trimmedTarget}${closeQuote}`);
+  }
+  const genericBracketMatcher = /\[\s*([^\]]+?)\s*\]/;
+  if (genericBracketMatcher.test(trimmedText)) {
+    return trimmedText.replace(genericBracketMatcher, (_match, bracketedTarget: string) => {
+      return `${openQuote}${String(bracketedTarget).trim()}${closeQuote}`;
+    });
+  }
+
+  const targetMatcher = new RegExp(escapeRegex(trimmedTarget), 'i');
+  if (!targetMatcher.test(trimmedText)) return trimmedText;
+  return trimmedText.replace(targetMatcher, (match) => `${openQuote}${match}${closeQuote}`);
+}
+
+function normalizeAnswerTranslation(raw: string, fullSentence: string, target: string, fallback: string): string {
+  const quotedFullSentence = quoteTargetInText(fullSentence, target);
+  const normalizedFullSentence = fullSentence.trim().toLowerCase();
+  const normalizedQuotedFullSentence = quotedFullSentence.trim().toLowerCase();
+  const lines = (raw || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const normalizedLine = line.toLowerCase();
+      return normalizedLine !== normalizedFullSentence && normalizedLine !== normalizedQuotedFullSentence;
+    });
+  const translation = lines.join('\n').trim() || fallback.trim() || '-';
+  return quoteTargetInText(translation, target);
+}
+
+function buildAnswerDetailText(card: Card): {
+  fullSentence: string;
+  sentenceTranslation: string;
+  contextPreview: string;
+} {
+  const target = (card.targetPhrase || card.targetWord || '').trim();
+  const contextSections = parseCardContextSections({
+    raw: card.contextualExplanation,
+    displayWord: target,
+    definition: card.definition,
+    sourceSentence: card.originalSentence,
+  });
+  const fullSentence = pickFillBlankSentence(card) || (card.originalSentence || '').trim() || '-';
+  const sentenceTranslation = normalizeAnswerTranslation(
+    contextSections.sentenceTranslation,
+    fullSentence,
+    target,
+    card.definition || ''
+  );
+
+  return {
+    fullSentence: quoteTargetInText(fullSentence, target),
+    sentenceTranslation,
+    contextPreview: contextSections.culturalBackground || card.definition || '',
+  };
 }
 
 function buildOptionPool(allCards: Card[], currentCard: Card): string[] {
@@ -199,16 +313,29 @@ function buildReviewQuestions(
   allCards: Card[],
   questionCount: number,
   pinnedCardIds: string[],
+  skippedPronunciationCardIds: string[],
   selectedQuestionTypes: ReviewQuestionType[]
 ): ReviewQuestion[] {
   const sourceById = new Map(sourceCards.map((card) => [card.id, card] as const));
-  const pinnedCards = pinnedCardIds.map((id) => sourceById.get(id)).filter((card): card is Card => Boolean(card));
-  const pinnedSet = new Set(pinnedCards.map((card) => card.id));
+  const skippedPronunciationCards = skippedPronunciationCardIds
+    .map((id) => sourceById.get(id))
+    .filter((card): card is Card => Boolean(card));
+  const skippedPronunciationSet = new Set(skippedPronunciationCards.map((card) => card.id));
+  const pinnedCards = pinnedCardIds
+    .map((id) => sourceById.get(id))
+    .filter((card): card is Card => Boolean(card && !skippedPronunciationSet.has(card.id)));
+  const pinnedSet = new Set([...pinnedCards.map((card) => card.id), ...skippedPronunciationSet]);
   const randomPool = shuffleArray(sourceCards.filter((card) => !pinnedSet.has(card.id)));
-  const totalCount = Math.min(sourceCards.length, Math.max(questionCount, pinnedCards.length));
-  const selected = [...pinnedCards, ...randomPool].slice(0, totalCount);
+  const baseQuestionCount = Math.min(
+    Math.max(0, sourceCards.length - skippedPronunciationCards.length),
+    Math.max(questionCount, pinnedCards.length)
+  );
+  const selected = [...skippedPronunciationCards, ...[...pinnedCards, ...randomPool].slice(0, baseQuestionCount)].slice(
+    0,
+    sourceCards.length
+  );
 
-  const questionTypes = selectedQuestionTypes.length > 0 ? selectedQuestionTypes : DEFAULT_REVIEW_QUESTION_TYPES;
+  const questionTypes = DEFAULT_REVIEW_QUESTION_TYPES;
 
   return selected.map((card, index) => {
     const word = pickDisplayAnswer(card);
@@ -217,8 +344,11 @@ function buildReviewQuestions(
     const sourceSentence = (card.originalSentence || card.definition || '').trim();
     const contextualExplanation = (card.contextualExplanation || '').trim();
     const maskedSentence = buildMaskedSentence(card);
+    const answerDetail = buildAnswerDetailText(card);
 
-    const questionType: ReviewQuestion['questionType'] = questionTypes[index % questionTypes.length];
+    const questionType: ReviewQuestion['questionType'] = skippedPronunciationSet.has(card.id)
+      ? 'pronunciation'
+      : questionTypes[index % questionTypes.length];
 
     if (questionType === 'translation_to_word') {
       const distractors = buildOptionPool(allCards, card).slice(0, 3);
@@ -237,6 +367,7 @@ function buildReviewQuestions(
         partOfSpeech,
         definition,
         contextualExplanation,
+        ...answerDetail,
       };
     }
 
@@ -257,6 +388,7 @@ function buildReviewQuestions(
         partOfSpeech,
         definition,
         contextualExplanation,
+        ...answerDetail,
       };
     }
 
@@ -277,6 +409,7 @@ function buildReviewQuestions(
         partOfSpeech,
         definition,
         contextualExplanation,
+        ...answerDetail,
       };
     }
 
@@ -300,6 +433,24 @@ function buildReviewQuestions(
         partOfSpeech,
         definition,
         contextualExplanation,
+        ...answerDetail,
+      };
+    }
+
+    if (questionType === 'pronunciation') {
+      return {
+        id: card.id,
+        cardId: card.id,
+        questionType,
+        prompt: `Pronounce the word (${PRONUNCIATION_PASS_SCORE}%+ to pass)`,
+        correctAnswer: word,
+        options: [],
+        sentence: word,
+        sourceSentence,
+        partOfSpeech,
+        definition,
+        contextualExplanation,
+        ...answerDetail,
       };
     }
 
@@ -319,6 +470,7 @@ function buildReviewQuestions(
       partOfSpeech,
       definition: (card.definition || '').trim(),
       contextualExplanation,
+      ...answerDetail,
     };
   });
 }
@@ -353,7 +505,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const albumId = route.params?.albumId || 'all-cards';
   const albumName = route.params?.albumName || 'Review';
   const requestedQuestionCount = route.params?.questionCount;
-  const requestedQuestionTypes = route.params?.selectedQuestionTypes;
   const themeColor = '#4EAFF4';
   const routeCardIds = route.params?.cardIds || [];
   const palette = React.useMemo(
@@ -375,8 +526,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
             optionCorrectBorder: '#4EAFF4',
             optionWrongBg: 'rgba(255,107,107,0.14)',
             optionWrongBorder: '#FF6B6B',
-            answerCardBg: '#F5F6FA',
-            answerCardBorder: '#ECECF0',
+            answerCardBg: '#FFFFFF',
+            answerCardBorder: 'rgba(0,0,0,0.06)',
             nextTimeBg: '#FFFFFF',
             nextTimeBorder: 'rgba(0,0,0,0.06)',
             nextTimeActiveBg: '#E8F4FE',
@@ -410,7 +561,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
             optionCorrectBorder: '#34D399',
             optionWrongBg: 'rgba(255,107,107,0.22)',
             optionWrongBorder: '#FF6B6B',
-            answerCardBg: '#334155',
+            answerCardBg: '#1E293B',
             answerCardBorder: '#334155',
             nextTimeBg: '#1E293B',
             nextTimeBorder: '#334155',
@@ -437,14 +588,20 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
   const [results, setResults] = React.useState<Record<string, boolean>>({});
+  const [skippedQuestionIds, setSkippedQuestionIds] = React.useState<Set<string>>(() => new Set());
   const [pinnedCardIds, setPinnedCardIds] = React.useState<string[]>([]);
-  const [selectedQuestionTypes, setSelectedQuestionTypes] = React.useState<ReviewQuestionType[]>(
-    DEFAULT_REVIEW_QUESTION_TYPES
-  );
+  const [skippedPronunciationCardIds, setSkippedPronunciationCardIds] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [pronunciationRecordingQuestionId, setPronunciationRecordingQuestionId] = React.useState<string | null>(null);
+  const [pronunciationAnalyzingQuestionId, setPronunciationAnalyzingQuestionId] = React.useState<string | null>(null);
+  const [pronunciationPlaybackQuestionId, setPronunciationPlaybackQuestionId] = React.useState<string | null>(null);
+  const [pronunciationScores, setPronunciationScores] = React.useState<Record<string, number>>({});
+  const [pronunciationErrors, setPronunciationErrors] = React.useState<Record<string, string>>({});
   const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
   const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
   const celebrationValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
+  const pronunciationRecordingRef = React.useRef<any | null>(null);
+  const pronunciationRecordingStartedAtRef = React.useRef<number>(0);
 
   React.useEffect(() => {
     const queryCards = database
@@ -478,27 +635,39 @@ export default function ReviewFlow({ navigation, route }: Props) {
     setLoading(true);
     const prefs = await loadAlbumReviewPreferences(albumId);
     const nextPinned = prefs.pinnedCardIds.filter((id) => sourceCards.some((card) => card.id === id));
+    const nextSkippedPronunciation = prefs.skippedPronunciationCardIds.filter((id) =>
+      sourceCards.some((card) => card.id === id)
+    );
     const effectiveCount = requestedQuestionCount ?? prefs.questionCount;
-    const effectiveQuestionTypes =
-      requestedQuestionTypes && requestedQuestionTypes.length > 0
-        ? requestedQuestionTypes
-        : prefs.selectedQuestionTypes;
 
     setPinnedCardIds(nextPinned);
-    setSelectedQuestionTypes(effectiveQuestionTypes);
+    setSkippedPronunciationCardIds(nextSkippedPronunciation);
     setSelectedAnswers({});
     setResults({});
+    setSkippedQuestionIds(new Set());
+    setPronunciationScores({});
+    setPronunciationErrors({});
+    setPronunciationRecordingQuestionId(null);
+    setPronunciationAnalyzingQuestionId(null);
+    setPronunciationPlaybackQuestionId(null);
     setCurrentIndex(0);
     flipValuesRef.current = new Map();
     setQuestions(
-      buildReviewQuestions(sourceCards, allCards, effectiveCount, nextPinned, effectiveQuestionTypes)
+      buildReviewQuestions(
+        sourceCards,
+        allCards,
+        effectiveCount,
+        nextPinned,
+        nextSkippedPronunciation,
+        DEFAULT_REVIEW_QUESTION_TYPES
+      )
     );
     setLoading(false);
 
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     });
-  }, [albumId, allCards, requestedQuestionCount, requestedQuestionTypes, sourceCards]);
+  }, [albumId, allCards, requestedQuestionCount, sourceCards]);
 
   React.useEffect(() => {
     if (!allCards.length || !sourceCards.length) {
@@ -512,6 +681,20 @@ export default function ReviewFlow({ navigation, route }: Props) {
     void buildSession();
   }, [allCards.length, buildSession, sourceCards.length]);
 
+  React.useEffect(() => {
+    return () => {
+      const recording = pronunciationRecordingRef.current;
+      pronunciationRecordingRef.current = null;
+      if (!recording) return;
+      try {
+        recording.setOnRecordingStatusUpdate(null);
+        void recording.stopAndUnloadAsync().catch(() => undefined);
+      } catch {
+        // ignore cleanup errors
+      }
+    };
+  }, []);
+
   const slides = React.useMemo<ReviewSlide[]>(
     () => [...questions.map((question) => ({ id: question.id, type: 'question', question }) as const), { id: 'summary', type: 'summary' }],
     [questions]
@@ -520,6 +703,11 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const correctCount = React.useMemo(
     () => Object.values(results).filter(Boolean).length,
     [results]
+  );
+  const skippedCount = skippedQuestionIds.size;
+  const scoredQuestionCount = React.useMemo(
+    () => Math.max(0, questions.length - skippedQuestionIds.size),
+    [questions.length, skippedQuestionIds]
   );
 
   const answerQuestion = React.useCallback((question: ReviewQuestion, option: string) => {
@@ -562,10 +750,207 @@ export default function ReviewFlow({ navigation, route }: Props) {
     }, OPTION_FEEDBACK_DURATION_MS);
   }, [selectedAnswers]);
 
+  const finishQuestionWithResult = React.useCallback((question: ReviewQuestion, answer: string, isCorrect: boolean) => {
+    if (selectedAnswers[question.id]) return;
+
+    if (isCorrect) {
+      triggerCorrectAnswerHaptic();
+    } else {
+      triggerWrongAnswerBuzzHaptic();
+    }
+
+    setSelectedAnswers((prev) => ({ ...prev, [question.id]: answer }));
+    setResults((prev) => ({ ...prev, [question.id]: isCorrect }));
+    void markCardAsQuizReviewed(question.cardId);
+    if (skippedPronunciationCardIds.includes(question.cardId)) {
+      const nextSkipped = skippedPronunciationCardIds.filter((id) => id !== question.cardId);
+      setSkippedPronunciationCardIds(nextSkipped);
+      void saveAlbumReviewPreferences(albumId, { skippedPronunciationCardIds: nextSkipped });
+    }
+
+    const flipValue = getFlipValue(flipValuesRef, question.id);
+    setTimeout(() => {
+      Animated.timing(flipValue, {
+        toValue: 1,
+        duration: 380,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (!finished || !isCorrect) return;
+        const celebrate = getCelebrationValue(celebrationValuesRef, question.id);
+        celebrate.setValue(0);
+        Animated.sequence([
+          Animated.timing(celebrate, {
+            toValue: 1,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.delay(260),
+          Animated.timing(celebrate, {
+            toValue: 0,
+            duration: 380,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, OPTION_FEEDBACK_DURATION_MS);
+  }, [albumId, selectedAnswers, skippedPronunciationCardIds]);
+
+  const stopPronunciationQuestionRecording = React.useCallback(async (question: ReviewQuestion) => {
+    const recording = pronunciationRecordingRef.current;
+    if (!recording) return;
+
+    try {
+      setPronunciationRecordingQuestionId(null);
+      recording.setOnRecordingStatusUpdate(null);
+      const statusBeforeStop = await recording.getStatusAsync();
+      const durationMillis =
+        statusBeforeStop.isLoaded && typeof statusBeforeStop.durationMillis === 'number'
+          ? statusBeforeStop.durationMillis
+          : Date.now() - pronunciationRecordingStartedAtRef.current;
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      pronunciationRecordingRef.current = null;
+
+      if (!uri) {
+        throw new Error('錄音檔遺失，請重新錄音');
+      }
+      if (durationMillis > 0 && durationMillis < MIN_PRONUNCIATION_RECORDING_MS) {
+        throw new Error('錄音太短，請清楚唸出完整單字再送出');
+      }
+      if (Platform.OS === 'ios' && !uri.toLowerCase().endsWith('.wav')) {
+        throw new Error('錄音格式錯誤，請重新錄音');
+      }
+
+      setPronunciationAnalyzingQuestionId(question.id);
+      setPronunciationErrors((prev) => {
+        const next = { ...prev };
+        delete next[question.id];
+        return next;
+      });
+      const result = await assessPronunciationCloud({
+        referenceText: question.correctAnswer,
+        audioUri: uri,
+        locale: 'en-US',
+      });
+      const score = Math.round(result.score);
+      const passed = score >= PRONUNCIATION_PASS_SCORE;
+      setPronunciationScores((prev) => ({ ...prev, [question.id]: score }));
+      finishQuestionWithResult(question, `${score}% pronunciation accuracy`, passed);
+    } catch (error) {
+      console.error('[ReviewFlow][Pronunciation] assess failed:', error);
+      const message = error instanceof Error ? error.message : '發音評分失敗，請再試一次。';
+      setPronunciationErrors((prev) => ({ ...prev, [question.id]: message }));
+      setPronunciationScores((prev) => {
+        const next = { ...prev };
+        delete next[question.id];
+        return next;
+      });
+    } finally {
+      pronunciationRecordingRef.current = null;
+      setPronunciationRecordingQuestionId(null);
+      setPronunciationAnalyzingQuestionId(null);
+    }
+  }, [finishQuestionWithResult]);
+
+  const togglePronunciationQuestionRecording = React.useCallback(async (question: ReviewQuestion) => {
+    if (selectedAnswers[question.id] || pronunciationAnalyzingQuestionId) return;
+    if (pronunciationRecordingQuestionId === question.id) {
+      await stopPronunciationQuestionRecording(question);
+      return;
+    }
+    if (pronunciationRecordingRef.current) return;
+
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        setPronunciationErrors((prev) => ({ ...prev, [question.id]: '需要麥克風權限才能進行發音題。' }));
+        return;
+      }
+
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any);
+      await recording.startAsync();
+      pronunciationRecordingRef.current = recording;
+      pronunciationRecordingStartedAtRef.current = Date.now();
+      setPronunciationErrors((prev) => {
+        const next = { ...prev };
+        delete next[question.id];
+        return next;
+      });
+      setPronunciationRecordingQuestionId(question.id);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('[ReviewFlow][Pronunciation] recording failed:', error);
+      const message = error instanceof Error ? error.message : '錄音失敗，請再試一次。';
+      setPronunciationErrors((prev) => ({ ...prev, [question.id]: message }));
+      setPronunciationRecordingQuestionId(null);
+      pronunciationRecordingRef.current = null;
+    }
+  }, [pronunciationAnalyzingQuestionId, pronunciationRecordingQuestionId, selectedAnswers, stopPronunciationQuestionRecording]);
+
   const goToSlide = React.useCallback((index: number) => {
     setCurrentIndex(index);
     listRef.current?.scrollToOffset({ offset: index * width, animated: true });
   }, [width]);
+
+  const handleSkipPronunciationQuestion = React.useCallback(async (question: ReviewQuestion) => {
+    if (selectedAnswers[question.id] || pronunciationAnalyzingQuestionId) return;
+
+    const recording = pronunciationRecordingRef.current;
+    pronunciationRecordingRef.current = null;
+    pronunciationRecordingStartedAtRef.current = 0;
+    setPronunciationRecordingQuestionId(null);
+    setPronunciationAnalyzingQuestionId(null);
+    setPronunciationErrors((prev) => {
+      const next = { ...prev };
+      delete next[question.id];
+      return next;
+    });
+    setPronunciationScores((prev) => {
+      const next = { ...prev };
+      delete next[question.id];
+      return next;
+    });
+
+    if (recording) {
+      try {
+        recording.setOnRecordingStatusUpdate(null);
+        await recording.stopAndUnloadAsync();
+      } catch {
+        // Skipping should never trap the user on the recording screen.
+      }
+    }
+
+    setSkippedQuestionIds((prev) => {
+      if (prev.has(question.id)) return prev;
+      const next = new Set(prev);
+      next.add(question.id);
+      return next;
+    });
+
+    const nextSkippedPronunciation = skippedPronunciationCardIds.includes(question.cardId)
+      ? skippedPronunciationCardIds
+      : [question.cardId, ...skippedPronunciationCardIds];
+    if (nextSkippedPronunciation !== skippedPronunciationCardIds) {
+      setSkippedPronunciationCardIds(nextSkippedPronunciation);
+      await saveAlbumReviewPreferences(albumId, { skippedPronunciationCardIds: nextSkippedPronunciation });
+    }
+
+    void Haptics.selectionAsync();
+    const questionIndex = questions.findIndex((item) => item.id === question.id);
+    const nextIndex = questionIndex >= 0 ? questionIndex + 1 : currentIndex + 1;
+    goToSlide(Math.min(nextIndex, slides.length - 1));
+  }, [
+    albumId,
+    currentIndex,
+    goToSlide,
+    pronunciationAnalyzingQuestionId,
+    questions,
+    selectedAnswers,
+    skippedPronunciationCardIds,
+    slides.length,
+  ]);
 
   const handleTogglePinned = React.useCallback(async (cardId: string) => {
     const nextPinned = pinnedCardIds.includes(cardId)
@@ -575,6 +960,22 @@ export default function ReviewFlow({ navigation, route }: Props) {
     setPinnedCardIds(nextPinned);
     await saveAlbumReviewPreferences(albumId, { pinnedCardIds: nextPinned });
   }, [albumId, pinnedCardIds]);
+
+  const handlePlayPronunciationAnswer = React.useCallback((question: ReviewQuestion) => {
+    if (question.questionType !== 'pronunciation') return;
+    const text = question.correctAnswer.trim();
+    if (!text) return;
+
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPronunciationPlaybackQuestionId(question.id);
+    void speakEnglishNaturally(text, {
+      onDownloadStart: () => setPronunciationPlaybackQuestionId(question.id),
+      onDownloadEnd: () => setPronunciationPlaybackQuestionId((current) => (current === question.id ? null : current)),
+      onDone: () => setPronunciationPlaybackQuestionId((current) => (current === question.id ? null : current)),
+      onStopped: () => setPronunciationPlaybackQuestionId((current) => (current === question.id ? null : current)),
+      onError: () => setPronunciationPlaybackQuestionId((current) => (current === question.id ? null : current)),
+    });
+  }, []);
 
   const handleNext = React.useCallback(() => {
     const nextIndex = currentIndex + 1;
@@ -616,6 +1017,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const selectedAnswer = selectedAnswers[question.id];
     const isCorrect = results[question.id];
     const isPinned = pinnedCardIds.includes(question.cardId);
+    const isPronunciationQuestion = question.questionType === 'pronunciation';
+    const isPronunciationRecording = pronunciationRecordingQuestionId === question.id;
+    const isPronunciationAnalyzing = pronunciationAnalyzingQuestionId === question.id;
+    const isPronunciationPlaybackLoading = pronunciationPlaybackQuestionId === question.id;
+    const pronunciationScore = pronunciationScores[question.id];
+    const pronunciationError = pronunciationErrors[question.id];
 
     return (
       <View style={[styles.slide, { width }]}>
@@ -633,6 +1040,58 @@ export default function ReviewFlow({ navigation, route }: Props) {
             <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>{question.prompt.toUpperCase()}</Text>
             <Text style={[styles.sentenceText, { color: palette.primaryText }]}>{question.sentence}</Text>
 
+            {isPronunciationQuestion ? (
+              <View style={styles.pronunciationQuizPanel}>
+                <Text style={[styles.pronunciationQuizHint, { color: palette.secondaryText }]}>
+                  Say this word clearly. Accuracy over {PRONUNCIATION_PASS_SCORE}% passes.
+                </Text>
+                {typeof pronunciationScore === 'number' ? (
+                  <Text style={[styles.pronunciationQuizScore, { color: pronunciationScore >= PRONUNCIATION_PASS_SCORE ? palette.successText : palette.errorText }]}>
+                    {pronunciationScore}%
+                  </Text>
+                ) : null}
+                {pronunciationError ? (
+                  <Text style={[styles.pronunciationQuizError, { color: palette.errorText }]}>{pronunciationError}</Text>
+                ) : null}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.pronunciationQuizButton,
+                    {
+                      backgroundColor: isPronunciationRecording ? '#FF6B6B' : palette.nextButtonBg,
+                      borderColor: isPronunciationRecording ? '#4EAFF4' : palette.nextButtonBg,
+                    },
+                    isPronunciationRecording ? styles.pronunciationQuizButtonRecording : null,
+                    pressed && !selectedAnswer && !isPronunciationAnalyzing ? styles.primaryButtonPressed : null,
+                  ]}
+                  disabled={Boolean(selectedAnswer) || isPronunciationAnalyzing}
+                  onPress={() => void togglePronunciationQuestionRecording(question)}
+                >
+                  <Ionicons
+                    name={isPronunciationAnalyzing ? 'hourglass-outline' : isPronunciationRecording ? 'stop' : 'mic'}
+                    size={24}
+                    color={palette.nextButtonText}
+                  />
+                  <Text style={[styles.pronunciationQuizButtonText, { color: palette.nextButtonText }]}>
+                    {isPronunciationAnalyzing
+                      ? 'Scoring...'
+                      : isPronunciationRecording
+                        ? 'Stop and score'
+                        : 'Record pronunciation'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.pronunciationSkipButton,
+                    { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
+                    pressed && !selectedAnswer && !isPronunciationAnalyzing ? styles.secondaryButtonPressed : null,
+                  ]}
+                  disabled={Boolean(selectedAnswer) || isPronunciationAnalyzing}
+                  onPress={() => void handleSkipPronunciationQuestion(question)}
+                >
+                  <Text style={[styles.pronunciationSkipText, { color: palette.secondaryText }]}>Can&apos;t speak now</Text>
+                </Pressable>
+              </View>
+            ) : (
             <View style={styles.optionsGrid}>
               {question.options.map((option) => {
                 const wasChosen = selectedAnswer === option;
@@ -662,6 +1121,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 );
               })}
             </View>
+            )}
           </Animated.View>
 
           <Animated.View
@@ -684,54 +1144,83 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 ]}
               />
             ) : null}
-            <View style={styles.resultBadgeRow}>
-              <Animated.View
-                style={[
-                  styles.resultBadge,
-                  { backgroundColor: isCorrect ? palette.successTint : palette.errorTint },
-                  isCorrect ? { transform: [{ scale: celebrationScale }] } : null,
-                ]}
-              >
-                <Text style={[styles.resultBadgeText, { color: isCorrect ? palette.successText : palette.errorText }]}>
-                  {isCorrect ? 'Correct' : 'Not quite'}
-                </Text>
-              </Animated.View>
-              {isCorrect ? (
-                <Animated.View
-                  style={[
-                    styles.celebrationSpark,
-                    {
-                      opacity: celebrationIconOpacity,
-                      transform: [{ translateY: celebrationFloat }, { scale: celebrationScale }],
-                    },
-                  ]}
-                >
-                  <Ionicons name="sparkles" size={16} color={palette.celebrationIcon} />
-                </Animated.View>
-              ) : null}
+            <View style={styles.answerSentenceBlock}>
+              <Text style={[styles.answerSentenceLabel, { color: palette.secondaryText }]}>Sentence</Text>
+              <Text style={[styles.answerFullSentence, { color: palette.primaryText }]}>{question.fullSentence}</Text>
             </View>
 
-            <Text style={[styles.answerTitle, { color: palette.primaryText }]}>Correct answer</Text>
-            {!isCorrect ? (
-              <Text style={[styles.answerSubTitle, { color: palette.secondaryText }]}>
-                Your answer: {selectedAnswer}
+            <View style={styles.answerSentenceBlock}>
+              <Text style={[styles.answerSentenceLabel, { color: palette.secondaryText }]}>Translation</Text>
+              <Text style={[styles.answerTranslatedSentence, { color: palette.primaryText }]}>
+                {question.sentenceTranslation}
               </Text>
-            ) : null}
+            </View>
+
             <View
               style={[
                 styles.answerVocabCard,
                 { backgroundColor: palette.answerCardBg, borderColor: palette.answerCardBorder },
               ]}
             >
-              <Text style={[styles.answerWord, { color: palette.primaryText }]}>{question.correctAnswer}</Text>
+              <View style={styles.answerPreviewHeader}>
+                <View style={styles.answerPreviewWordWrap}>
+                  <Text style={[styles.answerSentenceLabel, { color: palette.secondaryText }]}>Card detail</Text>
+                  <Text style={[styles.answerWord, { color: palette.primaryText }]}>{question.correctAnswer}</Text>
+                </View>
+                {isPronunciationQuestion ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.answerPronounceButton,
+                      { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
+                      pressed ? styles.iconButtonPressed : null,
+                    ]}
+                    onPress={() => handlePlayPronunciationAnswer(question)}
+                  >
+                    <Ionicons
+                      name={isPronunciationPlaybackLoading ? 'hourglass-outline' : 'volume-medium-outline'}
+                      size={22}
+                      color={palette.primaryText}
+                    />
+                  </Pressable>
+                ) : null}
+                <View style={styles.resultBadgeRow}>
+                  <Animated.View
+                    style={[
+                      styles.resultBadge,
+                      { backgroundColor: isCorrect ? palette.successTint : palette.errorTint },
+                      isCorrect ? { transform: [{ scale: celebrationScale }] } : null,
+                    ]}
+                  >
+                    <Text style={[styles.resultBadgeText, { color: isCorrect ? palette.successText : palette.errorText }]}>
+                      {isCorrect ? 'Correct' : 'Not quite'}
+                    </Text>
+                  </Animated.View>
+                  {isCorrect ? (
+                    <Animated.View
+                      style={[
+                        styles.celebrationSpark,
+                        {
+                          opacity: celebrationIconOpacity,
+                          transform: [{ translateY: celebrationFloat }, { scale: celebrationScale }],
+                        },
+                      ]}
+                    >
+                      <Ionicons name="sparkles" size={16} color={palette.celebrationIcon} />
+                    </Animated.View>
+                  ) : null}
+                </View>
+              </View>
+              {!isCorrect ? (
+                <Text style={[styles.answerSubTitle, { color: palette.secondaryText }]}>
+                  {isPronunciationQuestion ? `Your score: ${selectedAnswer}` : `Your answer: ${selectedAnswer}`}
+                </Text>
+              ) : null}
               <Text style={[styles.answerPos, { color: palette.secondaryText }]}>{question.partOfSpeech || 'word'}</Text>
               {question.definition ? (
                 <Text style={[styles.answerDefinition, { color: palette.primaryText }]}>{question.definition}</Text>
               ) : null}
-              {question.contextualExplanation ? (
-                <Text style={[styles.answerSentence, { color: palette.primaryText }]}>{question.contextualExplanation}</Text>
-              ) : question.sourceSentence ? (
-                <Text style={[styles.answerSentence, { color: palette.primaryText }]}>{question.sourceSentence}</Text>
+              {question.contextPreview ? (
+                <Text style={[styles.answerSentence, { color: palette.secondaryText }]}>{question.contextPreview}</Text>
               ) : null}
             </View>
 
@@ -770,10 +1259,27 @@ export default function ReviewFlow({ navigation, route }: Props) {
         </View>
       </View>
     );
-  }, [answerQuestion, handleNext, handleTogglePinned, pinnedCardIds, results, selectedAnswers, width]);
+  }, [
+    answerQuestion,
+    handleSkipPronunciationQuestion,
+    handleNext,
+    handleTogglePinned,
+    handlePlayPronunciationAnswer,
+    palette,
+    pinnedCardIds,
+    pronunciationAnalyzingQuestionId,
+    pronunciationErrors,
+    pronunciationPlaybackQuestionId,
+    pronunciationRecordingQuestionId,
+    pronunciationScores,
+    results,
+    selectedAnswers,
+    togglePronunciationQuestionRecording,
+    width,
+  ]);
 
   const renderSummaryCard = React.useCallback(() => {
-    const total = questions.length;
+    const total = scoredQuestionCount;
     const percentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
     const summaryTone =
       percentage >= 90
@@ -794,6 +1300,11 @@ export default function ReviewFlow({ navigation, route }: Props) {
           <Text style={[styles.summaryScore, { color: palette.primaryText }]}>{correctCount}/{total}</Text>
           <Text style={[styles.summaryPercent, { color: summaryTone.color }]}>{percentage}% correct</Text>
           <Text style={[styles.summaryBody, { color: palette.secondaryText }]}>{summaryTone.message}</Text>
+          {skippedCount > 0 ? (
+            <Text style={[styles.summarySkipped, { color: palette.secondaryText }]}>
+              {skippedCount} pronunciation {skippedCount === 1 ? 'question was' : 'questions were'} skipped and saved for next time.
+            </Text>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [
@@ -819,7 +1330,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
         </View>
       </View>
     );
-  }, [correctCount, handleReplay, navigation, palette.cardBg, palette.cardBorder, palette.nextButtonBg, palette.nextButtonText, palette.primaryText, palette.secondaryText, palette.summarySecondaryBg, palette.summarySecondaryBorder, palette.summarySecondaryText, questions.length, width]);
+  }, [correctCount, handleReplay, navigation, palette.cardBg, palette.cardBorder, palette.nextButtonBg, palette.nextButtonText, palette.primaryText, palette.secondaryText, palette.summarySecondaryBg, palette.summarySecondaryBorder, palette.summarySecondaryText, scoredQuestionCount, skippedCount, width]);
 
   const renderItem = React.useCallback(
     ({ item }: { item: ReviewSlide }) => {
@@ -1049,6 +1560,63 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '800',
   },
+  pronunciationQuizPanel: {
+    gap: 14,
+    alignItems: 'center',
+  },
+  pronunciationQuizHint: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  pronunciationQuizScore: {
+    fontSize: 54,
+    lineHeight: 60,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  pronunciationQuizError: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  pronunciationQuizButton: {
+    minHeight: 62,
+    width: '100%',
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  pronunciationQuizButtonRecording: {
+    shadowColor: '#FF6B6B',
+    shadowOpacity: 0.32,
+  },
+  pronunciationQuizButtonText: {
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  pronunciationSkipButton: {
+    minHeight: 48,
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pronunciationSkipText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
   resultBadgeRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
@@ -1074,15 +1642,51 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 15,
     fontWeight: '600',
-    textDecorationLine: 'line-through',
+  },
+  answerSentenceBlock: {
+    gap: 6,
+    marginBottom: 14,
+  },
+  answerSentenceLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  answerFullSentence: {
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: '800',
+  },
+  answerTranslatedSentence: {
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '700',
   },
   answerVocabCard: {
-    marginTop: 10,
-    borderRadius: 20,
+    marginTop: 2,
+    borderRadius: 18,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     gap: 6,
+  },
+  answerPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  answerPreviewWordWrap: {
+    flex: 1,
+  },
+  answerPronounceButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   answerWord: {
     color: '#FFFFFF',
@@ -1176,6 +1780,12 @@ const styles = StyleSheet.create({
     marginTop: 18,
     fontSize: 16,
     lineHeight: 24,
+  },
+  summarySkipped: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
   },
   summaryPrimaryButton: {
     marginTop: 28,

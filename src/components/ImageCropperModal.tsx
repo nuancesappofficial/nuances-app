@@ -53,6 +53,8 @@ const HANDLE_HITBOX_SIZE = 44;
 const EDGE_HITBOX_SIZE = 28;
 const MOVE_HITBOX_INSET = 20;
 const ALBUM_CROP_RADIUS = 28;
+const CROP_GUIDE_CORNER_LENGTH = 42;
+const CROP_GUIDE_CORNER_THICKNESS = 8;
 
 function createRoundedRectPath(x: number, y: number, width: number, height: number, radius: number) {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
@@ -104,6 +106,7 @@ export default function ImageCropperModal({
     left: number;
     top: number;
   } | null>(null);
+  const reservedTopInset = React.useMemo(() => insets.top + (isFixedCropShape ? 104 : 88), [insets.top, isFixedCropShape]);
 
   const commitImageTransform = React.useCallback((nextTransform: ImageTransform) => {
     const current = imageTransformRef.current;
@@ -157,12 +160,15 @@ export default function ImageCropperModal({
 
     if (isFixedCropShape) {
       const preferredSize = fixedCropSize ?? 200;
+      const maxHeightWithoutHeader = Math.max(MIN_EDGE, containerSize.height - reservedTopInset - 28);
       const size = Math.max(
         MIN_EDGE,
-        Math.min(preferredSize, displayMetrics.width, displayMetrics.height)
+        Math.min(preferredSize, displayMetrics.width, displayMetrics.height, maxHeightWithoutHeader)
       );
       const left = (containerSize.width - size) / 2;
-      const top = (containerSize.height - size) / 2;
+      const centeredTop = (containerSize.height - size) / 2;
+      const maxTop = Math.max(reservedTopInset, containerSize.height - size - 28);
+      const top = clamp(Math.max(centeredTop, reservedTopInset), reservedTopInset, maxTop);
       setCropRect({ x: left, y: top, width: size, height: size });
       return;
     }
@@ -171,14 +177,21 @@ export default function ImageCropperModal({
       if (prev) return prev;
       const marginX = Math.max(16, displayMetrics.width * 0.1);
       const marginY = Math.max(16, displayMetrics.height * 0.1);
+      const preferredY = displayMetrics.top + marginY;
+      const y = clamp(
+        Math.max(preferredY, reservedTopInset),
+        displayMetrics.top,
+        Math.max(displayMetrics.top, displayMetrics.top + displayMetrics.height - MIN_EDGE)
+      );
+      const availableBottom = displayMetrics.top + displayMetrics.height;
       return {
         x: displayMetrics.left + marginX,
-        y: displayMetrics.top + marginY,
+        y,
         width: Math.max(MIN_EDGE, displayMetrics.width - marginX * 2),
-        height: Math.max(MIN_EDGE, displayMetrics.height - marginY * 2),
+        height: Math.max(MIN_EDGE, availableBottom - y - marginY),
       };
     });
-  }, [containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize, isFixedCropShape]);
+  }, [clamp, containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize, isFixedCropShape, reservedTopInset]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -618,11 +631,19 @@ export default function ImageCropperModal({
               <View
                 style={[
                   styles.cropRect,
-                  cropShape === 'circle' ? styles.cropCircle : null,
-                  cropShape === 'album' ? styles.cropAlbum : null,
                   cropRectStyle,
                 ]}
               />
+              <View pointerEvents="none" style={[styles.cropGuide, cropRectStyle]}>
+                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopLeftHorizontal]} />
+                <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopLeftVertical]} />
+                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopRightHorizontal]} />
+                <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopRightVertical]} />
+                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomRightHorizontal]} />
+                <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomRightVertical]} />
+                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomLeftHorizontal]} />
+                <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomLeftVertical]} />
+              </View>
 
               {isFixedCropShape && fixedCropGesture ? (
                 <GestureDetector gesture={fixedCropGesture}>
@@ -850,23 +871,63 @@ const styles = StyleSheet.create({
   },
   cropRect: {
     position: 'absolute',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.82)',
     backgroundColor: 'transparent',
   },
-  cropCircle: {
-    borderRadius: 999,
+  cropGuide: {
+    position: 'absolute',
+    zIndex: 18,
+    elevation: 18,
   },
-  cropAlbum: {
-    borderRadius: ALBUM_CROP_RADIUS,
+  cropGuideCornerHorizontal: {
+    position: 'absolute',
+    width: CROP_GUIDE_CORNER_LENGTH,
+    height: CROP_GUIDE_CORNER_THICKNESS,
+    backgroundColor: '#FFFFFF',
+  },
+  cropGuideCornerVertical: {
+    position: 'absolute',
+    width: CROP_GUIDE_CORNER_THICKNESS,
+    height: CROP_GUIDE_CORNER_LENGTH,
+    backgroundColor: '#FFFFFF',
+  },
+  cropGuideTopLeftHorizontal: {
+    top: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    left: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideTopLeftVertical: {
+    top: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    left: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideTopRightHorizontal: {
+    top: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    right: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideTopRightVertical: {
+    top: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    right: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideBottomRightHorizontal: {
+    bottom: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    right: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideBottomRightVertical: {
+    bottom: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    right: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideBottomLeftHorizontal: {
+    bottom: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    left: -CROP_GUIDE_CORNER_THICKNESS / 2,
+  },
+  cropGuideBottomLeftVertical: {
+    bottom: -CROP_GUIDE_CORNER_THICKNESS / 2,
+    left: -CROP_GUIDE_CORNER_THICKNESS / 2,
   },
   cornerHandle: {
-    width: HANDLE_SIZE,
-    height: HANDLE_SIZE,
-    borderRadius: HANDLE_SIZE / 2,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#0F1522',
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
   },
   cornerHitbox: {
     position: 'absolute',

@@ -108,3 +108,55 @@ buttonPressed: {
   transform: [{ scale: 0.985 }],
 }
 ```
+
+## ghost card animation
+
+Use this pattern when an async action should feel like a premium instrument actively processing data, not like a generic loading spinner. The loading UI must mimic the final UI structure so the transition from loading to result has no layout shock.
+
+### Core Principle
+- The loading state is a ghost version of the final component.
+- Keep the same container size, margins, background, border radius, and action-zone position as the finished UI.
+- Do not replace the final UI with a generic spinner-only screen.
+- Do not move the user's viewport after the async result returns unless the user explicitly triggered a new generation that requires tracking.
+
+### State Machine
+- `idle`: final UI shell is empty or ready.
+- `processing`: show ghost shell, subtle pulse, and cycling status copy.
+- `revealing`: API result is available; reveal final content top-down.
+- `success`: final content is stable and fully interactive.
+- `failed`: keep the same shell position and show a concise fail state with retry affordance.
+
+### Motion
+- Use one primary motion at a time: pulse, typing/reveal, or waveform. Do not animate every element.
+- Status text may cycle every `1400-1800ms`.
+- Reveal content top-down with short staggered stages, typically `140-260ms` between major sections.
+- Text reveal should feel deliberate but not slow. Prefer `45-65ms` ticks for typewriter-style body text.
+- Use `FadeIn/FadeOut` or opacity transitions for ghost status text.
+- Avoid animating layout properties such as `top`, `left`, `margin`, or dynamic container height.
+
+### Color Tones
+- Hardware blue: `#4EAFF4` for active processing, active borders, and primary analysis glow.
+- Cyan glow: `#00E5FF` for powered-on shadows only, using `button glowing effect` rules.
+- Fail coral: `#FF6B6B` for failed states, warning icons, and retry emphasis.
+- Dark ghost surface: `rgba(30,41,59,0.62)` with `#334155` border.
+- Light ghost surface: `#F8FAFC` or `rgba(15,23,42,0.04)` with subtle slate borders.
+- Placeholder/status text should be smaller, dimmer, and visually separate from real generated content.
+
+### Create Word Example
+- `processing`: show the front card shell first with dim cycling text such as `Analyzing linguistic context...` where real content will later appear.
+- `revealing`: fill the front card top-down: word -> part of speech -> definition -> sentence/translation -> context.
+- `revealing`: then reveal the back card sections: collocation -> example -> personal notes.
+- `success`: keep the completed card in place and put the `Save` button below it.
+- `failed`: do not create a fake empty card. Show a fail panel in the same flow with the failed word, error message, and a coral glowing `Retry` button.
+
+### Pronunciation Coach Example
+- `processing`: after recording stops, keep the pronunciation coach modal fixed. The result panel becomes a ghost score card with blank score, blank phoneme blocks, and cycling status text such as `Mapping phonemes...`.
+- `revealing`: once Azure returns, reveal score first, then phoneme blocks, then feedback summary.
+- `success`: controls remain at the same vertical position; retry and speaker controls become active without moving.
+- `failed`: replace the result panel with a fail ghost state that explains the error and tells the user to tap the mic to retry.
+
+### Accessibility
+- Avoid excessive motion and keep the animation count low.
+- Loading text must provide real feedback, not decorative copy only.
+- Failed states must be visible in the component itself, not only in native alerts.
+- Preserve contrast in both light and dark mode.

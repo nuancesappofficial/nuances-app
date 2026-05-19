@@ -259,6 +259,87 @@ function parseBooleanLike(value: unknown): boolean {
   return false;
 }
 
+function firstText(maxLen: number, ...values: unknown[]): string {
+  for (const value of values) {
+    const text = sanitizeText(value, maxLen);
+    if (text) return text;
+  }
+  return '';
+}
+
+function normalizeCollocations(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeText(item, 60))
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(', ');
+  }
+  return sanitizeText(value, 180)
+    .split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(', ');
+}
+
+function buildStructuredContextExplanation(params: {
+  parsed: Record<string, unknown>;
+  targetWord: string;
+  definition: string;
+  originalSentence: string;
+}): string {
+  const { parsed, targetWord, definition, originalSentence } = params;
+  const contextObject =
+    parsed.contextualExplanation && typeof parsed.contextualExplanation === 'object' && !Array.isArray(parsed.contextualExplanation)
+      ? parsed.contextualExplanation as Record<string, unknown>
+      : {};
+
+  const sentenceTranslation = firstText(
+    180,
+    parsed.sentenceTranslation,
+    parsed.translation,
+    contextObject.sentenceTranslation,
+    contextObject.translation,
+  );
+  const sentenceNotes = firstText(
+    220,
+    parsed.sentenceNotes,
+    parsed.contextNote,
+    parsed.usageNote,
+    contextObject.sentenceNotes,
+    contextObject.contextNote,
+    parsed.contextualExplanation,
+  );
+  const culturalBackground = firstText(
+    240,
+    parsed.context,
+    parsed.culturalBackground,
+    parsed.culturalContext,
+    parsed.usageFit,
+    parsed.whyItFits,
+    parsed.origin,
+    contextObject.context,
+    contextObject.culturalBackground,
+    contextObject.culturalContext,
+  );
+  const exampleSentence = firstText(
+    220,
+    parsed.example,
+    parsed.exampleSentence,
+    parsed.naturalExample,
+    contextObject.exampleSentence,
+    contextObject.example,
+  );
+
+  return JSON.stringify({
+    sentenceTranslation: sentenceTranslation || `${targetWord}: ${definition}`,
+    sentenceNotes: sentenceNotes || '',
+    culturalBackground: culturalBackground || '',
+    exampleSentence,
+  });
+}
+
 function levenshteinDistance(a: string, b: string): number {
   const aa = a.toLowerCase();
   const bb = b.toLowerCase();
@@ -653,15 +734,22 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
   }
 
   const prompt = `
-Analyze the word "${targetWord}" within this sentence: "${originalSentence}".
-Output a JSON object with the following exact keys:
-- "normalizedTargetWord": The base form of the word.
-- "partOfSpeech": The grammatical role in the sentence.
-- "definition": The primary meaning in this specific context (in ${replyLanguage.label}).
-- "contextualExplanation": Explain why it means this, citing sentence context or cultural slang usage (in ${replyLanguage.label}).
-- "frequentCollocations": Provide 1 to 3 natural collocations or short phrases using this exact meaning, comma-separated (in the source language of the target word).
-- "example": Provide another example sentence using one of the collocations above and this exact meaning (in ${replyLanguage.label}).
-- "tags": Array of strings (e.g., ["slang", "hip-hop", "noun"]).
+Analyze the target "${targetWord}" only as it is used in this source sentence:
+"${originalSentence}"
+
+Return strict JSON with these exact keys:
+{
+  "normalizedTargetWord": "base form or exact phrase with corrected spelling",
+  "partOfSpeech": "noun | verb | adjective | adverb | phrase | slang | proper noun | other",
+  "definition": "what the target word means in this sentence in ${replyLanguage.label}; use minimal words that translate or explain it simply but correctly",
+  "sentenceTranslation": "two lines: line 1 is the full original sentence from beginning to final punctuation with the target wrapped in natural quote marks for the source language; line 2 is the full ${replyLanguage.label} translation with the translated target wrapped in natural quote marks for ${replyLanguage.label}; never use square brackets",
+  "culturalBackground": "explain why the target word is used / a good fit in the original sentence, in ${replyLanguage.label}, max 30 words",
+  "frequentCollocations": ["1-2 short natural phrases in the source language"],
+  "example": "one short natural example sentence in the source language using the best collocation, max 18 words",
+  "tags": ["max 3 short tags"]
+}
+
+Do not add introductions, markdown, bullet explanations, or extra keys.
 `;
 
   const generateCardSystemInstruction = [
@@ -669,11 +757,15 @@ Output a JSON object with the following exact keys:
     'Be fluent in contemporary internet and youth-culture language, including emergent slang and second-culture usage across English, Chinese, Korean, and Japanese.',
     'Prioritize in-context meaning over traditional dictionary defaults when sentence context indicates slang, meme, gaming, music, social media, or community-specific usage.',
     'Apply your knowledge of modern cultural references even if the provided sentence is short or lacks explicit context.',
-    `Use ${replyLanguage.label} for natural-language output fields (especially definition/contextualExplanation/example) unless the user explicitly requests another language.`,
+    `Use ${replyLanguage.label} for definition, sentenceTranslation, and culturalBackground.`,
+    'Write example in the target/source language, not the reply language, because it is used as a learning example sentence.',
+    'For sentenceTranslation, keep the whole sentence, not a fragment. Use language-appropriate quote marks such as English “...”, Traditional Chinese 「...」, Japanese 「...」, or Korean ‘...’. Do not use [brackets].',
+    'Map output to flashcard UI sections: definition is the front meaning, sentenceTranslation is the front original/translation block, culturalBackground is the front Context section.',
+    'Keep output compact. Avoid filler such as "This word means", "In this sentence", "The term", or "refers to" unless necessary for grammar.',
     'Always provide at least one usable collocation or short phrase in frequentCollocations. Prefer concrete, common combinations over isolated single words.',
-    'Make the example sentence sound natural and clearly demonstrate one of the collocations you returned.',
-    'If meaning is ambiguous, explicitly mark uncertainty and provide concise alternatives.',
-    'Return strict JSON only matching the requested schema. Keep each field concise.'
+    'Make the example sentence natural, short, different from the source sentence, and directly reusable by a learner.',
+    'If meaning is ambiguous, mark uncertainty in culturalBackground only and keep definition short.',
+    'Return strict JSON only matching the requested schema. Do not include markdown.'
   ].join(' ');
 
   const modelCandidates = Array.from(
@@ -826,13 +918,22 @@ Output a JSON object with the following exact keys:
     : '需要更多上下文才能判定唯一意思';
   const safeDefinition = shouldForceAmbiguousOutput
     ? `此縮寫在此句脈絡可能有多種意思，${ambiguousHint}。`
-    : sanitizeText(parsed.definition || '', 2000);
+    : sanitizeText(parsed.definition || '', 180);
   const safeContextualExplanation = shouldForceAmbiguousOutput
     ? sanitizeText(
-      `${originalSentence.replace(new RegExp(escapeRegExp(targetWord), 'ig'), `"${targetWord}"`)}\n此句語境不足，建議提供前後句以判定「${targetWord}」精確語意。`,
-      2000
+      JSON.stringify({
+        sentenceTranslation: originalSentence,
+        sentenceNotes: '',
+        culturalBackground: `語境不足，建議提供前後句以判定「${targetWord}」精確語意。`,
+      }),
+      600
     )
-    : sanitizeText(parsed.contextualExplanation || parsed['explanation'] || '', 2000);
+    : buildStructuredContextExplanation({
+      parsed,
+      targetWord: safeNormalizedTargetWord || targetWord,
+      definition: safeDefinition,
+      originalSentence,
+    });
 
   console.log('[ai-proxy][generate_card] disambiguation', {
     targetWord,
@@ -861,13 +962,12 @@ Output a JSON object with the following exact keys:
       partOfSpeech: sanitizeText(parsed.partOfSpeech || parsed['part of speech'] || parsed['pos'] || '', 80),
       definition: safeDefinition,
       contextualExplanation: safeContextualExplanation,
-      example: sanitizeText(parsed.example || '', 1200),
-      frequentCollocations: sanitizeText(
+      example: sanitizeText(parsed.example || '', 220),
+      frequentCollocations: normalizeCollocations(
         parsed.frequentCollocations || 
         parsed['frequent_collocations'] || 
         parsed['collocations'] || 
-        parsed['Frequent collocations'] || '', 
-        500
+        parsed['Frequent collocations'] || ''
       ),
       phoneticTranscription: typeof (parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa) === 'string' 
         ? sanitizeText(parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa, 120) 

@@ -2,7 +2,7 @@ UI list :
 {
     pronunciation coach
     ✓ review tuning
-    ghost card
+    ✓ ghost card
     ✓ album settting
     membership modal
     login animation

@@ -11,6 +11,7 @@ import Reanimated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
 
 export type GhostPreviewCard = {
@@ -33,7 +34,6 @@ export type PreviewRevealState = {
   showFrontDefinition: boolean;
   showFrontSentence: boolean;
   showFrontTranslation: boolean;
-  showFrontNotes: boolean;
   showBackCollocation: boolean;
   showBackExample: boolean;
   showBackCultural: boolean;
@@ -47,14 +47,14 @@ export const GHOST_CARD_STATUS_TEXT = [
   'Finalizing definitions...',
 ] as const;
 
-const PREVIEW_TYPE_INTERVAL_MS = 78;
-const PREVIEW_TYPE_STEPS = 52;
+const PREVIEW_TYPE_INTERVAL_MS = 54;
+const PREVIEW_TYPE_STEPS = 44;
 
 export function getPreviewTypingDuration(text: string): number {
   const length = Math.max(1, text.length);
   const increment = Math.max(1, Math.ceil(length / PREVIEW_TYPE_STEPS));
   const ticks = Math.ceil(length / increment);
-  return ticks * PREVIEW_TYPE_INTERVAL_MS + 180;
+  return ticks * PREVIEW_TYPE_INTERVAL_MS + 120;
 }
 
 function collocationsFromText(raw: string): string[] {
@@ -67,32 +67,35 @@ function collocationsFromText(raw: string): string[] {
 }
 
 export function buildSentenceTranslationText(card: GhostPreviewCard): string {
-  const raw = (card.cultural || '').trim();
-  const lines = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const firstLine = lines[0] || `${card.displayWord}：${card.definition || 'Generating meaning...'}`;
-  const quotedWord = `「${card.displayWord}」`;
-  return firstLine.includes(quotedWord) ? firstLine : `${quotedWord}：${firstLine}`;
-}
-
-export function buildSentenceNotesText(card: GhostPreviewCard): string {
-  const raw = (card.cultural || '').trim();
-  const lines = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length > 1) return lines.slice(1).join('\n');
-  if (raw) return raw;
-  return card.manualMode ? 'Add your own sentence note.' : 'Context note is being prepared.';
+  return parseCardContextSections({
+    raw: card.cultural,
+    displayWord: card.displayWord,
+    definition: card.definition || 'Generating meaning...',
+    sourceSentence: card.sourceSentence,
+    manualMode: card.manualMode,
+  }).sentenceTranslation;
 }
 
 export function buildCulturalBackgroundText(card: GhostPreviewCard): string {
-  return (card.cultural || '').trim() || 'No cultural background generated.';
+  return parseCardContextSections({
+    raw: card.cultural,
+    displayWord: card.displayWord,
+    definition: card.definition,
+    sourceSentence: card.sourceSentence,
+    manualMode: card.manualMode,
+  }).culturalBackground || 'No context generated.';
 }
 
 export function buildExampleSentenceText(card: GhostPreviewCard): string {
+  const structuredExample = parseCardContextSections({
+    raw: card.cultural,
+    displayWord: card.displayWord,
+    definition: card.definition,
+    sourceSentence: card.sourceSentence,
+    manualMode: card.manualMode,
+  }).exampleSentence;
+  if (structuredExample) return structuredExample;
+
   const firstCollocation = collocationsFromText(card.collocationsText)[0] || card.displayWord;
   const baseSentence = (card.sourceSentence || '').trim();
   if (!baseSentence) return `Try using "${firstCollocation}" in a sentence today.`;
@@ -192,6 +195,8 @@ export function CreateCardGhostPreviewScene({
   phase,
   isFavorite = false,
   isBookmarked = false,
+  isWordAudioLoading = false,
+  onPlayWord,
   onOpenPronunciationModal,
   onToggleFavorite,
   onOpenAlbumSheet,
@@ -207,6 +212,8 @@ export function CreateCardGhostPreviewScene({
   phase: PreviewPhase;
   isFavorite?: boolean;
   isBookmarked?: boolean;
+  isWordAudioLoading?: boolean;
+  onPlayWord?: () => void;
   onOpenPronunciationModal?: () => void;
   onToggleFavorite?: () => void;
   onOpenAlbumSheet?: () => void;
@@ -247,8 +254,16 @@ export function CreateCardGhostPreviewScene({
   const previewPartOfSpeech = card?.partOfSpeech || 'Generating';
   const previewDefinition = card?.definition || statusText;
   const previewSourceSentence = card?.sourceSentence || processingWord;
+  const previewContextSections = card
+    ? parseCardContextSections({
+        raw: card.cultural,
+        displayWord: card.displayWord,
+        definition: card.definition,
+        sourceSentence: card.sourceSentence,
+        manualMode: card.manualMode,
+      })
+    : null;
   const previewTranslation = card ? buildSentenceTranslationText(card) : statusText;
-  const previewSentenceNotes = card ? buildSentenceNotesText(card) : statusText;
   const previewCollocation = (card ? collocationsFromText(card.collocationsText)[0] : undefined) || previewWord;
   const previewExample = card ? buildExampleSentenceText(card) : statusText;
   const previewCultural = card ? buildCulturalBackgroundText(card) : statusText;
@@ -256,6 +271,7 @@ export function CreateCardGhostPreviewScene({
   const isThinking = phase === 'frontThinking';
   const backVisible = phase === 'backReveal' || phase === 'complete';
   const shouldAnimateText = phase !== 'complete';
+  const canPlayWord = Boolean(onPlayWord && previewWord.trim());
 
   React.useEffect(() => {
     pulse.value = withRepeat(withTiming(1, { duration: 1400 }), -1, true);
@@ -369,9 +385,22 @@ export function CreateCardGhostPreviewScene({
                 <ProgressiveText text={previewPartOfSpeech} active={revealState.showFrontWord || isThinking} animate={shouldAnimateText} style={[styles.previewPosChipText, { color: palette.secondaryText }]} />
               </Reanimated.View>
             </View>
-            <View style={styles.previewAudioWrap}>
-              <Ionicons name="volume-medium-outline" size={28} color={palette.secondaryText} />
-            </View>
+            <Pressable
+              disabled={!canPlayWord}
+              onPress={onPlayWord}
+              hitSlop={styles.previewActionHitSlop}
+              style={({ pressed }) => [
+                styles.previewAudioWrap,
+                !canPlayWord ? styles.previewAudioWrapDisabled : null,
+                pressed && canPlayWord ? styles.previewActionIconBtnPressed : null,
+              ]}
+            >
+              <Ionicons
+                name={isWordAudioLoading ? 'ellipsis-horizontal' : 'volume-medium-outline'}
+                size={28}
+                color={palette.secondaryText}
+              />
+            </Pressable>
           </View>
 
           <View style={styles.previewDefinitionRow}>
@@ -388,13 +417,15 @@ export function CreateCardGhostPreviewScene({
           <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
 
           <View style={styles.previewFrontSection}>
-            <ProgressiveText text={previewSourceSentence} active={revealState.showFrontSentence} animate={shouldAnimateText} style={[styles.previewSentenceText, { color: palette.textOnContainer }]} />
+            {!previewContextSections?.isStructured ? (
+              <ProgressiveText text={previewSourceSentence} active={revealState.showFrontSentence} animate={shouldAnimateText} style={[styles.previewSentenceText, { color: palette.textOnContainer }]} />
+            ) : null}
             <ProgressiveText text={previewTranslation} active={revealState.showFrontTranslation} animate={shouldAnimateText} style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]} />
           </View>
 
           <View style={styles.previewSectionBlock}>
-            <Reanimated.Text entering={FadeIn.duration(200)} style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Sentence notes</Reanimated.Text>
-            <ProgressiveText text={previewSentenceNotes} active={revealState.showFrontNotes} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.secondaryText }]} />
+            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Context</Text>
+            <ProgressiveText text={previewCultural} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
           </View>
 
           <View style={styles.previewFooterRow}>
@@ -456,15 +487,6 @@ export function CreateCardGhostPreviewScene({
             <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Example sentence</Text>
             <ProgressiveText text={previewExample} active={revealState.showBackExample} animate={shouldAnimateText} style={[styles.previewBackMainText, { color: palette.textOnContainer }]} />
           </View>
-
-          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
-
-          <View style={styles.previewSectionBlock}>
-            <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Cultural background</Text>
-            <ProgressiveText text={previewCultural} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBodyStrong, { color: palette.textOnContainer }]} />
-          </View>
-
-          <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
 
           <View style={styles.previewSectionBlock}>
             <Text style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>Personal notes</Text>
@@ -609,6 +631,7 @@ const styles = StyleSheet.create({
   },
   previewPosChipText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.35 },
   previewAudioWrap: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  previewAudioWrapDisabled: { opacity: 0.36 },
   previewDefinitionRow: { marginTop: 18 },
   previewDefinitionText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
   previewStatusSlot: {

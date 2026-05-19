@@ -24,6 +24,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import type Card from '@database/models/Card';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
+import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 type Props = {
@@ -231,24 +232,27 @@ function CardDetailCarouselCardUI({
     const matched = sentences.find((s) => reg.test(s));
     return matched || sentences[0] || source;
   }, [item.originalSentence, itemWord]);
-  const contextLines = React.useMemo(
+  const contextSections = React.useMemo(
     () =>
-      (item.contextualExplanation || '')
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean),
-    [item.contextualExplanation]
+      parseCardContextSections({
+        raw: item.contextualExplanation,
+        displayWord: itemWord,
+        definition: item.definition,
+        sourceSentence,
+      }),
+    [item.contextualExplanation, item.definition, itemWord, sourceSentence]
   );
-  const sentenceTranslationRaw = React.useMemo(() => contextLines[0] || '', [contextLines]);
+  const sentenceTranslationRaw = contextSections.sentenceTranslation;
   const translationText = React.useMemo(() => {
     const raw = (sentenceTranslationRaw || item.definition || '-').trim();
     if (!raw || raw === '-') return '-';
+    if (contextSections.isStructured) return raw;
     const quotedWord = `「${itemWord}」`;
     const escaped = itemWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const reg = new RegExp(`\\b${escaped}\\b`, 'ig');
     const replaced = raw.replace(reg, quotedWord);
     return replaced.includes(quotedWord) ? replaced : `${quotedWord}：${replaced}`;
-  }, [sentenceTranslationRaw, item.definition, itemWord]);
+  }, [contextSections.isStructured, sentenceTranslationRaw, item.definition, itemWord]);
   const collocationItems = React.useMemo(() => {
     const directItems = (item.frequentCollocations || '')
       .split(/[\n,;]+/)
@@ -262,29 +266,24 @@ function CardDetailCarouselCardUI({
       sourceSentence,
     });
   }, [item.frequentCollocations, item.targetPhrase, itemWord, sourceSentence]);
-  const sentenceExplanation = React.useMemo(() => {
-    if (contextLines.length > 1) return contextLines.slice(1).join('\n');
-    if (contextLines.length === 1) return contextLines[0];
-    if (item.definition?.trim()) return `This sentence uses 「${itemWord}」 to express: ${item.definition.trim()}`;
-    return `This sentence highlights how 「${itemWord}」 is used in natural context.`;
-  }, [contextLines, item.definition, itemWord]);
   const frontContentScale = React.useMemo(() => {
     const totalChars =
-      (sourceSentence?.length || 0) + (translationText?.length || 0) + (sentenceExplanation?.length || 0);
+      (contextSections.isStructured ? 0 : sourceSentence?.length || 0) +
+      (translationText?.length || 0) +
+      (contextSections.culturalBackground?.length || 0);
     const imagePenalty = hasHeroImage ? 1.08 : 1;
     const weighted = totalChars * imagePenalty;
     if (weighted > 560) return 0.8;
     if (weighted > 460) return 0.86;
     if (weighted > 360) return 0.92;
     return 1;
-  }, [hasHeroImage, sentenceExplanation, sourceSentence, translationText]);
+  }, [contextSections.culturalBackground, contextSections.isStructured, hasHeroImage, sourceSentence, translationText]);
   const frontSentenceFontSize = Math.round(20 * frontContentScale);
   const frontSentenceLineHeight = Math.round(28 * frontContentScale);
   const frontSentenceFontWeight: '600' = '600';
-  const frontNoteFontSize = Math.round(19 * frontContentScale);
-  const frontNoteLineHeight = Math.round(26 * frontContentScale);
   const hasStickyNote = Boolean((stickyNoteText || '').trim());
   const apiExampleSentence = React.useMemo(() => {
+    if (contextSections.exampleSentence) return contextSections.exampleSentence;
     const firstCollocation = collocationItems[0];
     if (!firstCollocation) return sourceSentence;
     if (!sourceSentence || sourceSentence === '-') {
@@ -292,7 +291,7 @@ function CardDetailCarouselCardUI({
     }
     const quoted = `"${firstCollocation}"`;
     return `A natural example using ${quoted} is: "${sourceSentence}"`;
-  }, [collocationItems, sourceSentence]);
+  }, [collocationItems, contextSections.exampleSentence, sourceSentence]);
   const mockPronunciationScore = 92;
   const mockPronunciationFeedbackLines = React.useMemo(
     () => ['Strong overall rhythm. Shorten the final consonant release slightly.'],
@@ -307,55 +306,18 @@ function CardDetailCarouselCardUI({
     []
   );
   const culturalBackgroundText = React.useMemo(() => {
-    const raw = (item.contextualExplanation || '').trim();
-    if (!raw) return '';
-
-    // 優先吃 LLM 結構化 JSON
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (parsed && typeof parsed === 'object') {
-        const direct = parsed.culturalBackground;
-        if (typeof direct === 'string' && direct.trim()) return direct.trim();
-
-        const origin =
-          typeof parsed.origin === 'string'
-            ? parsed.origin.trim()
-            : typeof parsed.slangOrigin === 'string'
-              ? parsed.slangOrigin.trim()
-              : '';
-        const whyUsed =
-          typeof parsed.whyUsed === 'string'
-            ? parsed.whyUsed.trim()
-            : typeof parsed.usageReason === 'string'
-              ? parsed.usageReason.trim()
-              : '';
-        const context =
-          typeof parsed.context === 'string'
-            ? parsed.context.trim()
-            : typeof parsed.culturalContext === 'string'
-              ? parsed.culturalContext.trim()
-              : '';
-
-        const chunks = [origin, whyUsed, context].filter(Boolean);
-        if (chunks.length > 0) return chunks.join('\n');
-      }
-    } catch {
-      // 非 JSON：使用原文字
-    }
-
-    return raw;
-  }, [item.contextualExplanation]);
+    return contextSections.culturalBackground;
+  }, [contextSections.culturalBackground]);
   const backTextScale = React.useMemo(() => {
     const totalChars =
       (collocationItems.join(' ').length || 0) +
       (apiExampleSentence?.length || 0) +
-      (culturalBackgroundText?.length || 0) +
       (stickyNoteText?.length || 0);
     if (totalChars > 760) return 0.82;
     if (totalChars > 620) return 0.88;
     if (totalChars > 500) return 0.94;
     return 1;
-  }, [apiExampleSentence, collocationItems, culturalBackgroundText, stickyNoteText]);
+  }, [apiExampleSentence, collocationItems, stickyNoteText]);
   const backTextFontSize = Math.round(20 * backTextScale);
   const backTextLineHeight = Math.round(28 * backTextScale);
   const weightedWordLength = Array.from(itemWord.trim()).reduce((total, ch) => {
@@ -613,24 +575,26 @@ function CardDetailCarouselCardUI({
                   <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
 
                   <View style={localStyles.dualSentenceBlock}>
+                    {!contextSections.isStructured ? (
+                      <Text
+                        style={[
+                          localStyles.dualSentenceText,
+                          {
+                            color: ui.primaryText,
+                            fontSize: frontSentenceFontSize,
+                            lineHeight: frontSentenceLineHeight,
+                          },
+                        ]}
+                      >
+                        {sourceSentence}
+                      </Text>
+                    ) : null}
                     <Text
                       style={[
                         localStyles.dualSentenceText,
                         {
                           color: ui.primaryText,
-                          fontSize: frontSentenceFontSize,
-                          lineHeight: frontSentenceLineHeight,
-                        },
-                      ]}
-                    >
-                      {sourceSentence}
-                    </Text>
-                    <Text
-                      style={[
-                        localStyles.dualSentenceText,
-                        {
-                          color: ui.primaryText,
-                          marginTop: 12,
+                          marginTop: contextSections.isStructured ? 0 : 12,
                           fontSize: frontSentenceFontSize,
                           lineHeight: frontSentenceLineHeight,
                         },
@@ -640,21 +604,24 @@ function CardDetailCarouselCardUI({
                     </Text>
                   </View>
 
+                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider, marginTop: 16 }]} />
+
                   <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Sentence notes</Text>
+                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Context</Text>
                     <Text
                       style={[
                         styles.referenceSubText,
                         {
                           color: ui.noteText,
-                          fontSize: frontNoteFontSize,
-                          lineHeight: frontNoteLineHeight,
+                          fontSize: Math.round(18 * frontContentScale),
+                          lineHeight: Math.round(25 * frontContentScale),
                         },
                       ]}
                     >
-                      {sentenceExplanation}
+                      {culturalBackgroundText || 'No context yet.'}
                     </Text>
                   </View>
+
                 </ScrollView>
 
                 {/* ----- 第一頁底部操作列 ----- */}
@@ -788,33 +755,6 @@ function CardDetailCarouselCardUI({
                       </Pressable>
                     </View>
                   </View>
-
-                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
-
-                  <View style={[styles.referenceSubSection, { marginTop: 14 }]}>
-                    <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Cultural background</Text>
-                    <ScrollView
-                      style={localStyles.culturalScrollBox}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator={false}
-                    >
-                      <Text
-                        style={[
-                          localStyles.dualSentenceText,
-                          {
-                            color: ui.primaryText,
-                            fontSize: backTextFontSize,
-                            lineHeight: backTextLineHeight,
-                            fontWeight: '600',
-                          },
-                        ]}
-                      >
-                        {culturalBackgroundText || 'No cultural background yet.'}
-                      </Text>
-                    </ScrollView>
-                  </View>
-
-                  <View style={[styles.referenceDivider, { backgroundColor: ui.divider }]} />
 
                   <View style={[styles.referenceSubSection, { marginTop: 12 }]}>
                     <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Personal notes</Text>
