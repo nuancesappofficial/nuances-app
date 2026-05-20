@@ -113,6 +113,7 @@ const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
 const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const DAY_TILE_RADIUS = 14;
+const MEMBERSHIP_BG_ICON = require('../../../../assets/icon.png');
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const BASE_BG = SCREEN_BG;
@@ -1013,89 +1014,88 @@ export default function ProfileMainScreenUI({
             <View
               style={[
                 styles.membershipSheet,
-                {
-                  backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  shadowColor: isLight ? '#0F172A' : '#000000',
-                },
+                { shadowColor: isLight ? '#0F172A' : '#000000' },
               ]}
             >
+              <Image source={MEMBERSHIP_BG_ICON} style={styles.membershipHeroIconBg} resizeMode="contain" />
+              <View style={styles.membershipHeroDim} />
               <Pressable
                 style={({ pressed }) => [
                   styles.membershipCloseIcon,
-                  {
-                    backgroundColor: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.07)',
-                    borderColor: isLight ? palette.borderSubtle : 'rgba(255,255,255,0.10)',
-                  },
                   pressed ? styles.membershipButtonPressed : null,
                 ]}
                 onPress={onCloseMembershipModal}
                 hitSlop={10}
               >
-                <Ionicons name="close" size={18} color={palette.secondaryText} />
+                <Ionicons name="close" size={34} color="#FFFFFF" />
               </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.membershipRestoreTopLink, pressed ? styles.membershipRestoreLinkPressed : null]}
+                onPress={onRestoreMembership}
+                disabled={savingEntitlement}
+              >
+                <Text style={styles.membershipRestoreTopText}>Restore</Text>
+              </Pressable>
+
+              <View style={styles.membershipHeroContent}>
+                <View style={styles.membershipBrandRow}>
+                  <Text style={styles.membershipBrandText}>Nuances</Text>
+                  <View style={styles.membershipProBadge}>
+                    <Text style={styles.membershipProBadgeText}>PRO</Text>
+                  </View>
+                </View>
+                <Text style={styles.membershipHeroSubtitle}>
+                  Unlock AI cards, high quality voices, and pronunciation coaching
+                </Text>
+              </View>
+
+              <View style={styles.membershipBenefitList}>
+                {[
+                  'AI-generated definitions, examples, and context',
+                  'Cloud TTS with cached premium voices',
+                  'Pronunciation coach with scoring feedback',
+                  'Unlimited cache and faster card creation',
+                ].map((item) => (
+                  <View key={item} style={styles.membershipBenefitRow}>
+                    <Ionicons name="checkmark" size={28} color="#22D3EE" />
+                    <Text style={styles.membershipBenefitText}>{item}</Text>
+                  </View>
+                ))}
+              </View>
 
               <View style={styles.membershipPlanGrid}>
                 <Pressable
                   style={({ pressed }) => [
                     styles.membershipPlanCard,
-                    styles.membershipPlanCardMuted,
-                    {
-                      backgroundColor: isLight ? 'rgba(255,255,255,0.70)' : 'rgba(15,23,42,0.44)',
-                      borderColor: isLight ? 'rgba(15,23,42,0.08)' : 'rgba(148,163,184,0.16)',
-                    },
-                    pressed ? styles.membershipButtonPressed : null,
-                  ]}
-                  onPress={onCloseMembershipModal}
-                >
-                  <View style={styles.membershipPlanHeader}>
-                    <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Free</Text>
-                    {entitlementMode !== 'premium' ? (
-                      <View
-                        style={[
-                          styles.membershipPlanBadge,
-                          {
-                            backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.16)',
-                            borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.membershipPlanBadgeText, { color: palette.textOnContainer }]}>Current</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>$0</Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>Manual entry only</Text>
-                </Pressable>
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.membershipPlanCard,
-                    styles.membershipPlanCardFeatured,
-                    {
-                      backgroundColor: isLight ? 'rgba(78,175,244,0.10)' : 'rgba(78,175,244,0.13)',
-                      borderColor: '#00E5FF',
-                    },
+                    styles.membershipPlanCardSelected,
                     pressed ? styles.membershipButtonPressed : null,
                   ]}
                   onPress={onUpgradeMembership}
                   disabled={savingEntitlement}
                 >
-                  <View style={styles.membershipPremiumGlow} pointerEvents="none" />
-                  <View style={styles.membershipPlanHeader}>
-                    <Text style={[styles.membershipPlanTitle, { color: palette.textOnContainer }]}>Premium</Text>
-                    <View style={[styles.membershipPlanBadge, { backgroundColor: '#00E5FF', borderColor: '#00E5FF' }]}>
-                      <Text style={styles.membershipPlanBadgeTextOnCta}>
-                        {entitlementMode === 'premium' ? 'Active' : 'Pro'}
-                      </Text>
-                    </View>
+                  <View style={styles.membershipSelectedCheck}>
+                    <Ionicons name="checkmark" size={20} color="#071318" />
                   </View>
-                  <Text style={[styles.membershipPlanPrice, { color: palette.textOnContainer }]}>
-                    {membershipPriceLabel || 'Premium'}
-                  </Text>
-                  <Text style={[styles.membershipPlanMeta, { color: palette.secondaryText }]}>
-                    AI generation, native voice, & coach
-                  </Text>
+                  <Text style={styles.membershipPlanTitle}>Monthly</Text>
+                  <Text style={styles.membershipPlanPrice}>{membershipPriceLabel || '$9.99'}</Text>
+                  <Text style={styles.membershipPlanMeta}>Billed monthly</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.membershipPlanCard,
+                    pressed ? styles.membershipButtonPressed : null,
+                  ]}
+                  onPress={onUpgradeMembership}
+                  disabled={savingEntitlement}
+                >
+                  <Text style={styles.membershipPlanTitleAlt}>Yearly</Text>
+                  <Text style={styles.membershipPlanPriceAlt}>Best value</Text>
+                  <View style={styles.membershipSavePill}>
+                    <Text style={styles.membershipSavePillText}>Save more</Text>
+                  </View>
+                  <Text style={styles.membershipPlanMetaAlt}>7-day free trial</Text>
                 </Pressable>
               </View>
 
@@ -1112,21 +1112,14 @@ export default function ProfileMainScreenUI({
                     ? 'Updating...'
                     : entitlementMode === 'premium'
                       ? 'Premium active'
-                      : 'Start 7-Day Free Trial'}
+                      : 'Subscribe'}
                 </Text>
+                <Ionicons name="chevron-forward" size={24} color="#071318" />
               </Pressable>
 
-              <Text style={[styles.membershipRenewalCopy, { color: palette.secondaryText }]}>
-                Cancel anytime. Auto-renews after trial.
+              <Text style={styles.membershipRenewalCopy}>
+                7-day free trial. Auto-renews unless canceled.
               </Text>
-
-              <Pressable
-                style={({ pressed }) => [styles.membershipRestoreLink, pressed ? styles.membershipRestoreLinkPressed : null]}
-                onPress={onRestoreMembership}
-                disabled={savingEntitlement}
-              >
-                <Text style={[styles.membershipRestoreText, { color: palette.secondaryText }]}>Restore purchases</Text>
-              </Pressable>
             </View>
           </View>
         </View>
@@ -1811,139 +1804,238 @@ const styles = StyleSheet.create({
   },
   membershipBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    backgroundColor: 'rgba(0,0,0,0.58)',
     justifyContent: 'flex-end',
   },
   membershipSheetContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 18,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
   membershipSheet: {
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingTop: 22,
-    paddingBottom: 14,
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    minHeight: '82%',
+    maxHeight: '96%',
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 26,
+    paddingBottom: 18,
+    backgroundColor: '#181818',
+    overflow: 'hidden',
+    shadowOpacity: 0.28,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 14 },
     elevation: 10,
+  },
+  membershipHeroIconBg: {
+    position: 'absolute',
+    top: 34,
+    alignSelf: 'center',
+    width: '104%',
+    height: '48%',
+    opacity: 0.34,
+  },
+  membershipHeroDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10,14,15,0.62)',
   },
   membershipCloseIcon: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 24,
+    left: 20,
     zIndex: 3,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  membershipPlanGrid: {
-    marginTop: 22,
+  membershipRestoreTopLink: {
+    position: 'absolute',
+    top: 28,
+    right: 24,
+    zIndex: 3,
+  },
+  membershipRestoreTopText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '800',
+  },
+  membershipHeroContent: {
+    zIndex: 1,
+    marginTop: 72,
+    alignItems: 'center',
+  },
+  membershipBrandRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
+  },
+  membershipBrandText: {
+    color: '#FFFFFF',
+    fontSize: 46,
+    lineHeight: 54,
+    fontWeight: '500',
+    letterSpacing: -1.4,
+  },
+  membershipProBadge: {
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  membershipProBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  membershipHeroSubtitle: {
+    marginTop: 10,
+    maxWidth: 320,
+    color: '#FFFFFF',
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  membershipBenefitList: {
+    zIndex: 1,
+    marginTop: 'auto',
+    gap: 14,
+  },
+  membershipBenefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  membershipBenefitText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  membershipPlanGrid: {
+    zIndex: 1,
+    marginTop: 26,
+    flexDirection: 'row',
+    gap: 14,
   },
   membershipPlanCard: {
     flex: 1,
-    borderRadius: 18,
+    minHeight: 138,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(15,15,15,0.72)',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     overflow: 'hidden',
   },
-  membershipPlanCardMuted: {
-    opacity: 0.78,
-  },
-  membershipPlanCardFeatured: {
+  membershipPlanCardSelected: {
+    borderColor: '#22D3EE',
     shadowColor: '#00E5FF',
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
   },
-  membershipPremiumGlow: {
+  membershipSelectedCheck: {
     position: 'absolute',
-    right: -34,
-    top: -34,
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: 'rgba(0,229,255,0.18)',
-  },
-  membershipPlanHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  membershipPlanTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  membershipPlanBadge: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  membershipPlanBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  membershipPlanBadgeTextOnCta: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  membershipPlanPrice: {
-    marginTop: 14,
-    fontSize: 23,
-    fontWeight: '900',
-  },
-  membershipPlanMeta: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  membershipActionPrimary: {
-    marginTop: 16,
-    minHeight: 50,
+    top: -1,
+    right: -1,
+    width: 32,
+    height: 32,
     borderRadius: 16,
+    backgroundColor: '#22D3EE',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#00AEEF',
+    zIndex: 2,
+  },
+  membershipPlanTitle: {
+    color: '#22D3EE',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  membershipPlanTitleAlt: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  membershipPlanPrice: {
+    marginTop: 10,
+    color: '#22D3EE',
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '500',
+  },
+  membershipPlanPriceAlt: {
+    marginTop: 10,
+    color: '#FFFFFF',
+    fontSize: 27,
+    lineHeight: 34,
+    fontWeight: '700',
+  },
+  membershipPlanMeta: {
+    marginTop: 'auto',
+    color: '#22D3EE',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  membershipPlanMetaAlt: {
+    marginTop: 'auto',
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  membershipSavePill: {
+    alignSelf: 'flex-start',
+    marginTop: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  membershipSavePillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  membershipActionPrimary: {
+    zIndex: 1,
+    marginTop: 26,
+    minHeight: 64,
+    borderRadius: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#22C1D6',
     shadowColor: '#00E5FF',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.32,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 6,
   },
   membershipActionPrimaryText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    color: '#071318',
+    fontSize: 21,
+    fontWeight: '700',
   },
   membershipRenewalCopy: {
-    marginTop: 8,
+    zIndex: 1,
+    marginTop: 18,
     textAlign: 'center',
-    fontSize: 11,
-    lineHeight: 16,
+    color: 'rgba(255,255,255,0.58)',
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '600',
-  },
-  membershipRestoreLink: {
-    minHeight: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   membershipRestoreLinkPressed: {
     opacity: 0.65,
-  },
-  membershipRestoreText: {
-    fontSize: 12,
-    fontWeight: '700',
   },
   membershipButtonPressed: {
     opacity: 0.94,

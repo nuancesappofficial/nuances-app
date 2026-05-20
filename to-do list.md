@@ -16,4 +16,5 @@ functions:
     gemini prompt
     gemini paywall
     azure paywall
+    supabase to new account
 }

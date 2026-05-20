@@ -13,11 +13,13 @@ import {
   TouchableOpacity,
   View,
   useColorScheme,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -43,10 +45,23 @@ import {
   type UserAppSettings,
   withUpdatedTTSVoiceForLanguage,
 } from '@services/settings/userSettings';
-import { CONTAINER_NEON_GLOW, CONTAINER_NEON_OUTLINE, MODAL_CTA_COLOR, TEXT_ON_CTA, resolveThemeColors } from '../../../theme/colors';
+import {
+  CONTAINER_NEON_GLOW,
+  CONTAINER_NEON_OUTLINE,
+  MODAL_CTA_COLOR,
+  TEXT_ON_CTA,
+  UPLOAD_CACHE_CTA_COLOR,
+  UPLOAD_CACHE_CTA_COLOR_BORDER,
+  resolveThemeColors,
+} from '../../../theme/colors';
 import { STICKER_FONT_OPTIONS, type StickerFontKey } from '../../../theme/stickerFonts';
+import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { getRevenueCatOfferingSummary, isRevenueCatConfigured } from '@services/subscription/revenueCat';
+import SubscriptionService from '@services/subscription/SubscriptionService';
+import { supabase } from '@services/supabase/client';
 
-type SettingOptionKind = 'ai' | 'voice' | 'font' | 'main';
+type SettingOptionKind = 'ai' | 'voice' | 'font' | 'main' | 'membership';
+type MembershipBillingPlan = 'weekly' | 'monthly' | 'yearly';
 
 type Props = {
   navigation: any;
@@ -78,6 +93,7 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
 const PREVIEW_GRID_COLUMNS = 3;
 const PREVIEW_GRID_GAP = 10;
 const PREVIEW_PAGE_GAP = 20;
+const MEMBERSHIP_APP_ICON = require('../../../../assets/icon_cutout2.png');
 
 function areStringArraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -127,14 +143,17 @@ function getTitle(kind: SettingOptionKind): string {
   if (kind === 'ai') return 'Language';
   if (kind === 'voice') return 'Voice';
   if (kind === 'main') return 'Main screen';
+  if (kind === 'membership') return 'Membership';
   return 'Font';
 }
 
 export default function ProfileSettingOptionsFlow({ navigation, route }: Props) {
   const kind = route.params?.kind ?? 'ai';
   const colorScheme = useColorScheme();
+  const { height: windowHeight } = useWindowDimensions();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
+  const membershipStageMinHeight = Math.max(728, windowHeight - 92);
   const [settings, setSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
   const [mainScreenAlbums, setMainScreenAlbums] = React.useState<DeckAlbum[]>([]);
   const [previewGridWidth, setPreviewGridWidth] = React.useState(0);
@@ -144,6 +163,10 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const [createAlbumModalVisible, setCreateAlbumModalVisible] = React.useState(false);
   const [newAlbumName, setNewAlbumName] = React.useState('');
   const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<string | null>(null);
+  const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
+  const [membershipPlan, setMembershipPlan] = React.useState<MembershipBillingPlan>('monthly');
+  const [savingMembership, setSavingMembership] = React.useState(false);
+  const [membershipStatus, setMembershipStatus] = React.useState<'trial' | 'free' | 'premium'>('free');
   const dragTranslate = React.useRef(new Animated.ValueXY()).current;
   const previewPositionValuesRef = React.useRef<Record<string, Animated.ValueXY>>({});
   const previewPositionTargetsRef = React.useRef<Record<string, { x: number; y: number }>>({});
@@ -156,7 +179,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const previewPanActiveRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (kind !== 'ai' && kind !== 'voice' && kind !== 'font' && kind !== 'main') {
+    if (kind !== 'ai' && kind !== 'voice' && kind !== 'font' && kind !== 'main' && kind !== 'membership') {
       navigation.goBack();
       return;
     }
@@ -167,6 +190,35 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         console.error('[ProfileSettingOptions] load settings failed:', error);
       });
   }, [kind, navigation]);
+
+  React.useEffect(() => {
+    if (kind !== 'membership') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user?.id) {
+          const snapshot = await SubscriptionService.getEntitlementSnapshot(user.id);
+          if (!cancelled) setMembershipStatus(snapshot.planType);
+        }
+
+        if (!isRevenueCatConfigured()) {
+          if (!cancelled) setMembershipPriceLabel(null);
+          return;
+        }
+
+        const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
+        if (!cancelled) setMembershipPriceLabel(summary.priceLabel);
+      } catch (error) {
+        console.error('[ProfileSettingOptions] load membership failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind]);
 
   React.useEffect(() => {
     if (kind !== 'main') return;
@@ -313,6 +365,53 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     },
     [persistSettings, settings]
   );
+
+  const handlePurchaseMembership = React.useCallback(async () => {
+    if (savingMembership) return;
+    setSavingMembership(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) {
+        Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
+        return;
+      }
+      const snapshot = await SubscriptionService.purchasePremium(user.id);
+      setMembershipStatus(snapshot.planType);
+      Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
+    } catch (error) {
+      console.error('[ProfileSettingOptions] purchase premium failed:', error);
+      Alert.alert('升級失敗', error instanceof Error ? error.message : '請稍後再試。');
+    } finally {
+      setSavingMembership(false);
+    }
+  }, [savingMembership]);
+
+  const handleRestoreMembership = React.useCallback(async () => {
+    if (savingMembership) return;
+    setSavingMembership(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) {
+        Alert.alert('尚未登入', '請先登入，再恢復購買。');
+        return;
+      }
+      const snapshot = await SubscriptionService.restorePurchases(user.id);
+      setMembershipStatus(snapshot.planType);
+      Alert.alert(
+        '恢復完成',
+        snapshot.planType === 'premium' ? '已恢復 Premium 購買。' : '目前沒有可恢復的有效 Premium 訂閱。'
+      );
+    } catch (error) {
+      console.error('[ProfileSettingOptions] restore purchases failed:', error);
+      Alert.alert('恢復失敗', error instanceof Error ? error.message : '請稍後再試。');
+    } finally {
+      setSavingMembership(false);
+    }
+  }, [savingMembership]);
 
   const handleSelectMainScreenAlbumGridCount = React.useCallback(
     async (count: MainScreenAlbumGridCount) => {
@@ -775,6 +874,134 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     ]
   );
 
+  if (kind === 'membership') {
+    const featureItems = ['AI card generation', 'Premium voice cache', 'Pronunciation scoring'];
+    const planItems: Array<{
+      key: MembershipBillingPlan;
+      title: string;
+      price: string;
+      perDay: string;
+    }> = [
+      { key: 'weekly', title: 'Weekly', price: '$4.99', perDay: '$0.71/day' },
+      { key: 'monthly', title: 'Monthly', price: membershipPriceLabel || '$9.99', perDay: '$0.33/day' },
+      { key: 'yearly', title: 'Yearly', price: '$39.99', perDay: '$0.11/day' },
+    ];
+
+    return (
+      <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
+          <View style={styles.header}>
+            <Pressable
+              style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
+              <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
+            </Pressable>
+            <Text style={[styles.title, { color: palette.textOnBg }]}>Membership</Text>
+            <Pressable
+              style={({ pressed }) => [styles.membershipRestoreButton, pressed ? styles.pressed : null]}
+              onPress={() => void handleRestoreMembership()}
+              disabled={savingMembership}
+            >
+              <Text style={[styles.membershipRestoreText, { color: palette.textOnBg }]}>Restore</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            style={styles.mainScroll}
+            contentContainerStyle={styles.membershipScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.membershipPremiumStage, { minHeight: membershipStageMinHeight }]}>
+              <Image source={MEMBERSHIP_APP_ICON} style={styles.membershipHeroIcon} resizeMode="contain" />
+              <LinearGradient
+                pointerEvents="none"
+                colors={[
+                  'rgba(3,10,18,0)',
+                  'rgba(3,10,18,0.10)',
+                  'rgba(3,10,18,0.54)',
+                  'rgba(3,10,18,0.86)',
+                  'rgba(3,10,18,0.96)',
+                ]}
+                locations={[0, 0.28, 0.52, 0.72, 1]}
+                style={styles.membershipHeroMask}
+              />
+              <View style={styles.membershipHeadlineBlock}>
+                <View style={styles.membershipBrandLine}>
+                  <Text style={styles.membershipBrandName}>Nuances</Text>
+                  <View style={styles.membershipProChip}>
+                    <Text style={styles.membershipProChipText}>PRO</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.membershipFeatureList}>
+                {featureItems.map((item) => (
+                  <View key={item} style={styles.membershipFeatureRow}>
+                    <Ionicons name="checkmark" size={22} color={MODAL_CTA_COLOR} />
+                    <Text style={styles.membershipFeatureText}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.membershipPlanGrid}>
+                {planItems.map((plan) => {
+                  const selected = membershipPlan === plan.key;
+                  return (
+                    <Pressable
+                      key={plan.key}
+                      style={({ pressed }) => [
+                        styles.membershipPlanCard,
+                        {
+                          backgroundColor: selected ? 'rgba(78,175,244,0.14)' : 'rgba(255,255,255,0.055)',
+                          borderColor: selected ? MODAL_CTA_COLOR : 'rgba(255,255,255,0.24)',
+                        },
+                        pressed ? styles.pressed : null,
+                      ]}
+                      onPress={() => setMembershipPlan(plan.key)}
+                    >
+                      {selected ? (
+                        <View style={styles.membershipPlanCheck}>
+                          <Ionicons name="checkmark" size={18} color="#071318" />
+                        </View>
+                      ) : null}
+                      <Text style={[styles.membershipPlanTitle, { color: selected ? MODAL_CTA_COLOR : '#FFFFFF' }]}>
+                        {plan.title}
+                      </Text>
+                      <Text style={[styles.membershipPlanPrice, { color: selected ? MODAL_CTA_COLOR : '#FFFFFF' }]}>
+                        {plan.price}
+                      </Text>
+                      <Text style={styles.membershipPlanMeta}>{plan.perDay}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.membershipSubscribeButton,
+                  pressed || savingMembership ? styles.pressed : null,
+                ]}
+                onPress={() => void handlePurchaseMembership()}
+                disabled={savingMembership}
+              >
+                <Text style={styles.membershipSubscribeText}>
+                  {savingMembership
+                    ? 'Updating...'
+                    : membershipStatus === 'premium'
+                      ? 'Premium active'
+                      : 'Subscribe'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={TEXT_ON_CTA} />
+              </Pressable>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   if (kind === 'main') {
     return (
       <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
@@ -1217,6 +1444,159 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  membershipRestoreButton: {
+    minWidth: 64,
+    minHeight: 34,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  membershipRestoreText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  membershipScrollContent: {
+    paddingHorizontal: 0,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
+  membershipPremiumStage: {
+    minHeight: 728,
+    position: 'relative',
+    justifyContent: 'flex-end',
+    overflow: 'visible',
+    paddingHorizontal: 16,
+    paddingBottom: 42,
+  },
+  membershipHeroIcon: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    width: 330,
+    height: 330,
+    opacity: 0.9,
+  },
+  membershipHeroMask: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -28,
+    height: 620,
+  },
+  membershipHeadlineBlock: {
+    alignItems: 'center',
+    marginBottom: 18,
+    paddingHorizontal: 18,
+  },
+  membershipBrandLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  membershipBrandName: {
+    color: '#FFFFFF',
+    fontSize: 42,
+    lineHeight: 48,
+    fontWeight: '700',
+    letterSpacing: -1.2,
+  },
+  membershipProChip: {
+    borderWidth: 1.6,
+    borderColor: MODAL_CTA_COLOR,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  membershipProChipText: {
+    color: MODAL_CTA_COLOR,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  membershipFeatureList: {
+    gap: 18,
+    paddingHorizontal: 18,
+    marginBottom: 28,
+  },
+  membershipFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  membershipFeatureText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  membershipPlanGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  membershipPlanCard: {
+    flex: 1,
+    minHeight: 124,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 14,
+    overflow: 'hidden',
+  },
+  membershipPlanCheck: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: MODAL_CTA_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipPlanTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  membershipPlanPrice: {
+    marginTop: 9,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '800',
+  },
+  membershipPlanMeta: {
+    marginTop: 'auto',
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  membershipSubscribeButton: {
+    marginTop: 24,
+    height: BUTTON_TOKENS.height.prominent,
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    backgroundColor: UPLOAD_CACHE_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  membershipSubscribeText: {
+    color: TEXT_ON_CTA,
+    fontSize: BUTTON_TOKENS.text.strong,
+    fontWeight: BUTTON_TOKENS.weight.regular,
+    letterSpacing: 0.2,
   },
   mainScroll: {
     flex: 1,

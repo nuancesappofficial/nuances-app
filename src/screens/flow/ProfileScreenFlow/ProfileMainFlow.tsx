@@ -603,7 +603,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         ttsVoice={ttsVoice}
         stickerFontKey={stickerFontKey}
         onPressUploadProfilePic={handleChangeProfilePhoto}
-        onOpenMembershipModal={() => setShowMembershipModal(true)}
+        onOpenMembershipModal={() => navigation.navigate('ProfileSettingOptions', { kind: 'membership' })}
         onCloseMembershipModal={() => setShowMembershipModal(false)}
         onUpgradeMembership={handleUpgradeMembership}
         onRestoreMembership={handleRestoreMembership}

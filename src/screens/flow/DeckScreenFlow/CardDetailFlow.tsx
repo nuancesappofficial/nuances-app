@@ -1647,6 +1647,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 pronunciationScore={pronunciationScore}
                 pronunciationFeedbackLines={pronunciationFeedbackLines}
                 phonemeChips={phonemeChips}
+                phoneticTranscription={card?.phoneticTranscription}
                 syllableRowPattern={undefined}
                 waveformValues={waveformValues}
                 itemWord={displayWord}

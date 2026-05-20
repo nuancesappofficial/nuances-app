@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { resolveThemeColors } from '../../../theme/colors';
 
@@ -22,6 +23,7 @@ type Props = {
   pronunciationScore: number | null;
   pronunciationFeedbackLines: string[];
   phonemeChips: PhonemeChip[];
+  phoneticTranscription?: string | null;
   syllableRowPattern?: number[];
   waveformValues: Animated.Value[];
   itemWord: string;
@@ -43,6 +45,7 @@ export default function PronunciationCoachUI({
   pronunciationScore,
   pronunciationFeedbackLines,
   phonemeChips,
+  phoneticTranscription,
   syllableRowPattern,
   waveformValues,
   itemWord,
@@ -175,6 +178,15 @@ export default function PronunciationCoachUI({
     }
     return rows.filter((row) => row.length > 0);
   }, [itemWord, phonemeChips, syllableRowPattern]);
+  const ipaPreviewText = React.useMemo(() => {
+    const direct = (phoneticTranscription || '').trim();
+    if (direct) return direct;
+    const chips = (phonemeChips || [])
+      .map((chip) => (chip.phoneme || '').trim())
+      .filter(Boolean);
+    if (chips.length > 0) return chips.join(' ');
+    return 'Record to reveal IPA phonemes';
+  }, [phonemeChips, phoneticTranscription]);
   const hasResultContent = pronunciationScore !== null || phonemeRows.length > 0 || pronunciationFeedbackLines.length > 0;
   const isReviewState = isActiveCard && hasRecorded && hasResultContent && !isRecording && !isAnalyzing;
   const showLoadingState = isActiveCard && isAnalyzing;
@@ -183,6 +195,13 @@ export default function PronunciationCoachUI({
   const showPhonemeResult = phonemeRows.length > 0 && resultRevealStep >= 2;
   const showSummaryResult = pronunciationFeedbackLines.length > 0 && resultRevealStep >= 3;
   const showRevealPreparingState = isActiveCard && hasResultContent && !isRecording && !isAnalyzing && resultRevealStep <= 0;
+  const showIntroState =
+    isActiveCard &&
+    !isRecording &&
+    !isAnalyzing &&
+    !analysisError &&
+    !hasResultContent &&
+    !showRevealPreparingState;
   const buttonBg = !isActiveCard
     ? isLight
       ? '#CBD5E1'
@@ -217,6 +236,46 @@ export default function PronunciationCoachUI({
     }
     onPrimaryAction();
   };
+  const renderWaveform = React.useCallback(
+    (variant: 'panel' | 'resting') => {
+      const isPanel = variant === 'panel';
+      return (
+        <View style={[styles.waveLineWrap, isPanel ? styles.waveLineWrapPanel : null]}>
+          <View
+            style={[
+              styles.waveGlow,
+              isRecording ? styles.waveGlowActive : null,
+              isLight ? { backgroundColor: 'rgba(78,175,244,0.10)' } : null,
+              isPanel ? styles.waveGlowPanel : null,
+            ]}
+          />
+          <View style={[styles.waveLineBase, isLight ? { backgroundColor: 'rgba(15,23,42,0.14)' } : null]} />
+          <View style={[styles.waveBarsRow, isPanel ? styles.waveBarsRowPanel : null]}>
+            {waveformValues.map((value, i) => {
+              const idleHeight = 2;
+              return (
+                <Animated.View
+                  key={`wave-${variant}-${i}`}
+                  style={[
+                    styles.waveBar,
+                    isPanel ? styles.waveBarPanel : null,
+                    {
+                      height: isActiveCard && isRecording ? value : idleHeight,
+                      opacity: isActiveCard && isRecording ? 0.98 : isAnalyzing ? 0.28 : 0.18,
+                      backgroundColor: waveformTone,
+                      shadowColor: isActiveCard && isRecording ? '#4EAFF4' : '#000000',
+                      shadowOpacity: isActiveCard && isRecording ? 0.42 : 0,
+                    },
+                  ]}
+                />
+              );
+            })}
+          </View>
+        </View>
+      );
+    },
+    [isActiveCard, isAnalyzing, isLight, isRecording, waveformTone, waveformValues]
+  );
 
   return (
     <View
@@ -224,9 +283,37 @@ export default function PronunciationCoachUI({
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
     >
-      <View style={styles.resultsPanel}>
-        {showLoadingState || showRevealPreparingState ? (
-          <View style={styles.analysisGhostPanel}>
+      <View style={[styles.resultsPanel, showIntroState ? styles.resultsPanelCompact : null]}>
+        {isRecording ? (
+          <Reanimated.View
+            key="recording-wave-panel"
+            entering={FadeIn.duration(220)}
+            exiting={FadeOut.duration(180)}
+            style={styles.recordingPanel}
+          >
+            <BlurView
+              pointerEvents="none"
+              intensity={isLight ? 18 : 28}
+              tint={isLight ? 'light' : 'dark'}
+              style={styles.crossBlurLayer}
+            />
+            <Text style={[styles.recordingEyebrow, isLight ? { color: '#0369A1' } : null]}>Listening</Text>
+            <Text style={[styles.recordingWord, isLight ? { color: '#0F172A' } : null]}>{itemWord}</Text>
+            {renderWaveform('panel')}
+          </Reanimated.View>
+        ) : showLoadingState || showRevealPreparingState ? (
+          <Reanimated.View
+            key="analysis-ghost-panel"
+            entering={FadeIn.duration(220)}
+            exiting={FadeOut.duration(180)}
+            style={styles.analysisGhostPanel}
+          >
+            <BlurView
+              pointerEvents="none"
+              intensity={isLight ? 12 : 18}
+              tint={isLight ? 'light' : 'dark'}
+              style={styles.crossBlurLayer}
+            />
             <View style={styles.ghostScoreSlot}>
               <Text style={[styles.ghostScoreText, isLight ? { color: 'rgba(15,23,42,0.16)' } : null]}>--%</Text>
             </View>
@@ -254,9 +341,14 @@ export default function PronunciationCoachUI({
             >
               {showRevealPreparingState ? 'Preparing score...' : ghostStatusTexts[ghostStatusIndex]}
             </Reanimated.Text>
-          </View>
+          </Reanimated.View>
         ) : showFailState ? (
-          <View style={styles.analysisStatePanel}>
+          <Reanimated.View
+            key="analysis-fail-panel"
+            entering={FadeIn.duration(220)}
+            exiting={FadeOut.duration(180)}
+            style={styles.analysisStatePanel}
+          >
             <View style={[styles.analysisStateIcon, styles.analysisStateIconError]}>
               <Ionicons name="warning-outline" size={22} color="#FF6B6B" />
             </View>
@@ -269,9 +361,9 @@ export default function PronunciationCoachUI({
             <Text style={[styles.analysisStateHint, isLight ? { color: '#0369A1' } : null]}>
               Tap the mic below to try again.
             </Text>
-          </View>
+          </Reanimated.View>
         ) : hasResultContent ? (
-          <>
+          <Reanimated.View key="analysis-result-panel" entering={FadeIn.duration(220)} exiting={FadeOut.duration(180)}>
             {showScoreResult ? (
               <Reanimated.Text entering={FadeIn.duration(220)} style={[styles.centerScore, { color: scoreColor }]}>
                 {pronunciationScore}%
@@ -381,40 +473,40 @@ export default function PronunciationCoachUI({
                 {pronunciationFeedbackLines[0]}
               </Reanimated.Text>
             ) : null}
-          </>
+          </Reanimated.View>
+        ) : showIntroState ? (
+          <Reanimated.View
+            key="pronunciation-intro-panel"
+            entering={FadeIn.duration(220)}
+            exiting={FadeOut.duration(180)}
+            style={[
+              styles.introPanel,
+              isLight
+                ? {
+                    backgroundColor: 'rgba(78,175,244,0.08)',
+                    borderColor: 'rgba(78,175,244,0.18)',
+                  }
+                : null,
+            ]}
+          >
+            <BlurView
+              pointerEvents="none"
+              intensity={isLight ? 10 : 16}
+              tint={isLight ? 'light' : 'dark'}
+              style={styles.crossBlurLayer}
+            />
+            <Text style={[styles.introEyebrow, isLight ? { color: '#0369A1' } : null]}>Pronunciation coach</Text>
+            <Text style={[styles.introWord, isLight ? { color: '#0F172A' } : null]}>{itemWord}</Text>
+            <Text style={[styles.introBody, isLight ? { color: '#64748B' } : null]}>
+              {ipaPreviewText}
+            </Text>
+          </Reanimated.View>
         ) : null}
       </View>
 
       <View style={styles.audioControlCenter}>
-        <View style={styles.waveLineWrap}>
-          <View
-            style={[
-              styles.waveGlow,
-              isRecording ? styles.waveGlowActive : null,
-              isLight ? { backgroundColor: 'rgba(78,175,244,0.10)' } : null,
-            ]}
-          />
-          <View style={[styles.waveLineBase, isLight ? { backgroundColor: 'rgba(15,23,42,0.14)' } : null]} />
-          <View style={styles.waveBarsRow}>
-            {waveformValues.map((value, i) => {
-              const idleHeight = 2;
-              return (
-                <Animated.View
-                  key={`wave-${i}`}
-                  style={[
-                    styles.waveBar,
-                    {
-                      height: isActiveCard && isRecording ? value : idleHeight,
-                      opacity: isActiveCard && isRecording ? 0.98 : isAnalyzing ? 0.28 : 0.18,
-                      backgroundColor: waveformTone,
-                      shadowColor: isActiveCard && isRecording ? '#4EAFF4' : '#000000',
-                      shadowOpacity: isActiveCard && isRecording ? 0.42 : 0,
-                    },
-                  ]}
-                />
-              );
-            })}
-          </View>
+        <View style={[styles.restingWaveSlot, isRecording ? styles.restingWaveSlotRecording : styles.restingWaveSlotIdle]}>
+          {isRecording ? renderWaveform('resting') : null}
         </View>
 
         <View style={styles.controlsRow}>
@@ -508,11 +600,86 @@ const styles = StyleSheet.create({
     height: 206,
     justifyContent: 'flex-start',
   },
+  resultsPanelCompact: {
+    height: 156,
+  },
+  crossBlurLayer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+    opacity: 0.42,
+  },
+  introPanel: {
+    minHeight: 146,
+    borderRadius: 24,
+    borderWidth: 1,
+    backgroundColor: 'rgba(30,41,59,0.34)',
+    borderColor: 'rgba(148,163,184,0.14)',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  introEyebrow: {
+    color: '#BFE7FF',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  introWord: {
+    marginTop: 8,
+    color: '#F8FAFC',
+    fontSize: 32,
+    lineHeight: 37,
+    fontWeight: '900',
+  },
+  introBody: {
+    marginTop: 10,
+    color: '#94A3B8',
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  recordingPanel: {
+    minHeight: 192,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(78,175,244,0.24)',
+    backgroundColor: 'rgba(78,175,244,0.08)',
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  recordingEyebrow: {
+    color: '#BFE7FF',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  recordingWord: {
+    marginTop: 5,
+    color: '#F8FAFC',
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
   analysisGhostPanel: {
     minHeight: 192,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
+    overflow: 'hidden',
+    borderRadius: 24,
   },
   ghostScoreSlot: {
     minHeight: 62,
@@ -605,12 +772,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  restingWaveSlot: {
+    width: '100%',
+    height: 92,
+  },
+  restingWaveSlotIdle: {
+    height: 0,
+  },
+  restingWaveSlotRecording: {
+    opacity: 0,
+  },
   waveLineWrap: {
     width: '100%',
     height: 92,
     justifyContent: 'center',
     overflow: 'visible',
     paddingHorizontal: 8,
+  },
+  waveLineWrapPanel: {
+    height: 104,
+    marginTop: 2,
   },
   playWordBtn: {
     width: 32,
@@ -677,6 +858,12 @@ const styles = StyleSheet.create({
   waveGlowActive: {
     opacity: 0.9,
   },
+  waveGlowPanel: {
+    top: 10,
+    height: 78,
+    left: 12,
+    right: 12,
+  },
   waveBarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -684,11 +871,18 @@ const styles = StyleSheet.create({
     gap: 5,
     height: 82,
   },
+  waveBarsRowPanel: {
+    height: 96,
+    gap: 6,
+  },
   waveBar: {
     width: 5,
     borderRadius: 999,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
+  },
+  waveBarPanel: {
+    width: 6,
   },
   controlsRow: {
     alignItems: 'center',
