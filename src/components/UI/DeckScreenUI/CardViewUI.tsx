@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { MODAL_CTA_COLOR, SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
+import LightPressable from '../shared/LightPressable';
 
 type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
 
@@ -283,12 +284,11 @@ export default function CardViewUI({
             const imageUri = cardImageMap[item.id];
 
             return (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cardRow,
-                  { backgroundColor: rowBg, borderColor: rowBorder },
-                  pressed ? styles.cardRowPressed : null,
-                ]}
+              <LightPressable
+                style={styles.cardRowPressable}
+                contentStyle={[styles.cardRow, { backgroundColor: rowBg, borderColor: rowBorder }]}
+                pressedScale={0.96}
+                pressedOpacity={0.9}
                 onPress={() => onPressCard(item)}
               >
                 <View style={styles.thumbnailWrap}>
@@ -337,7 +337,7 @@ export default function CardViewUI({
                     <Text style={[styles.moreIcon, { color: rowMuted }]}>⋯</Text>
                   </Pressable>
                 </View>
-              </Pressable>
+              </LightPressable>
             );
           }}
           ListEmptyComponent={
@@ -510,6 +510,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
+  cardRowPressable: {
+    marginBottom: 10,
+  },
   thumbnailWrap: {
     width: 68,
     height: 68,
@@ -586,10 +589,6 @@ const styles = StyleSheet.create({
   primaryButtonPressed: {
     opacity: 0.94,
     transform: [{ scale: 0.985 }],
-  },
-  cardRowPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.96 }],
   },
   iconButtonPressed: {
     opacity: 0.9,

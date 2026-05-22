@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
+import LightPressable from '../shared/LightPressable';
 import type { DeckAlbum } from './deckTypes';
 import {
   CONTAINER_BG,
@@ -592,8 +593,8 @@ export default function DeckMainScreenUI({
 
       {wordPopEnabled ? (
         <View style={styles.wordShowcaseWrap}>
-          <Pressable
-            style={({ pressed }) => [
+          <LightPressable
+            style={[
               styles.wordShowcase,
               {
                 minHeight: wordPopMinHeight,
@@ -606,8 +607,9 @@ export default function DeckMainScreenUI({
                     shadowOpacity: 0.05,
                   }
                 : null,
-              pressed && activeShowcaseItem ? styles.deckMediumButtonPressed : null,
             ]}
+            pressedScale={0.988}
+            pressedOpacity={0.96}
             disabled={!activeShowcaseItem}
             onPress={() => {
               if (!activeShowcaseItem) return;
@@ -641,7 +643,7 @@ export default function DeckMainScreenUI({
                 </Animated.Text>
               </View>
             </View>
-          </Pressable>
+          </LightPressable>
         </View>
       ) : null}
 
@@ -708,16 +710,18 @@ export default function DeckMainScreenUI({
           }
         >
           {isTodayReviewActive ? (
-            <Pressable
-              style={({ pressed }) => [
+            <LightPressable
+              style={styles.todayReviewButtonShell}
+              contentStyle={[
                 styles.todayReviewCard,
                 styles.todayReviewCardActive,
                 newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
                 newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
                 { backgroundColor: palette.containerBg },
                 activeReviewCardVisualStyle,
-                pressed ? styles.todayReviewCardPressed : null,
               ]}
+              pressedScale={0.988}
+              pressedOpacity={0.96}
               onPress={onPressTodayReview}
             >
               <View
@@ -754,35 +758,39 @@ export default function DeckMainScreenUI({
                   </View>
                 ) : null}
               </View>
-            </Pressable>
+            </LightPressable>
           ) : (
             <View style={styles.todayReviewInactiveRow}>
-              <Pressable
-                style={({ pressed }) => [
+              <LightPressable
+                style={styles.todayReviewQuickQuizShell}
+                contentStyle={[
                   styles.todayReviewCard,
                   styles.todayReviewCardInactive,
                   styles.todayReviewQuickQuizButton,
                   inactiveReviewCardTone,
-                  pressed ? styles.todayReviewCardPressed : null,
                 ]}
+                pressedScale={0.988}
+                pressedOpacity={0.96}
                 onPress={onPressTodayReview}
               >
                 <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
                   <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
                   <Ionicons name="play" size={16} color={palette.textOnContainer} />
                 </View>
-              </Pressable>
+              </LightPressable>
 
-              <Pressable
-                style={({ pressed }) => [
+              <LightPressable
+                style={styles.todayReviewEqualizerShell}
+                contentStyle={[
                   styles.todayReviewEqualizerButton,
                   inactiveReviewCardTone,
-                  pressed ? styles.todayReviewCardPressed : null,
                 ]}
+                pressedScale={0.988}
+                pressedOpacity={0.96}
                 onPress={onPressTodayReviewTuning}
               >
                 <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
-              </Pressable>
+              </LightPressable>
             </View>
           )}
         </Animated.View>
@@ -967,6 +975,16 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: 10,
   },
+  todayReviewButtonShell: {
+    width: '100%',
+  },
+  todayReviewQuickQuizShell: {
+    flex: 1,
+  },
+  todayReviewEqualizerShell: {
+    width: 74,
+    height: 74,
+  },
   todayReviewCardActive: {
     backgroundColor: 'rgba(78,175,244,0.2)',
     borderColor: 'rgba(78,175,244,0.9)',
@@ -994,7 +1012,6 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   todayReviewQuickQuizButton: {
-    flex: 1,
     minHeight: 74,
   },
   todayReviewEqualizerButton: {

@@ -16,6 +16,7 @@ const REVENUECAT_USER_DEFAULTS_SUITE = (
 let configuredAppUserId: string | null = null;
 let didWarnMissingNativeModule = false;
 let didWarnInvalidApiKey = false;
+let didLogRevenueCatPublicConfig = false;
 
 export type RevenueCatOfferingSummary = {
   priceLabel: string | null;
@@ -79,6 +80,16 @@ async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
   }
 
   try {
+    if (__DEV__ && !didLogRevenueCatPublicConfig) {
+      didLogRevenueCatPublicConfig = true;
+      console.log('[RevenueCat] public SDK config', {
+        keyPrefix: REVENUECAT_APPLE_API_KEY.slice(0, 5),
+        keySuffix: REVENUECAT_APPLE_API_KEY.slice(-4),
+        keyLength: REVENUECAT_APPLE_API_KEY.length,
+        entitlementId: REVENUECAT_ENTITLEMENT_ID,
+        packageId: REVENUECAT_PACKAGE_ID || '(current offering)',
+      });
+    }
     const isConfigured = await Purchases.isConfigured();
     if (!isConfigured) {
       Purchases.configure({

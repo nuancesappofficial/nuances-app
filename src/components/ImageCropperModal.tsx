@@ -222,7 +222,8 @@ export default function ImageCropperModal({
     if (!displayMetrics || !cropRect || !isFixedCropShape) {
       return { minScale: 1, maxScale: 4 };
     }
-    const minScale = Math.max(cropRect.width / displayMetrics.width, cropRect.height / displayMetrics.height, 1);
+    // Let users pinch inward as long as the image still fully covers the fixed crop mask.
+    const minScale = Math.max(cropRect.width / displayMetrics.width, cropRect.height / displayMetrics.height);
     return {
       minScale,
       maxScale: Math.max(minScale, 4),
@@ -631,19 +632,27 @@ export default function ImageCropperModal({
               <View
                 style={[
                   styles.cropRect,
+                  cropShape === 'circle' ? styles.cropRectCircle : null,
+                  cropShape === 'album' ? styles.cropRectAlbum : null,
                   cropRectStyle,
                 ]}
               />
-              <View pointerEvents="none" style={[styles.cropGuide, cropRectStyle]}>
-                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopLeftHorizontal]} />
-                <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopLeftVertical]} />
-                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopRightHorizontal]} />
-                <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopRightVertical]} />
-                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomRightHorizontal]} />
-                <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomRightVertical]} />
-                <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomLeftHorizontal]} />
-                <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomLeftVertical]} />
-              </View>
+              {cropShape === 'album' ? (
+                <View pointerEvents="none" style={[styles.albumCropSilhouette, cropRectStyle]}>
+                  <View style={styles.albumCropNameBand} />
+                </View>
+              ) : (
+                <View pointerEvents="none" style={[styles.cropGuide, cropRectStyle]}>
+                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopLeftHorizontal]} />
+                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopLeftVertical]} />
+                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopRightHorizontal]} />
+                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopRightVertical]} />
+                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomRightHorizontal]} />
+                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomRightVertical]} />
+                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomLeftHorizontal]} />
+                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomLeftVertical]} />
+                </View>
+              )}
 
               {isFixedCropShape && fixedCropGesture ? (
                 <GestureDetector gesture={fixedCropGesture}>
@@ -874,6 +883,31 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.82)',
     backgroundColor: 'transparent',
+  },
+  cropRectCircle: {
+    borderRadius: 999,
+  },
+  cropRectAlbum: {
+    borderRadius: ALBUM_CROP_RADIUS,
+  },
+  albumCropSilhouette: {
+    position: 'absolute',
+    borderRadius: ALBUM_CROP_RADIUS,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.92)',
+    overflow: 'hidden',
+    zIndex: 18,
+    elevation: 18,
+  },
+  albumCropNameBand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '22%',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.46)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   cropGuide: {
     position: 'absolute',

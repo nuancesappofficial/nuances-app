@@ -317,7 +317,7 @@ export default function AlbumSettingsModalUI({
                       style={({ pressed }) => [
                         styles.coverUploadTile,
                         { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-                        pressed ? styles.pressableMediumPressed : null,
+                        pressed ? styles.coverUploadTilePressed : null,
                       ]}
                       onPress={onPickCoverImage}
                     >
@@ -536,6 +536,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  coverUploadTilePressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
   },
   coverPreviewImage: {
     width: '100%',

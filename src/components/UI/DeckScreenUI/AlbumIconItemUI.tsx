@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text } from 'react-native';
+import { Platform, StyleSheet, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SymbolView } from 'expo-symbols';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -14,6 +14,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import FolderIcon from './FolderIcon';
 import type { DeckAlbum } from './deckTypes';
+import LightPressable from '../shared/LightPressable';
 
 type Props = {
   item: DeckAlbum;
@@ -147,8 +148,10 @@ export default function AlbumIconItemUI({
         ref={cardRef}
         style={[styles.albumItem, albumContainerStyle, activeAlbumId === item.id ? styles.activeAlbumHidden : null]}
       >
-        <Pressable
-          style={({ pressed }) => [styles.albumPressArea, pressed ? styles.albumPressAreaPressed : null]}
+        <LightPressable
+          style={styles.albumPressArea}
+          pressedScale={0.96}
+          pressedOpacity={0.9}
           onPress={() => {
             if (suppressPressRef.current) return;
             onPress(item);
@@ -164,7 +167,7 @@ export default function AlbumIconItemUI({
             compact
             style={styles.folderIcon}
           />
-        </Pressable>
+        </LightPressable>
       </Reanimated.View>
     </GestureDetector>
   );
@@ -212,10 +215,6 @@ const styles = StyleSheet.create({
   albumPressArea: {
     width: '100%',
     overflow: 'visible',
-  },
-  albumPressAreaPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.96 }],
   },
   folderIcon: {
     width: '100%',

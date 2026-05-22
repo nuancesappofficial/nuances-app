@@ -15,6 +15,16 @@ function detectSpeechLanguage(text: string): AIReplyLanguage {
   return 'en';
 }
 
+function getLocaleForAIReplyLanguage(language: AIReplyLanguage): string {
+  if (language === 'ja') return 'ja-JP';
+  if (language === 'ko') return 'ko-KR';
+  if (language === 'zh-CN') return 'zh-CN';
+  if (language === 'zh-TW') return 'zh-TW';
+  if (language === 'es') return 'es-ES';
+  if (language === 'fr') return 'fr-FR';
+  return 'en-US';
+}
+
 export async function speakEnglishNaturally(
   text: string,
   options?: {
@@ -37,29 +47,11 @@ export async function speakEnglishNaturally(
     const settings = await loadUserSettings();
     const language = detectSpeechLanguage(trimmed);
     selectedVoice = resolveTTSVoiceForLanguage(settings, language);
-    locale =
-      language === 'ja'
-        ? 'ja-JP'
-        : language === 'ko'
-          ? 'ko-KR'
-          : language === 'zh-CN'
-            ? 'zh-CN'
-            : language === 'zh-TW'
-              ? 'zh-TW'
-              : 'en-US';
+    locale = getLocaleForAIReplyLanguage(language);
   } catch {
     const language = detectSpeechLanguage(trimmed);
     selectedVoice = getDefaultTTSVoiceForAIReplyLanguage(language);
-    locale =
-      language === 'ja'
-        ? 'ja-JP'
-        : language === 'ko'
-          ? 'ko-KR'
-          : language === 'zh-CN'
-            ? 'zh-CN'
-            : language === 'zh-TW'
-              ? 'zh-TW'
-              : 'en-US';
+    locale = getLocaleForAIReplyLanguage(language);
   }
 
   const cloudSpoken = await speakViaAzureTtsProxy(trimmed, {

@@ -17,6 +17,8 @@ const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'en', label: 'EN' },
   { code: 'ja', label: '日本語' },
   { code: 'ko', label: '한국어' },
+  { code: 'es', label: 'ES' },
+  { code: 'fr', label: 'FR' },
 ];
 
 const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
@@ -27,6 +29,8 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'ko-KR-SunHiNeural', label: '한국어 SunHi' },
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
+  { code: 'es-ES-ElviraNeural', label: 'Español Elvira' },
+  { code: 'fr-FR-DeniseNeural', label: 'Français Denise' },
 ];
 const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = [
   { value: 1800, label: '1.8s' },

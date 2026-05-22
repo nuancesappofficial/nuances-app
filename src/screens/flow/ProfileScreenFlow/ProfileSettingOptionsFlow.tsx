@@ -78,6 +78,8 @@ const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'en', label: 'EN' },
   { code: 'ja', label: '日本語' },
   { code: 'ko', label: '한국어' },
+  { code: 'es', label: 'ES' },
+  { code: 'fr', label: 'FR' },
 ];
 
 const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
@@ -88,12 +90,19 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
   { code: 'ko-KR-SunHiNeural', label: '한국어 SunHi' },
   { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
   { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
+  { code: 'es-ES-ElviraNeural', label: 'Español Elvira' },
+  { code: 'fr-FR-DeniseNeural', label: 'Français Denise' },
 ];
 
 const PREVIEW_GRID_COLUMNS = 3;
 const PREVIEW_GRID_GAP = 10;
 const PREVIEW_PAGE_GAP = 20;
 const MEMBERSHIP_APP_ICON = require('../../../../assets/icon_cutout2.png');
+const MEMBERSHIP_SCREEN_BG = '#02213D';
+const MEMBERSHIP_HEADER_TEXT = '#FFFFFF';
+const MEMBERSHIP_PLAN_IDLE_BG = 'rgba(255,255,255,0.055)';
+const MEMBERSHIP_PLAN_ACTIVE_BG = 'rgba(78,175,244,0.14)';
+const MEMBERSHIP_PLAN_IDLE_BORDER = 'rgba(255,255,255,0.24)';
 
 function areStringArraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -145,6 +154,97 @@ function getTitle(kind: SettingOptionKind): string {
   if (kind === 'main') return 'Main screen';
   if (kind === 'membership') return 'Membership';
   return 'Font';
+}
+
+function MembershipPlanOption({
+  title,
+  price,
+  perDay,
+  selected,
+  onPress,
+}: {
+  title: string;
+  price: string;
+  perDay: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const selectedProgress = React.useRef(new Animated.Value(selected ? 1 : 0)).current;
+  const pressProgress = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    Animated.timing(selectedProgress, {
+      toValue: selected ? 1 : 0,
+      duration: 210,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [selected, selectedProgress]);
+
+  const animatePress = React.useCallback(
+    (toValue: number) => {
+      Animated.spring(pressProgress, {
+        toValue,
+        speed: toValue > 0 ? 36 : 28,
+        bounciness: toValue > 0 ? 0 : 4,
+        useNativeDriver: false,
+      }).start();
+    },
+    [pressProgress]
+  );
+
+  const animatedCardStyle = React.useMemo(
+    () => ({
+      backgroundColor: selectedProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [MEMBERSHIP_PLAN_IDLE_BG, MEMBERSHIP_PLAN_ACTIVE_BG],
+      }),
+      borderColor: selectedProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [MEMBERSHIP_PLAN_IDLE_BORDER, MODAL_CTA_COLOR],
+      }),
+      transform: [
+        {
+          scale: selectedProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 1.015],
+          }),
+        },
+        {
+          scale: pressProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0.985],
+          }),
+        },
+      ],
+    }),
+    [pressProgress, selectedProgress]
+  );
+
+  const animatedTextStyle = React.useMemo(
+    () => ({
+      color: selectedProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['#FFFFFF', MODAL_CTA_COLOR],
+      }),
+    }),
+    [selectedProgress]
+  );
+
+  return (
+    <Pressable
+      style={styles.membershipPlanPressable}
+      onPress={onPress}
+      onPressIn={() => animatePress(1)}
+      onPressOut={() => animatePress(0)}
+    >
+      <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
+        <Animated.Text style={[styles.membershipPlanTitle, animatedTextStyle]}>{title}</Animated.Text>
+        <Animated.Text style={[styles.membershipPlanPrice, animatedTextStyle]}>{price}</Animated.Text>
+        <Text style={styles.membershipPlanMeta}>{perDay}</Text>
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 export default function ProfileSettingOptionsFlow({ navigation, route }: Props) {
@@ -888,23 +988,23 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     ];
 
     return (
-      <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
+      <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
             <Pressable
               style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
               onPress={() => navigation.goBack()}
             >
-              <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-              <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
+              <Ionicons name="chevron-back" size={20} color={MEMBERSHIP_HEADER_TEXT} />
+              <Text style={[styles.backText, { color: MEMBERSHIP_HEADER_TEXT }]}>Back</Text>
             </Pressable>
-            <Text style={[styles.title, { color: palette.textOnBg }]}>Membership</Text>
+            <Text style={[styles.title, { color: MEMBERSHIP_HEADER_TEXT }]}>Membership</Text>
             <Pressable
               style={({ pressed }) => [styles.membershipRestoreButton, pressed ? styles.pressed : null]}
               onPress={() => void handleRestoreMembership()}
               disabled={savingMembership}
             >
-              <Text style={[styles.membershipRestoreText, { color: palette.textOnBg }]}>Restore</Text>
+              <Text style={[styles.membershipRestoreText, { color: MEMBERSHIP_HEADER_TEXT }]}>Restore</Text>
             </Pressable>
           </View>
 
@@ -918,11 +1018,11 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               <LinearGradient
                 pointerEvents="none"
                 colors={[
-                  'rgba(3,10,18,0)',
-                  'rgba(3,10,18,0.10)',
-                  'rgba(3,10,18,0.54)',
-                  'rgba(3,10,18,0.86)',
-                  'rgba(3,10,18,0.96)',
+                  'rgba(2,33,61,0)',
+                  'rgba(2,33,61,0.12)',
+                  'rgba(2,33,61,0.58)',
+                  'rgba(2,33,61,0.88)',
+                  'rgba(2,33,61,0.98)',
                 ]}
                 locations={[0, 0.28, 0.52, 0.72, 1]}
                 style={styles.membershipHeroMask}
@@ -949,31 +1049,14 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 {planItems.map((plan) => {
                   const selected = membershipPlan === plan.key;
                   return (
-                    <Pressable
+                    <MembershipPlanOption
                       key={plan.key}
-                      style={({ pressed }) => [
-                        styles.membershipPlanCard,
-                        {
-                          backgroundColor: selected ? 'rgba(78,175,244,0.14)' : 'rgba(255,255,255,0.055)',
-                          borderColor: selected ? MODAL_CTA_COLOR : 'rgba(255,255,255,0.24)',
-                        },
-                        pressed ? styles.pressed : null,
-                      ]}
+                      title={plan.title}
+                      price={plan.price}
+                      perDay={plan.perDay}
+                      selected={selected}
                       onPress={() => setMembershipPlan(plan.key)}
-                    >
-                      {selected ? (
-                        <View style={styles.membershipPlanCheck}>
-                          <Ionicons name="checkmark" size={18} color="#071318" />
-                        </View>
-                      ) : null}
-                      <Text style={[styles.membershipPlanTitle, { color: selected ? MODAL_CTA_COLOR : '#FFFFFF' }]}>
-                        {plan.title}
-                      </Text>
-                      <Text style={[styles.membershipPlanPrice, { color: selected ? MODAL_CTA_COLOR : '#FFFFFF' }]}>
-                        {plan.price}
-                      </Text>
-                      <Text style={styles.membershipPlanMeta}>{plan.perDay}</Text>
-                    </Pressable>
+                    />
                   );
                 })}
               </View>
@@ -1537,6 +1620,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 4,
   },
+  membershipPlanPressable: {
+    flex: 1,
+  },
   membershipPlanCard: {
     flex: 1,
     minHeight: 124,
@@ -1545,17 +1631,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 14,
     overflow: 'hidden',
-  },
-  membershipPlanCheck: {
-    position: 'absolute',
-    top: -1,
-    right: -1,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: MODAL_CTA_COLOR,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   membershipPlanTitle: {
     fontSize: 15,

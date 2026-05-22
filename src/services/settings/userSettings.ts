@@ -4,7 +4,7 @@ import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../theme/stick
 export type ClipboardMode = 'active' | 'passive';
 export type EntitlementMode = 'trial' | 'free' | 'premium' | 'guest';
 export type PlanType = 'trial' | 'free' | 'premium';
-export type AIReplyLanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko';
+export type AIReplyLanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko' | 'es' | 'fr';
 export type TTSVoice =
   | 'en-US-JennyNeural'
   | 'en-US-GuyNeural'
@@ -12,7 +12,9 @@ export type TTSVoice =
   | 'ja-JP-NanamiNeural'
   | 'ko-KR-SunHiNeural'
   | 'zh-TW-HsiaoChenNeural'
-  | 'zh-CN-XiaoxiaoNeural';
+  | 'zh-CN-XiaoxiaoNeural'
+  | 'es-ES-ElviraNeural'
+  | 'fr-FR-DeniseNeural';
 export type WordPopSlideMs = 1800 | 2600 | 3400 | 4200 | 5200;
 export type MainScreenAlbumGridCount = 3 | 6 | 9;
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
@@ -105,6 +107,8 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
     en: 'en-US-JennyNeural',
     ja: 'ja-JP-NanamiNeural',
     ko: 'ko-KR-SunHiNeural',
+    es: 'es-ES-ElviraNeural',
+    fr: 'fr-FR-DeniseNeural',
   },
   wordPopSlideMs: 2600,
   mainScreenAlbumGridCount: 6,
@@ -131,6 +135,8 @@ const DEFAULT_TTS_VOICE_BY_LANGUAGE: Record<AIReplyLanguage, TTSVoice> = {
   en: 'en-US-JennyNeural',
   ja: 'ja-JP-NanamiNeural',
   ko: 'ko-KR-SunHiNeural',
+  es: 'es-ES-ElviraNeural',
+  fr: 'fr-FR-DeniseNeural',
 };
 
 export function isTTSVoiceCompatibleWithAIReplyLanguage(

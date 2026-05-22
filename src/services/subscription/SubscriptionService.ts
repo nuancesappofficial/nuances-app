@@ -464,6 +464,17 @@ export const SubscriptionService = {
     if (!userId) {
       return this.getEntitlementSnapshot(userId);
     }
+    const settings = await loadUserSettings();
+    const devOverride = getDevOverridePlan(settings);
+    if (devOverride) {
+      if (__DEV__) {
+        console.log('[Subscription] Dev entitlement override active; skipping RevenueCat boot sync.', {
+          planType: devOverride,
+        });
+      }
+      return buildDevSnapshot(devOverride);
+    }
+
     await configureRevenueCat(userId);
     await this.ensureTrialEnrollment();
     await applyRevenueCatCache(userId);

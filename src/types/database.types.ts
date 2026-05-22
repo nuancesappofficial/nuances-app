@@ -39,7 +39,8 @@ export interface Database {
 }
 
 // Profile Types
-export type LearningGoal = 'ielts' | 'casual' | 'professional';
+export type LearningGoal = 'ielts' | 'casual' | 'professional' | 'business' | 'everyday' | 'academic' | 'slang';
+export type EnglishLevel = 'beginner' | 'intermediate' | 'advanced';
 export type SubscriptionTier = 'free' | 'pro';
 
 export type Profile = {
@@ -47,19 +48,27 @@ export type Profile = {
   email: string;
   display_name: string | null;
   learning_goal: LearningGoal | null;
+  english_level: EnglishLevel | null;
   target_language: string;
   native_language: string;
+  onboarding_completed: boolean;
   subscription_tier: SubscriptionTier;
   subscription_expires_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type ProfileInsert = Omit<
-  Profile,
-  'created_at' | 'updated_at' | 'id'
-> & {
+export type ProfileInsert = {
   id: string;
+  email: string;
+  display_name?: string | null;
+  learning_goal?: LearningGoal | null;
+  english_level?: EnglishLevel | null;
+  target_language?: string;
+  native_language?: string;
+  onboarding_completed?: boolean;
+  subscription_tier?: SubscriptionTier;
+  subscription_expires_at?: string | null;
 };
 
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>;

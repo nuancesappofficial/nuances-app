@@ -10,7 +10,6 @@ import {
   StyleSheet,
   View,
   Text,
-  TouchableOpacity,
   Alert,
   Linking,
   AppState,
@@ -35,6 +34,8 @@ import Reanimated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
+import OnboardingFlow from './src/screens/flow/OnboardingFlow';
+import LightPressable from './src/components/UI/shared/LightPressable';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import { purgeExpiredFreeCacheOnForeground } from './src/database/cacheLifecycle';
@@ -56,9 +57,9 @@ WebBrowser.maybeCompleteAuthSession();
 const APP_CUTOUT_ICON = require('./assets/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
-const CURTAIN_PULL_IDLE_X = 52;
-const CURTAIN_HANDLE_SIZE = 86;
-const CURTAIN_EDGE_WIDTH = 90;
+const DEV_RESET_ONBOARDING_URL = `${AUTH_REDIRECT_SCHEME}://dev/reset-onboarding`;
+const CURTAIN_HANDLE_SIZE = 96;
+const CURTAIN_EDGE_WIDTH = 132;
 
 function ShareExtensionSync({
   userId,
@@ -80,7 +81,7 @@ function BootCurtainOverlay({
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const pullAnim = React.useRef(new Animated.Value(CURTAIN_PULL_IDLE_X)).current;
+  const openProgress = React.useRef(new Animated.Value(0)).current;
   const shimmerAnim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -88,7 +89,7 @@ function BootCurtainOverlay({
     const loop = Animated.loop(
       Animated.timing(shimmerAnim, {
         toValue: 1,
-        duration: 1800,
+        duration: 1250,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
       })
@@ -98,86 +99,92 @@ function BootCurtainOverlay({
   }, [shimmerAnim]);
 
   React.useEffect(() => {
-    pullAnim.stopAnimation();
+    openProgress.stopAnimation();
     if (opening) {
-      Animated.sequence([
-        Animated.timing(pullAnim, {
-          toValue: Math.max(CURTAIN_PULL_IDLE_X, width * 0.18),
-          duration: 180,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pullAnim, {
-          toValue: width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH,
-          duration: 860,
-          easing: Easing.bezier(0.22, 0.8, 0.24, 1),
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
+      openProgress.setValue(0);
+      Animated.timing(openProgress, {
+        toValue: 1,
+        duration: 1120,
+        easing: Easing.bezier(0.16, 0.88, 0.18, 1),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
         if (finished) onOpened?.();
       });
       return;
     }
 
-    const tugLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pullAnim, {
-          toValue: CURTAIN_PULL_IDLE_X + 26,
-          duration: 760,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pullAnim, {
-          toValue: CURTAIN_PULL_IDLE_X,
-          duration: 820,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    tugLoop.start();
-    return () => tugLoop.stop();
-  }, [opening, onOpened, pullAnim, width]);
+    openProgress.setValue(0);
+  }, [opening, onOpened, openProgress]);
 
-  const handleTranslateX = pullAnim.interpolate({
-    inputRange: [0, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
-    outputRange: [0, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
-    extrapolate: 'clamp',
-  });
-  const handleRotate = pullAnim.interpolate({
-    inputRange: [CURTAIN_PULL_IDLE_X, width + CURTAIN_HANDLE_SIZE + CURTAIN_EDGE_WIDTH],
-    outputRange: ['-7deg', '10deg'],
+  const edgeTranslateX = openProgress.interpolate({
+    inputRange: [0, 0.16, 1],
+    outputRange: [0, width * 0.055, width + CURTAIN_EDGE_WIDTH],
     extrapolate: 'clamp',
   });
   const shimmerTranslate = shimmerAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-width * 0.8, width * 0.9],
+    outputRange: [-width * 0.75, width * 0.8],
+  });
+  const handleRotate = openProgress.interpolate({
+    inputRange: [0, 0.32, 1],
+    outputRange: ['-8deg', '7deg', '15deg'],
+    extrapolate: 'clamp',
+  });
+  const handleScale = openProgress.interpolate({
+    inputRange: [0, 0.12, 0.72, 1],
+    outputRange: [1, 0.96, 1.03, 0.92],
+    extrapolate: 'clamp',
+  });
+  const wakeOpacity = openProgress.interpolate({
+    inputRange: [0, 0.06, 0.78, 1],
+    outputRange: [0.42, 0.95, 0.82, 0],
+    extrapolate: 'clamp',
+  });
+  const baseOpacity = openProgress.interpolate({
+    inputRange: [0, 0.22],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const titleOpacity = openProgress.interpolate({
+    inputRange: [0, 0.18, 0.58],
+    outputRange: [1, 0.7, 0],
+    extrapolate: 'clamp',
   });
   const handleTop = height * 0.5 - CURTAIN_HANDLE_SIZE / 2;
 
   return (
     <View pointerEvents="none" style={styles.bootCurtainRoot}>
-      <View style={[styles.bootRevealBase, opening ? styles.bootRevealBaseHidden : null]}>
+      <Animated.View style={[styles.bootRevealBase, { opacity: baseOpacity }]}>
         <LinearGradient
-          colors={['#02213D', '#05325B', '#02213D']}
+          colors={['#011426', '#02213D', '#06365F']}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         />
-        <Text style={[styles.bootRevealTitle, { paddingTop: Math.max(insets.top + 20, 44) }]}>Nuances</Text>
-      </View>
+        <Animated.Text
+          style={[
+            styles.bootRevealTitle,
+            {
+              opacity: titleOpacity,
+              paddingTop: Math.max(insets.top + 20, 44),
+            },
+          ]}
+        >
+          Nuances
+        </Animated.Text>
+      </Animated.View>
 
       <Animated.View
         style={[
           styles.bootCurtainPanel,
           {
             width: width + CURTAIN_EDGE_WIDTH,
-            transform: [{ translateX: Animated.subtract(handleTranslateX, width) }],
+            transform: [{ translateX: edgeTranslateX }],
           },
         ]}
       >
         <LinearGradient
-          colors={['#011A31', '#02213D', '#06365F']}
+          colors={['#010A14', '#02213D', '#074777']}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -190,7 +197,25 @@ function BootCurtainOverlay({
             },
           ]}
         />
-        <View style={[styles.bootCurtainCave, { top: handleTop - 78 }]} />
+        <View style={[styles.bootCurtainCave, { top: handleTop - 92 }]} />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.bootCurtainWake,
+          {
+            opacity: wakeOpacity,
+            transform: [{ translateX: edgeTranslateX }, { rotateZ: '-6deg' }],
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={['rgba(0,229,255,0)', 'rgba(0,229,255,0.68)', 'rgba(255,107,107,0.42)', 'rgba(0,229,255,0)']}
+          locations={[0, 0.36, 0.62, 1]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
       </Animated.View>
 
       <Animated.View
@@ -199,8 +224,9 @@ function BootCurtainOverlay({
           {
             top: handleTop,
             transform: [
-              { translateX: Animated.subtract(handleTranslateX, CURTAIN_HANDLE_SIZE / 2) },
+              { translateX: Animated.subtract(edgeTranslateX, CURTAIN_HANDLE_SIZE / 2) },
               { rotateZ: handleRotate },
+              { scale: handleScale },
             ],
           },
         ]}
@@ -225,6 +251,21 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   }
 }
 
+async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('onboarding_completed')
+    .eq('id', nextUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[Onboarding] status lookup failed:', error.message);
+    return false;
+  }
+
+  return data?.onboarding_completed === true;
+}
+
 function AuthGate({
   onPressGoogle,
   onPressApple,
@@ -240,6 +281,7 @@ function AuthGate({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [heroHeight, setHeroHeight] = React.useState<number>(windowHeight);
   const [actionTopY, setActionTopY] = React.useState<number | null>(null);
+  const authIntroAnim = React.useRef(new Animated.Value(0)).current;
   const sensor = useAnimatedSensor(SensorType.GRAVITY, {
     interval: 16,
   });
@@ -272,8 +314,25 @@ function AuthGate({
     setActionTopY(event.nativeEvent.layout.y);
   }, []);
 
+  React.useEffect(() => {
+    authIntroAnim.setValue(0);
+    Animated.timing(authIntroAnim, {
+      toValue: 1,
+      duration: 760,
+      delay: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [authIntroAnim]);
+
   useFrameCallback((frameInfo) => {
     'worklet';
+    if (loading) {
+      velX.value = 0;
+      velY.value = 0;
+      lastEdgeMask.value = 0;
+      return;
+    }
     if (frameInfo.timeSincePreviousFrame == null) return;
     const dt = frameInfo.timeSincePreviousFrame / 1000;
 
@@ -335,6 +394,28 @@ function AuthGate({
       ],
     };
   });
+  const authTitleAnimatedStyle = {
+    opacity: authIntroAnim,
+    transform: [
+      {
+        translateY: authIntroAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-8, 0],
+        }),
+      },
+    ],
+  };
+  const authActionsAnimatedStyle = {
+    opacity: authIntroAnim,
+    transform: [
+      {
+        translateY: authIntroAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [18, 0],
+        }),
+      },
+    ],
+  };
 
   return (
     <View style={[styles.authContainer, { backgroundColor: '#02213D' }]}>
@@ -362,16 +443,17 @@ function AuthGate({
           </Reanimated.View>
         </View>
 
-        <View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }]}>
+        <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }, authTitleAnimatedStyle]}>
           <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
-        </View>
+        </Animated.View>
 
-        <View style={styles.authActionStack} onLayout={handleActionStackLayout}>
-          <TouchableOpacity
+        <Animated.View style={[styles.authActionStack, authActionsAnimatedStyle]} onLayout={handleActionStackLayout}>
+          <LightPressable
             style={[styles.googleButton, loading && styles.googleButtonDisabled]}
             onPress={onPressApple}
             disabled={loading}
-            activeOpacity={0.9}
+            pressedScale={0.985}
+            pressedOpacity={0.96}
           >
             <View
               style={[
@@ -387,13 +469,14 @@ function AuthGate({
                 <Text style={styles.appleButtonText}>{loading ? '連線中...' : 'Continue with Apple'}</Text>
               </View>
             </View>
-          </TouchableOpacity>
+          </LightPressable>
 
-          <TouchableOpacity
+          <LightPressable
             style={[styles.googleButton, loading && styles.googleButtonDisabled]}
             onPress={onPressGoogle}
             disabled={loading}
-            activeOpacity={0.9}
+            pressedScale={0.985}
+            pressedOpacity={0.96}
           >
             <LinearGradient
               colors={['#65B9F7', '#4EAFF4', '#2E7EC2']}
@@ -406,8 +489,8 @@ function AuthGate({
                 <Text style={styles.googleButtonText}>{loading ? '連線中...' : 'Continue with Google'}</Text>
               </View>
             </LinearGradient>
-          </TouchableOpacity>
-        </View>
+          </LightPressable>
+        </Animated.View>
       </View>
     </View>
   );
@@ -454,6 +537,8 @@ export default function App() {
   const colorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [allowOfflineAccess, setAllowOfflineAccess] = useState(false);
   const [showBootCurtain, setShowBootCurtain] = useState(true);
@@ -477,9 +562,23 @@ export default function App() {
         if (user?.id) {
           await SubscriptionService.syncEntitlements(user.id);
         }
-        setUserId(user?.id ?? null);
+        const nextUserId = user?.id ?? null;
+        setUserId(nextUserId);
+        if (nextUserId) {
+          const completed = await withTimeout(
+            checkOnboardingStatus(nextUserId),
+            6000,
+            'checkOnboardingStatus'
+          );
+          setNeedsOnboarding(!completed);
+        } else {
+          setNeedsOnboarding(false);
+        }
+        setOnboardingChecked(true);
       } else {
         setUserId(null);
+        setNeedsOnboarding(false);
+        setOnboardingChecked(true);
       }
 
       setIsReady(true);
@@ -496,6 +595,8 @@ export default function App() {
         setAllowOfflineAccess(true);
       }
       setUserId(null);
+      setNeedsOnboarding(false);
+      setOnboardingChecked(true);
       setIsReady(true); // Continue anyway
     }
   };
@@ -504,18 +605,30 @@ export default function App() {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.access_token) {
         setUserId(null);
+        setNeedsOnboarding(false);
+        setOnboardingChecked(true);
         return;
       }
       void (async () => {
         try {
+          setOnboardingChecked(false);
           const { user } = await getCurrentUser();
           await SubscriptionService.ensureTrialEnrollment();
           if (user?.id) {
             await SubscriptionService.syncEntitlements(user.id);
           }
-          setUserId(user?.id ?? null);
+          const nextUserId = user?.id ?? null;
+          setUserId(nextUserId);
+          if (nextUserId) {
+            const completed = await checkOnboardingStatus(nextUserId);
+            setNeedsOnboarding(!completed);
+          } else {
+            setNeedsOnboarding(false);
+          }
+          setOnboardingChecked(true);
         } catch (error) {
           console.error('[App] auth state entitlement bootstrap failed:', error);
+          setOnboardingChecked(true);
         }
       })();
     });
@@ -541,12 +654,47 @@ export default function App() {
 
   const handleDeveloperCommand = React.useCallback(async (url: string) => {
     if (!__DEV__) return false;
+    if (url.startsWith(DEV_RESET_ONBOARDING_URL)) {
+      try {
+        const { user } = await getCurrentUser();
+        if (!user?.id) {
+          Alert.alert('無法重設 onboarding', '目前沒有登入中的使用者。');
+          return true;
+        }
+
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            native_language: 'zh-TW',
+            english_level: null,
+            learning_goal: null,
+            onboarding_completed: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+
+        if (error) throw error;
+
+        setUserId(user.id);
+        setAllowOfflineAccess(false);
+        setNeedsOnboarding(true);
+        setOnboardingChecked(true);
+        Alert.alert('Onboarding 已重設', '目前帳號會重新進入 onboarding flow。');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知錯誤';
+        Alert.alert('重設 onboarding 失敗', message);
+      }
+      return true;
+    }
+
     if (!url.startsWith(DEV_SIGNOUT_URL)) return false;
 
     try {
       await signOut();
       setAllowOfflineAccess(false);
       setUserId(null);
+      setNeedsOnboarding(false);
+      setOnboardingChecked(true);
       Alert.alert('已登出', '已切回 auth 畫面。');
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知錯誤';
@@ -672,7 +820,17 @@ export default function App() {
         {isReady ? (
           <ShareExtensionProvider>
             <ShareExtensionSync userId={userId}>
-              {userId || allowOfflineAccess ? (
+              {userId && !onboardingChecked ? (
+                <View style={styles.bootLoadingBase} />
+              ) : userId && needsOnboarding ? (
+                <OnboardingFlow
+                  userId={userId}
+                  onComplete={() => {
+                    setNeedsOnboarding(false);
+                    setOnboardingChecked(true);
+                  }}
+                />
+              ) : userId || allowOfflineAccess ? (
                 <RootNavigator isExpoGo={isExpoGo} />
               ) : (
                 <AuthGate
@@ -730,19 +888,31 @@ const styles = StyleSheet.create({
   bootCurtainSheen: {
     position: 'absolute',
     top: '-12%',
-    width: 90,
+    left: '8%',
+    width: 124,
     height: '124%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
   bootCurtainCave: {
     position: 'absolute',
-    left: -48,
-    width: 96,
-    height: 242,
-    borderRadius: 52,
-    backgroundColor: '#02213D',
-    opacity: 0.96,
-    transform: [{ scaleX: 0.54 }],
+    left: -76,
+    width: 144,
+    height: 280,
+    borderRadius: 76,
+    backgroundColor: '#011426',
+    opacity: 0.9,
+    transform: [{ scaleX: 0.58 }],
+  },
+  bootCurtainWake: {
+    position: 'absolute',
+    top: '-14%',
+    left: -76,
+    width: 152,
+    height: '128%',
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.34,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 0 },
   },
   bootCurtainHandle: {
     position: 'absolute',

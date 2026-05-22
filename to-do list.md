@@ -6,6 +6,7 @@ UI list :
     ✓ album settting
     membership modal
     login animation
+    onboarding
 }
 
 functions:
@@ -17,4 +18,5 @@ functions:
     gemini paywall
     azure paywall
     supabase to new account
+    discount code
 }

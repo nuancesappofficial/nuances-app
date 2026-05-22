@@ -101,6 +101,7 @@ const STICKER_OUTLINE_SAFETY_PAD = 6;
 const STICKER_HORIZONTAL_PAD = 4;
 const STICKER_FONT_WIDTH_SCALE = 0.68;
 const STICKER_SVG_BLEED = 10;
+const STICKER_VERTICAL_BLEED = 8;
 const STICKER_COL_CENTER_ANCHORS = [18, 50, 82];
 const STICKER_ROW_TOP_STEP = 34;
 const STICKER_VERTICAL_OFFSETS = [0, 8, 3, 12, 5, 15, 2, 10, 6, 14, 4, 11];
@@ -292,6 +293,7 @@ function VocabStickerCloud({
   stickerFontKey: StickerFontKey;
 }) {
   const { width: windowWidth } = useWindowDimensions();
+  const [gridWidth, setGridWidth] = useState(0);
   const sensor = useAnimatedSensor(SensorType.GRAVITY, {
     interval: 16,
   });
@@ -305,7 +307,7 @@ function VocabStickerCloud({
           },
         ];
   const limitedStickers = stickers.slice(0, 12);
-  const containerWidth = Math.max(120, windowWidth - 32);
+  const containerWidth = Math.max(120, gridWidth || windowWidth - 32);
   const stickerWidths = useMemo(
     () =>
       limitedStickers.map((item) =>
@@ -347,11 +349,11 @@ function VocabStickerCloud({
     velYList,
   ]);
 
-  const EDGE_INSET_X = 1;
+  const EDGE_INSET_X = 5;
   const BOUNCE = 0.55;
   const COLLISION_BOUNCE = 0.62;
   const FRICTION = 0.93;
-  const GRAVITY_MULTIPLIER = 220;
+  const GRAVITY_MULTIPLIER = 420;
   const BORDER_CONTACT_EPS = 0.5;
   const BORDER_RELEASE_DISTANCE = 9;
   const BORDER_LEFT = 1;
@@ -387,7 +389,7 @@ function VocabStickerCloud({
       const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
-      const limitUp = -startY + 1;
+      const limitUp = -startY - STICKER_VERTICAL_BLEED;
       const limitDown = STICKER_GRID_HEIGHT - STICKER_HEIGHT - startY - 2;
 
       vx[i] += ax * dt;
@@ -468,7 +470,7 @@ function VocabStickerCloud({
       const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
-      const limitUp = -startY + 1;
+      const limitUp = -startY - STICKER_VERTICAL_BLEED;
       const limitDown = STICKER_GRID_HEIGHT - STICKER_HEIGHT - startY - 2;
 
       px[i] = Math.max(limitLeft, Math.min(limitRight, px[i] ?? 0));
@@ -507,7 +509,13 @@ function VocabStickerCloud({
   });
 
   return (
-    <View style={styles.stickerGrid}>
+    <View
+      style={styles.stickerGrid}
+      onLayout={(event) => {
+        const nextWidth = Math.round(event.nativeEvent.layout.width);
+        setGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      }}
+    >
       {limitedStickers.map((item, index) => {
         const currentWidth = stickerWidths[index] ?? STICKER_WIDTH;
         const baseTop = getStickerBaseTop(index);
