@@ -5,6 +5,8 @@ import { type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import LightPressable from '../shared/LightPressable';
+import TutorialSpotlight from '../shared/TutorialSpotlight';
+import type { AppTourStep } from '../../../contexts/AppTourContext';
 import type { DeckAlbum } from './deckTypes';
 import {
   CONTAINER_BG,
@@ -47,6 +49,9 @@ type Props = {
   todayNewWordsOnly: boolean;
   onPressTodayReview: () => void;
   onPressTodayReviewTuning: () => void;
+  tourStep?: AppTourStep;
+  onTourTargetPress?: () => void;
+  onTourSkip?: () => void;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -80,6 +85,9 @@ export default function DeckMainScreenUI({
   todayNewWordsOnly,
   onPressTodayReview,
   onPressTodayReviewTuning,
+  tourStep = 'IDLE',
+  onTourTargetPress,
+  onTourSkip,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -111,6 +119,7 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const wordOpacity = React.useRef(new Animated.Value(1)).current;
+  const wordPopPulse = React.useRef(new Animated.Value(0)).current;
   const albumsPerPage = albumGridCount === 3 || albumGridCount === 6 || albumGridCount === 9 ? albumGridCount : 6;
   const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / GRID_COLUMNS));
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
@@ -217,7 +226,8 @@ export default function DeckMainScreenUI({
   }, [albumPages.length, currentPage]);
 
   React.useEffect(() => {
-    if (slideshowItems.length <= 1) return;
+    const itemCount = slideshowItems.length;
+    if (itemCount <= 1) return;
     const timer = setInterval(() => {
       Animated.timing(wordOpacity, {
         toValue: 0,
@@ -225,12 +235,10 @@ export default function DeckMainScreenUI({
         useNativeDriver: true,
       }).start(() => {
         setWordIndex((prev) => {
-          if (slideshowItems.length <= 1) return 0;
-          let next = prev;
-          while (next === prev) {
-            next = Math.floor(Math.random() * slideshowItems.length);
-          }
-          return next;
+          if (itemCount <= 1) return 0;
+          const safePrev = prev >= itemCount ? 0 : prev;
+          const randomOffset = 1 + Math.floor(Math.random() * (itemCount - 1));
+          return (safePrev + randomOffset) % itemCount;
         });
         Animated.timing(wordOpacity, {
           toValue: 1,
@@ -241,7 +249,33 @@ export default function DeckMainScreenUI({
     }, wordPopSlideMs);
 
     return () => clearInterval(timer);
-  }, [slideshowItems, wordOpacity, wordPopSlideMs]);
+  }, [slideshowItems.length, wordOpacity, wordPopSlideMs]);
+
+  React.useEffect(() => {
+    if (!wordPopEnabled) {
+      wordPopPulse.stopAnimation();
+      wordPopPulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(wordPopPulse, {
+          toValue: 1,
+          duration: 520,
+          useNativeDriver: true,
+        }),
+        Animated.timing(wordPopPulse, {
+          toValue: 0,
+          duration: 820,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [wordPopEnabled, wordPopPulse]);
 
   React.useEffect(() => {
     if (!isTodayReviewActive) {
@@ -380,6 +414,10 @@ export default function DeckMainScreenUI({
   }, [isSearchExpanded, onClearSearch]);
 
   const activeShowcaseItem = slideshowItems[wordIndex];
+  const wordPopTextScale = wordPopPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.028],
+  });
   const activeReviewShadowOpacity = todayReviewPulse.interpolate({
     inputRange: [0, 1],
     outputRange: [0.28, 0.55],
@@ -452,17 +490,30 @@ export default function DeckMainScreenUI({
           },
     [isLight, palette.containerBg]
   );
+  const handleTourTargetPress = React.useCallback(() => {
+    onTourTargetPress?.();
+  }, [onTourTargetPress]);
+  const handleTourSkip = React.useCallback(() => {
+    onTourSkip?.();
+  }, [onTourSkip]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={[styles.topRightRow, isSearchExpanded ? styles.topRightRowExpanded : null]}>
         {!isSearchExpanded ? (
-          <Pressable
-            style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
-            onPress={() => onPressCacheFab?.()}
+          <TutorialSpotlight
+            active={tourStep === 'STEP_1_IMPORT'}
+            tooltip="Take a screenshot of any English text and share it to Nuances via the iOS Share Sheet!"
+            onSpotlightPress={handleTourTargetPress}
+            onSkip={handleTourSkip}
           >
-            <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
+              onPress={() => onPressCacheFab?.()}
+            >
+              <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
+            </Pressable>
+          </TutorialSpotlight>
         ) : null}
         <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
           <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
@@ -632,7 +683,17 @@ export default function DeckMainScreenUI({
                 </Animated.View>
               )}
               <View style={styles.wordShowcaseTextBlock}>
-                <Animated.Text style={[styles.wordShowcaseWord, { opacity: wordOpacity, color: palette.textOnContainer }]} numberOfLines={1}>
+                <Animated.Text
+                  style={[
+                    styles.wordShowcaseWord,
+                    {
+                      opacity: wordOpacity,
+                      color: palette.textOnContainer,
+                      transform: [{ scale: wordPopTextScale }],
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
                   {activeShowcaseItem?.text || 'Start adding cards to generate words'}
                 </Animated.Text>
                 <Animated.Text
@@ -761,23 +822,31 @@ export default function DeckMainScreenUI({
             </LightPressable>
           ) : (
             <View style={styles.todayReviewInactiveRow}>
-              <LightPressable
+              <TutorialSpotlight
+                active={tourStep === 'STEP_3_QUIZ'}
                 style={styles.todayReviewQuickQuizShell}
-                contentStyle={[
-                  styles.todayReviewCard,
-                  styles.todayReviewCardInactive,
-                  styles.todayReviewQuickQuizButton,
-                  inactiveReviewCardTone,
-                ]}
-                pressedScale={0.988}
-                pressedOpacity={0.96}
-                onPress={onPressTodayReview}
+                tooltip="Test your memory with a quick quiz."
+                onSpotlightPress={handleTourTargetPress}
+                onSkip={handleTourSkip}
               >
-                <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                  <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
-                  <Ionicons name="play" size={16} color={palette.textOnContainer} />
-                </View>
-              </LightPressable>
+                <LightPressable
+                  style={styles.todayReviewButtonFill}
+                  contentStyle={[
+                    styles.todayReviewCard,
+                    styles.todayReviewCardInactive,
+                    styles.todayReviewQuickQuizButton,
+                    inactiveReviewCardTone,
+                  ]}
+                  pressedScale={0.988}
+                  pressedOpacity={0.96}
+                  onPress={onPressTodayReview}
+                >
+                  <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
+                    <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
+                    <Ionicons name="play" size={16} color={palette.textOnContainer} />
+                  </View>
+                </LightPressable>
+              </TutorialSpotlight>
 
               <LightPressable
                 style={styles.todayReviewEqualizerShell}
@@ -976,6 +1045,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   todayReviewButtonShell: {
+    width: '100%',
+  },
+  todayReviewButtonFill: {
     width: '100%',
   },
   todayReviewQuickQuizShell: {

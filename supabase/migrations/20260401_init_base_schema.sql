@@ -14,6 +14,7 @@ create table if not exists public.profiles (
   target_language text not null default 'en',
   native_language text not null default 'zh-TW',
   onboarding_completed boolean not null default false,
+  has_seen_tour boolean not null default false,
   subscription_tier text not null default 'free' check (subscription_tier in ('free', 'pro')),
   subscription_expires_at timestamptz,
   created_at timestamptz not null default now(),

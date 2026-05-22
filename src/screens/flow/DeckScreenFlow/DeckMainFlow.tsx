@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -27,6 +28,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { primeAlbumPreload } from '../../../features/deck/albumPreloadCache';
+import { supabase } from '@services/supabase/client';
 import { loadQuizReviewedCardIds, loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
@@ -115,8 +117,58 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const startY = useSharedValue(0);
   const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
   const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appTour = useAppTour();
+  const didCheckTourRef = React.useRef(false);
+  const didCompleteTourRef = React.useRef(false);
 
   const filterPills = ['群組', '隱私', '已封存'];
+
+  const markTourSeen = React.useCallback(async () => {
+    if (didCompleteTourRef.current) return;
+    didCompleteTourRef.current = true;
+    try {
+      const userId = await getCurrentAuthUserId();
+      if (!userId) return;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ has_seen_tour: true, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (error) throw error;
+    } catch (error) {
+      didCompleteTourRef.current = false;
+      console.warn('[AppTour] mark tour seen failed:', error);
+    }
+  }, []);
+
+  const completeTour = React.useCallback(() => {
+    appTour.skipTour();
+    void markTourSeen();
+  }, [appTour, markTourSeen]);
+
+  const handleTourTargetPress = React.useCallback(() => {
+    if (appTour.step === 'STEP_2_COACH') {
+      const targetCard = allCards[0];
+      if (!targetCard) {
+        Alert.alert('還沒有卡片', '先新增一張卡片，再使用 Pronunciation Coach。');
+        return;
+      }
+      const scopedCardIds = allCards.map((card) => card.id);
+      appTour.nextStep();
+      navigation.navigate('CardDetail', {
+        cardId: targetCard.id,
+        cardIds: scopedCardIds,
+        albumName: 'All cards',
+        headerTitle: 'All cards',
+      });
+      return;
+    }
+
+    if (appTour.step === 'STEP_3_QUIZ') {
+      completeTour();
+      return;
+    }
+    appTour.nextStep();
+  }, [allCards, appTour, completeTour, navigation]);
 
   const applyMainScreenSettings = React.useCallback((settings: {
     wordPopSlideMs: number;
@@ -155,6 +207,35 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   React.useEffect(() => {
     void hydrateAlbumPrefs();
   }, [hydrateAlbumPrefs]);
+
+  React.useEffect(() => {
+    if (didCheckTourRef.current) return;
+    didCheckTourRef.current = true;
+    let cancelled = false;
+
+    const checkTourStatus = async () => {
+      try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId || cancelled) return;
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('onboarding_completed, has_seen_tour')
+          .eq('id', userId)
+          .maybeSingle();
+        if (error) throw error;
+        if (!cancelled && data?.onboarding_completed === true && data?.has_seen_tour !== true) {
+          appTour.startTour();
+        }
+      } catch (error) {
+        console.warn('[AppTour] check tour status failed:', error);
+      }
+    };
+
+    void checkTourStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [appTour]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -864,6 +945,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         todayNewWordsOnly={todayNewWordsOnly}
         onPressTodayReview={handlePressTodayReview}
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
+        tourStep={appTour.step}
+        onTourTargetPress={handleTourTargetPress}
+        onTourSkip={completeTour}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}

@@ -38,6 +38,7 @@ import OnboardingFlow from './src/screens/flow/OnboardingFlow';
 import LightPressable from './src/components/UI/shared/LightPressable';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
+import { AppTourProvider } from './src/contexts/AppTourContext';
 import { purgeExpiredFreeCacheOnForeground } from './src/database/cacheLifecycle';
 import {
   completeOAuthFromUrl,
@@ -669,6 +670,7 @@ export default function App() {
             english_level: null,
             learning_goal: null,
             onboarding_completed: false,
+            has_seen_tour: false,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);
@@ -819,28 +821,30 @@ export default function App() {
       <SafeAreaProvider>
         {isReady ? (
           <ShareExtensionProvider>
-            <ShareExtensionSync userId={userId}>
-              {userId && !onboardingChecked ? (
-                <View style={styles.bootLoadingBase} />
-              ) : userId && needsOnboarding ? (
-                <OnboardingFlow
-                  userId={userId}
-                  onComplete={() => {
-                    setNeedsOnboarding(false);
-                    setOnboardingChecked(true);
-                  }}
-                />
-              ) : userId || allowOfflineAccess ? (
-                <RootNavigator isExpoGo={isExpoGo} />
-              ) : (
-                <AuthGate
-                  onPressGoogle={handleGoogleSignIn}
-                  onPressApple={handleAppleSignIn}
-                  loading={authLoading}
-                />
-              )}
-            </ShareExtensionSync>
-            <StatusBar style={colorScheme === 'light' ? 'dark' : 'light'} />
+            <AppTourProvider>
+              <ShareExtensionSync userId={userId}>
+                {userId && !onboardingChecked ? (
+                  <View style={styles.bootLoadingBase} />
+                ) : userId && needsOnboarding ? (
+                  <OnboardingFlow
+                    userId={userId}
+                    onComplete={() => {
+                      setNeedsOnboarding(false);
+                      setOnboardingChecked(true);
+                    }}
+                  />
+                ) : userId || allowOfflineAccess ? (
+                  <RootNavigator isExpoGo={isExpoGo} />
+                ) : (
+                  <AuthGate
+                    onPressGoogle={handleGoogleSignIn}
+                    onPressApple={handleAppleSignIn}
+                    loading={authLoading}
+                  />
+                )}
+              </ShareExtensionSync>
+              <StatusBar style={colorScheme === 'light' ? 'dark' : 'light'} />
+            </AppTourProvider>
           </ShareExtensionProvider>
         ) : (
           <View style={styles.bootLoadingBase} />

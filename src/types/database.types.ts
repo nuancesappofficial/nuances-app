@@ -52,6 +52,7 @@ export type Profile = {
   target_language: string;
   native_language: string;
   onboarding_completed: boolean;
+  has_seen_tour: boolean;
   subscription_tier: SubscriptionTier;
   subscription_expires_at: string | null;
   created_at: string;
@@ -67,6 +68,7 @@ export type ProfileInsert = {
   target_language?: string;
   native_language?: string;
   onboarding_completed?: boolean;
+  has_seen_tour?: boolean;
   subscription_tier?: SubscriptionTier;
   subscription_expires_at?: string | null;
 };

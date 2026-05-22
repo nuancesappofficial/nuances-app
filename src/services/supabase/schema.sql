@@ -20,6 +20,7 @@ CREATE TABLE public.profiles (
     target_language TEXT DEFAULT 'en',
     native_language TEXT DEFAULT 'zh-TW',
     onboarding_completed BOOLEAN NOT NULL DEFAULT false,
+    has_seen_tour BOOLEAN NOT NULL DEFAULT false,
     subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'pro')),
     subscription_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
