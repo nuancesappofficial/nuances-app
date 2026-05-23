@@ -10,7 +10,7 @@ export type TabSwipeContextValue = {
   swipeLockRef: React.MutableRefObject<boolean>;
   setPaginationEnabled: (enabled: boolean) => void;
   setPagerScrollEnabled: (enabled: boolean) => void;
-  goToTab: (index: number, options?: { animation?: 'fade' | 'slide' }) => void;
+  goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

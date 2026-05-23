@@ -15,6 +15,7 @@ import {
   type LayoutChangeEvent,
   type EmitterSubscription,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import CacheTextInputPanelUI from './CacheTextInputPanelUI';
 import CacheImageInputPanelUI from './CacheImageInputPanelUI';
@@ -46,6 +47,19 @@ type Props = {
   pasteEnabled: boolean;
   onUploadImage: () => void;
   onCaptureImage: () => void;
+  tourPasteTextActive?: boolean;
+  tourPasteTextTooltip?: string;
+  onTourPasteTextPress?: () => void;
+  tourAddTextActive?: boolean;
+  tourAddTextTooltip?: string;
+  onTourAddTextPress?: () => void;
+};
+
+type LocalLayout = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const SHEET_TOP_SAFE_MARGIN = 72;
@@ -79,6 +93,12 @@ export default function CacheInputModalUI({
   pasteEnabled,
   onUploadImage,
   onCaptureImage,
+  tourPasteTextActive = false,
+  tourPasteTextTooltip = '',
+  onTourPasteTextPress,
+  tourAddTextActive = false,
+  tourAddTextTooltip = '',
+  onTourAddTextPress,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -97,6 +117,9 @@ export default function CacheInputModalUI({
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [panelWidth, setPanelWidth] = React.useState(0);
   const [sheetHeight, setSheetHeight] = React.useState(0);
+  const [actionRowLayout, setActionRowLayout] = React.useState<LocalLayout | null>(null);
+  const [pasteButtonLayout, setPasteButtonLayout] = React.useState<LocalLayout | null>(null);
+  const [addButtonLayout, setAddButtonLayout] = React.useState<LocalLayout | null>(null);
   const slideX = React.useRef(new Animated.Value(0)).current;
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -104,6 +127,19 @@ export default function CacheInputModalUI({
   const currentOffsetRef = React.useRef(0);
   const textTabPanelHeight = TEXT_INPUT_BOX_HEIGHT + TEXT_TAB_EXTRA_HEIGHT;
   const panelHeight = addTab === 'image' ? IMAGE_TAB_PANEL_HEIGHT : textTabPanelHeight;
+  const activeTourAction = tourPasteTextActive ? 'paste' : tourAddTextActive ? 'add' : null;
+  const activeTourButtonLayout = activeTourAction === 'paste' ? pasteButtonLayout : activeTourAction === 'add' ? addButtonLayout : null;
+  const activeTourTarget =
+    actionRowLayout && activeTourButtonLayout
+      ? {
+          x: actionRowLayout.x + activeTourButtonLayout.x,
+          y: actionRowLayout.y + activeTourButtonLayout.y,
+          width: activeTourButtonLayout.width,
+          height: activeTourButtonLayout.height,
+        }
+      : null;
+  const activeTourTooltip = tourPasteTextActive ? tourPasteTextTooltip : tourAddTextActive ? tourAddTextTooltip : '';
+  const activeTourPress = tourPasteTextActive ? onTourPasteTextPress || onPressPaste : tourAddTextActive ? onTourAddTextPress || onSubmitText : undefined;
 
   React.useEffect(() => {
     if (panelWidth <= 0) return;
@@ -401,18 +437,37 @@ export default function CacheInputModalUI({
         </View>
 
         {addTab === 'text' ? (
-          <View style={styles.actionRow}>
+          <View
+            style={styles.actionRow}
+            onLayout={(event) => {
+              const { x, y, width, height } = event.nativeEvent.layout;
+              setActionRowLayout((prev) =>
+                prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height
+                  ? prev
+                  : { x, y, width, height }
+              );
+            }}
+          >
             <Pressable
+              onLayout={(event) => {
+                const { x, y, width, height } = event.nativeEvent.layout;
+                setPasteButtonLayout((prev) =>
+                  prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height
+                    ? prev
+                    : { x, y, width, height }
+                );
+              }}
               style={({ pressed }) => [
                 styles.actionBtn,
                 textPrimaryAction === 'clear'
                   ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
                   : [styles.pasteBtn, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }],
-                textPrimaryAction === 'paste' && !pasteEnabled && styles.actionBtnDisabled,
-                pressed && (textPrimaryAction === 'clear' || pasteEnabled) ? styles.actionBtnPressed : null,
+                tourPasteTextActive ? styles.tourActionBtnActive : null,
+                textPrimaryAction === 'paste' && !pasteEnabled && !tourPasteTextActive && styles.actionBtnDisabled,
+                pressed && (textPrimaryAction === 'clear' || pasteEnabled || tourPasteTextActive) ? styles.actionBtnPressed : null,
               ]}
-              disabled={textPrimaryAction === 'paste' ? !pasteEnabled : false}
-              onPress={textPrimaryAction === 'clear' ? onPressClearText : onPressPaste}
+              disabled={textPrimaryAction === 'paste' ? !pasteEnabled && !tourPasteTextActive : false}
+              onPress={tourPasteTextActive ? onTourPasteTextPress || onPressPaste : textPrimaryAction === 'clear' ? onPressClearText : onPressPaste}
             >
               <Text
                 style={[
@@ -425,18 +480,77 @@ export default function CacheInputModalUI({
               </Text>
             </Pressable>
             <Pressable
+              onLayout={(event) => {
+                const { x, y, width, height } = event.nativeEvent.layout;
+                setAddButtonLayout((prev) =>
+                  prev && prev.x === x && prev.y === y && prev.width === width && prev.height === height
+                    ? prev
+                    : { x, y, width, height }
+                );
+              }}
               style={({ pressed }) => [
                 styles.actionBtn,
                 styles.addBtn,
+                tourAddTextActive ? styles.tourActionBtnActive : null,
                 !manualText.trim() && styles.actionBtnDisabled,
                 pressed && Boolean(manualText.trim()) ? styles.actionBtnPressed : null,
               ]}
               disabled={!manualText.trim()}
-              onPress={onSubmitText}
+              onPress={tourAddTextActive ? onTourAddTextPress || onSubmitText : onSubmitText}
             >
               <Text style={[styles.actionBtnText, styles.addBtnText]}>Add</Text>
             </Pressable>
           </View>
+        ) : null}
+
+        {activeTourTarget && activeTourPress ? (
+          <Pressable style={styles.localTourOverlay} onPress={activeTourPress}>
+            <BlurView pointerEvents="none" tint="dark" intensity={72} style={StyleSheet.absoluteFill} />
+            <View pointerEvents="none" style={styles.localTourDim} />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.localTourTooltip,
+                {
+                  left: Math.max(12, Math.min(activeTourTarget.x, panelWidth - 260)),
+                  top: Math.max(12, activeTourTarget.y - 96),
+                },
+              ]}
+            >
+              <Text style={styles.localTourTooltipText}>{activeTourTooltip}</Text>
+            </View>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.localTourClone,
+                activeTourAction === 'paste'
+                  ? textPrimaryAction === 'clear'
+                    ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
+                    : [styles.pasteBtn, { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder }]
+                  : styles.addBtn,
+                {
+                  left: activeTourTarget.x,
+                  top: activeTourTarget.y,
+                  width: activeTourTarget.width,
+                  height: activeTourTarget.height,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.actionBtnText,
+                  activeTourAction === 'add'
+                    ? styles.addBtnText
+                    : textPrimaryAction === 'clear'
+                      ? styles.clearBtnText
+                      : styles.pasteBtnText,
+                  { color: activeTourAction === 'add' ? TEXT_ON_CTA : palette.textOnContainer },
+                ]}
+              >
+                {activeTourAction === 'add' ? 'Add' : textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
+              </Text>
+            </View>
+          </Pressable>
         ) : null}
       </Animated.View>
     </Modal>
@@ -531,6 +645,58 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: BUTTON_TOKENS.height.prominent,
     overflow: 'hidden',
+  },
+  tourActionBtnActive: {
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    shadowColor: MODAL_CTA_COLOR,
+    shadowOpacity: 0.38,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  localTourOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    overflow: 'hidden',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  localTourDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.70)',
+  },
+  localTourTooltip: {
+    position: 'absolute',
+    width: 260,
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    backgroundColor: 'rgba(2,33,61,0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(137,206,255,0.38)',
+    shadowColor: '#4EAFF4',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 18,
+  },
+  localTourTooltipText: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  localTourClone: {
+    position: 'absolute',
+    borderRadius: BUTTON_TOKENS.radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
   },
   pasteBtn: {
     backgroundColor: CONTAINER_BG,

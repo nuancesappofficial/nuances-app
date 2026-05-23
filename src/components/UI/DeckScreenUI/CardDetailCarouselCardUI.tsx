@@ -26,6 +26,8 @@ import type Card from '@database/models/Card';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import TutorialSpotlight from '../shared/TutorialSpotlight';
+import type { AppTourStep } from '../../../contexts/AppTourContext';
 
 type Props = {
   item: Card;
@@ -60,6 +62,8 @@ type Props = {
   onOpenStickyNote: () => void;
   stickyNoteText?: string;
   onOpenPronunciationModal: () => void;
+  tourStep?: AppTourStep;
+  onTourTargetPress?: () => void;
   isLightMode?: boolean;
 };
 
@@ -134,6 +138,8 @@ function CardDetailCarouselCardUI({
   onOpenStickyNote,
   stickyNoteText,
   onOpenPronunciationModal,
+  tourStep = 'IDLE',
+  onTourTargetPress,
   isLightMode = false,
 }: Props) {
   const FRONT_FOOTER_RESERVED_HEIGHT = 58;
@@ -626,15 +632,21 @@ function CardDetailCarouselCardUI({
 
                 {/* ----- 第一頁底部操作列 ----- */}
                 <View style={localStyles.cardActionRow}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      localStyles.actionIconBtn,
-                      pressed ? localStyles.actionIconBtnPressed : null,
-                    ]}
-                    onPress={onOpenPronunciationModal}
+                  <TutorialSpotlight
+                    active={tourStep === 'STEP_9_COACH_SAMPLE' && isActiveCard}
+                    tooltip="Practice speech."
+                    onSpotlightPress={() => onTourTargetPress?.()}
                   >
-                    <Ionicons name="mic-outline" size={28} color={ui.icon} />
-                  </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        localStyles.actionIconBtn,
+                        pressed ? localStyles.actionIconBtnPressed : null,
+                      ]}
+                      onPress={onOpenPronunciationModal}
+                    >
+                      <Ionicons name="mic-outline" size={28} color={ui.icon} />
+                    </Pressable>
+                  </TutorialSpotlight>
 
                   <Pressable
                     style={({ pressed }) => [
@@ -660,19 +672,25 @@ function CardDetailCarouselCardUI({
                     />
                   </Pressable>
 
-                  <Pressable
-                    style={({ pressed }) => [
-                      localStyles.actionIconBtn,
-                      pressed ? localStyles.actionIconBtnPressed : null,
-                    ]}
-                    onPress={onOpenAlbumSheet}
+                  <TutorialSpotlight
+                    active={tourStep === 'STEP_8_ALBUM_SAMPLE' && isActiveCard}
+                    tooltip="Add to album."
+                    onSpotlightPress={() => onTourTargetPress?.()}
                   >
-                    <Ionicons
-                      name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                      size={28}
-                      color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
-                    />
-                  </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        localStyles.actionIconBtn,
+                        pressed ? localStyles.actionIconBtnPressed : null,
+                      ]}
+                      onPress={onOpenAlbumSheet}
+                    >
+                      <Ionicons
+                        name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                        size={28}
+                        color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
+                      />
+                    </Pressable>
+                  </TutorialSpotlight>
                 </View>
                 {/* ----------------------------- */}
 

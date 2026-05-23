@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import LightPressable from '../../components/UI/shared/LightPressable';
+import { useAppTour } from '../../contexts/AppTourContext';
 import { BUTTON_TOKENS } from '../../theme/buttonTokens';
 import {
   MODAL_CTA_COLOR,
@@ -140,6 +141,7 @@ function OptionCard({ option, selected, onPress }: { option: Option; selected: b
 export default function OnboardingFlow({ userId, onComplete }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const appTour = useAppTour();
   const [step, setStep] = React.useState<OnboardingStep>(1);
   const [answers, setAnswers] = React.useState<OnboardingAnswers>({
     nativeLanguage: '',
@@ -206,6 +208,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     try {
       await Audio.requestPermissionsAsync();
       await saveOnboardingData();
+      appTour.startTour();
       onComplete();
     } catch (error) {
       const message = getOnboardingErrorMessage(error);
@@ -214,7 +217,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [onComplete, saveOnboardingData, saving]);
+  }, [appTour, onComplete, saveOnboardingData, saving]);
 
   const renderOptions = (items: Option[], keyName: keyof OnboardingAnswers, nextStep: OnboardingStep) => (
     <View style={styles.optionList}>

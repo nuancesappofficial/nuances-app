@@ -19,7 +19,6 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
 
 type WindowLayout = LayoutRectangle & {
   pageX: number;
@@ -32,16 +31,11 @@ type Props = {
   children: React.ReactElement;
   style?: StyleProp<ViewStyle>;
   onSpotlightPress: () => void;
-  onSkip: () => void;
 };
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
-const SPOTLIGHT_SCALE = 1.2;
+const SPOTLIGHT_SCALE = 1;
 const TOOLTIP_WIDTH = 284;
-
-function isInside(layout: WindowLayout, x: number, y: number) {
-  return x >= layout.pageX && x <= layout.pageX + layout.width && y >= layout.pageY && y <= layout.pageY + layout.height;
-}
 
 export default function TutorialSpotlight({
   active,
@@ -49,7 +43,6 @@ export default function TutorialSpotlight({
   children,
   style,
   onSpotlightPress,
-  onSkip,
 }: Props) {
   const anchorRef = React.useRef<View | null>(null);
   const [layout, setLayout] = React.useState<WindowLayout | null>(null);
@@ -72,7 +65,11 @@ export default function TutorialSpotlight({
       return;
     }
     measureAnchor();
+    const retryTimers = [80, 180, 320].map((delay) => setTimeout(measureAnchor, delay));
     visibleProgress.value = withTiming(1, { duration: 160 });
+    return () => {
+      retryTimers.forEach(clearTimeout);
+    };
   }, [active, measureAnchor, visibleProgress]);
 
   const blurStyle = useAnimatedStyle(() => ({
@@ -98,17 +95,6 @@ export default function TutorialSpotlight({
     return Math.max(18, Math.min(centered, windowWidth - TOOLTIP_WIDTH - 18));
   }, [layout, windowWidth]);
 
-  const handleOverlayPress = React.useCallback(
-    (event: any) => {
-      if (!layout) return;
-      const { pageX, pageY } = event.nativeEvent;
-      if (isInside(layout, pageX, pageY)) {
-        onSpotlightPress();
-      }
-    },
-    [layout, onSpotlightPress]
-  );
-
   return (
     <>
       <View ref={anchorRef} collapsable={false} style={style} onLayout={active ? measureAnchor : undefined}>
@@ -116,7 +102,7 @@ export default function TutorialSpotlight({
       </View>
 
       <Modal visible={active && !!layout} transparent animationType="none" statusBarTranslucent presentationStyle="overFullScreen">
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleOverlayPress}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onSpotlightPress}>
           <AnimatedBlurView tint="dark" intensity={100} pointerEvents="none" style={[styles.blurLayer, blurStyle]} />
           <Reanimated.View pointerEvents="none" style={[styles.dimLayer, blurStyle]} />
 
@@ -143,15 +129,12 @@ export default function TutorialSpotlight({
 
         {layout ? (
           <Reanimated.View
+            pointerEvents="none"
             entering={FadeIn.duration(180)}
             exiting={FadeOut.duration(120)}
             style={[styles.tooltip, { top: tooltipTop, left: tooltipLeft }]}
           >
             <Text style={styles.tooltipText}>{tooltip}</Text>
-            <Pressable style={styles.skipButton} onPress={onSkip}>
-              <Text style={styles.skipText}>Skip</Text>
-              <Ionicons name="close" size={14} color="rgba(248,250,252,0.72)" />
-            </Pressable>
           </Reanimated.View>
         ) : null}
       </Modal>
@@ -195,20 +178,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '700',
-  },
-  skipButton: {
-    alignSelf: 'flex-start',
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  skipText: {
-    color: 'rgba(248,250,252,0.72)',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
 });

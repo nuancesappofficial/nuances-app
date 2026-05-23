@@ -120,6 +120,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const appTour = useAppTour();
   const didCheckTourRef = React.useRef(false);
   const didCompleteTourRef = React.useRef(false);
+  const pressTodayReviewRef = React.useRef<() => void>(() => {});
+  const tourStepDelayRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -141,34 +143,43 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, []);
 
   const completeTour = React.useCallback(() => {
-    appTour.skipTour();
+    appTour.completeTour();
     void markTourSeen();
   }, [appTour, markTourSeen]);
 
   const handleTourTargetPress = React.useCallback(() => {
-    if (appTour.step === 'STEP_2_COACH') {
-      const targetCard = allCards[0];
-      if (!targetCard) {
-        Alert.alert('還沒有卡片', '先新增一張卡片，再使用 Pronunciation Coach。');
-        return;
+    if (appTour.step === 'STEP_1_SAMPLE') {
+      if (tourStepDelayRef.current) {
+        clearTimeout(tourStepDelayRef.current);
       }
-      const scopedCardIds = allCards.map((card) => card.id);
-      appTour.nextStep();
-      navigation.navigate('CardDetail', {
-        cardId: targetCard.id,
-        cardIds: scopedCardIds,
-        albumName: 'All cards',
-        headerTitle: 'All cards',
-      });
+      appTour.goToStep('IDLE');
+      tourStepDelayRef.current = setTimeout(() => {
+        tabSwipeContext?.goToTab(1, { animation: 'slide', durationMs: 620 });
+      }, 160);
+      setTimeout(() => {
+        appTour.goToStep('STEP_2_UPLOAD_SAMPLE');
+        tourStepDelayRef.current = null;
+      }, 1040);
       return;
     }
 
-    if (appTour.step === 'STEP_3_QUIZ') {
+    if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
       completeTour();
+      requestAnimationFrame(() => {
+        pressTodayReviewRef.current();
+      });
       return;
     }
     appTour.nextStep();
-  }, [allCards, appTour, completeTour, navigation]);
+  }, [appTour, completeTour, tabSwipeContext]);
+
+  React.useEffect(() => {
+    return () => {
+      if (tourStepDelayRef.current) {
+        clearTimeout(tourStepDelayRef.current);
+      }
+    };
+  }, []);
 
   const applyMainScreenSettings = React.useCallback((settings: {
     wordPopSlideMs: number;
@@ -661,6 +672,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     todayUnreviewedCount,
   ]);
 
+  React.useEffect(() => {
+    pressTodayReviewRef.current = handlePressTodayReview;
+  }, [handlePressTodayReview]);
+
   const handleChangeTodayReviewQuestionCount = React.useCallback((nextCount: number) => {
     setTodayReviewQuestionCount(nextCount);
     void saveAlbumReviewPreferences('today-added', { questionCount: nextCount });
@@ -947,7 +962,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
-        onTourSkip={completeTour}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}

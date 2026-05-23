@@ -33,6 +33,7 @@ import Reanimated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import ImageCropperModal from '../../../components/ImageCropperModal';
@@ -42,6 +43,7 @@ import type CachedItem from '@database/models/CachedItem';
 import CacheStackUI from '../../../components/UI/CacheScreenUI/CacheStackUI';
 import CacheInputModalUI from '../../../components/UI/CacheScreenUI/CacheInputModalUI';
 import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
+import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
 import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
@@ -80,6 +82,8 @@ type TodayUploadSticker = {
   cardId?: string;
   label: string;
 };
+
+const TOUR_SAMPLE_SENTENCE = 'I had to wing it during the presentation.';
 
 function toDayKey(input: Date | string): string {
   const date = new Date(input);
@@ -617,6 +621,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const isLight = colorScheme === 'light';
   const insets = useSafeAreaInsets();
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const appTour = useAppTour();
   const addButtonScale = React.useRef(new Animated.Value(1)).current;
   const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
   const [allCards, setAllCards] = useState<Card[]>([]);
@@ -949,6 +954,41 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     const trimmed = manualText.trim();
     if (!trimmed) return;
     try {
+      if (appTour.step === 'STEP_4_ADD_SAMPLE_TEXT') {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          Alert.alert('需要登入', '請先登入後再使用文字新增。');
+          return;
+        }
+        const collection = database.get<CachedItem>('cached_items');
+        let createdItem: CachedItem | null = null;
+        await database.write(async () => {
+          createdItem = await collection.create((item) => {
+            item.userId = userId;
+            item.type = 'text';
+            item.contentType = 'text';
+            item.contentText = trimmed;
+            item.sourceApp = 'manual';
+            item.aiAnalysisCompleted = false;
+            item.convertedToCard = false;
+            const expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+            item.expiresAt = expiresAt;
+          });
+        });
+        setManualText('');
+        setDidPasteIntoTextBox(false);
+        setShowAddModal(false);
+        if (createdItem) {
+          appTour.nextStep();
+          navigation.navigate('CreateCard', {
+            cachedItem: createdItem,
+            generationMode: 'ai-assisted',
+          });
+        }
+        return;
+      }
+
       await Clipboard.setStringAsync(trimmed);
       const userId = await getCurrentAuthUserId();
       if (!userId) {
@@ -967,7 +1007,26 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
     }
-  }, [manualText]);
+  }, [appTour, manualText, navigation]);
+
+  const handleTourPasteSampleText = React.useCallback(async () => {
+    try {
+      const text = (await Clipboard.getStringAsync()).trim();
+      const nextText = text || TOUR_SAMPLE_SENTENCE;
+      setManualText(nextText);
+      setDidPasteIntoTextBox(true);
+      if (appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT') {
+        appTour.nextStep();
+      }
+    } catch (error) {
+      console.error('[AppTour] paste sample text failed:', error);
+      setManualText(TOUR_SAMPLE_SENTENCE);
+      setDidPasteIntoTextBox(true);
+      if (appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT') {
+        appTour.nextStep();
+      }
+    }
+  }, [appTour]);
 
   const handlePasteFromNativeClipboard = React.useCallback(async () => {
     try {
@@ -1113,6 +1172,18 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     [addButtonScale]
   );
 
+  const handleCacheTourTargetPress = React.useCallback(() => {
+    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
+    void Clipboard.setStringAsync(TOUR_SAMPLE_SENTENCE);
+    appTour.nextStep();
+    setTimeout(() => {
+      setAddTab('text');
+      setManualText('');
+      setDidPasteIntoTextBox(false);
+      setShowAddModal(true);
+    }, 120);
+  }, [appTour]);
+
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={styles.vocabSection}>
@@ -1152,22 +1223,28 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         />
       </View>
 
-      <Animated.View
-        style={[
-          styles.uploadBarButtonWrap,
-          { bottom: Math.max(insets.bottom, 8) + 60, transform: [{ scale: addButtonScale }] },
-        ]}
+      <TutorialSpotlight
+        active={appTour.step === 'STEP_2_UPLOAD_SAMPLE'}
+        style={[styles.uploadBarButtonWrap, { bottom: Math.max(insets.bottom, 8) + 60 }]}
+        tooltip="Tap Upload."
+        onSpotlightPress={handleCacheTourTargetPress}
       >
-        <TouchableOpacity
-          style={styles.uploadBarButton}
-          activeOpacity={0.9}
-          onPressIn={() => animateAddButtonPress(0.95)}
-          onPressOut={() => animateAddButtonPress(1)}
-          onPress={openAddModal}
+        <Animated.View
+          style={[
+            { transform: [{ scale: addButtonScale }] },
+          ]}
         >
-          <Text style={styles.uploadBarButtonLabel}>＋ Upload</Text>
-        </TouchableOpacity>
-      </Animated.View>
+          <TouchableOpacity
+            style={styles.uploadBarButton}
+            activeOpacity={0.9}
+            onPressIn={() => animateAddButtonPress(0.95)}
+            onPressOut={() => animateAddButtonPress(1)}
+            onPress={openAddModal}
+          >
+            <Text style={styles.uploadBarButtonLabel}>＋ Upload</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </TutorialSpotlight>
 
       <CacheInputModalUI
         visible={showAddModal}
@@ -1186,6 +1263,12 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         onPressClearText={handleClearManualText}
         onUploadImage={() => void handleUploadImageDirect()}
         onCaptureImage={handleCaptureImage}
+        tourPasteTextActive={showAddModal && appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT'}
+        tourPasteTextTooltip="Paste sample."
+        onTourPasteTextPress={() => void handleTourPasteSampleText()}
+        tourAddTextActive={showAddModal && appTour.step === 'STEP_4_ADD_SAMPLE_TEXT'}
+        tourAddTextTooltip="Tap Add."
+        onTourAddTextPress={() => void handleQuickAddText()}
       />
 
       <ImageCropperModal

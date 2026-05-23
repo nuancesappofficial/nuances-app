@@ -50,6 +50,8 @@ import {
   GHOST_CARD_STATUS_TEXT,
   getPreviewTypingDuration,
 } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
+import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import {
   CONTAINER_NEON_GLOW,
   CONTAINER_NEON_OUTLINE,
@@ -107,6 +109,8 @@ const STOP_WORDS = new Set([
   'he', 'she', 'it', 'we', 'they',
 ]);
 
+const TOUR_TARGET_WORD = 'wing';
+
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
   if (Array.isArray(val)) return val;
@@ -149,6 +153,17 @@ function normalizeWord(raw: string): string {
   if (!normalized) return '';
   const pieces = normalized.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || [];
   return pieces.join('');
+}
+
+function normalizeSelectableTerm(raw: string): string {
+  const normalized = (raw || '')
+    .normalize('NFKC')
+    .replace(/[’‘]/g, "'")
+    .replace(/[‐‑‒–—]/g, '-')
+    .trim();
+  if (!normalized) return '';
+  const pieces = normalized.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || [];
+  return pieces.join(' ');
 }
 
 function normalizeDisplayWord(raw: string): string {
@@ -281,7 +296,7 @@ function buildExampleSentenceText(card: CompletedCard): string {
 
 function pickSentenceContainingWord(text: string, word: string): string {
   const source = (text || '').trim();
-  const target = normalizeWord(word);
+  const target = normalizeSelectableTerm(word);
   if (!source) return '';
   if (!target) return source;
 
@@ -294,7 +309,10 @@ function pickSentenceContainingWord(text: string, word: string): string {
   const hasLatinOrDigit = /[a-z0-9]/i.test(target);
   const matched = hasLatinOrDigit
     ? (() => {
-      const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pieces = target.split(/\s+/).filter(Boolean);
+      const escaped = pieces
+        .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('\\s+');
       const reg = new RegExp(`\\b${escaped}\\b`, 'i');
       return sentences.find((sentence) => reg.test(sentence));
     })()
@@ -363,6 +381,7 @@ async function uploadCardImageToSupabase(params: {
 
 export default function CreateCardScreen({ navigation, route }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const appTour = useAppTour();
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
@@ -379,6 +398,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     runOcrOnLoad?: boolean;
     generationMode?: 'manual' | 'ai-assisted';
   };
+  const normalizedTourSampleTarget = React.useMemo(
+    () => normalizeSelectableTerm(TOUR_TARGET_WORD),
+    []
+  );
 
   const goToCacheHome = React.useCallback(() => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
@@ -482,6 +505,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       (albumTargetWord && activePreviewCard?.word === albumTargetWord ? activePreviewCard : null),
     [activePreviewCard, albumTargetWord, completedCards]
   );
+
+  const selectTourSampleTarget = React.useCallback(() => {
+    if (!normalizedTourSampleTarget) return;
+    setSelectedWords((prev) =>
+      prev.includes(normalizedTourSampleTarget) ? prev : [normalizedTourSampleTarget, ...prev]
+    );
+  }, [normalizedTourSampleTarget]);
 
   React.useEffect(() => {
     if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
@@ -643,13 +673,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   );
 
   const toggleWord = (word: string) => {
-    const cleanWord = normalizeWord(word);
+    const cleanWord = normalizeSelectableTerm(word);
     if (!cleanWord) return;
 
     setSelectedWords((prev) =>
       prev.includes(cleanWord) ? prev.filter((w) => w !== cleanWord) : [...prev, cleanWord]
     );
   };
+
+  React.useEffect(() => {
+    if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
+      selectTourSampleTarget();
+    }
+  }, [appTour.step, selectTourSampleTarget]);
+
+  const handleTourWordPress = React.useCallback(() => {
+    selectTourSampleTarget();
+    if (appTour.step === 'STEP_5_SELECT_TARGET') {
+      appTour.nextStep();
+    }
+  }, [appTour, selectTourSampleTarget]);
 
   const processWord = React.useCallback(
     async (word: string) => {
@@ -806,6 +849,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
     await beginGenerate();
   }, [beginGenerate, effectiveGenerationMode, isPlanResolving, selectedWords.length, tabSwipeContext]);
+
+  const handleTourGeneratePress = React.useCallback(() => {
+    if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
+      appTour.nextStep();
+      requestAnimationFrame(() => {
+        void handleGenerate();
+      });
+      return;
+    }
+    void handleGenerate();
+  }, [appTour, handleGenerate]);
 
   const handleOpenPremiumUpsell = React.useCallback((featureLabel: string) => {
     Alert.alert(
@@ -1020,7 +1074,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         );
       }
 
-      goToCacheHome();
+      if (appTour.step === 'STEP_7_SAVE_SAMPLE' && createdCardIds.length > 0) {
+        appTour.nextStep();
+        navigation.navigate('CardDetail', {
+          cardId: createdCardIds[0],
+          cardIds: createdCardIds,
+          albumName: 'Nuances Tour',
+          headerTitle: 'Nuances Tour',
+        });
+      } else {
+        goToCacheHome();
+      }
 
       if (imageSourceForUpload) {
         setTimeout(() => {
@@ -1110,9 +1174,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Original Context</Text>
           <View style={styles.wordsWrap}>
             {sourceTokens.map((token, idx) => {
-              const clean = normalizeWord(token);
+              const clean = normalizeSelectableTerm(token);
               const isSelected = selectedWords.includes(clean);
-              return (
+              const isTourSampleToken =
+                Boolean(normalizedTourSampleTarget) && clean === normalizedTourSampleTarget;
+              const tokenPressable = (
                 <Pressable
                   key={`${token}-${idx}`}
                   style={({ pressed }) => [
@@ -1121,9 +1187,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                       backgroundColor: isSelected ? MODAL_CTA_COLOR : palette.modalOptionBg,
                       borderColor: isSelected ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
                     },
+                    appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken ? styles.tokenBtnTourActive : null,
                     pressed ? styles.pressableChipPressed : null,
                   ]}
-                  onPress={() => toggleWord(token)}
+                  onPress={() => {
+                    if (appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken) {
+                      handleTourWordPress();
+                      return;
+                    }
+                    toggleWord(token);
+                  }}
                 >
                   <Text
                     style={[
@@ -1136,6 +1209,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   </Text>
                 </Pressable>
               );
+              if (appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken) {
+                return (
+                  <TutorialSpotlight
+                    key={`tour-${token}-${idx}`}
+                    active
+                    tooltip="Choose “wing”."
+                    onSpotlightPress={handleTourWordPress}
+                  >
+                    {tokenPressable}
+                  </TutorialSpotlight>
+                );
+              }
+              return tokenPressable;
             })}
           </View>
         </View>
@@ -1205,20 +1291,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 </Text>
               </View>
             ) : null}
-            <Pressable
-              onPress={() => void handleGenerate()}
-              disabled={isGenerateDisabled}
-              style={({ pressed }) => [
-                styles.generateButton,
-                { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
-                isGenerateDisabled && styles.generateButtonDisabled,
-                pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
-              ]}
+            <TutorialSpotlight
+              active={appTour.step === 'STEP_6_GENERATE_SAMPLE'}
+              tooltip="Generate card."
+              onSpotlightPress={handleTourGeneratePress}
             >
-              <Text style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}>
-                {effectiveGenerationMode === 'manual' ? 'Create' : 'Generate'} {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
-              </Text>
-            </Pressable>
+              <Pressable
+                onPress={handleTourGeneratePress}
+                disabled={isGenerateDisabled}
+                style={({ pressed }) => [
+                  styles.generateButton,
+                  { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+                  isGenerateDisabled && styles.generateButtonDisabled,
+                  pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
+                ]}
+              >
+                <Text style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}>
+                  {effectiveGenerationMode === 'manual' ? 'Create' : 'Generate'} {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
+                </Text>
+              </Pressable>
+            </TutorialSpotlight>
           </View>
         ) : null}
 
@@ -1311,20 +1403,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         {!hasStarted && completedCards.length > 0 ? (
           <View style={styles.completedWrap}>
             <View style={styles.saveWrap}>
-              <Pressable
-                onPress={() => void handleSave()}
-                disabled={cardsToSave.length === 0 || saving}
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
-                  (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled,
-                  pressed && cardsToSave.length > 0 && !saving ? styles.pressablePrimaryPressed : null,
-                ]}
+              <TutorialSpotlight
+                active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
+                tooltip="Save card."
+                onSpotlightPress={() => void handleSave()}
               >
-                <Text style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}>
-                  {saving ? 'Saving...' : 'Save'}
-                </Text>
-              </Pressable>
+                <Pressable
+                  onPress={() => void handleSave()}
+                  disabled={cardsToSave.length === 0 || saving}
+                  style={({ pressed }) => [
+                    styles.saveButton,
+                    { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+                    (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled,
+                    pressed && cardsToSave.length > 0 && !saving ? styles.pressablePrimaryPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}>
+                    {saving ? 'Saving...' : 'Save'}
+                  </Text>
+                </Pressable>
+              </TutorialSpotlight>
             </View>
           </View>
         ) : null}
@@ -1447,6 +1545,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+  },
+  tokenBtnTourActive: {
+    borderColor: MODAL_CTA_COLOR_BORDER,
+    shadowColor: MODAL_CTA_COLOR,
+    shadowOpacity: 0.38,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
   },
   tokenBtnSelected: {
     backgroundColor: '#007AFF',

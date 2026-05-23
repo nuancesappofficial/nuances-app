@@ -322,12 +322,12 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     selectedTabIndexRef.current = selectedTabIndex;
   }, [selectedTabIndex]);
 
-  const switchTabImmediately = React.useCallback((index: number) => {
+  const switchTabImmediately = React.useCallback((index: number, duration = 260) => {
     const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
     if (nextIndex === selectedTabIndexRef.current) return;
     selectedTabIndexRef.current = nextIndex;
     setSelectedTabIndex(nextIndex);
-    Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration: 260, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
+    Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
   }, [tabOpacities]);
 
   const setTabRootRouteEnabled = React.useCallback((index: number, enabled: boolean) => {
@@ -384,7 +384,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       setPagerScrollEnabled: (enabled: boolean) => {
         paginationEnabledRef.current = enabled;
       },
-      goToTab: (index: number) => switchTabImmediately(index),
+      goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => switchTabImmediately(index, options?.durationMs),
       setCacheAddActionHandler: (handler: (() => void) | null) => {
         cacheAddActionHandlerRef.current = handler;
       },

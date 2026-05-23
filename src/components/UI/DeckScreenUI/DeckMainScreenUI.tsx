@@ -51,7 +51,6 @@ type Props = {
   onPressTodayReviewTuning: () => void;
   tourStep?: AppTourStep;
   onTourTargetPress?: () => void;
-  onTourSkip?: () => void;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -87,7 +86,6 @@ export default function DeckMainScreenUI({
   onPressTodayReviewTuning,
   tourStep = 'IDLE',
   onTourTargetPress,
-  onTourSkip,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -493,146 +491,135 @@ export default function DeckMainScreenUI({
   const handleTourTargetPress = React.useCallback(() => {
     onTourTargetPress?.();
   }, [onTourTargetPress]);
-  const handleTourSkip = React.useCallback(() => {
-    onTourSkip?.();
-  }, [onTourSkip]);
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
       <View style={[styles.topRightRow, isSearchExpanded ? styles.topRightRowExpanded : null]}>
-        {!isSearchExpanded ? (
-          <TutorialSpotlight
-            active={tourStep === 'STEP_1_IMPORT'}
-            tooltip="Take a screenshot of any English text and share it to Nuances via the iOS Share Sheet!"
-            onSpotlightPress={handleTourTargetPress}
-            onSkip={handleTourSkip}
-          >
+          {!isSearchExpanded ? (
             <Pressable
               style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
               onPress={() => onPressCacheFab?.()}
             >
               <Image source={require('../../../../assets/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
             </Pressable>
-          </TutorialSpotlight>
-        ) : null}
-        <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
-          <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
-            <Animated.View
-              style={[
-                styles.searchInputWrap,
-                {
-                  borderColor: searchShellBorderColor,
-                  backgroundColor: searchShellBackgroundColor,
-                  borderWidth: searchShellBorderWidth,
-                },
-              ]}
-            >
+          ) : null}
+          <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
+            <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
               <Animated.View
                 style={[
-                  styles.searchFieldWrap,
+                  styles.searchInputWrap,
                   {
-                    opacity: searchFieldOpacity,
-                    transform: [{ translateX: searchFieldTranslateX }],
+                    borderColor: searchShellBorderColor,
+                    backgroundColor: searchShellBackgroundColor,
+                    borderWidth: searchShellBorderWidth,
                   },
                 ]}
-                pointerEvents={isSearchExpanded ? 'auto' : 'none'}
               >
-                <Ionicons name="search" size={20} color={palette.textOnContainer} style={styles.searchLeadingIcon} />
-                <TextInput
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChangeText={onSearchChange}
-                  placeholder="搜尋卡片關鍵字"
-                  placeholderTextColor={palette.secondaryText}
-                  style={[styles.searchInput, { color: palette.textOnContainer }]}
-                  returnKeyType="search"
-                />
+                <Animated.View
+                  style={[
+                    styles.searchFieldWrap,
+                    {
+                      opacity: searchFieldOpacity,
+                      transform: [{ translateX: searchFieldTranslateX }],
+                    },
+                  ]}
+                  pointerEvents={isSearchExpanded ? 'auto' : 'none'}
+                >
+                  <Ionicons name="search" size={20} color={palette.textOnContainer} style={styles.searchLeadingIcon} />
+                  <TextInput
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChangeText={onSearchChange}
+                    placeholder="搜尋卡片關鍵字"
+                    placeholderTextColor={palette.secondaryText}
+                    style={[styles.searchInput, { color: palette.textOnContainer }]}
+                    returnKeyType="search"
+                  />
+                </Animated.View>
+
+                <Pressable
+                  style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.deckIconButtonPressed : null]}
+                  onPress={handleSearchToggle}
+                >
+                  <Animated.View
+                    style={[
+                      styles.iconLayer,
+                      {
+                        opacity: searchIconOpacity,
+                        transform: [{ rotate: searchIconRotate }],
+                      },
+                    ]}
+                  >
+                    <Ionicons name="search" size={30} color={palette.textOnBg} />
+                  </Animated.View>
+                  <Animated.View
+                    style={[
+                      styles.iconLayer,
+                      styles.iconLayerOverlay,
+                      {
+                        opacity: closeIconOpacity,
+                        transform: [{ rotate: closeIconRotate }, { translateX: closeIconTranslateX }],
+                      },
+                    ]}
+                  >
+                    <Ionicons name="close" size={30} color={palette.textOnBg} />
+                  </Animated.View>
+                </Pressable>
               </Animated.View>
 
-              <Pressable
-                style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.deckIconButtonPressed : null]}
-                onPress={handleSearchToggle}
-              >
-                <Animated.View
+              {isSearchExpanded && searchQuery.trim().length > 0 ? (
+                <View
                   style={[
-                    styles.iconLayer,
+                    styles.searchResultsWrap,
                     {
-                      opacity: searchIconOpacity,
-                      transform: [{ rotate: searchIconRotate }],
+                      backgroundColor: palette.searchDropdownBg,
+                      borderColor: palette.searchDropdownBorder,
+                      shadowOpacity: isLight ? 0.16 : 0.42,
                     },
                   ]}
                 >
-                  <Ionicons name="search" size={30} color={palette.textOnBg} />
-                </Animated.View>
-                <Animated.View
-                  style={[
-                    styles.iconLayer,
-                    styles.iconLayerOverlay,
-                    {
-                      opacity: closeIconOpacity,
-                      transform: [{ rotate: closeIconRotate }, { translateX: closeIconTranslateX }],
-                    },
-                  ]}
-                >
-                  <Ionicons name="close" size={30} color={palette.textOnBg} />
-                </Animated.View>
-              </Pressable>
+                  <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
+                    {searchResults.length > 0 ? (
+                      searchResults.map((item) => (
+                        <Pressable
+                          key={`${item.cardId}-${item.text}`}
+                          style={({ pressed }) => [
+                            styles.searchResultItem,
+                            { borderBottomColor: palette.searchDropdownDivider },
+                            pressed ? styles.deckMediumButtonPressed : null,
+                          ]}
+                          onPress={() => onPressSearchResult(item)}
+                        >
+                          <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
+                            {item.text}
+                          </Text>
+                          {item.translation ? (
+                            <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
+                              {item.translation}
+                            </Text>
+                          ) : null}
+                        </Pressable>
+                      ))
+                    ) : (
+                      <View style={styles.searchResultEmpty}>
+                        <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
+                          No matching words
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+              ) : null}
             </Animated.View>
 
-            {isSearchExpanded && searchQuery.trim().length > 0 ? (
-              <View
-                style={[
-                  styles.searchResultsWrap,
-                  {
-                    backgroundColor: palette.searchDropdownBg,
-                    borderColor: palette.searchDropdownBorder,
-                    shadowOpacity: isLight ? 0.16 : 0.42,
-                  },
-                ]}
+            {!isSearchExpanded ? (
+              <Pressable
+                style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+                onPress={onOpenCreateAlbum}
               >
-                <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
-                  {searchResults.length > 0 ? (
-                    searchResults.map((item) => (
-                      <Pressable
-                        key={`${item.cardId}-${item.text}`}
-                        style={({ pressed }) => [
-                          styles.searchResultItem,
-                          { borderBottomColor: palette.searchDropdownDivider },
-                          pressed ? styles.deckMediumButtonPressed : null,
-                        ]}
-                        onPress={() => onPressSearchResult(item)}
-                      >
-                        <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
-                          {item.text}
-                        </Text>
-                        {item.translation ? (
-                          <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
-                            {item.translation}
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                    ))
-                  ) : (
-                    <View style={styles.searchResultEmpty}>
-                      <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
-                        No matching words
-                      </Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
+                <Ionicons name="add" size={38} color={palette.textOnBg} />
+              </Pressable>
             ) : null}
-          </Animated.View>
-
-          {!isSearchExpanded ? (
-            <Pressable
-              style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
-              onPress={onOpenCreateAlbum}
-            >
-              <Ionicons name="add" size={38} color={palette.textOnBg} />
-            </Pressable>
-          ) : null}
-        </View>
+          </View>
       </View>
 
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
@@ -708,55 +695,61 @@ export default function DeckMainScreenUI({
         </View>
       ) : null}
 
-      <View style={styles.albumGroupShadow}>
-        <View
-          style={[
-            styles.albumGroup,
-            isLight
-              ? {
-                  backgroundColor: palette.containerBg,
-                  borderColor: palette.borderSubtle,
-                }
-              : null,
-          ]}
-        >
-          <FlatList
-            data={albumPages}
-            horizontal
-            pagingEnabled
-            style={styles.albumPager}
-            keyExtractor={(_, index) => `album-page-${index}`}
-            showsHorizontalScrollIndicator={false}
-            decelerationRate="fast"
-            bounces={false}
-            onMomentumScrollEnd={(event) => {
-              const offsetX = event.nativeEvent.contentOffset.x;
-              const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
-              setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
-            }}
-            renderItem={({ item, index }) => renderAlbumPage(item, index)}
-            contentContainerStyle={{
-              paddingTop: compactGridPaddingTop,
-              paddingBottom: compactGridPaddingBottom,
-            }}
-          />
+      <TutorialSpotlight
+        active={tourStep === 'STEP_1_SAMPLE'}
+        tooltip={'Make a card: “wing it”.'}
+        onSpotlightPress={handleTourTargetPress}
+      >
+        <View style={styles.albumGroupShadow}>
+          <View
+            style={[
+              styles.albumGroup,
+              isLight
+                ? {
+                    backgroundColor: palette.containerBg,
+                    borderColor: palette.borderSubtle,
+                  }
+                : null,
+            ]}
+          >
+            <FlatList
+              data={albumPages}
+              horizontal
+              pagingEnabled
+              style={styles.albumPager}
+              keyExtractor={(_, index) => `album-page-${index}`}
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              bounces={false}
+              onMomentumScrollEnd={(event) => {
+                const offsetX = event.nativeEvent.contentOffset.x;
+                const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
+                setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
+              }}
+              renderItem={({ item, index }) => renderAlbumPage(item, index)}
+              contentContainerStyle={{
+                paddingTop: compactGridPaddingTop,
+                paddingBottom: compactGridPaddingBottom,
+              }}
+            />
 
-          {albumPages.length > 1 ? (
-            <View style={styles.paginationDots}>
-              {albumPages.map((_, index) => (
-                <View
-                  key={`dot-${index}`}
-                  style={[
-                    styles.paginationDot,
-                    { backgroundColor: isLight ? 'rgba(15,23,42,0.22)' : 'rgba(2,33,61,0.3)' },
-                    index === currentPage ? [styles.paginationDotActive, { backgroundColor: palette.navActive }] : null,
-                  ]}
-                />
-              ))}
-            </View>
-          ) : null}
+            {albumPages.length > 1 ? (
+              <View style={styles.paginationDots}>
+                {albumPages.map((_, index) => (
+                  <View
+                    key={`dot-${index}`}
+                    style={[
+                      styles.paginationDot,
+                      { backgroundColor: isLight ? 'rgba(15,23,42,0.22)' : 'rgba(2,33,61,0.3)' },
+                      index === currentPage ? [styles.paginationDotActive, { backgroundColor: palette.navActive }] : null,
+                    ]}
+                  />
+                ))}
+              </View>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </TutorialSpotlight>
 
       <View style={[styles.todayReviewWrap, { marginBottom: quizBottomSafeSpacing }]}>
         <Animated.View
@@ -771,63 +764,69 @@ export default function DeckMainScreenUI({
           }
         >
           {isTodayReviewActive ? (
-            <LightPressable
+            <TutorialSpotlight
+              active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
               style={styles.todayReviewButtonShell}
-              contentStyle={[
-                styles.todayReviewCard,
-                styles.todayReviewCardActive,
-                newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
-                newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
-                { backgroundColor: palette.containerBg },
-                activeReviewCardVisualStyle,
-              ]}
-              pressedScale={0.988}
-              pressedOpacity={0.96}
-              onPress={onPressTodayReview}
+              tooltip="Quiz “wing it”."
+              onSpotlightPress={handleTourTargetPress}
             >
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.todayReviewTintLayer,
-                  {
-                    backgroundColor: activeReviewCardTone.overlayColor,
-                  },
+              <LightPressable
+                style={styles.todayReviewButtonFill}
+                contentStyle={[
+                  styles.todayReviewCard,
+                  styles.todayReviewCardActive,
+                  newWordsLevel === 1 ? styles.todayReviewCardLevel1 : null,
+                  newWordsLevel >= 2 ? styles.todayReviewCardLevel2 : null,
+                  { backgroundColor: palette.containerBg },
+                  activeReviewCardVisualStyle,
                 ]}
-              />
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.todayReviewWhoosh,
-                  {
-                    opacity: activeReviewWhooshOpacity,
-                    transform: [{ translateX: activeReviewWhooshTranslateX }, { rotate: '-18deg' }],
-                  },
-                ]}
-              />
-              <View style={styles.todayReviewHeaderRow}>
-                <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>New words</Text>
-                {newWordsLevel >= 2 ? (
-                  <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
-                    <Text
-                      style={[
-                        styles.todayReviewBadgeText,
-                        newWordsLevel >= 3 ? styles.todayReviewBadgeTextUrgent : null,
-                      ]}
-                    >
-                      {todayReviewTotalCount}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </LightPressable>
+                pressedScale={0.988}
+                pressedOpacity={0.96}
+                onPress={onPressTodayReview}
+              >
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.todayReviewTintLayer,
+                    {
+                      backgroundColor: activeReviewCardTone.overlayColor,
+                    },
+                  ]}
+                />
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.todayReviewWhoosh,
+                    {
+                      opacity: activeReviewWhooshOpacity,
+                      transform: [{ translateX: activeReviewWhooshTranslateX }, { rotate: '-18deg' }],
+                    },
+                  ]}
+                />
+                <View style={styles.todayReviewHeaderRow}>
+                  <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>New words</Text>
+                  {newWordsLevel >= 2 ? (
+                    <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
+                      <Text
+                        style={[
+                          styles.todayReviewBadgeText,
+                          newWordsLevel >= 3 ? styles.todayReviewBadgeTextUrgent : null,
+                        ]}
+                      >
+                        {todayReviewTotalCount}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </LightPressable>
+            </TutorialSpotlight>
           ) : (
             <View style={styles.todayReviewInactiveRow}>
               <TutorialSpotlight
-                active={tourStep === 'STEP_3_QUIZ'}
+                active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
                 style={styles.todayReviewQuickQuizShell}
-                tooltip="Test your memory with a quick quiz."
+                tooltip="Quiz “wing it”."
                 onSpotlightPress={handleTourTargetPress}
-                onSkip={handleTourSkip}
               >
                 <LightPressable
                   style={styles.todayReviewButtonFill}

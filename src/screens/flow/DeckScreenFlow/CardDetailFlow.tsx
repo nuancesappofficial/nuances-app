@@ -47,6 +47,7 @@ import { resolveCardImageUri } from '@services/media/cardImage';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
@@ -215,6 +216,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const appTour = useAppTour();
   const cardId = route.params?.cardId;
   const routeCardIds = route.params?.cardIds;
   const headerTitle = route.params?.headerTitle || route.params?.albumName || 'Deck';
@@ -1369,6 +1371,43 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     });
   }, []);
 
+  const addTourSampleToWorkAlbum = React.useCallback(async () => {
+    if (!card) return;
+    try {
+      const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
+      const workAlbumTag = `${ALBUM_TAG_PREFIX}work`;
+      const nextTags = Array.from(new Set([...currentTags, workAlbumTag, 'work']));
+      await database.write(async () => {
+        await card.update((record) => {
+          record.tags = nextTags;
+        });
+      });
+      setSelectedAlbums((prev) => (prev.includes('work') ? prev : [...prev, 'work']));
+      appTour.nextStep();
+    } catch (error) {
+      console.error('[AppTour] add sample card to work album failed:', error);
+      Alert.alert('導覽失敗', '無法把這張卡片放進 Work album，請再試一次。');
+    }
+  }, [appTour, card]);
+
+  const handleCardTourTargetPress = React.useCallback(() => {
+    if (appTour.step === 'STEP_8_ALBUM_SAMPLE') {
+      void addTourSampleToWorkAlbum();
+      return;
+    }
+    if (appTour.step === 'STEP_9_COACH_SAMPLE') {
+      appTour.nextStep();
+      if (typeof navigation?.popToTop === 'function') {
+        navigation.popToTop();
+      } else {
+        navigation.goBack();
+      }
+      requestAnimationFrame(() => {
+        tabSwipeContext?.goToTab(0, { animation: 'slide' });
+      });
+    }
+  }, [addTourSampleToWorkAlbum, appTour, navigation, tabSwipeContext]);
+
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => {
       // 判斷該卡片是否為我的最愛
@@ -1416,6 +1455,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onOpenStickyNote={openStickyNoteModal}
           stickyNoteText={stickyNotesByCardId[item.id] || ''}
           onOpenPronunciationModal={openPronunciationModal}
+          tourStep={appTour.step}
+          onTourTargetPress={handleCardTourTargetPress}
           isLightMode={isLightMode}
         />
       );
@@ -1447,6 +1488,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       playUserRecordingPreview,
       isLightMode,
       stickyNotesByCardId,
+      appTour.step,
+      handleCardTourTargetPress,
     ]
   );
 
