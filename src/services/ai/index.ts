@@ -1,7 +1,5 @@
 // AI Service
-import { analyzeCachedItem as mockAnalyze } from './mockAnalyzer';
 import {
-  analyzeAndGenerateCard,
   generateCardContent,
   isOpenAIConfigured,
 } from './aiActionService';
@@ -27,54 +25,6 @@ export interface AnalysisResult {
  * - 如果 AI proxy 已配置，使用真實後端 AI
  * - 否則回退到 Mock AI
  */
-export async function analyzeText(
-  text: string,
-  userKeywords?: string,
-  personalization?: AIPersonalizationOptions
-): Promise<AnalysisResult> {
-  const useRealAPI = isOpenAIConfigured();
-
-  try {
-    if (useRealAPI) {
-      return await analyzeAndGenerateCard(text, userKeywords, personalization);
-    }
-
-    const mockResult = mockAnalyze(text, userKeywords);
-    return {
-      keywords: mockResult.keywords,
-      suggestedWord: mockResult.suggestedWord,
-      definition: mockResult.definition,
-      partOfSpeech: '',
-      contextualExplanation: mockResult.explanation,
-      exampleSentence: '',
-      frequentCollocations: '',
-      phoneticTranscription: mockResult.phonetic,
-      tags: mockResult.tags,
-    };
-  } catch (error) {
-    console.warn('Analysis error (fallback to Mock AI):', error);
-    const mockResult = mockAnalyze(text, userKeywords);
-    return {
-      keywords: mockResult.keywords,
-      suggestedWord: mockResult.suggestedWord,
-      definition: mockResult.definition,
-      partOfSpeech: '',
-      contextualExplanation: mockResult.explanation,
-      exampleSentence: '',
-      frequentCollocations: '',
-      phoneticTranscription: mockResult.phonetic,
-      tags: mockResult.tags,
-    };
-  }
-}
-
-/**
- * 檢查是否使用真實 API
- */
-export function isUsingRealAPI(): boolean {
-  return isOpenAIConfigured();
-}
-
 /**
  * 為特定單字生成內容（用於用戶選擇不同的單字時）
  */
