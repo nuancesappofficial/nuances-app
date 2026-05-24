@@ -117,7 +117,6 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const wordOpacity = React.useRef(new Animated.Value(1)).current;
-  const wordPopPulse = React.useRef(new Animated.Value(0)).current;
   const albumsPerPage = albumGridCount === 3 || albumGridCount === 6 || albumGridCount === 9 ? albumGridCount : 6;
   const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / GRID_COLUMNS));
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
@@ -248,32 +247,6 @@ export default function DeckMainScreenUI({
 
     return () => clearInterval(timer);
   }, [slideshowItems.length, wordOpacity, wordPopSlideMs]);
-
-  React.useEffect(() => {
-    if (!wordPopEnabled) {
-      wordPopPulse.stopAnimation();
-      wordPopPulse.setValue(0);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(wordPopPulse, {
-          toValue: 1,
-          duration: 520,
-          useNativeDriver: true,
-        }),
-        Animated.timing(wordPopPulse, {
-          toValue: 0,
-          duration: 820,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-    };
-  }, [wordPopEnabled, wordPopPulse]);
 
   React.useEffect(() => {
     if (!isTodayReviewActive) {
@@ -412,10 +385,6 @@ export default function DeckMainScreenUI({
   }, [isSearchExpanded, onClearSearch]);
 
   const activeShowcaseItem = slideshowItems[wordIndex];
-  const wordPopTextScale = wordPopPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.028],
-  });
   const activeReviewShadowOpacity = todayReviewPulse.interpolate({
     inputRange: [0, 1],
     outputRange: [0.28, 0.55],
@@ -676,7 +645,6 @@ export default function DeckMainScreenUI({
                     {
                       opacity: wordOpacity,
                       color: palette.textOnContainer,
-                      transform: [{ scale: wordPopTextScale }],
                     },
                   ]}
                   numberOfLines={1}

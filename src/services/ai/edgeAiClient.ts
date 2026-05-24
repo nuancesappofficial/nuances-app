@@ -56,6 +56,18 @@ export class PremiumFeatureError extends Error {
   }
 }
 
+export function isPremiumFeatureError(error: unknown): boolean {
+  if (error instanceof PremiumFeatureError) return true;
+  const message = error instanceof Error ? error.message : String(error || '');
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('premium_required') ||
+    lower.includes('premium or active trial required') ||
+    lower.includes('"paywalltype"') ||
+    lower.includes('需要試用版或 premium')
+  );
+}
+
 async function ensureCloudAIAccess(featureLabel: string): Promise<void> {
   const {
     data: { user },
@@ -290,6 +302,9 @@ export async function callAIProxy(request: AIRequest): Promise<string> {
     if (isInvalidJwtError(detail)) {
       throw new AIAuthError('Authentication required: please sign in again');
     }
+    if (isPremiumFeatureError(detail)) {
+      throw new PremiumFeatureError('Premium or active trial required');
+    }
     throw new Error(`AI proxy error: ${detail}`);
   }
 
@@ -382,6 +397,9 @@ export async function callAIAction<TPayload, TResult>(
     }
     if (isInvalidJwtError(detail)) {
       throw new AIAuthError('Authentication required: please sign in again');
+    }
+    if (isPremiumFeatureError(detail)) {
+      throw new PremiumFeatureError('Premium or active trial required');
     }
     throw new Error(`AI action error: ${detail}`);
   }

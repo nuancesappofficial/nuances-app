@@ -1,7 +1,7 @@
 // AI Action Service
 // 透過 Supabase ai-proxy 呼叫後端 AI action
 
-import { callAIAction, callAIProxy, isAIProxyConfigured } from './edgeAiClient';
+import { callAIAction, callAIProxy, isAIProxyConfigured, isPremiumFeatureError } from './edgeAiClient';
 import type { AIPersonalizationOptions } from './types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 
@@ -21,7 +21,7 @@ function normalizeOptionalString(value: unknown): string | undefined {
 }
 
 /**
- * 調用 OpenAI API（支援 JSON mode，確保回應為合法 JSON）
+ * 調用 legacy OpenAI proxy（僅保留相容舊流程）
  */
 export async function callOpenAI(
   messages: { role: string; content: any }[],
@@ -58,7 +58,7 @@ export async function callOpenAI(
         },
       });
     } catch (error) {
-      console.error(`OpenAI API attempt ${attempt + 1} failed:`, error);
+      console.error(`Legacy OpenAI proxy attempt ${attempt + 1} failed:`, error);
       
       if (attempt < MAX_RETRIES - 1) {
         await delay(RETRY_DELAY * (attempt + 1));
@@ -68,7 +68,7 @@ export async function callOpenAI(
     }
   }
 
-  throw new Error('OpenAI API failed after multiple retries');
+  throw new Error('Legacy OpenAI proxy failed after multiple retries');
 }
 
 /**
@@ -104,7 +104,9 @@ export async function analyzeText(
       suggestedWord: result.suggestedWord || null,
     };
   } catch (error) {
-    console.error('[OpenAI] Error in analyzeText:', error);
+    if (!isPremiumFeatureError(error)) {
+      console.error('[AI] Error in analyzeText:', error);
+    }
     throw error;
   }
 }
@@ -209,7 +211,9 @@ export async function generateCardContent(
       tags: result.tags || [],
     };
   } catch (error) {
-    console.error('[OpenAI] Error in generateCardContent:', error);
+    if (!isPremiumFeatureError(error)) {
+      console.error('[AI] Error in generateCardContent:', error);
+    }
     throw error;
   }
 }

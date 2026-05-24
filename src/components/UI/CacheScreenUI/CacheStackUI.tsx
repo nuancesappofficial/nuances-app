@@ -4,6 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, interpolate, Extrapolate } 
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import CacheCardUI from './CacheCardUI';
+import TutorialSpotlight from '../shared/TutorialSpotlight';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 
 // 調整「Skip + Add + Cache Stack」整組的垂直位移（負值往上、正值往下）
@@ -26,6 +27,8 @@ type Props = {
   onCardSwipeStart: (itemId: string, direction: 'left' | 'right') => void;
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
   onCardImageError: (itemId: string) => void;
+  tourCreateActive?: boolean;
+  tourCreateTooltip?: string;
 };
 
 export default function CacheStackUI({
@@ -36,6 +39,8 @@ export default function CacheStackUI({
   onCardSwipeStart,
   onCardSwipe,
   onCardImageError,
+  tourCreateActive = false,
+  tourCreateTooltip = 'Swipe right.',
 }: Props) {
   const topCardDragX = useSharedValue(0);
   const swipeSeqRef = React.useRef(0);
@@ -114,6 +119,31 @@ export default function CacheStackUI({
     [topCard]
   );
 
+  const handleCreatePress = React.useCallback(() => {
+    triggerActionTapHaptic('right');
+    triggerTopCardSwipe('right');
+  }, [triggerActionTapHaptic, triggerTopCardSwipe]);
+
+  const createActionButton = (
+    <Pressable
+      onPress={handleCreatePress}
+      style={styles.actionPressTarget}
+    >
+      <Animated.View style={styles.actionShell}>
+        <Animated.View style={[styles.floatingActionBtn, styles.createActionBtn, createActionStyle]}>
+          <Animated.View
+            style={[StyleSheet.absoluteFill, styles.actionTintLayer, createTintStyle]}
+            pointerEvents="none"
+          />
+          <View style={styles.actionContentRow}>
+            <Text style={styles.createActionText}>Create</Text>
+            <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Pressable>
+  );
+
   return (
     <View style={styles.stackContainer} pointerEvents="box-none">
       {cards.length > 0 ? (
@@ -135,26 +165,13 @@ export default function CacheStackUI({
               </Animated.View>
             </Animated.View>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              triggerActionTapHaptic('right');
-              triggerTopCardSwipe('right');
-            }}
-            style={styles.actionPressTarget}
+          <TutorialSpotlight
+            active={tourCreateActive}
+            tooltip={tourCreateTooltip}
+            onSpotlightPress={handleCreatePress}
           >
-            <Animated.View style={styles.actionShell}>
-              <Animated.View style={[styles.floatingActionBtn, styles.createActionBtn, createActionStyle]}>
-                <Animated.View
-                  style={[StyleSheet.absoluteFill, styles.actionTintLayer, createTintStyle]}
-                  pointerEvents="none"
-                />
-                <View style={styles.actionContentRow}>
-                  <Text style={styles.createActionText}>Create</Text>
-                  <Ionicons name="sparkles" size={12} color="#FFFFFF" />
-                </View>
-              </Animated.View>
-            </Animated.View>
-          </Pressable>
+            {createActionButton}
+          </TutorialSpotlight>
         </View>
       ) : null}
       {cards.map((item, index) => {

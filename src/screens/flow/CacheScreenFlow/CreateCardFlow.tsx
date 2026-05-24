@@ -22,6 +22,7 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { generateContentForWord } from '@services/ai';
+import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
 import SubscriptionService from '@services/subscription/SubscriptionService';
@@ -213,6 +214,26 @@ function buildManualCardDraft(word: string, phoneticTranscription?: string | nul
     phoneticTranscription: phoneticTranscription || null,
     sourceSentence: word,
     manualMode: true,
+    addedToDeck: true,
+    selectedAlbumIds: [],
+  };
+}
+
+function buildTourSampleCard(sourceSentence: string): CompletedCard {
+  const sentence = sourceSentence.trim() || 'I had to wing it during the presentation.';
+  return {
+    word: TOUR_TARGET_WORD,
+    displayWord: 'wing it',
+    targetPhrase: 'wing it',
+    partOfSpeech: 'phrase',
+    definition: '即興應付；臨場發揮',
+    cultural:
+      'Sentence translation:\n“I had to 「wing it」 during the presentation.”\n我在簡報時只好「臨場發揮」。\n\nContext:\nIt fits because the speaker had to handle the presentation without full preparation.',
+    collocationsText: 'wing it during a presentation, wing it in a meeting',
+    note: '',
+    phoneticTranscription: '/wɪŋ ɪt/',
+    sourceSentence: sentence,
+    manualMode: false,
     addedToDeck: true,
     selectedAlbumIds: [],
   };
@@ -681,6 +702,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     );
   };
 
+  const openMembershipPaywall = React.useCallback(() => {
+    tabSwipeContext?.openMembershipPaywall();
+  }, [tabSwipeContext]);
+
   React.useEffect(() => {
     if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
       selectTourSampleTarget();
@@ -698,6 +723,27 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     async (word: string) => {
       const sentenceForCard = pickSentenceContainingWord(sourceText, word) || sourceText || word;
       try {
+        const isTourSampleGeneration =
+          appTour.step === 'STEP_6_GENERATE_SAMPLE' &&
+          normalizeSelectableTerm(word) === normalizeSelectableTerm(TOUR_TARGET_WORD);
+
+        if (isTourSampleGeneration) {
+          const card = buildTourSampleCard(sentenceForCard);
+          setGeneratingCards((prev) =>
+            prev.map((item) =>
+              item.word === word ? { ...item, completed: true } : item
+            )
+          );
+          await runCardRevealSequence(card);
+          setCompletedCards((prev) => [card, ...prev]);
+          setActivePreviewCard(null);
+          setPreviewPhase('complete');
+          setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+          setGenerationFailure((current) => (current?.word === word ? null : current));
+          setGeneratedWords((prev) => new Set([...prev, word]));
+          return true;
+        }
+
         if (effectiveGenerationMode === 'manual') {
           const localPhonetic = await getLocalPhoneticTranscription(word);
           const card = {
@@ -713,7 +759,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           setCompletedCards((prev) => [card, ...prev]);
           setGenerationFailure((current) => (current?.word === word ? null : current));
           setGeneratedWords((prev) => new Set([...prev, word]));
-          return;
+          return true;
         }
 
         const generated = await generateContentForWord(word, sentenceForCard, {
@@ -757,7 +803,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
         setGenerationFailure((current) => (current?.word === word ? null : current));
         setGeneratedWords((prev) => new Set([...prev, word]));
+        return true;
       } catch (error) {
+        if (isPremiumFeatureError(error)) {
+          setGeneratingCards([]);
+          setActivePreviewCard(null);
+          setPreviewPhase('frontThinking');
+          setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+          setGenerationFailure(null);
+          if (appTour.step !== 'STEP_6_GENERATE_SAMPLE') {
+            openMembershipPaywall();
+          }
+          return false;
+        }
         console.error('[CreateCard] generate failed:', word, error);
         const message = error instanceof Error ? error.message : 'Unable to generate this card. Please try again.';
         setGeneratingCards((prev) =>
@@ -769,9 +827,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         setPreviewPhase('frontThinking');
         setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
         setGenerationFailure({ word, message });
+        return true;
       }
     },
-    [aiReplyLanguage, effectiveGenerationMode, runCardRevealSequence, sourceText]
+    [aiReplyLanguage, appTour.step, effectiveGenerationMode, openMembershipPaywall, runCardRevealSequence, sourceText]
   );
 
   const beginGenerate = React.useCallback(async () => {
@@ -792,7 +851,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       setPreviewPhase('frontThinking');
       setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
       setGeneratingCards([{ word, completed: false }]);
-      await processWord(word);
+      const shouldContinue = await processWord(word);
+      if (!shouldContinue) break;
     }
 
     setTimeout(() => {
@@ -825,30 +885,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const handleGenerate = React.useCallback(async () => {
     if (selectedWords.length === 0 || isPlanResolving) return;
     if (effectiveGenerationMode === 'manual') {
-      Alert.alert(
-        '免費版使用手動建卡',
-        '免費版可使用本地 OCR 與手動建卡；升級後可自動補上定義、搭配詞與語境說明。',
-        [
-          { text: '取消', style: 'cancel' },
-          {
-            text: '前往升級',
-            onPress: () => {
-              tabSwipeContext?.goToTab(2);
-            },
-          },
-          {
-            text: '手動建卡',
-            onPress: () => {
-              void beginGenerate();
-            },
-          },
-        ]
-      );
+      await beginGenerate();
       return;
     }
 
     await beginGenerate();
-  }, [beginGenerate, effectiveGenerationMode, isPlanResolving, selectedWords.length, tabSwipeContext]);
+  }, [beginGenerate, effectiveGenerationMode, isPlanResolving, selectedWords.length]);
 
   const handleTourGeneratePress = React.useCallback(() => {
     if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
@@ -861,21 +903,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     void handleGenerate();
   }, [appTour, handleGenerate]);
 
-  const handleOpenPremiumUpsell = React.useCallback((featureLabel: string) => {
-    Alert.alert(
-      `解鎖 ${featureLabel}`,
-      'Premium 可自動補上定義、搭配詞、例句與語境說明，幫你省下手動整理時間。',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '前往升級',
-          onPress: () => {
-            tabSwipeContext?.goToTab(2);
-          },
-        },
-      ]
-    );
-  }, [tabSwipeContext]);
+  const handleOpenPremiumUpsell = React.useCallback((_featureLabel: string) => {
+    openMembershipPaywall();
+  }, [openMembershipPaywall]);
 
   const updateCardField = React.useCallback((word: string, patch: Partial<CompletedCard>) => {
     setCompletedCards((prev) => prev.map((card) => (card.word === word ? { ...card, ...patch } : card)));

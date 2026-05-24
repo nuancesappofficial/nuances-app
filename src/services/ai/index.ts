@@ -5,6 +5,7 @@ import {
   generateCardContent,
   isOpenAIConfigured,
 } from './aiActionService';
+import { isPremiumFeatureError } from './edgeAiClient';
 import type { AIPersonalizationOptions } from './types';
 
 export type { AIPersonalizationOptions } from './types';
@@ -23,7 +24,7 @@ export interface AnalysisResult {
 
 /**
  * 智能分析服務
- * - 如果 OpenAI API 已配置，使用真實 API
+ * - 如果 AI proxy 已配置，使用真實後端 AI
  * - 否則回退到 Mock AI
  */
 export async function analyzeText(
@@ -124,7 +125,9 @@ export async function generateContentForWord(
       tags: generateMockTags(word),
     };
   } catch (error) {
-    console.error('Error generating content for word:', error);
+    if (!isPremiumFeatureError(error)) {
+      console.error('Error generating content for word:', error);
+    }
     throw error;
   }
 }

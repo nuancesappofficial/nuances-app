@@ -11,6 +11,7 @@ export type TabSwipeContextValue = {
   setPaginationEnabled: (enabled: boolean) => void;
   setPagerScrollEnabled: (enabled: boolean) => void;
   goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => void;
+  openMembershipPaywall: () => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

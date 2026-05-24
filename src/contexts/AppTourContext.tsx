@@ -7,6 +7,7 @@ export type AppTourStep =
   | 'STEP_2_UPLOAD_SAMPLE'
   | 'STEP_3_PASTE_SAMPLE_TEXT'
   | 'STEP_4_ADD_SAMPLE_TEXT'
+  | 'STEP_5_PROCESS_CACHE_CARD'
   | 'STEP_5_SELECT_TARGET'
   | 'STEP_6_GENERATE_SAMPLE'
   | 'STEP_7_SAVE_SAMPLE'
@@ -37,6 +38,8 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_3_PASTE_SAMPLE_TEXT':
       return 'STEP_4_ADD_SAMPLE_TEXT';
     case 'STEP_4_ADD_SAMPLE_TEXT':
+      return 'STEP_5_PROCESS_CACHE_CARD';
+    case 'STEP_5_PROCESS_CACHE_CARD':
       return 'STEP_5_SELECT_TARGET';
     case 'STEP_5_SELECT_TARGET':
       return 'STEP_6_GENERATE_SAMPLE';

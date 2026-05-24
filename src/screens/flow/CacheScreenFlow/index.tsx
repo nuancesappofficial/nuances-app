@@ -981,10 +981,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         setShowAddModal(false);
         if (createdItem) {
           appTour.nextStep();
-          navigation.navigate('CreateCard', {
-            cachedItem: createdItem,
-            generationMode: 'ai-assisted',
-          });
         }
         return;
       }
@@ -1007,7 +1003,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
     }
-  }, [appTour, manualText, navigation]);
+  }, [appTour, manualText]);
 
   const handleTourPasteSampleText = React.useCallback(async () => {
     try {
@@ -1150,14 +1146,20 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           return;
         }
 
-        navigation.navigate('CreateCard', { cachedItem: target.cachedItem });
+        if (appTour.step === 'STEP_5_PROCESS_CACHE_CARD') {
+          appTour.nextStep();
+        }
+        navigation.navigate('CreateCard', {
+          cachedItem: target.cachedItem,
+          generationMode: appTour.step === 'STEP_5_PROCESS_CACHE_CARD' ? 'ai-assisted' : undefined,
+        });
         return;
       }
 
       hideCacheCardImmediately(itemId);
       void deleteCacheItemPermanently(target.cachedItem);
     },
-    [cards, deleteCacheItemPermanently, hideCacheCardImmediately, navigation, openCropperForSwipeImage]
+    [appTour, cards, deleteCacheItemPermanently, hideCacheCardImmediately, navigation, openCropperForSwipeImage]
   );
 
   const animateAddButtonPress = React.useCallback(
@@ -1220,6 +1222,8 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           onCardSwipeStart={handleCardSwipeStart}
           onCardSwipe={handleCardSwipe}
           onCardImageError={handleCardImageError}
+          tourCreateActive={appTour.step === 'STEP_5_PROCESS_CACHE_CARD'}
+          tourCreateTooltip="Create from cache."
         />
       </View>
 

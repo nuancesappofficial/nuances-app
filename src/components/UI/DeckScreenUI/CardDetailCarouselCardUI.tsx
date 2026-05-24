@@ -67,6 +67,14 @@ type Props = {
   isLightMode?: boolean;
 };
 
+const CARD_ACTION_BUTTON_WIDTH = 52;
+const CARD_ACTION_BUTTON_HORIZONTAL_OFFSETS = {
+  mic: -8,
+  share: -2,
+  heart: 10,
+  bookmark: 10,
+} as const;
+
 function buildFallbackCollocations(params: {
   targetWord: string;
   targetPhrase?: string | null;
@@ -635,6 +643,7 @@ function CardDetailCarouselCardUI({
                   <TutorialSpotlight
                     active={tourStep === 'STEP_9_COACH_SAMPLE' && isActiveCard}
                     tooltip="Practice speech."
+                    style={[localStyles.actionIconSlot, localStyles.micActionIconSlot]}
                     onSpotlightPress={() => onTourTargetPress?.()}
                   >
                     <Pressable
@@ -648,33 +657,38 @@ function CardDetailCarouselCardUI({
                     </Pressable>
                   </TutorialSpotlight>
 
-                  <Pressable
-                    style={({ pressed }) => [
-                      localStyles.actionIconBtn,
-                      pressed ? localStyles.actionIconBtnPressed : null,
-                    ]}
-                    onPress={handleSharePress}
-                  >
-                    <Ionicons name="share-outline" size={28} color={ui.icon} />
-                  </Pressable>
+                  <View style={[localStyles.actionIconSlot, localStyles.shareActionIconSlot]}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        localStyles.actionIconBtn,
+                        pressed ? localStyles.actionIconBtnPressed : null,
+                      ]}
+                      onPress={handleSharePress}
+                    >
+                      <Ionicons name="share-outline" size={28} color={ui.icon} />
+                    </Pressable>
+                  </View>
 
-                  <Pressable
-                    style={({ pressed }) => [
-                      localStyles.actionIconBtn,
-                      pressed ? localStyles.actionIconBtnPressed : null,
-                    ]}
-                    onPress={onToggleFavorite}
-                  >
-                    <Ionicons
-                      name={isFavorite ? 'heart' : 'heart-outline'}
-                      size={28}
-                      color={isFavorite ? ui.starActive : ui.starInactive}
-                    />
-                  </Pressable>
+                  <View style={[localStyles.actionIconSlot, localStyles.heartActionIconSlot]}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        localStyles.actionIconBtn,
+                        pressed ? localStyles.actionIconBtnPressed : null,
+                      ]}
+                      onPress={onToggleFavorite}
+                    >
+                      <Ionicons
+                        name={isFavorite ? 'heart' : 'heart-outline'}
+                        size={28}
+                        color={isFavorite ? ui.starActive : ui.starInactive}
+                      />
+                    </Pressable>
+                  </View>
 
                   <TutorialSpotlight
                     active={tourStep === 'STEP_8_ALBUM_SAMPLE' && isActiveCard}
                     tooltip="Add to album."
+                    style={[localStyles.actionIconSlot, localStyles.bookmarkActionIconSlot]}
                     onSpotlightPress={() => onTourTargetPress?.()}
                   >
                     <Pressable
@@ -1010,18 +1024,34 @@ const localStyles = StyleSheet.create({
     bottom: -10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     marginTop: 0,
-    paddingHorizontal: 1,
+    paddingHorizontal: 2,
     paddingTop: 0,
     paddingBottom: 0,
   },
   actionIconBtn: {
-    flex: 1,
+    width: '100%',
     height: 38,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  actionIconSlot: {
+    width: CARD_ACTION_BUTTON_WIDTH,
+    height: 38,
+  },
+  micActionIconSlot: {
+    transform: [{ translateX: CARD_ACTION_BUTTON_HORIZONTAL_OFFSETS.mic }],
+  },
+  shareActionIconSlot: {
+    transform: [{ translateX: CARD_ACTION_BUTTON_HORIZONTAL_OFFSETS.share }],
+  },
+  heartActionIconSlot: {
+    transform: [{ translateX: CARD_ACTION_BUTTON_HORIZONTAL_OFFSETS.heart }],
+  },
+  bookmarkActionIconSlot: {
+    transform: [{ translateX: CARD_ACTION_BUTTON_HORIZONTAL_OFFSETS.bookmark }],
   },
   actionIconBtnPressed: {
     opacity: 0.9,

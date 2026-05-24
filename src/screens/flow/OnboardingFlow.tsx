@@ -202,13 +202,25 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     if (error) throw error;
   }, [answers.englishLevel, answers.learningGoal, answers.nativeLanguage, userId]);
 
+  const shouldStartTour = React.useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('has_seen_tour')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.has_seen_tour !== true;
+  }, [userId]);
+
   const handleEnableMicrophone = React.useCallback(async () => {
     if (saving) return;
     setSaving(true);
     try {
       await Audio.requestPermissionsAsync();
       await saveOnboardingData();
-      appTour.startTour();
+      if (await shouldStartTour()) {
+        appTour.startTour();
+      }
       onComplete();
     } catch (error) {
       const message = getOnboardingErrorMessage(error);
@@ -217,7 +229,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [appTour, onComplete, saveOnboardingData, saving]);
+  }, [appTour, onComplete, saveOnboardingData, saving, shouldStartTour]);
 
   const renderOptions = (items: Option[], keyName: keyof OnboardingAnswers, nextStep: OnboardingStep) => (
     <View style={styles.optionList}>

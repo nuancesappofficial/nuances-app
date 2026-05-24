@@ -191,18 +191,23 @@ function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledCha
   );
 }
 
-function ProfileStack({ onSwipeEnabledChange }: { onSwipeEnabledChange: (enabled: boolean) => void }) {
-  const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+function ProfileStack({
+  onSwipeEnabledChange,
+  navigationRef,
+}: {
+  onSwipeEnabledChange: (enabled: boolean) => void;
+  navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+}) {
   const syncSwipeEnabled = React.useCallback(() => {
-    const state = profileNavigationRef.getRootState();
+    const state = navigationRef.getRootState();
     const routeName = getActiveRouteName(state);
     onSwipeEnabledChange(routeName === 'ProfileHome');
-  }, [onSwipeEnabledChange, profileNavigationRef]);
+  }, [navigationRef, onSwipeEnabledChange]);
 
   return (
     <NavigationIndependentTree>
       <NavigationContainer
-        ref={profileNavigationRef}
+        ref={navigationRef}
         theme={APP_DARK_THEME}
         onReady={() => onSwipeEnabledChange(true)}
         onStateChange={(state) => {
@@ -303,6 +308,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+  const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
 
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
   const swipeLockRef = React.useRef(false);
@@ -329,6 +335,24 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     setSelectedTabIndex(nextIndex);
     Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
   }, [tabOpacities]);
+
+  const openMembershipPaywall = React.useCallback(() => {
+    setTabBarForcedHidden(false);
+    switchTabImmediately(2);
+
+    let attempts = 0;
+    const navigateToMembership = () => {
+      if (!profileNavigationRef.isReady()) {
+        attempts += 1;
+        if (attempts > 20) return;
+        requestAnimationFrame(navigateToMembership);
+        return;
+      }
+      profileNavigationRef.navigate('ProfileSettingOptions', { kind: 'membership' });
+    };
+
+    setTimeout(navigateToMembership, 280);
+  }, [profileNavigationRef, switchTabImmediately]);
 
   const setTabRootRouteEnabled = React.useCallback((index: number, enabled: boolean) => {
     setTabRootRouteEnabledMap((prev) => {
@@ -385,6 +409,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         paginationEnabledRef.current = enabled;
       },
       goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => switchTabImmediately(index, options?.durationMs),
+      openMembershipPaywall,
       setCacheAddActionHandler: (handler: (() => void) | null) => {
         cacheAddActionHandlerRef.current = handler;
       },
@@ -392,7 +417,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
       setTabBarHidden: setTabBarForcedHidden,
       fallbackTranslateY,
     }),
-    [fallbackTranslateY, switchTabImmediately]
+    [fallbackTranslateY, openMembershipPaywall, switchTabImmediately]
   );
 
   return (
@@ -406,7 +431,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
             <CacheStack onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
-            <ProfileStack onSwipeEnabledChange={handleProfileRootRouteEnabledChange} />
+            <ProfileStack navigationRef={profileNavigationRef} onSwipeEnabledChange={handleProfileRootRouteEnabledChange} />
           </Animated.View>
         </View>
 

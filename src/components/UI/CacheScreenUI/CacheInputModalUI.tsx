@@ -68,6 +68,10 @@ const MODAL_ENTRY_TRANSLATE_Y = 520;
 const MODAL_ENTRY_DURATION_MS = 460;
 const MODAL_BACKDROP_DURATION_MS = 300;
 const MODAL_EXIT_DURATION_MS = 260;
+const TOUR_HIGHLIGHT_FADE_IN_MS = 420;
+const TOUR_HIGHLIGHT_FADE_OUT_MS = 180;
+const DARK_MODE_TOUR_TOOLTIP_BG = '#F1EBE3';
+const DARK_MODE_TOUR_TOOLTIP_TEXT = '#0F172A';
 // Tune this value to resize Text tab input box; modal panel height follows this value.
 const TEXT_INPUT_BOX_HEIGHT = 200;
 const TEXT_TAB_EXTRA_HEIGHT = 50; // label + spacing
@@ -124,6 +128,7 @@ export default function CacheInputModalUI({
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const keyboardLift = React.useRef(new Animated.Value(0)).current;
+  const localTourProgress = React.useRef(new Animated.Value(0)).current;
   const currentOffsetRef = React.useRef(0);
   const textTabPanelHeight = TEXT_INPUT_BOX_HEIGHT + TEXT_TAB_EXTRA_HEIGHT;
   const panelHeight = addTab === 'image' ? IMAGE_TAB_PANEL_HEIGHT : textTabPanelHeight;
@@ -140,6 +145,21 @@ export default function CacheInputModalUI({
       : null;
   const activeTourTooltip = tourPasteTextActive ? tourPasteTextTooltip : tourAddTextActive ? tourAddTextTooltip : '';
   const activeTourPress = tourPasteTextActive ? onTourPasteTextPress || onPressPaste : tourAddTextActive ? onTourAddTextPress || onSubmitText : undefined;
+  const isLocalTourActive = Boolean(activeTourTarget && activeTourPress);
+
+  React.useEffect(() => {
+    Animated.timing(localTourProgress, {
+      toValue: isLocalTourActive ? 1 : 0,
+      duration: isLocalTourActive ? TOUR_HIGHLIGHT_FADE_IN_MS : TOUR_HIGHLIGHT_FADE_OUT_MS,
+      easing: isLocalTourActive ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [isLocalTourActive, localTourProgress]);
+
+  const localTourContentOpacity = localTourProgress.interpolate({
+    inputRange: [0, 0.28, 1],
+    outputRange: [0, 0, 1],
+  });
 
   React.useEffect(() => {
     if (panelWidth <= 0) return;
@@ -337,6 +357,14 @@ export default function CacheInputModalUI({
       <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
+      {isLocalTourActive && activeTourPress ? (
+        <Pressable style={styles.localTourBackdropMask} onPress={activeTourPress}>
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: localTourProgress }]}>
+            <BlurView tint="dark" intensity={58} style={StyleSheet.absoluteFill} />
+            <View style={styles.localTourDim} />
+          </Animated.View>
+        </Pressable>
+      ) : null}
       <Animated.View
         style={[
           styles.modalSheet,
@@ -504,25 +532,28 @@ export default function CacheInputModalUI({
         ) : null}
 
         {activeTourTarget && activeTourPress ? (
-          <Pressable style={styles.localTourOverlay} onPress={activeTourPress}>
-            <BlurView pointerEvents="none" tint="dark" intensity={72} style={StyleSheet.absoluteFill} />
-            <View pointerEvents="none" style={styles.localTourDim} />
-            <View
+          <Pressable style={styles.localTourSheetOverlay} onPress={activeTourPress}>
+            <Animated.View
               pointerEvents="none"
               style={[
                 styles.localTourTooltip,
+                !isLight ? styles.localTourTooltipDarkModeLightBox : null,
+                { opacity: localTourContentOpacity },
                 {
                   left: Math.max(12, Math.min(activeTourTarget.x, panelWidth - 260)),
                   top: Math.max(12, activeTourTarget.y - 96),
                 },
               ]}
             >
-              <Text style={styles.localTourTooltipText}>{activeTourTooltip}</Text>
-            </View>
-            <View
+              <Text style={[styles.localTourTooltipText, !isLight ? styles.localTourTooltipTextDarkModeLightBox : null]}>
+                {activeTourTooltip}
+              </Text>
+            </Animated.View>
+            <Animated.View
               pointerEvents="none"
               style={[
                 styles.localTourClone,
+                { opacity: localTourContentOpacity },
                 activeTourAction === 'paste'
                   ? textPrimaryAction === 'clear'
                     ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
@@ -549,7 +580,7 @@ export default function CacheInputModalUI({
               >
                 {activeTourAction === 'add' ? 'Add' : textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
               </Text>
-            </View>
+            </Animated.View>
           </Pressable>
         ) : null}
       </Animated.View>
@@ -564,6 +595,8 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     position: 'absolute',
+    zIndex: 60,
+    elevation: 60,
     left: 0,
     right: 0,
     bottom: 0,
@@ -654,7 +687,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
-  localTourOverlay: {
+  localTourBackdropMask: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+  },
+  localTourSheetOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 80,
     overflow: 'hidden',
@@ -663,7 +700,7 @@ const styles = StyleSheet.create({
   },
   localTourDim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.70)',
+    backgroundColor: 'rgba(0,0,0,0.50)',
   },
   localTourTooltip: {
     position: 'absolute',
@@ -685,6 +722,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '800',
+  },
+  localTourTooltipDarkModeLightBox: {
+    backgroundColor: DARK_MODE_TOUR_TOOLTIP_BG,
+    borderColor: 'rgba(15,23,42,0.16)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.22,
+  },
+  localTourTooltipTextDarkModeLightBox: {
+    color: DARK_MODE_TOUR_TOOLTIP_TEXT,
   },
   localTourClone: {
     position: 'absolute',

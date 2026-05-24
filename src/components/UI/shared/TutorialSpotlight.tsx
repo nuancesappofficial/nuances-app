@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
   type LayoutRectangle,
   type StyleProp,
@@ -36,6 +37,11 @@ type Props = {
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
 const SPOTLIGHT_SCALE = 1;
 const TOOLTIP_WIDTH = 284;
+const TOUR_FADE_IN_MS = 420;
+const TOUR_FADE_OUT_MS = 180;
+const TOOLTIP_DELAY_MS = 220;
+const DARK_MODE_TOOLTIP_BG = '#F1EBE3';
+const DARK_MODE_TOOLTIP_TEXT = '#0F172A';
 
 export default function TutorialSpotlight({
   active,
@@ -46,6 +52,8 @@ export default function TutorialSpotlight({
 }: Props) {
   const anchorRef = React.useRef<View | null>(null);
   const [layout, setLayout] = React.useState<WindowLayout | null>(null);
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme !== 'light';
   const visibleProgress = useSharedValue(0);
   const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
   const AnimatedBlurView = React.useMemo(() => Reanimated.createAnimatedComponent(BlurView), []);
@@ -61,12 +69,12 @@ export default function TutorialSpotlight({
 
   React.useEffect(() => {
     if (!active) {
-      visibleProgress.value = withTiming(0, { duration: 120 });
+      visibleProgress.value = withTiming(0, { duration: TOUR_FADE_OUT_MS });
       return;
     }
     measureAnchor();
     const retryTimers = [80, 180, 320].map((delay) => setTimeout(measureAnchor, delay));
-    visibleProgress.value = withTiming(1, { duration: 160 });
+    visibleProgress.value = withTiming(1, { duration: TOUR_FADE_IN_MS });
     return () => {
       retryTimers.forEach(clearTimeout);
     };
@@ -76,10 +84,13 @@ export default function TutorialSpotlight({
     opacity: visibleProgress.value,
   }));
 
-  const cloneStyle = useAnimatedStyle(() => ({
-    opacity: visibleProgress.value,
-    transform: [{ scale: withSpring(active ? SPOTLIGHT_SCALE : 1, ELEGANT_SPRING) }],
-  }));
+  const cloneStyle = useAnimatedStyle(() => {
+    const delayedOpacity = Math.max(0, Math.min(1, (visibleProgress.value - 0.22) / 0.78));
+    return {
+      opacity: delayedOpacity,
+      transform: [{ scale: withSpring(active ? SPOTLIGHT_SCALE : 1, ELEGANT_SPRING) }],
+    };
+  });
 
   const tooltipTop = React.useMemo(() => {
     if (!layout) return 120;
@@ -130,11 +141,17 @@ export default function TutorialSpotlight({
         {layout ? (
           <Reanimated.View
             pointerEvents="none"
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(120)}
-            style={[styles.tooltip, { top: tooltipTop, left: tooltipLeft }]}
+            entering={FadeIn.delay(TOOLTIP_DELAY_MS).duration(260)}
+            exiting={FadeOut.duration(TOUR_FADE_OUT_MS)}
+            style={[
+              styles.tooltip,
+              isDarkMode ? styles.tooltipDarkModeLightBox : null,
+              { top: tooltipTop, left: tooltipLeft },
+            ]}
           >
-            <Text style={styles.tooltipText}>{tooltip}</Text>
+            <Text style={[styles.tooltipText, isDarkMode ? styles.tooltipTextDarkModeLightBox : null]}>
+              {tooltip}
+            </Text>
           </Reanimated.View>
         ) : null}
       </Modal>
@@ -150,7 +167,7 @@ const styles = StyleSheet.create({
   dimLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 11,
-    backgroundColor: 'rgba(0,0,0,0.84)',
+    backgroundColor: 'rgba(0,0,0,0.58)',
   },
   cloneLayer: {
     position: 'absolute',
@@ -178,5 +195,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '700',
+  },
+  tooltipDarkModeLightBox: {
+    backgroundColor: DARK_MODE_TOOLTIP_BG,
+    borderColor: 'rgba(15,23,42,0.16)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.22,
+  },
+  tooltipTextDarkModeLightBox: {
+    color: DARK_MODE_TOOLTIP_TEXT,
   },
 });
