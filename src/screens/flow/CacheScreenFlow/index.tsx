@@ -14,7 +14,6 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -38,7 +37,6 @@ import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import { database } from '@database/index';
-import type Card from '@database/models/Card';
 import type CachedItem from '@database/models/CachedItem';
 import CacheStackUI from '../../../components/UI/CacheScreenUI/CacheStackUI';
 import CacheInputModalUI from '../../../components/UI/CacheScreenUI/CacheInputModalUI';
@@ -47,6 +45,9 @@ import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
 import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
+import { useCacheListDataSource } from './hooks/useCacheListDataSource';
+import { useCacheSwipeActions } from './hooks/useCacheSwipeActions';
+import type { TodayUploadSticker } from './hooks/useCacheListDataSource';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { DEFAULT_STICKER_FONT_KEY, resolveStickerFont, type StickerFontKey } from '../../../theme/stickerFonts';
 import { loadUserSettings } from '@services/settings/userSettings';
@@ -65,22 +66,6 @@ type Props = {
   navigation: any;
   onRequestClose?: () => void;
   entryAnimationToken?: number;
-};
-
-type CacheCardRecord = {
-  id: string;
-  imageUri?: string;
-  text: string;
-  detectedPreview?: string;
-  sourceLabel: string;
-  importedAtLabel: string;
-  cachedItem: CachedItem;
-};
-
-type TodayUploadSticker = {
-  key: string;
-  cardId?: string;
-  label: string;
 };
 
 const TOUR_SAMPLE_SENTENCE = 'I had to wing it during the presentation.';
@@ -291,10 +276,12 @@ function VocabStickerCloud({
   items,
   onPressSticker,
   stickerFontKey,
+  hapticsEnabled = true,
 }: {
   items: TodayUploadSticker[];
   onPressSticker?: (item: TodayUploadSticker) => void;
   stickerFontKey: StickerFontKey;
+  hapticsEnabled?: boolean;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -326,9 +313,17 @@ function VocabStickerCloud({
   const velYList = useSharedValue<number[]>([]);
   const borderContactList = useSharedValue<number[]>([]);
   const borderContactInitialized = useSharedValue(false);
+  const hapticsEnabledShared = useSharedValue(hapticsEnabled);
   const lastBorderHapticAt = useRef(0);
+  const hapticsEnabledRef = useRef(hapticsEnabled);
+
+  useEffect(() => {
+    hapticsEnabledRef.current = hapticsEnabled;
+    hapticsEnabledShared.value = hapticsEnabled;
+  }, [hapticsEnabled, hapticsEnabledShared]);
 
   const triggerBorderHaptic = useCallback(() => {
+    if (!hapticsEnabledRef.current) return;
     const now = Date.now();
     if (now - lastBorderHapticAt.current < 180) return;
     lastBorderHapticAt.current = now;
@@ -507,7 +502,7 @@ function VocabStickerCloud({
     borderContactList.value = nextBorderContacts;
     borderContactInitialized.value = true;
 
-    if (didEnterBorder) {
+    if (didEnterBorder && hapticsEnabledShared.value) {
       runOnJS(triggerBorderHaptic)();
     }
   });
@@ -623,8 +618,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const appTour = useAppTour();
   const addButtonScale = React.useRef(new Animated.Value(1)).current;
-  const [cacheItems, setCacheItems] = useState<CachedItem[]>([]);
-  const [allCards, setAllCards] = useState<Card[]>([]);
   const [animationSeed, setAnimationSeed] = useState(0);
   const [restoreSeed, setRestoreSeed] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -697,46 +690,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   }, [openAddModal, tabSwipeContext]);
 
   useEffect(() => {
-    const query = database
-      .get<CachedItem>('cached_items')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
-
-    const load = async () => {
-      try {
-        const data = await query.fetch();
-        setCacheItems(data);
-      } catch (error) {
-        console.error('[CacheList] load cached items failed:', error);
-        setCacheItems([]);
-      }
-    };
-
-    void load();
-    const sub = query.observe().subscribe((data) => setCacheItems(data));
-    return () => sub.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
-
-    const load = async () => {
-      try {
-        const data = await queryCards.fetch();
-        setAllCards(data);
-      } catch (error) {
-        console.error('[CacheList] load cards failed:', error);
-        setAllCards([]);
-      }
-    };
-
-    void load();
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
-    return () => sub.unsubscribe();
-  }, []);
-
-  useEffect(() => {
     if (!navigation?.addListener) return;
     const offFocus = navigation.addListener('focus', () => {
       setIsCacheFocused(true);
@@ -759,10 +712,26 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       .catch((error) => console.error('[CacheList] load sticker font failed:', error));
   }, []);
 
+  const { cards: rawCards, todayStickerWords, todayUploadedCardIds, cacheItems } = useCacheListDataSource({
+    getDetectedPreview,
+    toSourceLabel,
+    toRelativeImportTime,
+    normalizeStickerText,
+    toDayKey,
+    optimisticallyHiddenCacheIds,
+  });
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
     getDetectedPreview,
   });
+  const cards = useMemo(
+    () =>
+      rawCards.map((item) => ({
+        ...item,
+        detectedPreview: item.imageUri ? liveDetectedPreviewById[item.id] ?? item.detectedPreview : item.detectedPreview,
+      })),
+    [liveDetectedPreviewById, rawCards]
+  );
   const { deleteCacheItemPermanently } = useCacheItemCleanup({ cacheItems });
 
   useEffect(() => {
@@ -781,45 +750,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       return changed ? next : prev;
     });
   }, [cacheItems, optimisticallyHiddenCacheIds.size]);
-
-  const cards = useMemo<CacheCardRecord[]>(() => {
-    return [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
-        if (optimisticallyHiddenCacheIds.has(item.id)) {
-          return acc;
-        }
-
-        const text = (
-          item.contentText?.trim() ||
-          item.userKeywords?.trim() ||
-          item.contentUrl?.trim() ||
-          ''
-        );
-        const imageUri =
-          item.imageStoragePath ||
-          item.mediaUri ||
-          (item.contentType === 'image' ? item.contentUrl || undefined : undefined);
-        const detectedPreview = imageUri
-          ? liveDetectedPreviewById[item.id] ?? getDetectedPreview(item.imageAnnotations)
-          : undefined;
-
-        const hasText = text.length > 0;
-        const hasImageSource = Boolean(imageUri);
-        if (!hasText && !hasImageSource) {
-          return acc;
-        }
-
-        acc.push({
-          id: item.id,
-          imageUri,
-          text: hasText ? text : 'Image unavailable',
-          detectedPreview,
-          sourceLabel: toSourceLabel(item.sourceApp),
-          importedAtLabel: toRelativeImportTime(item.createdAt),
-          cachedItem: item,
-        });
-        return acc;
-      }, []);
-  }, [cacheItems, liveDetectedPreviewById, optimisticallyHiddenCacheIds]);
 
   const stackCards = useMemo(() => {
     const visibleIdSet = new Set(visibleCacheIds);
@@ -896,37 +826,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     }, 1800);
     return () => clearTimeout(timer);
   }, [enteringCardIds]);
-
-  const todayStickerWords = useMemo(() => {
-    const todayKey = toDayKey(new Date());
-    const seen = new Set<string>();
-    const output: TodayUploadSticker[] = [];
-
-    allCards.forEach((card) => {
-      if (!card.createdAt) return;
-      if (toDayKey(card.createdAt) !== todayKey) return;
-      const raw = normalizeStickerText(card.targetPhrase || card.targetWord || '');
-      const value = raw.length > 26 ? `${raw.slice(0, 26)}…` : raw;
-      if (!value) return;
-      const dedupeKey = value.toLowerCase();
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
-      output.push({
-        key: card.id,
-        cardId: card.id,
-        label: value,
-      });
-    });
-
-    return output;
-  }, [allCards]);
-
-  const todayUploadedCardIds = useMemo(() => {
-    const todayKey = toDayKey(new Date());
-    return allCards
-      .filter((card) => !!card.createdAt && toDayKey(card.createdAt) === todayKey)
-      .map((card) => card.id);
-  }, [allCards]);
 
   const handlePressTodaySticker = React.useCallback(
     (item: TodayUploadSticker) => {
@@ -1099,68 +998,14 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     });
   }, []);
 
-  const handleCardImageError = React.useCallback(
-    (itemId: string) => {
-      const target = cards.find((card) => card.id === itemId);
-      if (!target) return;
-      hideCacheCardImmediately(itemId);
-      void deleteCacheItemPermanently(target.cachedItem, { silent: true });
-    },
-    [cards, deleteCacheItemPermanently, hideCacheCardImmediately]
-  );
-
-  const handleCardSwipeStart = React.useCallback(
-    (itemId: string, direction: 'left' | 'right') => {
-      if (direction !== 'left') return;
-      hideCacheCardImmediately(itemId);
-    },
-    [hideCacheCardImmediately]
-  );
-
-  const handleCardSwipe = React.useCallback(
-    (itemId: string, direction: 'left' | 'right') => {
-      const target = cards.find((card) => card.id === itemId);
-      if (!target) return;
-
-      if (direction === 'right') {
-        const isImageCard =
-          target.cachedItem.contentType === 'image' ||
-          Boolean(target.cachedItem.mediaUri || target.cachedItem.imageStoragePath);
-
-        if (isImageCard) {
-          const imageUri =
-            target.cachedItem.imageStoragePath ||
-            target.cachedItem.mediaUri ||
-            target.cachedItem.contentUrl ||
-            target.imageUri ||
-            null;
-          if (!imageUri) {
-            Alert.alert('找不到圖片', '這張圖片卡沒有可裁切的圖片來源。');
-            return;
-          }
-          openCropperForSwipeImage({
-            item: target.cachedItem,
-            imageUri,
-            imageSize: null,
-          });
-          return;
-        }
-
-        if (appTour.step === 'STEP_5_PROCESS_CACHE_CARD') {
-          appTour.nextStep();
-        }
-        navigation.navigate('CreateCard', {
-          cachedItem: target.cachedItem,
-          generationMode: appTour.step === 'STEP_5_PROCESS_CACHE_CARD' ? 'ai-assisted' : undefined,
-        });
-        return;
-      }
-
-      hideCacheCardImmediately(itemId);
-      void deleteCacheItemPermanently(target.cachedItem);
-    },
-    [appTour, cards, deleteCacheItemPermanently, hideCacheCardImmediately, navigation, openCropperForSwipeImage]
-  );
+  const { handleCardImageError, handleCardSwipeStart, handleCardSwipe } = useCacheSwipeActions({
+    cards,
+    navigation,
+    appTour,
+    hideCacheCardImmediately,
+    deleteCacheItemPermanently,
+    openCropperForSwipeImage,
+  });
 
   const animateAddButtonPress = React.useCallback(
     (toValue: number) => {
@@ -1206,6 +1051,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             items={todayStickerWords}
             stickerFontKey={stickerFontKey}
             onPressSticker={handlePressTodaySticker}
+            hapticsEnabled={isCacheFocused}
           />
           {stackCards.length > 0 ? (
             <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />

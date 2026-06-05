@@ -75,17 +75,7 @@ export async function resolveCardImageUri(params: {
     });
   }
 
-  const { data: publicData } = supabase.storage.from('cached-images').getPublicUrl(signPath);
-  const publicUrl = (publicData?.publicUrl || '').trim();
-  if (/^https?:\/\//i.test(publicUrl)) {
-    if (normalizedCardId) {
-      const cached = await persistRemoteCardImage(normalizedCardId, publicUrl);
-      if (cached) return cached;
-    }
-    return publicUrl;
-  }
-
-  console.warn('[CardImage] Failed to resolve signed/public URL for image path', {
+  console.warn('[CardImage] Failed to resolve signed URL for private image path', {
     rawUri: uri,
     signPath,
     signError: error?.message,

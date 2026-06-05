@@ -16,7 +16,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -42,6 +42,7 @@ import {
   TEXT_ON_CONTAINER,
   resolveThemeColors,
 } from '../../../theme/colors';
+import PaywallFooter from './PaywallFooter';
 
 export type HeatMapDay = {
   key: string;
@@ -117,7 +118,7 @@ const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
 const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const DAY_TILE_RADIUS = 14;
-const MEMBERSHIP_BG_ICON = require('../../../../assets/icon.png');
+const MEMBERSHIP_BG_ICON = require('../../../../assets/app_icons/icon.png');
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const BASE_BG = SCREEN_BG;
@@ -371,6 +372,7 @@ export default function ProfileMainScreenUI({
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
+  const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const optionNavigationLockRef = React.useRef(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -1124,6 +1126,13 @@ export default function ProfileMainScreenUI({
               <Text style={styles.membershipRenewalCopy}>
                 7-day free trial. Auto-renews unless canceled.
               </Text>
+
+              <PaywallFooter
+                style={[
+                  styles.membershipFooterLinks,
+                  { bottom: Math.max(insets.bottom, 12) },
+                ]}
+              />
             </View>
           </View>
         </View>
@@ -1821,7 +1830,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     paddingHorizontal: 20,
     paddingTop: 26,
-    paddingBottom: 18,
+    paddingBottom: 72,
     backgroundColor: '#181818',
     overflow: 'hidden',
     shadowOpacity: 0.28,
@@ -2037,6 +2046,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',
+  },
+  membershipFooterLinks: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   membershipRestoreLinkPressed: {
     opacity: 0.65,

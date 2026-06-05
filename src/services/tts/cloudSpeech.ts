@@ -38,7 +38,7 @@ async function getAuthHeader(): Promise<{ Authorization: string } | null> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const accessToken = session?.access_token?.trim() || SUPABASE_ANON_KEY;
+  const accessToken = session?.access_token?.trim();
   if (!accessToken) return null;
   return { Authorization: `Bearer ${accessToken}` };
 }

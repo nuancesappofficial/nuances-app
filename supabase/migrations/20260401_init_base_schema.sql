@@ -17,6 +17,8 @@ create table if not exists public.profiles (
   has_seen_tour boolean not null default false,
   subscription_tier text not null default 'free' check (subscription_tier in ('free', 'pro')),
   subscription_expires_at timestamptz,
+  trial_started_at timestamptz,
+  trial_ends_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -205,7 +207,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
-  ('cached-images', 'cached-images', true, 10485760, array['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']),
+  ('cached-images', 'cached-images', false, 10485760, array['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']),
   ('audio_cache', 'audio_cache', true, 5242880, array['audio/mpeg', 'audio/mp3'])
 on conflict (id) do update set
   public = excluded.public,
@@ -214,16 +216,43 @@ on conflict (id) do update set
 
 do $$
 begin
-  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Public can read Nuances public buckets') then
-    create policy "Public can read Nuances public buckets" on storage.objects for select using (bucket_id in ('cached-images', 'audio_cache'));
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Public can read Nuances audio cache') then
+    create policy "Public can read Nuances audio cache" on storage.objects for select using (bucket_id = 'audio_cache');
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Users can read their own cached images') then
+    create policy "Users can read their own cached images" on storage.objects for select to authenticated using (bucket_id = 'cached-images' and (storage.foldername(name))[1] = auth.uid()::text);
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can upload cached images') then
-    create policy "Authenticated users can upload cached images" on storage.objects for insert to authenticated with check (bucket_id = 'cached-images');
+    create policy "Authenticated users can upload cached images" on storage.objects for insert to authenticated with check (bucket_id = 'cached-images' and (storage.foldername(name))[1] = auth.uid()::text);
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can update cached images') then
-    create policy "Authenticated users can update cached images" on storage.objects for update to authenticated using (bucket_id = 'cached-images') with check (bucket_id = 'cached-images');
+    create policy "Authenticated users can update cached images" on storage.objects for update to authenticated using (bucket_id = 'cached-images' and (storage.foldername(name))[1] = auth.uid()::text) with check (bucket_id = 'cached-images' and (storage.foldername(name))[1] = auth.uid()::text);
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Authenticated users can delete cached images') then
-    create policy "Authenticated users can delete cached images" on storage.objects for delete to authenticated using (bucket_id = 'cached-images');
+    create policy "Authenticated users can delete cached images" on storage.objects for delete to authenticated using (bucket_id = 'cached-images' and (storage.foldername(name))[1] = auth.uid()::text);
   end if;
 end $$;
+
+create or replace function public.prevent_client_subscription_profile_update()
+returns trigger as $$
+begin
+  if auth.role() = 'authenticated'
+    and (
+      new.subscription_tier is distinct from old.subscription_tier
+      or new.subscription_expires_at is distinct from old.subscription_expires_at
+      or new.trial_started_at is distinct from old.trial_started_at
+      or new.trial_ends_at is distinct from old.trial_ends_at
+    )
+  then
+    raise exception 'entitlement fields are server-managed';
+  end if;
+
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists prevent_client_subscription_profile_update on public.profiles;
+create trigger prevent_client_subscription_profile_update
+  before update on public.profiles
+  for each row
+  execute function public.prevent_client_subscription_profile_update();

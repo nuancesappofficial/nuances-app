@@ -37,10 +37,10 @@ export const USAGE_RECENT_LIMIT_MAX = Number(
 );
 export const AI_TASK_TTL_HOURS = Number(Deno.env.get('AI_TASK_TTL_HOURS') ?? '24');
 
-// Default to fail-open for compatibility because some hosted runtimes
-// do not provide Deno KV for Edge Functions.
+// Default to fail-closed so billable endpoints are not unbounded if Deno KV
+// is unavailable in production. Set this explicitly in local/dev if needed.
 export const ALLOW_BILLABLE_WITHOUT_KV = String(
-  Deno.env.get('AI_ALLOW_BILLABLE_WITHOUT_KV') ?? 'true'
+  Deno.env.get('AI_ALLOW_BILLABLE_WITHOUT_KV') ?? 'false'
 ).toLowerCase() === 'true';
 
 export const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')

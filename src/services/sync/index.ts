@@ -448,10 +448,6 @@ function transformToSupabaseFormat(tableName: string, record: any, userId: strin
         learning_goal: record.learning_goal,
         target_language: record.target_language,
         native_language: record.native_language,
-        subscription_tier: record.subscription_tier,
-        subscription_expires_at: record.subscription_expires_at
-          ? new Date(record.subscription_expires_at).toISOString()
-          : null,
       };
 
     case 'cached_items':

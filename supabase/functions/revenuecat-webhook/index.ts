@@ -7,6 +7,19 @@ const corsHeaders = {
 };
 
 const REVENUECAT_WEBHOOK_AUTH_TOKEN = (Deno.env.get('REVENUECAT_WEBHOOK_AUTH_TOKEN') ?? '').trim();
+const ALLOW_UNAUTHENTICATED_WEBHOOK_DEV =
+  (Deno.env.get('ALLOW_UNAUTHENTICATED_WEBHOOK_DEV') ?? '').trim().toLowerCase() === 'true';
+
+function isDevRuntime(): boolean {
+  const runtimeEnv = (
+    Deno.env.get('APP_ENV') ??
+    Deno.env.get('ENVIRONMENT') ??
+    Deno.env.get('NODE_ENV') ??
+    Deno.env.get('SUPABASE_ENV') ??
+    ''
+  ).trim().toLowerCase();
+  return ['dev', 'development', 'local', 'test'].includes(runtimeEnv);
+}
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -16,9 +29,23 @@ function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 function isAuthorized(req: Request): boolean {
-  if (!REVENUECAT_WEBHOOK_AUTH_TOKEN) return true;
+  if (!REVENUECAT_WEBHOOK_AUTH_TOKEN) {
+    return ALLOW_UNAUTHENTICATED_WEBHOOK_DEV && isDevRuntime();
+  }
   const authHeader = req.headers.get('authorization')?.trim() ?? '';
-  return authHeader === `Bearer ${REVENUECAT_WEBHOOK_AUTH_TOKEN}`;
+  return timingSafeEqual(authHeader, `Bearer ${REVENUECAT_WEBHOOK_AUTH_TOKEN}`);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const left = encoder.encode(a);
+  const right = encoder.encode(b);
+  const max = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < max; i += 1) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+  return diff === 0;
 }
 
 Deno.serve(async (req: Request) => {
@@ -27,6 +54,9 @@ Deno.serve(async (req: Request) => {
   }
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+  if (!REVENUECAT_WEBHOOK_AUTH_TOKEN && !(ALLOW_UNAUTHENTICATED_WEBHOOK_DEV && isDevRuntime())) {
+    return jsonResponse({ error: 'Webhook auth token is not configured' }, 500);
   }
   if (!isAuthorized(req)) {
     return jsonResponse({ error: 'Unauthorized webhook request' }, 401);
@@ -56,7 +86,7 @@ Deno.serve(async (req: Request) => {
       supabase,
       userId: appUserId,
     });
-    return jsonResponse({ ok: true, userId: appUserId });
+    return jsonResponse({ ok: true });
   } catch (error) {
     console.error('[revenuecat-webhook] failed:', error);
     return jsonResponse(

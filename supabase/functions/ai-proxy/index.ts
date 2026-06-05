@@ -1,6 +1,5 @@
 // Supabase Edge Function: ai-proxy
 // Securely proxies AI requests so API keys never live in the mobile app.
-declare const Deno: any;
 import {
   getAuthenticatedUserFromAuthorization,
   getUserIdFromAuthorization,
@@ -35,8 +34,30 @@ import {
   USAGE_RETENTION_DAYS,
 } from './_shared/runtimeConfig.ts';
 
+declare const Deno: any;
+
 const DEV_ENTITLEMENT_BYPASS_ENABLED =
   (Deno.env.get('SUBSCRIPTION_DEV_BYPASS') ?? '').trim().toLowerCase() === 'true';
+
+function isProductionRuntime(): boolean {
+  const runtimeEnv = (
+    Deno.env.get('APP_ENV') ??
+    Deno.env.get('ENVIRONMENT') ??
+    Deno.env.get('NODE_ENV') ??
+    Deno.env.get('SUPABASE_ENV') ??
+    ''
+  ).trim().toLowerCase();
+  return ['prod', 'production'].includes(runtimeEnv);
+}
+
+function canUseDevEntitlementBypass(): boolean {
+  if (!DEV_ENTITLEMENT_BYPASS_ENABLED) return false;
+  if (isProductionRuntime()) {
+    console.error('[ai-proxy] SUBSCRIPTION_DEV_BYPASS is enabled in production; ignoring bypass header');
+    return false;
+  }
+  return true;
+}
 
 type Provider = 'openai' | 'gemini';
 type Action =
@@ -200,7 +221,7 @@ function normalizeHeadword(input: unknown, fallback: string): string {
   if (firstToken) return firstToken;
   return sanitizeText(fallback, MAX_WORD_CHARS)
     .toLowerCase()
-    .replace(/[^a-z'\-]/g, '')
+    .replace(/[^a-z'-]/g, '')
     .trim();
 }
 
@@ -1126,7 +1147,7 @@ Deno.serve(async (req: Request) => {
     const supabase = createServiceRoleClient();
     const devPlan = (req.headers.get('x-nuances-dev-plan') ?? '').trim().toLowerCase();
     const entitlement =
-      DEV_ENTITLEMENT_BYPASS_ENABLED && devPlan === 'premium'
+      canUseDevEntitlementBypass() && devPlan === 'premium'
         ? { planType: 'premium' as const }
         : await resolveServerEntitlement({ supabase, userId, user: authUser });
     const planType = entitlement.planType;

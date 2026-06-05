@@ -36,6 +36,7 @@ import Reanimated, {
 import RootNavigator from './src/navigation/RootNavigator';
 import OnboardingFlow from './src/screens/flow/OnboardingFlow';
 import LightPressable from './src/components/UI/shared/LightPressable';
+import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import { AppTourProvider } from './src/contexts/AppTourContext';
@@ -50,17 +51,16 @@ import {
   supabase,
 } from './src/services/supabase/client';
 import SubscriptionService from './src/services/subscription/SubscriptionService';
-import { resolveThemeColors } from './src/theme/colors';
+import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
+import { SCREEN_BG, resolveThemeColors } from './src/theme/colors';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
 WebBrowser.maybeCompleteAuthSession();
-const APP_CUTOUT_ICON = require('./assets/icon_cutout2.png');
+const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
 const DEV_RESET_ONBOARDING_URL = `${AUTH_REDIRECT_SCHEME}://dev/reset-onboarding`;
-const CURTAIN_HANDLE_SIZE = 96;
-const CURTAIN_EDGE_WIDTH = 132;
 
 function ShareExtensionSync({
   userId,
@@ -71,171 +71,6 @@ function ShareExtensionSync({
 }) {
   useShareExtension(userId);
   return <>{children}</>;
-}
-
-function BootCurtainOverlay({
-  opening,
-  onOpened,
-}: {
-  opening: boolean;
-  onOpened?: () => void;
-}) {
-  const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const openProgress = React.useRef(new Animated.Value(0)).current;
-  const shimmerAnim = React.useRef(new Animated.Value(0)).current;
-
-  React.useEffect(() => {
-    shimmerAnim.setValue(0);
-    const loop = Animated.loop(
-      Animated.timing(shimmerAnim, {
-        toValue: 1,
-        duration: 1250,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [shimmerAnim]);
-
-  React.useEffect(() => {
-    openProgress.stopAnimation();
-    if (opening) {
-      openProgress.setValue(0);
-      Animated.timing(openProgress, {
-        toValue: 1,
-        duration: 1120,
-        easing: Easing.bezier(0.16, 0.88, 0.18, 1),
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) onOpened?.();
-      });
-      return;
-    }
-
-    openProgress.setValue(0);
-  }, [opening, onOpened, openProgress]);
-
-  const edgeTranslateX = openProgress.interpolate({
-    inputRange: [0, 0.16, 1],
-    outputRange: [0, width * 0.055, width + CURTAIN_EDGE_WIDTH],
-    extrapolate: 'clamp',
-  });
-  const shimmerTranslate = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-width * 0.75, width * 0.8],
-  });
-  const handleRotate = openProgress.interpolate({
-    inputRange: [0, 0.32, 1],
-    outputRange: ['-8deg', '7deg', '15deg'],
-    extrapolate: 'clamp',
-  });
-  const handleScale = openProgress.interpolate({
-    inputRange: [0, 0.12, 0.72, 1],
-    outputRange: [1, 0.96, 1.03, 0.92],
-    extrapolate: 'clamp',
-  });
-  const wakeOpacity = openProgress.interpolate({
-    inputRange: [0, 0.06, 0.78, 1],
-    outputRange: [0.42, 0.95, 0.82, 0],
-    extrapolate: 'clamp',
-  });
-  const baseOpacity = openProgress.interpolate({
-    inputRange: [0, 0.22],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-  const titleOpacity = openProgress.interpolate({
-    inputRange: [0, 0.18, 0.58],
-    outputRange: [1, 0.7, 0],
-    extrapolate: 'clamp',
-  });
-  const handleTop = height * 0.5 - CURTAIN_HANDLE_SIZE / 2;
-
-  return (
-    <View pointerEvents="none" style={styles.bootCurtainRoot}>
-      <Animated.View style={[styles.bootRevealBase, { opacity: baseOpacity }]}>
-        <LinearGradient
-          colors={['#011426', '#02213D', '#06365F']}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-        <Animated.Text
-          style={[
-            styles.bootRevealTitle,
-            {
-              opacity: titleOpacity,
-              paddingTop: Math.max(insets.top + 20, 44),
-            },
-          ]}
-        >
-          Nuances
-        </Animated.Text>
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.bootCurtainPanel,
-          {
-            width: width + CURTAIN_EDGE_WIDTH,
-            transform: [{ translateX: edgeTranslateX }],
-          },
-        ]}
-      >
-        <LinearGradient
-          colors={['#010A14', '#02213D', '#074777']}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-        <Animated.View
-          style={[
-            styles.bootCurtainSheen,
-            {
-              transform: [{ translateX: shimmerTranslate }, { rotateZ: '-18deg' }],
-            },
-          ]}
-        />
-        <View style={[styles.bootCurtainCave, { top: handleTop - 92 }]} />
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.bootCurtainWake,
-          {
-            opacity: wakeOpacity,
-            transform: [{ translateX: edgeTranslateX }, { rotateZ: '-6deg' }],
-          },
-        ]}
-      >
-        <LinearGradient
-          colors={['rgba(0,229,255,0)', 'rgba(0,229,255,0.68)', 'rgba(255,107,107,0.42)', 'rgba(0,229,255,0)']}
-          locations={[0, 0.36, 0.62, 1]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.bootCurtainHandle,
-          {
-            top: handleTop,
-            transform: [
-              { translateX: Animated.subtract(edgeTranslateX, CURTAIN_HANDLE_SIZE / 2) },
-              { rotateZ: handleRotate },
-              { scale: handleScale },
-            ],
-          },
-        ]}
-      >
-        <Image source={APP_CUTOUT_ICON} style={styles.bootCurtainIcon} resizeMode="contain" />
-      </Animated.View>
-    </View>
-  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -543,8 +378,11 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [allowOfflineAccess, setAllowOfflineAccess] = useState(false);
   const [showBootCurtain, setShowBootCurtain] = useState(true);
+  const [showSignInCurtain, setShowSignInCurtain] = useState(false);
+  const [signInCurtainReady, setSignInCurtainReady] = useState(false);
   const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
+  const promptedVersionKeyRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     initializeApp();
@@ -582,6 +420,7 @@ export default function App() {
         setOnboardingChecked(true);
       }
 
+      void checkForAppVersionUpdate();
       setIsReady(true);
     } catch (error) {
       console.error('Initialization error:', error);
@@ -599,8 +438,43 @@ export default function App() {
       setNeedsOnboarding(false);
       setOnboardingChecked(true);
       setIsReady(true); // Continue anyway
+      void checkForAppVersionUpdate();
     }
   };
+
+  const checkForAppVersionUpdate = React.useCallback(async () => {
+    const status = await checkAppVersionUpdateStatus();
+    if (!status) return;
+
+    const promptKey = [
+      status.currentVersion,
+      status.latestVersion || 'latest',
+      status.minimumSupportedVersion || 'minimum',
+      status.isRequired ? 'required' : 'optional',
+    ].join(':');
+    if (!status.isRequired && promptedVersionKeyRef.current === promptKey) return;
+    promptedVersionKeyRef.current = promptKey;
+
+    const openUpdateUrl = () => {
+      if (!status.updateUrl) {
+        Alert.alert('Update unavailable', 'The App Store update link is not configured yet.');
+        return;
+      }
+      void Linking.openURL(status.updateUrl).catch((error) => {
+        console.warn('[AppVersion] failed to open update URL:', error);
+        Alert.alert('Update unavailable', 'Unable to open the App Store update page. Please try again later.');
+      });
+    };
+
+    const actions = status.isRequired
+      ? [{ text: 'Update App', onPress: openUpdateUrl }]
+      : [
+          { text: 'Later', style: 'cancel' as const },
+          { text: 'Update App', onPress: openUpdateUrl },
+        ];
+
+    Alert.alert(status.title, status.message, actions, { cancelable: !status.isRequired });
+  }, []);
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -608,6 +482,8 @@ export default function App() {
         setUserId(null);
         setNeedsOnboarding(false);
         setOnboardingChecked(true);
+        setShowSignInCurtain(false);
+        setSignInCurtainReady(false);
         return;
       }
       void (async () => {
@@ -627,9 +503,11 @@ export default function App() {
             setNeedsOnboarding(false);
           }
           setOnboardingChecked(true);
+          setSignInCurtainReady(true);
         } catch (error) {
           console.error('[App] auth state entitlement bootstrap failed:', error);
           setOnboardingChecked(true);
+          setSignInCurtainReady(true);
         }
       })();
     });
@@ -643,14 +521,20 @@ export default function App() {
     if (lastHandledOAuthUrlRef.current === url) return;
     lastHandledOAuthUrlRef.current = url;
 
+    setShowSignInCurtain(true);
+    setSignInCurtainReady(false);
     const { error, handled } = await completeOAuthFromUrl(url);
     if (handled && error) {
+      setShowSignInCurtain(false);
+      setSignInCurtainReady(false);
       Alert.alert('登入失敗', error.message);
       return;
     }
     if (handled && !error) {
-      Alert.alert('登入成功', '帳號登入成功。');
+      return;
     }
+    setShowSignInCurtain(false);
+    setSignInCurtainReady(false);
   }, []);
 
   const handleDeveloperCommand = React.useCallback(async (url: string) => {
@@ -697,6 +581,8 @@ export default function App() {
       setUserId(null);
       setNeedsOnboarding(false);
       setOnboardingChecked(true);
+      setShowSignInCurtain(false);
+      setSignInCurtainReady(false);
       Alert.alert('已登出', '已切回 auth 畫面。');
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知錯誤';
@@ -734,6 +620,7 @@ export default function App() {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       const wasBackground = appStateRef.current.match(/inactive|background/);
       if (wasBackground && nextAppState === 'active' && userId) {
+        void checkForAppVersionUpdate();
         void SubscriptionService.syncEntitlements(userId).catch((error) => {
           console.error('[Subscription] Foreground entitlement sync failed:', error);
         });
@@ -741,12 +628,15 @@ export default function App() {
           console.error('[CacheLifecycle] Foreground cleanup failed:', error);
         });
       }
+      if (wasBackground && nextAppState === 'active' && !userId) {
+        void checkForAppVersionUpdate();
+      }
       appStateRef.current = nextAppState;
     });
     return () => {
       subscription.remove();
     };
-  }, [userId]);
+  }, [checkForAppVersionUpdate, userId]);
 
   const handleGoogleSignIn = React.useCallback(async () => {
     setAuthLoading(true);
@@ -816,6 +706,11 @@ export default function App() {
     setShowBootCurtain(false);
   }, []);
 
+  const handleSignInCurtainOpened = React.useCallback(() => {
+    setShowSignInCurtain(false);
+    setSignInCurtainReady(false);
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -850,7 +745,13 @@ export default function App() {
           <View style={styles.bootLoadingBase} />
         )}
         {showBootCurtain ? (
-          <BootCurtainOverlay opening={isReady} onOpened={handleBootCurtainOpened} />
+          <AnimatedSplashV2 ready={isReady} onAnimationComplete={handleBootCurtainOpened} />
+        ) : null}
+        {showSignInCurtain ? (
+          <AnimatedSplashV2
+            ready={signInCurtainReady}
+            onAnimationComplete={handleSignInCurtainOpened}
+          />
         ) : null}
         <GlobalThemeCrossFadeOverlay />
       </SafeAreaProvider>
@@ -861,79 +762,7 @@ export default function App() {
 const styles = StyleSheet.create({
   bootLoadingBase: {
     flex: 1,
-    backgroundColor: '#02213D',
-  },
-  bootCurtainRoot: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    zIndex: 999,
-  },
-  bootRevealBase: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  bootRevealBaseHidden: {
-    opacity: 0,
-  },
-  bootRevealTitle: {
-    color: '#F8FAFC',
-    textAlign: 'center',
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: '800',
-    letterSpacing: -0.9,
-  },
-  bootCurtainPanel: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    overflow: 'visible',
-  },
-  bootCurtainSheen: {
-    position: 'absolute',
-    top: '-12%',
-    left: '8%',
-    width: 124,
-    height: '124%',
-    backgroundColor: 'rgba(255,255,255,0.07)',
-  },
-  bootCurtainCave: {
-    position: 'absolute',
-    left: -76,
-    width: 144,
-    height: 280,
-    borderRadius: 76,
-    backgroundColor: '#011426',
-    opacity: 0.9,
-    transform: [{ scaleX: 0.58 }],
-  },
-  bootCurtainWake: {
-    position: 'absolute',
-    top: '-14%',
-    left: -76,
-    width: 152,
-    height: '128%',
-    shadowColor: '#00E5FF',
-    shadowOpacity: 0.34,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  bootCurtainHandle: {
-    position: 'absolute',
-    left: 0,
-    width: CURTAIN_HANDLE_SIZE,
-    height: CURTAIN_HANDLE_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#020617',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
-  },
-  bootCurtainIcon: {
-    width: '100%',
-    height: '100%',
+    backgroundColor: SCREEN_BG,
   },
   authContainer: {
     flex: 1,

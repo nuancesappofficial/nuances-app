@@ -23,6 +23,8 @@ CREATE TABLE public.profiles (
     has_seen_tour BOOLEAN NOT NULL DEFAULT false,
     subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'pro')),
     subscription_expires_at TIMESTAMPTZ,
+    trial_started_at TIMESTAMPTZ,
+    trial_ends_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

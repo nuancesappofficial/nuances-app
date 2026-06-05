@@ -5,11 +5,11 @@
     "scheme": "nuances",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/NUANCES_ICON8.png",
+    "icon": "./assets/app_icons/NUANCES_ICON8.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/app_icons/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -17,12 +17,15 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jeffenglishlearning.nuances",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Required to capture text or physical documents to create flashcards.",
+        "NSPhotoLibraryUsageDescription": "Required to select existing images for custom flashcards.",
+        "NSMicrophoneUsageDescription": "Required to record audio for pronunciation scoring and interactive feedback."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/app_icons/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -30,7 +33,7 @@
       "package": "com.jeffenglishlearning.nuances"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/app_icons/favicon.png"
     },
     "plugins": [
       "expo-camera",

@@ -1,5 +1,6 @@
 import {
   createServiceRoleClient,
+  ensureServerTrialEnrollment,
   resolveServerEntitlement,
   syncRevenueCatSubscriptionToSupabase,
 } from '../_shared/entitlement.ts';
@@ -37,6 +38,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabase = createServiceRoleClient();
+    await ensureServerTrialEnrollment({ supabase, userId });
     await syncRevenueCatSubscriptionToSupabase({ supabase, userId });
     const snapshot = await resolveServerEntitlement({ supabase, userId, user });
     return jsonResponse(snapshot);

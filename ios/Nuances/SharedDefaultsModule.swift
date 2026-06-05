@@ -3,7 +3,7 @@ import React
 
 @objc(SharedDefaultsModule)
 class SharedDefaultsModule: NSObject {
-  private let appGroupID = "group.com.jeffenglishlearning.nuances"
+  private let appGroupID = "group.com.jeffenglishlearning.nuances.v2"
   private let sharedContentKey = "shared_content"
 
   @objc

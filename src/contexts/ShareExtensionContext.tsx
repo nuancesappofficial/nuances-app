@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Modal,
   StyleSheet,
   Text,
   useColorScheme,
@@ -115,32 +116,41 @@ export function ShareExtensionProvider({ children }: { children: React.ReactNode
       <View style={styles.providerRoot}>
         {children}
         {visibleMessage ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.snackbarWrap,
-              {
-                top: insets.top + 12,
-                opacity,
-                transform: [{ translateY }],
-              },
-            ]}
+          <Modal
+            animationType="none"
+            presentationStyle="overFullScreen"
+            statusBarTranslucent
+            transparent
+            visible
           >
-            <View
-              style={[
-                styles.snackbarCard,
-                {
-                  backgroundColor: palette.containerBg,
-                  borderColor: palette.borderSubtle,
-                  shadowColor: colorScheme === 'light' ? '#0F172A' : '#000000',
-                },
-              ]}
-            >
-              <Text style={[styles.snackbarText, { color: palette.textOnContainer }]}>
-                {visibleMessage}
-              </Text>
+            <View pointerEvents="none" style={styles.snackbarOverlay}>
+              <Animated.View
+                style={[
+                  styles.snackbarWrap,
+                  {
+                    top: insets.top + 12,
+                    opacity,
+                    transform: [{ translateY }],
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.snackbarCard,
+                    {
+                      backgroundColor: palette.containerBg,
+                      borderColor: palette.borderSubtle,
+                      shadowColor: colorScheme === 'light' ? '#0F172A' : '#000000',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.snackbarText, { color: palette.textOnContainer }]}>
+                    {visibleMessage}
+                  </Text>
+                </View>
+              </Animated.View>
             </View>
-          </Animated.View>
+          </Modal>
         ) : null}
       </View>
     </ShareExtensionContext.Provider>
@@ -162,12 +172,19 @@ export function useShareExtensionSnackbar() {
 const styles = StyleSheet.create({
   providerRoot: {
     flex: 1,
+    position: 'relative',
+  },
+  snackbarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2147483647,
+    elevation: 2147483647,
   },
   snackbarWrap: {
     position: 'absolute',
     left: 16,
     right: 16,
-    zIndex: 9999,
+    zIndex: 2147483647,
+    elevation: 2147483647,
     alignItems: 'center',
   },
   snackbarCard: {
@@ -180,7 +197,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    elevation: 24,
   },
   snackbarText: {
     fontSize: 15,

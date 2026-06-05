@@ -1,6 +1,5 @@
 import { Model, Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
-import type Profile from '@database/models/Profile';
 import type UserSettings from '@database/models/UserSettings';
 import { supabase } from '@services/supabase/client';
 import {
@@ -84,22 +83,6 @@ function toDateKey(date: Date = new Date()): string {
 
 function asUserSettingsRecord(model: Model): UserSettingsRecord {
   return model as unknown as UserSettingsRecord;
-}
-
-function getTrialDatesFromMetadata(metadata: unknown): {
-  trialStartedAt: string | null;
-  trialEndsAt: string | null;
-} {
-  const meta = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : null;
-  const trialStartedAt =
-    meta && typeof meta[TRIAL_STARTED_AT_KEY] === 'string' && meta[TRIAL_STARTED_AT_KEY]
-      ? (meta[TRIAL_STARTED_AT_KEY] as string)
-      : null;
-  const trialEndsAt =
-    meta && typeof meta[TRIAL_ENDS_AT_KEY] === 'string' && meta[TRIAL_ENDS_AT_KEY]
-      ? (meta[TRIAL_ENDS_AT_KEY] as string)
-      : null;
-  return { trialStartedAt, trialEndsAt };
 }
 
 function isFutureIso(value: string | null | undefined, now = Date.now()): boolean {
@@ -202,33 +185,6 @@ async function getOrCreateUserSettingsRecord(userId: string): Promise<UserSettin
   return record;
 }
 
-async function readLocalProfilePlan(userId: string): Promise<{
-  planType: PlanType;
-  subscriptionExpiresAt: string | null;
-}> {
-  try {
-    const collection = database.get<Profile>('profiles');
-    const profiles = await collection.query(Q.where('user_id', userId)).fetch();
-    const profile = profiles[0];
-    if (!profile) {
-      return { planType: 'free', subscriptionExpiresAt: null };
-    }
-
-    const tier = profile.subscriptionTier;
-    const expiresAt = profile.subscriptionExpiresAt?.getTime();
-    if (tier === 'pro' && (!expiresAt || expiresAt > Date.now())) {
-      return {
-        planType: 'premium',
-        subscriptionExpiresAt: profile.subscriptionExpiresAt?.toISOString?.() || null,
-      };
-    }
-    return { planType: 'free', subscriptionExpiresAt: profile.subscriptionExpiresAt?.toISOString?.() || null };
-  } catch (error) {
-    console.warn('[Subscription] local profile lookup failed:', error);
-    return { planType: 'free', subscriptionExpiresAt: null };
-  }
-}
-
 function resolveTrialPlan(settings: UserAppSettings, now = Date.now()): PlanType {
   return isFutureIso(settings.trialEndsAt, now) ? 'trial' : 'free';
 }
@@ -256,22 +212,6 @@ async function syncSettingsPlan(
     lastEntitlementSyncAt: lastEntitlementSyncAt ?? settings.lastEntitlementSyncAt,
   };
   return persistSettings(next);
-}
-
-async function persistTrialMetadataToAuth(trialStartedAt: string, trialEndsAt: string): Promise<void> {
-  try {
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        [TRIAL_STARTED_AT_KEY]: trialStartedAt,
-        [TRIAL_ENDS_AT_KEY]: trialEndsAt,
-      },
-    });
-    if (error) {
-      console.warn('[Subscription] update trial metadata failed:', error.message);
-    }
-  } catch (error) {
-    console.warn('[Subscription] update trial metadata failed:', error);
-  }
 }
 
 async function getAuthHeaders(): Promise<{ Authorization: string } | null> {
@@ -331,11 +271,10 @@ async function applyRevenueCatCache(userId: string): Promise<void> {
       return;
     }
 
-    const fallbackPlan = resolveTrialPlan(settings);
     await persistSettings({
       ...settings,
-      planType: fallbackPlan,
-      entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : fallbackPlan,
+      planType: 'free',
+      entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : 'free',
       subscriptionExpiresAt: null,
       lastEntitlementSyncAt: nowIso,
     });
@@ -383,27 +322,7 @@ async function resolveEffectivePlanType(userId: string): Promise<{
     };
   }
 
-  const profilePlan = await readLocalProfilePlan(userId);
-  if (profilePlan.planType === 'premium') {
-    if (
-      settings.planType !== 'premium' ||
-      settings.subscriptionExpiresAt !== profilePlan.subscriptionExpiresAt
-    ) {
-      await syncSettingsPlan(
-        'premium',
-        settings.trialStartedAt,
-        settings.trialEndsAt,
-        profilePlan.subscriptionExpiresAt
-      );
-    }
-    return {
-      planType: 'premium',
-      trialEndsAt: settings.trialEndsAt,
-      subscriptionExpiresAt: profilePlan.subscriptionExpiresAt,
-    };
-  }
-
-  const trialPlan = resolveTrialPlan(settings);
+  const trialPlan = settings.lastEntitlementSyncAt ? resolveTrialPlan(settings) : 'free';
   if (settings.planType !== trialPlan || settings.subscriptionExpiresAt) {
     await syncSettingsPlan(trialPlan, settings.trialStartedAt, settings.trialEndsAt, null);
   }
@@ -425,39 +344,15 @@ export const SubscriptionService = {
   },
 
   async ensureTrialEnrollment(): Promise<void> {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user?.id) return;
-
     const currentSettings = await loadUserSettings();
     if (DEV_BYPASS_ENABLED && (currentSettings.entitlementMode === 'free' || currentSettings.entitlementMode === 'premium')) {
       return;
     }
 
-    const { trialStartedAt: metadataStart, trialEndsAt: metadataEnd } = getTrialDatesFromMetadata(user.user_metadata);
-    const existingTrialStartedAt = metadataStart || currentSettings.trialStartedAt;
-    const existingTrialEndsAt = metadataEnd || currentSettings.trialEndsAt;
-
-    if (existingTrialStartedAt && existingTrialEndsAt) {
-      const planType = isFutureIso(existingTrialEndsAt) ? 'trial' : 'free';
-      await syncSettingsPlan(
-        currentSettings.planType === 'premium' ? 'premium' : planType,
-        existingTrialStartedAt,
-        existingTrialEndsAt,
-        currentSettings.subscriptionExpiresAt
-      );
-      if (metadataStart !== existingTrialStartedAt || metadataEnd !== existingTrialEndsAt) {
-        await persistTrialMetadataToAuth(existingTrialStartedAt, existingTrialEndsAt);
-      }
-      return;
+    const remote = await invokeSyncEntitlementEndpoint();
+    if (remote) {
+      await applyServerSnapshotToSettings(remote);
     }
-
-    const now = new Date();
-    const trialStartedAt = now.toISOString();
-    const trialEndsAt = new Date(now.getTime() + TRIAL_DURATION_MS).toISOString();
-    await syncSettingsPlan('trial', trialStartedAt, trialEndsAt, currentSettings.subscriptionExpiresAt);
-    await persistTrialMetadataToAuth(trialStartedAt, trialEndsAt);
   },
 
   async syncEntitlements(userId: string, options?: { preferServer?: boolean }): Promise<EntitlementSnapshot> {

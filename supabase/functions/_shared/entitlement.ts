@@ -17,10 +17,10 @@ type RevenueCatEntitlementState = {
   rawSubscriber: unknown;
 };
 
-const TRIAL_ENDS_AT_KEY = 'nuances_trial_ends_at';
 const REVENUECAT_SECRET_KEY = (Deno.env.get('REVENUECAT_SECRET_KEY') ?? '').trim();
 const REVENUECAT_ENTITLEMENT_ID = (Deno.env.get('REVENUECAT_ENTITLEMENT_ID') ?? 'premium').trim();
 const REVENUECAT_API_BASE = (Deno.env.get('REVENUECAT_API_BASE') ?? 'https://api.revenuecat.com/v1').replace(/\/+$/, '');
+const TRIAL_DURATION_MS = Number(Deno.env.get('TRIAL_DURATION_MS') ?? String(7 * 24 * 60 * 60 * 1000));
 
 function parseIso(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -34,16 +34,6 @@ function isFutureIso(value: string | null | undefined): boolean {
   return Number.isFinite(timestamp) && timestamp > Date.now();
 }
 
-export function hasActiveTrial(user: AuthenticatedUserLike): boolean {
-  const trialEndsAt = user?.user_metadata?.[TRIAL_ENDS_AT_KEY];
-  return typeof trialEndsAt === 'string' && isFutureIso(trialEndsAt);
-}
-
-export function getTrialEndsAt(user: AuthenticatedUserLike): string | null {
-  const value = user?.user_metadata?.[TRIAL_ENDS_AT_KEY];
-  return typeof value === 'string' ? parseIso(value) : null;
-}
-
 export function createServiceRoleClient() {
   const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
   const serviceRoleKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
@@ -53,6 +43,49 @@ export function createServiceRoleClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+export async function ensureServerTrialEnrollment(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  userId: string;
+}) {
+  const { supabase, userId } = params;
+  const { data: profile, error: selectError } = await supabase
+    .from('profiles')
+    .select('trial_started_at, trial_ends_at')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (selectError) {
+    throw selectError;
+  }
+
+  const existingTrialEndsAt = parseIso(profile?.trial_ends_at ?? null);
+  if (profile?.trial_started_at && existingTrialEndsAt) {
+    return {
+      trialStartedAt: parseIso(profile.trial_started_at),
+      trialEndsAt: existingTrialEndsAt,
+    };
+  }
+
+  const now = new Date();
+  const trialStartedAt = now.toISOString();
+  const trialEndsAt = new Date(now.getTime() + TRIAL_DURATION_MS).toISOString();
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({
+      trial_started_at: trialStartedAt,
+      trial_ends_at: trialEndsAt,
+      updated_at: trialStartedAt,
+    })
+    .eq('id', userId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  return { trialStartedAt, trialEndsAt };
 }
 
 async function fetchRevenueCatSubscriber(appUserId: string): Promise<any | null> {
@@ -187,8 +220,7 @@ export async function resolveServerEntitlement(params: {
   userId: string;
   user?: AuthenticatedUserLike;
 }) {
-  const { supabase, userId, user = null } = params;
-  const trialEndsAt = getTrialEndsAt(user);
+  const { supabase, userId } = params;
 
   const { data: subscription, error } = await supabase
     .from('subscriptions')
@@ -202,9 +234,20 @@ export async function resolveServerEntitlement(params: {
     console.warn('[entitlement] subscription lookup failed', { userId, error: error.message });
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('trial_ends_at')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn('[entitlement] trial lookup failed', { userId, error: profileError.message });
+  }
+
   const subscriptionExpiresAt = parseIso(subscription?.expires_at ?? null);
+  const trialEndsAt = parseIso(profile?.trial_ends_at ?? null);
   const hasPremium = subscription?.status === 'active' && (!subscriptionExpiresAt || isFutureIso(subscriptionExpiresAt));
-  const planType: PlanType = hasPremium ? 'premium' : hasActiveTrial(user) ? 'trial' : 'free';
+  const planType: PlanType = hasPremium ? 'premium' : isFutureIso(trialEndsAt) ? 'trial' : 'free';
 
   return {
     planType,

@@ -33,7 +33,6 @@ import { Q } from '@nozbe/watermelondb';
 import Reanimated, {
   runOnJS,
   useAnimatedScrollHandler,
-  useSharedValue,
 } from 'react-native-reanimated';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -49,10 +48,14 @@ import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
+import CardDetailHeaderActionsUI from '../../../components/UI/DeckScreenUI/CardDetailHeaderActionsUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
 import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
+import { useCardDetailPlayback } from './hooks/useCardDetailPlayback';
+import { useCardDetailPronunciation } from './hooks/useCardDetailPronunciation';
+import { useCardDetailNavigationState } from './hooks/useCardDetailNavigationState';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   CARD_WIDTH,
@@ -223,35 +226,77 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(true);
-  const [currentIndex, setCurrentIndex] = React.useState<number | null>(null);
-  const [displayIndex, setDisplayIndex] = React.useState<number | null>(null);
-
-  const [isPlaying, setIsPlaying] = React.useState(false);
-  const [isTtsDownloading, setIsTtsDownloading] = React.useState(false);
-  const [pronunciationDownloadTarget, setPronunciationDownloadTarget] = React.useState<string | null>(null);
-  const [isRecording, setIsRecording] = React.useState(false);
-  const [hasRecorded, setHasRecorded] = React.useState(false);
-  const [showFeedback, setShowFeedback] = React.useState(false);
-  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
-  const [pronunciationAnalysisError, setPronunciationAnalysisError] = React.useState<string | null>(null);
-  const [pronunciationRevealStep, setPronunciationRevealStep] = React.useState(3);
-  const [pronunciationScore, setPronunciationScore] = React.useState<number | null>(null);
-  const [pronunciationFeedbackLines, setPronunciationFeedbackLines] = React.useState<string[]>([]);
-  const [phonemeFeedback, setPhonemeFeedback] = React.useState<CloudPhonemeFeedback[]>([]);
-  const [pronunciationResultsByCardId, setPronunciationResultsByCardId] = React.useState<
-    Record<string, PronunciationResult>
-  >({});
-  const [lastRecordingUriByCardId, setLastRecordingUriByCardId] = React.useState<Record<string, string>>({});
-  const ttsDownloadCountRef = React.useRef(0);
+  const {
+    currentIndex,
+    setCurrentIndex,
+    displayIndex,
+    setDisplayIndex,
+    isFullscreenViewerVisible,
+    setIsFullscreenViewerVisible,
+    fullscreenCardIndex,
+    setFullscreenCardIndex,
+    flatListRef,
+    initialScrollDone,
+    didMountIndexRef,
+    scrollX,
+    activeIndexUI,
+    fullscreenDragY,
+    fullscreenBackdropOpacity,
+    fullscreenEntryProgress,
+    fullscreenOriginDeltaX,
+    fullscreenOriginDeltaY,
+    fullscreenDragYValueRef,
+  } = useCardDetailNavigationState();
+  const {
+    isPlaying,
+    setIsPlaying,
+    isTtsDownloading,
+    setIsTtsDownloading,
+    pronunciationDownloadTarget,
+    setPronunciationDownloadTarget,
+    isRecording,
+    setIsRecording,
+    hasRecorded,
+    setHasRecorded,
+    waveformValues,
+    recordingRef,
+    lastRecordingUriRef,
+    userRecordingSoundRef,
+    waveformPointerRef,
+    ttsDownloadCountRef,
+  } = useCardDetailPlayback();
+  const {
+    showFeedback,
+    setShowFeedback,
+    isAnalyzing,
+    setIsAnalyzing,
+    pronunciationAnalysisError,
+    setPronunciationAnalysisError,
+    pronunciationRevealStep,
+    setPronunciationRevealStep,
+    pronunciationScore,
+    setPronunciationScore,
+    pronunciationFeedbackLines,
+    setPronunciationFeedbackLines,
+    phonemeFeedback,
+    setPhonemeFeedback,
+    pronunciationResultsByCardId,
+    setPronunciationResultsByCardId,
+    lastRecordingUriByCardId,
+    setLastRecordingUriByCardId,
+    showPronunciationModal,
+    setShowPronunciationModal,
+    pronunciationTargetCardIdRef,
+    recordingTransitionRef,
+    pronunciationRevealRunIdRef,
+    pronunciationModalAnim,
+  } = useCardDetailPronunciation();
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
   const [showStickyNoteModal, setShowStickyNoteModal] = React.useState(false);
-  const [showPronunciationModal, setShowPronunciationModal] = React.useState(false);
   const [stickyNotesByCardId, setStickyNotesByCardId] = React.useState<Record<string, string>>({});
   const [stickyDraft, setStickyDraft] = React.useState('');
   const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
-  const [isFullscreenViewerVisible, setIsFullscreenViewerVisible] = React.useState(false);
-  const [fullscreenCardIndex, setFullscreenCardIndex] = React.useState<number | null>(null);
   const [selectedAlbums, setSelectedAlbums] = React.useState<string[]>([]);
   const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
   const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
@@ -261,27 +306,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [newAlbumName, setNewAlbumName] = React.useState('');
 
-  const waveformValues = React.useRef(Array.from({ length: 24 }, () => new Animated.Value(8))).current;
-  const recordingRef = React.useRef<any | null>(null);
-  const pronunciationTargetCardIdRef = React.useRef<string | null>(null);
-  const recordingTransitionRef = React.useRef(false);
-  const pronunciationRevealRunIdRef = React.useRef(0);
-  const lastRecordingUriRef = React.useRef<string | null>(null);
-  const userRecordingSoundRef = React.useRef<any | null>(null);
-  const waveformPointerRef = React.useRef(0);
-  const flatListRef = React.useRef<FlatList<Card> | null>(null);
-  const initialScrollDone = React.useRef(false);
-  const didMountIndexRef = React.useRef(false);
-  const scrollX = useSharedValue(0);
-  const activeIndexUI = useSharedValue(currentIndex ?? 0);
-  const fullscreenDragY = React.useRef(new Animated.Value(0)).current;
-  const fullscreenBackdropOpacity = React.useRef(new Animated.Value(1)).current;
-  const fullscreenEntryProgress = React.useRef(new Animated.Value(0)).current;
-  const fullscreenOriginDeltaX = React.useRef(new Animated.Value(0)).current;
-  const fullscreenOriginDeltaY = React.useRef(new Animated.Value(0)).current;
-  const fullscreenDragYValueRef = React.useRef(0);
+  React.useEffect(() => {
+    activeIndexUI.value = currentIndex ?? 0;
+  }, [activeIndexUI, currentIndex]);
   const stickyModalAnim = React.useRef(new Animated.Value(0)).current;
-  const pronunciationModalAnim = React.useRef(new Animated.Value(0)).current;
 
   const hydrateAlbumPrefs = React.useCallback(async () => {
     const prefs = await loadDeckAlbumPreferences();
@@ -1517,29 +1545,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={[]}>
-      <View pointerEvents="box-none" style={styles.floatingHeaderLayer}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          style={({ pressed }) => [
-            styles.floatingIconButton,
-            styles.floatingBackButton,
-            { top: floatingHeaderTop },
-            pressed ? styles.pressableIconPressed : null,
-          ]}
-        >
-          <Ionicons name="chevron-back" size={30} color={isLightMode ? '#111111' : '#F4EDE6'} />
-        </Pressable>
-
-        {/* 新增的置中標題與卡片計數 */}
-        <View style={[styles.floatingHeaderCenter, { top: floatingHeaderTop }]}>
-          <Text style={[styles.headerTitleText, isLightMode ? styles.headerTitleTextLight : null]}>
-            {headerTitle}{' '}
-            <Text style={[styles.headerCountText, isLightMode ? styles.headerCountTextLight : null]}>
-              ({displayIndex !== null ? displayIndex + 1 : 0}/{scopedCards.length})
-            </Text>
-          </Text>
-        </View>
-      </View>
+      <CardDetailHeaderActionsUI
+        floatingHeaderTop={floatingHeaderTop}
+        isLightMode={isLightMode}
+        headerTitle={headerTitle}
+        displayIndex={displayIndex}
+        totalCount={scopedCards.length}
+        onBack={() => navigation.goBack()}
+        styles={styles}
+      />
 
       <View style={styles.content}>
         <CardDetailCarouselUI

@@ -34,7 +34,6 @@ import { persistLocalCardImage } from '@services/media/localCardImageStore';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
-import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import {
   ALBUM_TAG_PREFIX,
   ALL_CARDS_ALBUM_ID,
@@ -49,8 +48,15 @@ import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import {
   CreateCardGhostPreviewScene as CreateCardPreviewScene,
   GHOST_CARD_STATUS_TEXT,
-  getPreviewTypingDuration,
 } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
+import type { CompletedCard, PreviewPhase, PreviewRevealState } from './types';
+import { buildManualCardDraft, buildTourSampleCard, TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
+import { normalizeDisplayWord, normalizeSelectableTerm, pickSentenceContainingWord, tokenizeSourceText } from '../../../features/createCard/textTransforms';
+import {
+  COMPLETE_PREVIEW_REVEAL,
+  EMPTY_PREVIEW_REVEAL,
+  runCardRevealSequence as runPreviewRevealSequence,
+} from '../../../features/createCard/revealSequence';
 import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import {
@@ -74,44 +80,11 @@ type GeneratingCard = {
   completed: boolean;
 };
 
-type CollocationItem = {
-  phrase: string;
-  example: string;
-};
-
-type CompletedCard = {
-  // OCR/選字原字，用作本地狀態 key
-  word: string;
-  // AI 校正後（含詞形還原）的卡片顯示字
-  displayWord: string;
-  targetPhrase?: string;
-  partOfSpeech: string;
-  definition: string;
-  cultural: string;
-  collocationsText: string;
-  note: string;
-  phoneticTranscription?: string | null;
-  sourceSentence: string;
-  manualMode: boolean;
-  addedToDeck: boolean;
-  selectedAlbumIds?: string[];
-};
-
 const albumIdToCategoryTag: Record<string, string> = {
   slang: 'slang',
   culture: 'culture',
   work: 'work',
 };
-
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
-  'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-  'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you',
-  'he', 'she', 'it', 'we', 'they',
-]);
-
-const TOUR_TARGET_WORD = 'wing';
-
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
   if (Array.isArray(val)) return val;
@@ -138,207 +111,11 @@ function getCachedItemSourceText(cachedItem: CachedItem): string {
   return cachedItem.contentUrl || '';
 }
 
-function extractWords(text: string): string[] {
-  const words = text.toLowerCase().match(/\b[a-z'-]+\b/g) || [];
-  return Array.from(new Set(words)).filter(
-    (word) => !STOP_WORDS.has(word) && word.length > 2
-  );
-}
-
-function normalizeWord(raw: string): string {
-  const normalized = (raw || '')
-    .normalize('NFKC')
-    .replace(/[’‘]/g, "'")
-    .replace(/[‐‑‒–—]/g, '-')
-    .trim();
-  if (!normalized) return '';
-  const pieces = normalized.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || [];
-  return pieces.join('');
-}
-
-function normalizeSelectableTerm(raw: string): string {
-  const normalized = (raw || '')
-    .normalize('NFKC')
-    .replace(/[’‘]/g, "'")
-    .replace(/[‐‑‒–—]/g, '-')
-    .trim();
-  if (!normalized) return '';
-  const pieces = normalized.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || [];
-  return pieces.join(' ');
-}
-
-function normalizeDisplayWord(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim();
-}
-
 function triggerBuzzHaptic() {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   setTimeout(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   }, 90);
-}
-
-function tokenizeSourceText(text: string): string[] {
-  const normalized = (text || '').normalize('NFKC');
-  if (!normalized.trim()) return [];
-  const tokens =
-    normalized.match(
-      /[\p{Script=Han}]{1,6}|[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+|[A-Za-z][A-Za-z'’-]*|[0-9]+/gu
-    ) || [];
-  return tokens.map((token) => token.trim()).filter(Boolean);
-}
-
-function collocationsFromText(raw: string): CollocationItem[] {
-  if (!raw.trim()) return [];
-  const phrases = raw
-    .split(/[\n,;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 4);
-  return phrases.map((phrase) => ({
-    phrase,
-    example: `Example: ${phrase}`,
-  }));
-}
-
-function buildManualCardDraft(word: string, phoneticTranscription?: string | null): CompletedCard {
-  return {
-    word,
-    displayWord: normalizeDisplayWord(word) || word,
-    targetPhrase: undefined,
-    partOfSpeech: '',
-    definition: '',
-    cultural: '',
-    collocationsText: '',
-    note: '',
-    phoneticTranscription: phoneticTranscription || null,
-    sourceSentence: word,
-    manualMode: true,
-    addedToDeck: true,
-    selectedAlbumIds: [],
-  };
-}
-
-function buildTourSampleCard(sourceSentence: string): CompletedCard {
-  const sentence = sourceSentence.trim() || 'I had to wing it during the presentation.';
-  return {
-    word: TOUR_TARGET_WORD,
-    displayWord: 'wing it',
-    targetPhrase: 'wing it',
-    partOfSpeech: 'phrase',
-    definition: '即興應付；臨場發揮',
-    cultural:
-      'Sentence translation:\n“I had to 「wing it」 during the presentation.”\n我在簡報時只好「臨場發揮」。\n\nContext:\nIt fits because the speaker had to handle the presentation without full preparation.',
-    collocationsText: 'wing it during a presentation, wing it in a meeting',
-    note: '',
-    phoneticTranscription: '/wɪŋ ɪt/',
-    sourceSentence: sentence,
-    manualMode: false,
-    addedToDeck: true,
-    selectedAlbumIds: [],
-  };
-}
-
-type PreviewPhase = 'frontThinking' | 'frontReveal' | 'backReveal' | 'complete';
-
-type PreviewRevealState = {
-  showFrontWord: boolean;
-  showFrontDefinition: boolean;
-  showFrontSentence: boolean;
-  showFrontTranslation: boolean;
-  showBackCollocation: boolean;
-  showBackExample: boolean;
-  showBackCultural: boolean;
-  showBackNote: boolean;
-};
-
-const EMPTY_PREVIEW_REVEAL: PreviewRevealState = {
-  showFrontWord: false,
-  showFrontDefinition: false,
-  showFrontSentence: false,
-  showFrontTranslation: false,
-  showBackCollocation: false,
-  showBackExample: false,
-  showBackCultural: false,
-  showBackNote: false,
-};
-
-const COMPLETE_PREVIEW_REVEAL: PreviewRevealState = {
-  showFrontWord: true,
-  showFrontDefinition: true,
-  showFrontSentence: true,
-  showFrontTranslation: true,
-  showBackCollocation: true,
-  showBackExample: true,
-  showBackCultural: true,
-  showBackNote: true,
-};
-
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function buildSentenceTranslationText(card: CompletedCard): string {
-  return parseCardContextSections({
-    raw: card.cultural,
-    displayWord: card.displayWord,
-    definition: card.definition || 'Generating meaning...',
-    sourceSentence: card.sourceSentence,
-    manualMode: card.manualMode,
-  }).sentenceTranslation;
-}
-
-function buildCulturalBackgroundText(card: CompletedCard): string {
-  return parseCardContextSections({
-    raw: card.cultural,
-    displayWord: card.displayWord,
-    definition: card.definition,
-    sourceSentence: card.sourceSentence,
-    manualMode: card.manualMode,
-  }).culturalBackground || 'No context generated.';
-}
-
-function buildExampleSentenceText(card: CompletedCard): string {
-  const structuredExample = parseCardContextSections({
-    raw: card.cultural,
-    displayWord: card.displayWord,
-    definition: card.definition,
-    sourceSentence: card.sourceSentence,
-    manualMode: card.manualMode,
-  }).exampleSentence;
-  if (structuredExample) return structuredExample;
-
-  const firstCollocation = collocationsFromText(card.collocationsText)[0]?.phrase || card.displayWord;
-  const baseSentence = (card.sourceSentence || '').trim();
-  if (!baseSentence) return `Try using "${firstCollocation}" in a sentence today.`;
-  return `A natural example using "${firstCollocation}" is: "${baseSentence}"`;
-}
-
-
-function pickSentenceContainingWord(text: string, word: string): string {
-  const source = (text || '').trim();
-  const target = normalizeSelectableTerm(word);
-  if (!source) return '';
-  if (!target) return source;
-
-  const sentences = source
-    .split(/(?<=[.!?。！？])\s+|\n+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (!sentences.length) return source;
-
-  const hasLatinOrDigit = /[a-z0-9]/i.test(target);
-  const matched = hasLatinOrDigit
-    ? (() => {
-      const pieces = target.split(/\s+/).filter(Boolean);
-      const escaped = pieces
-        .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .join('\\s+');
-      const reg = new RegExp(`\\b${escaped}\\b`, 'i');
-      return sentences.find((sentence) => reg.test(sentence));
-    })()
-    : sentences.find((sentence) => sentence.includes(target));
-  return matched || sentences[0] || source;
 }
 
 async function uploadCardImageToSupabase(params: {
@@ -641,54 +418,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const runCardRevealSequence = React.useCallback(
     async (card: CompletedCard) => {
       const runId = ++previewRunIdRef.current;
-      const stillCurrent = () => previewRunIdRef.current === runId;
-
-      setActivePreviewCard(card);
-      setPreviewPhase('frontReveal');
-      setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
-      scrollToPreviewFront();
-      await wait(160);
-      if (!stillCurrent()) return;
-
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setPreviewRevealState((prev) => ({ ...prev, showFrontWord: true }));
-      await wait(getPreviewTypingDuration(`${card.displayWord}${card.partOfSpeech}`));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showFrontDefinition: true }));
-      await wait(getPreviewTypingDuration(card.definition));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showFrontSentence: true }));
-      await wait(getPreviewTypingDuration(card.sourceSentence));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showFrontTranslation: true }));
-      await wait(getPreviewTypingDuration(buildSentenceTranslationText(card)));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showBackCultural: true }));
-      await wait(getPreviewTypingDuration(buildCulturalBackgroundText(card)));
-      if (!stillCurrent()) return;
-
-      setPreviewPhase('backReveal');
-      await wait(260);
-      if (!stillCurrent()) return;
-
-      void Haptics.selectionAsync();
-      setPreviewRevealState((prev) => ({ ...prev, showBackCollocation: true }));
-      await wait(getPreviewTypingDuration(`• ${collocationsFromText(card.collocationsText)[0]?.phrase || card.displayWord}`));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showBackExample: true }));
-      await wait(getPreviewTypingDuration(buildExampleSentenceText(card)));
-      if (!stillCurrent()) return;
-
-      setPreviewRevealState((prev) => ({ ...prev, showBackNote: true }));
-      await wait(getPreviewTypingDuration(card.note?.trim() || 'No personal note yet.'));
-      if (!stillCurrent()) return;
-
-      setPreviewPhase('complete');
+      await runPreviewRevealSequence({
+        card,
+        runId,
+        isCurrentRun: (id) => previewRunIdRef.current === id,
+        setActivePreviewCard,
+        setPreviewPhase,
+        setPreviewRevealState,
+        scrollToPreviewFront,
+      });
     },
     [scrollToPreviewFront]
   );

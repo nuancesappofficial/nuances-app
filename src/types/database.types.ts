@@ -34,6 +34,11 @@ export interface Database {
         Insert: SyncMetadataInsert;
         Update: SyncMetadataUpdate;
       };
+      app_version_policy: {
+        Row: AppVersionPolicy;
+        Insert: AppVersionPolicyInsert;
+        Update: AppVersionPolicyUpdate;
+      };
     };
   };
 }
@@ -55,6 +60,8 @@ export type Profile = {
   has_seen_tour: boolean;
   subscription_tier: SubscriptionTier;
   subscription_expires_at: string | null;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -71,6 +78,8 @@ export type ProfileInsert = {
   has_seen_tour?: boolean;
   subscription_tier?: SubscriptionTier;
   subscription_expires_at?: string | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
 };
 
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>;
@@ -96,6 +105,31 @@ export type Subscription = {
 export type SubscriptionInsert = Omit<Subscription, 'id' | 'created_at' | 'updated_at'>;
 
 export type SubscriptionUpdate = Partial<Omit<Subscription, 'id' | 'user_id' | 'created_at'>>;
+
+export type AppVersionPlatform = 'ios' | 'android';
+
+export type AppVersionPolicy = {
+  platform: AppVersionPlatform;
+  latest_version: string;
+  minimum_supported_version: string;
+  update_url: string | null;
+  required: boolean;
+  message_title: string | null;
+  message_body: string | null;
+  updated_at: string;
+};
+
+export type AppVersionPolicyInsert = {
+  platform: AppVersionPlatform;
+  latest_version: string;
+  minimum_supported_version: string;
+  update_url?: string | null;
+  required?: boolean;
+  message_title?: string | null;
+  message_body?: string | null;
+};
+
+export type AppVersionPolicyUpdate = Partial<Omit<AppVersionPolicy, 'platform' | 'updated_at'>>;
 
 // Cached Item Types
 export type ContentType = 'text' | 'image' | 'video';

@@ -15,12 +15,13 @@ import {
   useColorScheme,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
+import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
@@ -97,7 +98,7 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
 const PREVIEW_GRID_COLUMNS = 3;
 const PREVIEW_GRID_GAP = 10;
 const PREVIEW_PAGE_GAP = 20;
-const MEMBERSHIP_APP_ICON = require('../../../../assets/icon_cutout2.png');
+const MEMBERSHIP_APP_ICON = require('../../../../assets/app_icons/icon_cutout2.png');
 const MEMBERSHIP_SCREEN_BG = '#02213D';
 const MEMBERSHIP_HEADER_TEXT = '#FFFFFF';
 const MEMBERSHIP_PLAN_IDLE_BG = 'rgba(255,255,255,0.055)';
@@ -250,6 +251,7 @@ function MembershipPlanOption({
 export default function ProfileSettingOptionsFlow({ navigation, route }: Props) {
   const kind = route.params?.kind ?? 'ai';
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
@@ -1010,7 +1012,10 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
           <ScrollView
             style={styles.mainScroll}
-            contentContainerStyle={styles.membershipScrollContent}
+            contentContainerStyle={[
+              styles.membershipScrollContent,
+              { paddingBottom: Math.max(insets.bottom + 64, 84) },
+            ]}
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.membershipPremiumStage, { minHeight: membershipStageMinHeight }]}>
@@ -1078,8 +1083,16 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={TEXT_ON_CTA} />
               </Pressable>
+
             </View>
           </ScrollView>
+
+          <PaywallFooter
+            style={[
+              styles.membershipFooterLinks,
+              { bottom: Math.max(insets.bottom, 12) },
+            ]}
+          />
         </SafeAreaView>
       </View>
     );
@@ -1672,6 +1685,12 @@ const styles = StyleSheet.create({
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
     letterSpacing: 0.2,
+  },
+  membershipFooterLinks: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   mainScroll: {
     flex: 1,

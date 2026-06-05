@@ -6,11 +6,35 @@ import MobileCoreServices
 
 class ShareViewController: UIViewController {
     
-    private let appGroupID = "group.com.jeffenglishlearning.nuances"
+    private let appGroupID = "group.com.jeffenglishlearning.nuances.v2"
     private let maxImageCount = 10
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
+    private var shareToastIndex = Int(Date().timeIntervalSince1970) % 20
+
+    private let shareSecretaryPhrases = [
+        "Filed neatly in Nuances.",
+        "I tucked that into your study pile.",
+        "Added to the tray for later.",
+        "Saved, sorted, and ready.",
+        "Future You can find this in Nuances.",
+        "Captured and placed on your desk.",
+        "That one is waiting in Nuances.",
+        "I saved it before it slipped away.",
+        "Collected for your next review.",
+        "Filed under things worth remembering.",
+        "That note is safely on the stack.",
+        "I added it to your language inbox.",
+        "Saved to Nuances, nice and tidy.",
+        "Your next card candidate is ready.",
+        "I caught that one for you.",
+        "Archived in the right little pile.",
+        "Added to your review queue.",
+        "That phrase is now on your desk.",
+        "I put it in the cache stack.",
+        "Done. It is waiting for you."
+    ]
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -108,7 +132,7 @@ class ShareViewController: UIViewController {
                 self.saveTextToSharedStorage(text)
             }
             NSLog("[NuancesShareExtension] saved text items: \(processedTexts.count)")
-            self.closeExtension(success: true)
+            self.showNativeReceiptThenClose(success: true, acceptedCount: processedTexts.count)
         }
     }
     
@@ -161,7 +185,7 @@ class ShareViewController: UIViewController {
             if !processedImages.isEmpty {
                 self.saveImagesToSharedStorage(processedImages)
                 NSLog("[NuancesShareExtension] saved image items: \(processedImages.count)")
-                self.closeExtension(success: true)
+                self.showNativeReceiptThenClose(success: true, acceptedCount: processedImages.count)
             } else {
                 self.closeExtension(success: false)
             }
@@ -271,6 +295,90 @@ class ShareViewController: UIViewController {
             self.didCloseExtension = true
             NSLog("[NuancesShareExtension] closing extension, success: \(success)")
             self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
+    }
+
+    private func nextShareSecretaryPhrase() -> String {
+        let phrase = shareSecretaryPhrases[shareToastIndex % shareSecretaryPhrases.count]
+        shareToastIndex += 1
+        return phrase
+    }
+
+    // MARK: - Native receipt toast
+    private func showNativeReceiptThenClose(success: Bool, acceptedCount: Int) {
+        DispatchQueue.main.async {
+            guard !self.didCloseExtension else { return }
+            guard success else {
+                self.closeExtension(success: false)
+                return
+            }
+
+            let message = self.nextShareSecretaryPhrase()
+            let toast = UIView()
+            toast.translatesAutoresizingMaskIntoConstraints = false
+            toast.backgroundColor = UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.96)
+                    : UIColor(red: 0.97, green: 0.96, blue: 0.93, alpha: 0.98)
+            }
+            toast.layer.cornerRadius = 18
+            toast.layer.cornerCurve = .continuous
+            toast.layer.shadowColor = UIColor.black.cgColor
+            toast.layer.shadowOpacity = 0.22
+            toast.layer.shadowRadius = 18
+            toast.layer.shadowOffset = CGSize(width: 0, height: 10)
+
+            let label = UILabel()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.text = message
+            label.textAlignment = .center
+            label.numberOfLines = 2
+            label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+            label.textColor = UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark
+                    ? UIColor.white
+                    : UIColor(red: 0.04, green: 0.08, blue: 0.14, alpha: 1)
+            }
+
+            toast.addSubview(label)
+            self.view.addSubview(toast)
+
+            NSLayoutConstraint.activate([
+                toast.leadingAnchor.constraint(greaterThanOrEqualTo: self.view.leadingAnchor, constant: 18),
+                toast.trailingAnchor.constraint(lessThanOrEqualTo: self.view.trailingAnchor, constant: -18),
+                toast.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+                toast.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor, constant: 18),
+                label.leadingAnchor.constraint(equalTo: toast.leadingAnchor, constant: 18),
+                label.trailingAnchor.constraint(equalTo: toast.trailingAnchor, constant: -18),
+                label.topAnchor.constraint(equalTo: toast.topAnchor, constant: 13),
+                label.bottomAnchor.constraint(equalTo: toast.bottomAnchor, constant: -13)
+            ])
+
+            toast.alpha = 0
+            toast.transform = CGAffineTransform(translationX: 0, y: -12)
+
+            UIView.animate(
+                withDuration: 0.22,
+                delay: 0,
+                usingSpringWithDamping: 0.86,
+                initialSpringVelocity: 0.4,
+                options: [.curveEaseOut],
+                animations: {
+                    toast.alpha = 1
+                    toast.transform = .identity
+                },
+                completion: { _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.82) {
+                        UIView.animate(withDuration: 0.18, animations: {
+                            toast.alpha = 0
+                            toast.transform = CGAffineTransform(translationX: 0, y: -8)
+                        }, completion: { _ in
+                            toast.removeFromSuperview()
+                            self.closeExtension(success: true)
+                        })
+                    }
+                }
+            )
         }
     }
 

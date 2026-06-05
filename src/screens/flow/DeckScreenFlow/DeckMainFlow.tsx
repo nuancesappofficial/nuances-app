@@ -120,6 +120,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const appTour = useAppTour();
   const didCheckTourRef = React.useRef(false);
   const didCompleteTourRef = React.useRef(false);
+  const didShowTourCompletionGreetingRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
   const tourStepDelayRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -144,6 +145,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
   const completeTour = React.useCallback(() => {
     appTour.completeTour();
+    if (!didShowTourCompletionGreetingRef.current) {
+      didShowTourCompletionGreetingRef.current = true;
+      Alert.alert('Tour complete', "You're all set. Let's start learning!");
+    }
     void markTourSeen();
   }, [appTour, markTourSeen]);
 

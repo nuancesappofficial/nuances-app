@@ -10,7 +10,7 @@ const REVENUECAT_APPLE_API_KEY = (process.env.EXPO_PUBLIC_REVENUECAT_APPLE_API_K
 const REVENUECAT_ENTITLEMENT_ID = (process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID || 'premium').trim();
 const REVENUECAT_PACKAGE_ID = (process.env.EXPO_PUBLIC_REVENUECAT_PACKAGE_ID || '').trim();
 const REVENUECAT_USER_DEFAULTS_SUITE = (
-  process.env.EXPO_PUBLIC_REVENUECAT_USER_DEFAULTS_SUITE || 'group.com.jeffenglishlearning.nuances'
+  process.env.EXPO_PUBLIC_REVENUECAT_USER_DEFAULTS_SUITE || 'group.com.jeffenglishlearning.nuances.v2'
 ).trim();
 
 let configuredAppUserId: string | null = null;

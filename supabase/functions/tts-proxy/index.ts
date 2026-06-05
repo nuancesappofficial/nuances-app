@@ -44,8 +44,64 @@ const AZURE_TTS_REGION = (Deno.env.get('AZURE_TTS_REGION') ?? Deno.env.get('AZUR
 const AZURE_TTS_VOICE = (Deno.env.get('AZURE_TTS_VOICE') ?? 'en-US-AndrewNeural').trim();
 const AZURE_TTS_ENDPOINT = (Deno.env.get('AZURE_TTS_ENDPOINT') ?? '').trim();
 const AZURE_TTS_TIMEOUT_MS = Number(Deno.env.get('AZURE_TTS_TIMEOUT_MS') ?? '15000');
+const AZURE_TTS_MAX_TEXT_CHARS = Number(Deno.env.get('AZURE_TTS_MAX_TEXT_CHARS') ?? '500');
+const TTS_RATE_LIMIT_PER_MINUTE = Number(Deno.env.get('TTS_RATE_LIMIT_PER_MINUTE') ?? '30');
+const TTS_DAILY_QUOTA = Number(Deno.env.get('TTS_DAILY_QUOTA') ?? '300');
+const ALLOW_TTS_WITHOUT_KV = String(Deno.env.get('TTS_ALLOW_WITHOUT_KV') ?? 'false').toLowerCase() === 'true';
 const DEV_ENTITLEMENT_BYPASS_ENABLED =
   (Deno.env.get('SUBSCRIPTION_DEV_BYPASS') ?? '').trim().toLowerCase() === 'true';
+const ALLOWED_TTS_LOCALES = new Set(
+  (Deno.env.get('AZURE_TTS_ALLOWED_LOCALES') ?? 'en-US,en-GB,zh-TW,zh-CN,ja-JP,ko-KR,es-ES,fr-FR')
+    .split(',')
+    .map((item: string) => item.trim())
+    .filter(Boolean)
+);
+const ALLOWED_TTS_VOICES = new Set(
+  (Deno.env.get('AZURE_TTS_ALLOWED_VOICES') ??
+    [
+      'en-US-AndrewNeural',
+      'en-US-JennyNeural',
+      'en-US-GuyNeural',
+      'en-GB-SoniaNeural',
+      'zh-TW-HsiaoChenNeural',
+      'zh-CN-XiaoxiaoNeural',
+      'ja-JP-NanamiNeural',
+      'ko-KR-SunHiNeural',
+      'es-ES-ElviraNeural',
+      'fr-FR-DeniseNeural',
+    ].join(','))
+    .split(',')
+    .map((item: string) => item.trim())
+    .filter(Boolean)
+);
+const ALLOWED_TTS_RATES = new Set(
+  (Deno.env.get('AZURE_TTS_ALLOWED_RATES') ?? '-20%,-10%,0%,+10%,+20%')
+    .split(',')
+    .map((item: string) => item.trim())
+    .filter(Boolean)
+);
+let kvClient: any | null = null;
+let kvInitAttempted = false;
+
+function isProductionRuntime(): boolean {
+  const runtimeEnv = (
+    Deno.env.get('APP_ENV') ??
+    Deno.env.get('ENVIRONMENT') ??
+    Deno.env.get('NODE_ENV') ??
+    Deno.env.get('SUPABASE_ENV') ??
+    ''
+  ).trim().toLowerCase();
+  return ['prod', 'production'].includes(runtimeEnv);
+}
+
+function canUseDevEntitlementBypass(): boolean {
+  if (!DEV_ENTITLEMENT_BYPASS_ENABLED) return false;
+  if (isProductionRuntime()) {
+    console.error('[tts-proxy] SUBSCRIPTION_DEV_BYPASS is enabled in production; ignoring bypass header');
+    return false;
+  }
+  return true;
+}
 
 function resolveTtsEndpoint(region: string, endpoint: string): string {
   if (endpoint) {
@@ -65,6 +121,96 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   } finally {
     clearTimeout(id);
   }
+}
+
+async function getKvClient(): Promise<any | null> {
+  if (kvInitAttempted) return kvClient;
+  kvInitAttempted = true;
+  try {
+    if (typeof Deno?.openKv !== 'function') {
+      console.warn('[tts-proxy] Deno KV is unavailable; TTS limits disabled by runtime');
+      kvClient = null;
+      return kvClient;
+    }
+    kvClient = await Deno.openKv();
+    return kvClient;
+  } catch (error) {
+    console.error('[tts-proxy] Failed to initialize Deno KV', error);
+    kvClient = null;
+    return kvClient;
+  }
+}
+
+async function incrementCounter(
+  kv: any,
+  key: readonly unknown[],
+  expireInMs: number
+): Promise<number> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await kv.get(key);
+    const currentValue = (current.value as number | null) ?? 0;
+    const nextValue = currentValue + 1;
+    const committed = await kv.atomic()
+      .check(current)
+      .set(key, nextValue, { expireIn: expireInMs })
+      .commit();
+    if (committed.ok) return nextValue;
+  }
+  throw new Error('Counter update conflict');
+}
+
+async function enforceTtsLimits(userId: string): Promise<Response | null> {
+  const kv = await getKvClient();
+  if (!kv) {
+    if (ALLOW_TTS_WITHOUT_KV) {
+      console.warn('[tts-proxy] KV unavailable; allowing request due to TTS_ALLOW_WITHOUT_KV=true');
+      return null;
+    }
+    return jsonResponse(
+      {
+        error: 'Service temporarily unavailable',
+        reason: 'rate_limit_store_unavailable',
+      },
+      503
+    );
+  }
+
+  const now = new Date();
+  const minuteBucket = now.toISOString().slice(0, 16);
+  const dayBucket = now.toISOString().slice(0, 10);
+  const minuteCount = await incrementCounter(
+    kv,
+    ['tts-rate', userId, minuteBucket],
+    2 * 60 * 1000
+  );
+  if (minuteCount > TTS_RATE_LIMIT_PER_MINUTE) {
+    return jsonResponse(
+      {
+        error: 'Rate limit exceeded',
+        limit: TTS_RATE_LIMIT_PER_MINUTE,
+        bucket: 'minute',
+      },
+      429
+    );
+  }
+
+  const dayCount = await incrementCounter(
+    kv,
+    ['tts-quota', userId, dayBucket],
+    2 * 24 * 60 * 60 * 1000
+  );
+  if (dayCount > TTS_DAILY_QUOTA) {
+    return jsonResponse(
+      {
+        error: 'Daily quota exceeded',
+        limit: TTS_DAILY_QUOTA,
+        bucket: 'day',
+      },
+      429
+    );
+  }
+
+  return null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -95,7 +241,7 @@ Deno.serve(async (req: Request) => {
 
   const devPlan = (req.headers.get('x-nuances-dev-plan') ?? '').trim().toLowerCase();
   const entitlement =
-    DEV_ENTITLEMENT_BYPASS_ENABLED && devPlan === 'premium'
+    canUseDevEntitlementBypass() && devPlan === 'premium'
       ? { planType: 'premium' }
       : await resolveServerEntitlement({ supabase, userId, user: authUser });
   if (entitlement.planType === 'free') {
@@ -121,6 +267,15 @@ Deno.serve(async (req: Request) => {
   if (!rawText) {
     return jsonResponse({ error: 'text is required' }, 400);
   }
+  if (rawText.length > AZURE_TTS_MAX_TEXT_CHARS) {
+    return jsonResponse(
+      {
+        error: 'text is too long',
+        maxChars: AZURE_TTS_MAX_TEXT_CHARS,
+      },
+      400
+    );
+  }
 
   const normalizedText = normalizeText(rawText);
   if (!normalizedText) {
@@ -130,6 +285,15 @@ Deno.serve(async (req: Request) => {
   const locale = (payload.locale || 'en-US').trim();
   const resolvedVoice = (payload.voice || AZURE_TTS_VOICE).trim();
   const rate = (payload.rate || '0%').trim();
+  if (!ALLOWED_TTS_LOCALES.has(locale)) {
+    return jsonResponse({ error: 'Unsupported locale' }, 400);
+  }
+  if (!ALLOWED_TTS_VOICES.has(resolvedVoice)) {
+    return jsonResponse({ error: 'Unsupported voice' }, 400);
+  }
+  if (!ALLOWED_TTS_RATES.has(rate)) {
+    return jsonResponse({ error: 'Unsupported rate' }, 400);
+  }
 
   try {
     const { data: cacheHit, error: selectError } = await supabase
@@ -155,6 +319,11 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ audioUrl: cacheHit.audio_url, cached: true });
     }
 
+    const limitsError = await enforceTtsLimits(userId);
+    if (limitsError) {
+      return limitsError;
+    }
+
     console.log('[tts-proxy] cache miss -> calling azure', {
       phrase: normalizedText,
       voice: resolvedVoice,
@@ -164,7 +333,7 @@ Deno.serve(async (req: Request) => {
       `<speak version="1.0" xml:lang="${xmlEscape(locale)}">` +
       `<voice name="${xmlEscape(resolvedVoice)}">` +
       `<prosody rate="${xmlEscape(rate)}">${xmlEscape(rawText)}</prosody>` +
-      `</voice></speak>`;
+      '</voice></speak>';
 
     const ttsResponse = await fetchWithTimeout(
       endpoint,

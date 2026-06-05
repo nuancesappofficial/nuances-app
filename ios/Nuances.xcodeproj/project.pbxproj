@@ -12,6 +12,7 @@
 		997B66B90A0331AED4266999 /* libPods-Nuances.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4FC609D457724FCA04F2A9B4 /* libPods-Nuances.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		DB1249D720B8508B14ED3153 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8498B55BCB333E236113CF4 /* ExpoModulesProvider.swift */; };
+		EF1C307C2FC4417700AF46E9 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EF1C307B2FC4417700AF46E9 /* StoreKit.framework */; };
 		EF504DB02FA9E020007185E9 /* NuancesShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F0A100012FAAE01000100001 /* SharedDefaultsModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A100032FAAE01000100003 /* SharedDefaultsModule.swift */; };
 		F0A100022FAAE01000100002 /* SharedDefaultsModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = F0A100042FAAE01000100004 /* SharedDefaultsModuleBridge.m */; };
@@ -57,6 +58,7 @@
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		E8498B55BCB333E236113CF4 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Nuances/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EF1C307B2FC4417700AF46E9 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NuancesShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0A100032FAAE01000100003 /* SharedDefaultsModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedDefaultsModule.swift; path = Nuances/SharedDefaultsModule.swift; sourceTree = "<group>"; };
 		F0A100042FAAE01000100004 /* SharedDefaultsModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SharedDefaultsModuleBridge.m; path = Nuances/SharedDefaultsModuleBridge.m; sourceTree = "<group>"; };
@@ -97,6 +99,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				997B66B90A0331AED4266999 /* libPods-Nuances.a in Frameworks */,
+				EF1C307C2FC4417700AF46E9 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +134,7 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				EF1C307B2FC4417700AF46E9 /* StoreKit.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				4FC609D457724FCA04F2A9B4 /* libPods-Nuances.a */,
 			);
@@ -260,7 +264,6 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
-						DevelopmentTeam = 9M9PGMUV52;
 						LastSwiftMigration = 1250;
 						ProvisioningStyle = Automatic;
 					};
@@ -479,7 +482,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9M9PGMUV52;
+				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -518,7 +521,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9M9PGMUV52;
+				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				INFOPLIST_FILE = Nuances/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -675,7 +678,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 9M9PGMUV52;
+				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -724,7 +727,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 9M9PGMUV52;
+				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = NO;
