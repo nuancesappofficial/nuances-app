@@ -27,6 +27,29 @@ export type ProficiencyStandardPreset =
   | 'custom';
 export type DomainPreset = 'medical' | 'technology' | 'business' | 'custom';
 export type TonePreset = 'brief' | 'detailed' | 'custom';
+export type AIBreakdownMode = 'short_punchy' | 'context' | 'deep_dive';
+
+export const AI_BREAKDOWN_MODE_OPTIONS: Array<{
+  value: AIBreakdownMode;
+  label: 'Clarity' | 'Application' | 'Mastery';
+  description: string;
+}> = [
+  {
+    value: 'short_punchy',
+    label: 'Clarity',
+    description: 'Fastest, cleanest explanation.',
+  },
+  {
+    value: 'context',
+    label: 'Application',
+    description: 'Context, usage, and real-life examples.',
+  },
+  {
+    value: 'deep_dive',
+    label: 'Mastery',
+    description: 'Nuance, tone, synonyms, and deeper context.',
+  },
+];
 
 export type UserPersonalizationSettings = {
   learningGoalPreset: LearningGoalPreset;
@@ -39,6 +62,7 @@ export type UserPersonalizationSettings = {
   domainCustom: string;
   tonePreset: TonePreset;
   toneCustom: string;
+  aiBreakdownMode: AIBreakdownMode;
 };
 
 export type UserAppSettings = {
@@ -66,6 +90,7 @@ export type EffectiveAIPersonalization = {
   proficiencyLevel?: string;
   domain?: string;
   tone?: string;
+  aiBreakdownMode: AIBreakdownMode;
 };
 
 const SETTINGS_STORAGE_KEY = 'user_app_settings_v1';
@@ -89,6 +114,18 @@ export function createMainScreenEmptyAlbumSlot(): string {
 export function normalizeEntitlementMode(mode: EntitlementMode | PlanType | null | undefined): PlanType {
   if (mode === 'premium' || mode === 'trial' || mode === 'free') return mode;
   return 'free';
+}
+
+export function normalizeAIBreakdownMode(value: unknown): AIBreakdownMode {
+  if (value === 'short_punchy' || value === 'context' || value === 'deep_dive') {
+    return value;
+  }
+  return 'context';
+}
+
+export function getAIBreakdownModeLabel(mode: AIBreakdownMode | string | null | undefined): string {
+  const normalized = normalizeAIBreakdownMode(mode);
+  return AI_BREAKDOWN_MODE_OPTIONS.find((option) => option.value === normalized)?.label ?? 'Application';
 }
 
 export const DEFAULT_USER_SETTINGS: UserAppSettings = {
@@ -126,6 +163,7 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
     domainCustom: '',
     tonePreset: 'brief',
     toneCustom: '',
+    aiBreakdownMode: 'context',
   },
 };
 
@@ -255,6 +293,7 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
     personalization: {
       ...DEFAULT_USER_SETTINGS.personalization,
       ...(partial?.personalization ?? {}),
+      aiBreakdownMode: normalizeAIBreakdownMode(partial?.personalization?.aiBreakdownMode),
     },
   };
 }
@@ -275,6 +314,12 @@ export async function saveUserSettings(next: UserAppSettings): Promise<void> {
   const merged = mergeSettings(next);
   await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
   userSettingsListeners.forEach((listener) => listener(merged));
+}
+
+export async function clearUserSettings(): Promise<void> {
+  const defaults = mergeSettings(null);
+  await AsyncStorage.removeItem(SETTINGS_STORAGE_KEY);
+  userSettingsListeners.forEach((listener) => listener(defaults));
 }
 
 export function subscribeUserSettings(listener: (settings: UserAppSettings) => void): () => void {
@@ -335,5 +380,6 @@ export function getEffectiveAIPersonalization(
       settings.personalization.tonePreset,
       settings.personalization.toneCustom
     ),
+    aiBreakdownMode: normalizeAIBreakdownMode(settings.personalization.aiBreakdownMode),
   };
 }

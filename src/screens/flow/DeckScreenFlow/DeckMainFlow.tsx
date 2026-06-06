@@ -43,6 +43,7 @@ import {
   subscribeUserSettings,
   type MainScreenAlbumGridCount,
 } from '@services/settings/userSettings';
+import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
 
 type Props = {
   navigation: any;
@@ -122,7 +123,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const didCompleteTourRef = React.useRef(false);
   const didShowTourCompletionGreetingRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
-  const tourStepDelayRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -152,19 +152,33 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     void markTourSeen();
   }, [appTour, markTourSeen]);
 
+  const tourSampleCard = React.useMemo(() => {
+    const normalizedTarget = TOUR_TARGET_WORD.toLowerCase();
+    return (
+      allCards.find((card) => {
+        const targetWord = (card.targetWord || '').trim().toLowerCase();
+        const targetPhrase = (card.targetPhrase || '').trim().toLowerCase();
+        return targetWord === normalizedTarget || targetPhrase === 'wing it';
+      }) || allCards[0] || null
+    );
+  }, [allCards]);
+
+  React.useEffect(() => {
+    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
+    tabSwipeContext?.goToTab(1, { animation: 'slide', durationMs: 620 });
+  }, [appTour.step, tabSwipeContext]);
+
   const handleTourTargetPress = React.useCallback(() => {
     if (appTour.step === 'STEP_1_SAMPLE') {
-      if (tourStepDelayRef.current) {
-        clearTimeout(tourStepDelayRef.current);
-      }
-      appTour.goToStep('IDLE');
-      tourStepDelayRef.current = setTimeout(() => {
-        tabSwipeContext?.goToTab(1, { animation: 'slide', durationMs: 620 });
-      }, 160);
-      setTimeout(() => {
-        appTour.goToStep('STEP_2_UPLOAD_SAMPLE');
-        tourStepDelayRef.current = null;
-      }, 1040);
+      if (!tourSampleCard) return;
+      appTour.nextStep();
+      const scopedCardIds = allCards.map((card) => card.id);
+      navigation.navigate('CardDetail', {
+        cardId: tourSampleCard.id,
+        cardIds: scopedCardIds.length > 0 ? scopedCardIds : [tourSampleCard.id],
+        albumName: 'All cards',
+        headerTitle: 'All cards',
+      });
       return;
     }
 
@@ -176,15 +190,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       return;
     }
     appTour.nextStep();
-  }, [appTour, completeTour, tabSwipeContext]);
-
-  React.useEffect(() => {
-    return () => {
-      if (tourStepDelayRef.current) {
-        clearTimeout(tourStepDelayRef.current);
-      }
-    };
-  }, []);
+  }, [allCards, appTour, completeTour, navigation, tourSampleCard]);
 
   const applyMainScreenSettings = React.useCallback((settings: {
     wordPopSlideMs: number;

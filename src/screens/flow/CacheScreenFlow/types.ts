@@ -1,3 +1,5 @@
+import type { AIBreakdownMode } from '@services/settings/userSettings';
+
 export type CompletedCard = {
   word: string;
   displayWord: string;
@@ -12,6 +14,8 @@ export type CompletedCard = {
   manualMode: boolean;
   addedToDeck: boolean;
   selectedAlbumIds?: string[];
+  aiBreakdownMode?: AIBreakdownMode;
+  tags?: string[];
 };
 
 export type PreviewPhase = 'frontThinking' | 'frontReveal' | 'backReveal' | 'complete';

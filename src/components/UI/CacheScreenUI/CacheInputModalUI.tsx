@@ -29,6 +29,8 @@ import {
   TEXT_ON_CTA,
   resolveThemeColors,
 } from '../../../theme/colors';
+import { useAppTour } from '../../../contexts/AppTourContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = {
   visible: boolean;
@@ -104,6 +106,8 @@ export default function CacheInputModalUI({
   tourAddTextTooltip = '',
   onTourAddTextPress,
 }: Props) {
+  const appTour = useAppTour();
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isLight = colorScheme === 'light';
@@ -146,6 +150,10 @@ export default function CacheInputModalUI({
   const activeTourTooltip = tourPasteTextActive ? tourPasteTextTooltip : tourAddTextActive ? tourAddTextTooltip : '';
   const activeTourPress = tourPasteTextActive ? onTourPasteTextPress || onPressPaste : tourAddTextActive ? onTourAddTextPress || onSubmitText : undefined;
   const isLocalTourActive = Boolean(activeTourTarget && activeTourPress);
+
+  const handleSkipTour = React.useCallback(() => {
+    appTour.skipTour();
+  }, [appTour]);
 
   React.useEffect(() => {
     Animated.timing(localTourProgress, {
@@ -358,12 +366,25 @@ export default function CacheInputModalUI({
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
       {isLocalTourActive && activeTourPress ? (
-        <Pressable style={styles.localTourBackdropMask} onPress={activeTourPress}>
+        <View style={styles.localTourBackdropMask}>
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: localTourProgress }]}>
             <BlurView tint="dark" intensity={58} style={StyleSheet.absoluteFill} />
             <View style={styles.localTourDim} />
           </Animated.View>
-        </Pressable>
+          <Pressable
+            hitSlop={12}
+            onPress={handleSkipTour}
+            style={[
+              styles.localTourSkipLink,
+              !isLight ? styles.localTourSkipLinkDarkModeLightBox : null,
+              { top: insets.top + 10 },
+            ]}
+          >
+            <Text style={[styles.localTourSkipText, !isLight ? styles.localTourSkipTextDarkModeLightBox : null]}>
+              Skip tutorial
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
       <Animated.View
         style={[
@@ -532,7 +553,7 @@ export default function CacheInputModalUI({
         ) : null}
 
         {activeTourTarget && activeTourPress ? (
-          <Pressable style={styles.localTourSheetOverlay} onPress={activeTourPress}>
+          <View style={styles.localTourSheetOverlay}>
             <Animated.View
               pointerEvents="none"
               style={[
@@ -549,11 +570,10 @@ export default function CacheInputModalUI({
                 {activeTourTooltip}
               </Text>
             </Animated.View>
-            <Animated.View
-              pointerEvents="none"
+            <Pressable
+              onPress={activeTourPress}
               style={[
                 styles.localTourClone,
-                { opacity: localTourContentOpacity },
                 activeTourAction === 'paste'
                   ? textPrimaryAction === 'clear'
                     ? [styles.clearBtn, { backgroundColor: palette.mutedSurface, borderColor: palette.modalOptionBorder }]
@@ -567,21 +587,23 @@ export default function CacheInputModalUI({
                 },
               ]}
             >
-              <Text
-                style={[
-                  styles.actionBtnText,
-                  activeTourAction === 'add'
-                    ? styles.addBtnText
-                    : textPrimaryAction === 'clear'
-                      ? styles.clearBtnText
-                      : styles.pasteBtnText,
-                  { color: activeTourAction === 'add' ? TEXT_ON_CTA : palette.textOnContainer },
-                ]}
-              >
-                {activeTourAction === 'add' ? 'Add' : textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
-              </Text>
-            </Animated.View>
-          </Pressable>
+              <Animated.View pointerEvents="none" style={[styles.localTourCloneContent, { opacity: localTourContentOpacity }]}>
+                <Text
+                  style={[
+                    styles.actionBtnText,
+                    activeTourAction === 'add'
+                      ? styles.addBtnText
+                      : textPrimaryAction === 'clear'
+                        ? styles.clearBtnText
+                        : styles.pasteBtnText,
+                    { color: activeTourAction === 'add' ? TEXT_ON_CTA : palette.textOnContainer },
+                  ]}
+                >
+                  {activeTourAction === 'add' ? 'Add' : textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
+                </Text>
+              </Animated.View>
+            </Pressable>
+          </View>
         ) : null}
       </Animated.View>
     </Modal>
@@ -735,14 +757,42 @@ const styles = StyleSheet.create({
   localTourClone: {
     position: 'absolute',
     borderRadius: BUTTON_TOKENS.radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
     borderWidth: 1,
     shadowColor: '#00E5FF',
     shadowOpacity: 0.28,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
+    overflow: 'hidden',
+  },
+  localTourCloneContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  localTourSkipLink: {
+    position: 'absolute',
+    right: 18,
+    zIndex: 90,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(15,23,42,0.48)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,250,252,0.18)',
+  },
+  localTourSkipText: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  localTourSkipLinkDarkModeLightBox: {
+    backgroundColor: DARK_MODE_TOUR_TOOLTIP_BG,
+    borderColor: 'rgba(15,23,42,0.16)',
+  },
+  localTourSkipTextDarkModeLightBox: {
+    color: DARK_MODE_TOUR_TOOLTIP_TEXT,
   },
   pasteBtn: {
     backgroundColor: CONTAINER_BG,

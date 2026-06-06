@@ -32,6 +32,11 @@ import {
   resolveThemeColors,
 } from '../../theme/colors';
 import { supabase } from '../../services/supabase/client';
+import {
+  loadUserSettings,
+  normalizeAIBreakdownMode,
+  saveUserSettings,
+} from '../../services/settings/userSettings';
 
 type OnboardingStep = 1 | 2 | 3;
 
@@ -75,9 +80,9 @@ const STUMBLE_CONTEXT_OPTIONS: StickerOption[] = [
 ];
 
 const BREAKDOWN_DEPTH_OPTIONS: StickerOption[] = [
-  { value: 'short_punchy', label: 'Punchy', imageSource: Q3_LIGHTNING_IMAGE  },
-  { value: 'context', label: 'Context', imageSource: Q3_BUBBLE_IMAGE },
-  { value: 'deep_dive', label: 'Deep dive', imageSource: Q3_NODES_IMAGE},
+  { value: 'short_punchy', label: 'Clarity', imageSource: Q3_LIGHTNING_IMAGE  },
+  { value: 'context', label: 'Application', imageSource: Q3_BUBBLE_IMAGE },
+  { value: 'deep_dive', label: 'Mastery', imageSource: Q3_NODES_IMAGE},
 ];
 
 const ALL_STICKER_OPTIONS = [
@@ -297,6 +302,15 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
   const saveOnboardingData = React.useCallback(async (answersToSave: OnboardingAnswers = answers) => {
     const { data: userData } = await supabase.auth.getUser();
     const userEmail = userData.user?.email?.trim() || `${userId}@nuances.local`;
+    const aiBreakdownMode = normalizeAIBreakdownMode(answersToSave.breakdownDepth);
+    const currentSettings = await loadUserSettings();
+    await saveUserSettings({
+      ...currentSettings,
+      personalization: {
+        ...currentSettings.personalization,
+        aiBreakdownMode,
+      },
+    });
     const { error } = await supabase.from('profiles').upsert(
       {
         id: userId,
@@ -304,6 +318,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
         native_language: 'en',
         english_level: mapBreakdownDepthToEnglishLevel(answersToSave.breakdownDepth),
         learning_goal: mapStumbleContextToLearningGoal(answersToSave.stumbleContext),
+        ai_breakdown_mode: aiBreakdownMode,
         onboarding_completed: true,
         updated_at: new Date().toISOString(),
       },

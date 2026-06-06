@@ -340,6 +340,7 @@ function transformProfiles(records: any[], type: string) {
       learning_goal: record.learning_goal,
       target_language: record.target_language,
       native_language: record.native_language,
+      ai_breakdown_mode: record.ai_breakdown_mode,
       subscription_tier: record.subscription_tier,
       subscription_expires_at: record.subscription_expires_at
         ? new Date(record.subscription_expires_at).getTime()
@@ -448,6 +449,7 @@ function transformToSupabaseFormat(tableName: string, record: any, userId: strin
         learning_goal: record.learning_goal,
         target_language: record.target_language,
         native_language: record.native_language,
+        ai_breakdown_mode: record.ai_breakdown_mode,
       };
 
     case 'cached_items':

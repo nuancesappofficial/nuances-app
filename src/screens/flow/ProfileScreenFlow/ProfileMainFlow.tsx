@@ -25,11 +25,16 @@ import {
   withUpdatedTTSVoiceForLanguage,
 } from '@services/settings/userSettings';
 import { supabase } from '@services/supabase/client';
-import { getRevenueCatOfferingSummary, isRevenueCatConfigured } from '@services/subscription/revenueCat';
+import {
+  getRevenueCatOfferingSummary,
+  isRevenueCatConfigured,
+  type RevenueCatPackageSummary,
+} from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../../theme/stickerFonts';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { deleteCurrentAccount } from '@services/account/AccountDeletionService';
 
 type Props = {
   navigation: any;
@@ -256,6 +261,8 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [savingEntitlement, setSavingEntitlement] = React.useState(false);
   const [showMembershipModal, setShowMembershipModal] = React.useState(false);
   const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
+  const [membershipPackages, setMembershipPackages] = React.useState<RevenueCatPackageSummary[]>([]);
+  const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoSize, setPendingProfilePhotoSize] = React.useState<{
@@ -379,6 +386,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     void (async () => {
       if (!isRevenueCatConfigured()) {
         if (!cancelled) setMembershipPriceLabel(null);
+        if (!cancelled) setMembershipPackages([]);
         return;
       }
       try {
@@ -388,6 +396,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
         if (!cancelled) {
           setMembershipPriceLabel(summary.priceLabel);
+          setMembershipPackages(summary.packages);
         }
       } catch (error) {
         console.error('[Profiles] load RevenueCat offering summary failed:', error);
@@ -398,7 +407,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     };
   }, []);
 
-  const handleUpgradeMembership = React.useCallback(async () => {
+  const handleUpgradeMembership = React.useCallback(async (packageIdentifier?: string | null) => {
     if (savingEntitlement) return;
     setSavingEntitlement(true);
     try {
@@ -409,7 +418,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
         return;
       }
-      const snapshot = await SubscriptionService.purchasePremium(user.id);
+      const snapshot = await SubscriptionService.purchasePremium(user.id, packageIdentifier);
       setEntitlementMode(snapshot.planType);
       setShowMembershipModal(false);
       Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
@@ -476,6 +485,34 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       Alert.alert('Dev override failed', error instanceof Error ? error.message : 'Please try again.');
     }
   }, []);
+
+  const performAccountDeletion = React.useCallback(async () => {
+    if (isDeletingAccount) return;
+    setIsDeletingAccount(true);
+    try {
+      await deleteCurrentAccount();
+    } catch (error) {
+      console.error('[Profiles] delete account failed:', error);
+      Alert.alert('Failed to delete account. Please try again or contact support.');
+      setIsDeletingAccount(false);
+    }
+  }, [isDeletingAccount]);
+
+  const handleDeleteAccount = React.useCallback(() => {
+    if (isDeletingAccount) return;
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to permanently delete your account? All your vocabulary cards, settings, and personal data will be erased. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => void performAccountDeletion(),
+        },
+      ]
+    );
+  }, [isDeletingAccount, performAccountDeletion]);
 
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
@@ -596,9 +633,16 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
         membershipPriceLabel={membershipPriceLabel}
+        membershipPackages={membershipPackages.map((item) => ({
+          identifier: item.identifier,
+          title: item.title || item.packageType || 'Premium',
+          priceLabel: item.priceLabel || membershipPriceLabel || 'Premium',
+          description: item.subscriptionPeriod || item.description || 'Auto-renews unless canceled',
+        }))}
         membershipModalVisible={showMembershipModal}
         mainScreenAlbumGridCount={mainScreenAlbumGridCount}
         mainScreenWordPopEnabled={mainScreenWordPopEnabled}
+        isDeletingAccount={isDeletingAccount}
         aiReplyLanguage={aiReplyLanguage}
         ttsVoice={ttsVoice}
         stickerFontKey={stickerFontKey}
@@ -611,6 +655,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         onDevSetMembership={handleDevSetMembership}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
         onChangeTTSVoice={handleChangeTTSVoice}
+        onDeleteAccount={handleDeleteAccount}
         onOpenSettingsOption={(kind) => {
           navigation.navigate('ProfileSettingOptions', { kind });
         }}

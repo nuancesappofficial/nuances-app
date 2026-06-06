@@ -19,6 +19,8 @@ CREATE TABLE public.profiles (
     english_level TEXT CHECK (english_level IN ('beginner', 'intermediate', 'advanced')),
     target_language TEXT DEFAULT 'en',
     native_language TEXT DEFAULT 'zh-TW',
+    ai_breakdown_mode TEXT NOT NULL DEFAULT 'context'
+        CHECK (ai_breakdown_mode IN ('short_punchy', 'context', 'deep_dive')),
     onboarding_completed BOOLEAN NOT NULL DEFAULT false,
     has_seen_tour BOOLEAN NOT NULL DEFAULT false,
     subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'pro')),

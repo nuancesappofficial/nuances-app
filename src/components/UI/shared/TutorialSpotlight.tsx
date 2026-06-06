@@ -12,6 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
   FadeIn,
   FadeOut,
@@ -20,6 +21,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { useAppTour } from '../../../contexts/AppTourContext';
 
 type WindowLayout = LayoutRectangle & {
   pageX: number;
@@ -32,6 +34,9 @@ type Props = {
   children: React.ReactElement;
   style?: StyleProp<ViewStyle>;
   onSpotlightPress: () => void;
+  onSkip?: () => void;
+  skipLabel?: string;
+  showSkip?: boolean;
 };
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
@@ -49,9 +54,14 @@ export default function TutorialSpotlight({
   children,
   style,
   onSpotlightPress,
+  onSkip,
+  skipLabel = 'Skip tutorial',
+  showSkip = true,
 }: Props) {
   const anchorRef = React.useRef<View | null>(null);
   const [layout, setLayout] = React.useState<WindowLayout | null>(null);
+  const appTour = useAppTour();
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme !== 'light';
   const visibleProgress = useSharedValue(0);
@@ -106,6 +116,14 @@ export default function TutorialSpotlight({
     return Math.max(18, Math.min(centered, windowWidth - TOOLTIP_WIDTH - 18));
   }, [layout, windowWidth]);
 
+  const handleSkipPress = React.useCallback(() => {
+    if (onSkip) {
+      onSkip();
+      return;
+    }
+    appTour.skipTour();
+  }, [appTour, onSkip]);
+
   return (
     <>
       <View ref={anchorRef} collapsable={false} style={style} onLayout={active ? measureAnchor : undefined}>
@@ -113,16 +131,16 @@ export default function TutorialSpotlight({
       </View>
 
       <Modal visible={active && !!layout} transparent animationType="none" statusBarTranslucent presentationStyle="overFullScreen">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onSpotlightPress}>
+        <View style={StyleSheet.absoluteFill}>
           <AnimatedBlurView tint="dark" intensity={100} pointerEvents="none" style={[styles.blurLayer, blurStyle]} />
           <Reanimated.View pointerEvents="none" style={[styles.dimLayer, blurStyle]} />
 
           {layout ? (
-            <Reanimated.View
-              pointerEvents="none"
+            <Pressable
+              hitSlop={8}
+              onPress={onSpotlightPress}
               style={[
-                styles.cloneLayer,
-                cloneStyle,
+                styles.clonePressTarget,
                 {
                   top: layout.pageY,
                   left: layout.pageX,
@@ -131,12 +149,14 @@ export default function TutorialSpotlight({
                 },
               ]}
             >
-              {React.cloneElement(children as React.ReactElement<any>, {
-                pointerEvents: 'none',
-              })}
-            </Reanimated.View>
+              <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, cloneStyle]}>
+                {React.cloneElement(children as React.ReactElement<any>, {
+                  pointerEvents: 'none',
+                })}
+              </Reanimated.View>
+            </Pressable>
           ) : null}
-        </Pressable>
+        </View>
 
         {layout ? (
           <Reanimated.View
@@ -154,6 +174,22 @@ export default function TutorialSpotlight({
             </Text>
           </Reanimated.View>
         ) : null}
+
+        {showSkip ? (
+          <Pressable
+            hitSlop={12}
+            onPress={handleSkipPress}
+            style={[
+              styles.skipLink,
+              isDarkMode ? styles.skipLinkDarkModeLightBox : null,
+              { top: insets.top + 10 },
+            ]}
+          >
+            <Text style={[styles.skipLinkText, isDarkMode ? styles.skipLinkTextDarkMode : null]}>
+              {skipLabel}
+            </Text>
+          </Pressable>
+        ) : null}
       </Modal>
     </>
   );
@@ -169,7 +205,7 @@ const styles = StyleSheet.create({
     zIndex: 11,
     backgroundColor: 'rgba(0,0,0,0.58)',
   },
-  cloneLayer: {
+  clonePressTarget: {
     position: 'absolute',
     zIndex: 30,
     overflow: 'visible',
@@ -204,5 +240,29 @@ const styles = StyleSheet.create({
   },
   tooltipTextDarkModeLightBox: {
     color: DARK_MODE_TOOLTIP_TEXT,
+  },
+  skipLink: {
+    position: 'absolute',
+    right: 18,
+    zIndex: 60,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(15,23,42,0.48)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,250,252,0.18)',
+  },
+  skipLinkText: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  skipLinkTextDarkMode: {
+    color: DARK_MODE_TOOLTIP_TEXT,
+  },
+  skipLinkDarkModeLightBox: {
+    backgroundColor: DARK_MODE_TOOLTIP_BG,
+    borderColor: 'rgba(15,23,42,0.16)',
   },
 });

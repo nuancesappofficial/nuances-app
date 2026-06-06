@@ -1,5 +1,17 @@
 import React from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, TouchableOpacity, View, useColorScheme, useWindowDimensions } from 'react-native';
+import {
+  Alert,
+  Animated,
+  Easing,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useColorScheme,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -10,6 +22,7 @@ import {
 } from '@services/settings/userSettings';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, resolveThemeColors } from '../../../theme/colors';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../../../constants/legalLinks';
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'zh-TW', label: '繁中' },
@@ -153,6 +166,15 @@ export default function ProfileSettingsModalUI({
     [wordPopSlideMs]
   );
 
+  const openLegalLink = React.useCallback(async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn('[ProfileSettings] failed to open legal link:', error);
+      Alert.alert('Unable to open link.');
+    }
+  }, []);
+
   const renderLanguageDropdown = () => (
     <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
       <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Language</Text>
@@ -224,6 +246,35 @@ export default function ProfileSettingsModalUI({
           </Text>
         </View>
       </View>
+    </View>
+  );
+
+  const renderLegalLinks = () => (
+    <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Legal</Text>
+      <TouchableOpacity
+        style={[
+          styles.languageDropdownTrigger,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
+        activeOpacity={0.9}
+        onPress={() => void openLegalLink(PRIVACY_POLICY_URL)}
+      >
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>Privacy Policy</Text>
+        <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.languageDropdownTrigger,
+          styles.legalLinkRow,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
+        activeOpacity={0.9}
+        onPress={() => void openLegalLink(TERMS_OF_SERVICE_URL)}
+      >
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>Terms of Service</Text>
+        <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
+      </TouchableOpacity>
     </View>
   );
 
@@ -350,6 +401,7 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
+          {renderLegalLinks()}
         </SafeAreaView>
       </View>
     );
@@ -493,6 +545,7 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
+          {renderLegalLinks()}
         </SafeAreaView>
       </Animated.View>
     </View>
@@ -628,6 +681,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  legalLinkRow: {
+    marginTop: 8,
   },
   languageDropdownValue: {
     color: '#FFFFFF',

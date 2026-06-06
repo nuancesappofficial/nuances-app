@@ -47,6 +47,7 @@ export interface Database {
 export type LearningGoal = 'ielts' | 'casual' | 'professional' | 'business' | 'everyday' | 'academic' | 'slang';
 export type EnglishLevel = 'beginner' | 'intermediate' | 'advanced';
 export type SubscriptionTier = 'free' | 'pro';
+export type AIBreakdownMode = 'short_punchy' | 'context' | 'deep_dive';
 
 export type Profile = {
   id: string;
@@ -56,6 +57,7 @@ export type Profile = {
   english_level: EnglishLevel | null;
   target_language: string;
   native_language: string;
+  ai_breakdown_mode: AIBreakdownMode;
   onboarding_completed: boolean;
   has_seen_tour: boolean;
   subscription_tier: SubscriptionTier;
@@ -74,6 +76,7 @@ export type ProfileInsert = {
   english_level?: EnglishLevel | null;
   target_language?: string;
   native_language?: string;
+  ai_breakdown_mode?: AIBreakdownMode;
   onboarding_completed?: boolean;
   has_seen_tour?: boolean;
   subscription_tier?: SubscriptionTier;

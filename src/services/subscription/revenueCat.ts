@@ -22,6 +22,17 @@ export type RevenueCatOfferingSummary = {
   priceLabel: string | null;
   packageId: string | null;
   offeringIdentifier: string | null;
+  packages: RevenueCatPackageSummary[];
+};
+
+export type RevenueCatPackageSummary = {
+  identifier: string;
+  packageType: string;
+  productIdentifier: string;
+  title: string;
+  description: string;
+  priceLabel: string;
+  subscriptionPeriod: string | null;
 };
 
 function isRevenueCatNativeModuleUnavailableError(error: unknown): boolean {
@@ -131,6 +142,39 @@ async function getCurrentPackageFromOfferings(offerings: PurchasesOfferings): Pr
   return current.availablePackages[0] || null;
 }
 
+function getPackageByIdentifierFromOfferings(
+  offerings: PurchasesOfferings,
+  packageIdentifier?: string | null
+): PurchasesPackage | null {
+  const current = offerings.current;
+  if (!current) return null;
+  const requested = packageIdentifier?.trim();
+  if (requested) {
+    const exact = current.availablePackages.find((item) => item.identifier === requested);
+    if (exact) return exact;
+  }
+  if (REVENUECAT_PACKAGE_ID) {
+    const configured = current.availablePackages.find((item) => item.identifier === REVENUECAT_PACKAGE_ID);
+    if (configured) return configured;
+  }
+  return current.availablePackages[0] || null;
+}
+
+function summarizePackage(item: PurchasesPackage): RevenueCatPackageSummary {
+  const product = item.product as PurchasesPackage['product'] & {
+    subscriptionPeriod?: string | null;
+  };
+  return {
+    identifier: item.identifier,
+    packageType: String(item.packageType || ''),
+    productIdentifier: product.identifier,
+    title: product.title || item.identifier,
+    description: product.description || '',
+    priceLabel: product.priceString || '',
+    subscriptionPeriod: product.subscriptionPeriod || null,
+  };
+}
+
 export function isRevenueCatConfigured(): boolean {
   return Boolean(REVENUECAT_APPLE_API_KEY);
 }
@@ -176,16 +220,19 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
       priceLabel: null,
       packageId: null,
       offeringIdentifier: null,
+      packages: [],
     };
   }
 
   try {
     const offerings = await Purchases.getOfferings();
     const chosen = await getCurrentPackageFromOfferings(offerings);
+    const packages = offerings.current?.availablePackages.map(summarizePackage) || [];
     return {
       priceLabel: chosen?.product.priceString || null,
       packageId: chosen?.identifier || null,
       offeringIdentifier: offerings.current?.identifier || null,
+      packages,
     };
   } catch (error) {
     if (isRevenueCatInvalidApiKeyError(error)) {
@@ -194,6 +241,7 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
         priceLabel: null,
         packageId: null,
         offeringIdentifier: null,
+        packages: [],
       };
     }
     console.warn('[RevenueCat] getOfferings failed:', error);
@@ -201,11 +249,15 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
       priceLabel: null,
       packageId: null,
       offeringIdentifier: null,
+      packages: [],
     };
   }
 }
 
-export async function purchaseRevenueCatPremium(appUserId?: string | null): Promise<CustomerInfo> {
+export async function purchaseRevenueCatPremium(
+  appUserId?: string | null,
+  packageIdentifier?: string | null
+): Promise<CustomerInfo> {
   if (!isRevenueCatNativeAvailable()) {
     throw new Error('目前這個 app binary 還沒有 RevenueCat 原生模組。請重新執行一次 iOS development build。');
   }
@@ -215,7 +267,7 @@ export async function purchaseRevenueCatPremium(appUserId?: string | null): Prom
   }
 
   const offerings = await Purchases.getOfferings();
-  const chosen = await getCurrentPackageFromOfferings(offerings);
+  const chosen = getPackageByIdentifierFromOfferings(offerings, packageIdentifier);
   if (!chosen) {
     throw new Error('目前找不到可購買的 Premium 方案，請確認 RevenueCat Offering 設定。');
   }

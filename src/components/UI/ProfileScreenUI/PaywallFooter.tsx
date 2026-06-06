@@ -1,16 +1,19 @@
 import React from 'react';
-import { Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-
-const PRIVACY_POLICY_URL = 'https://example.com/privacy-policy';
-const TERMS_OF_SERVICE_URL = 'https://example.com/terms-of-service';
+import { Alert, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../../../constants/legalLinks';
 
 type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
 export default function PaywallFooter({ style }: Props) {
-  const openUrl = React.useCallback((url: string) => {
-    void Linking.openURL(url);
+  const openUrl = React.useCallback(async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn('[PaywallFooter] failed to open legal link:', error);
+      Alert.alert('Unable to open link.');
+    }
   }, []);
 
   return (
@@ -19,7 +22,7 @@ export default function PaywallFooter({ style }: Props) {
         accessibilityRole="link"
         hitSlop={8}
         style={({ pressed }) => [styles.linkPressable, pressed ? styles.linkPressed : null]}
-        onPress={() => openUrl(PRIVACY_POLICY_URL)}
+        onPress={() => void openUrl(PRIVACY_POLICY_URL)}
       >
         <Text style={styles.linkText}>Privacy Policy</Text>
       </Pressable>
@@ -30,7 +33,7 @@ export default function PaywallFooter({ style }: Props) {
         accessibilityRole="link"
         hitSlop={8}
         style={({ pressed }) => [styles.linkPressable, pressed ? styles.linkPressed : null]}
-        onPress={() => openUrl(TERMS_OF_SERVICE_URL)}
+        onPress={() => void openUrl(TERMS_OF_SERVICE_URL)}
       >
         <Text style={styles.linkText}>Terms of Service</Text>
       </Pressable>

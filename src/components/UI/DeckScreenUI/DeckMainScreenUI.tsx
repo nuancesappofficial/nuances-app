@@ -665,7 +665,7 @@ export default function DeckMainScreenUI({
 
       <TutorialSpotlight
         active={tourStep === 'STEP_1_SAMPLE'}
-        tooltip={'Make a card: “wing it”.'}
+        tooltip="Your cards live here."
         onSpotlightPress={handleTourTargetPress}
       >
         <View style={styles.albumGroupShadow}>

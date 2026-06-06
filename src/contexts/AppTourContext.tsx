@@ -1,5 +1,6 @@
 import React from 'react';
 import * as Haptics from 'expo-haptics';
+import { supabase } from '@services/supabase/client';
 
 export type AppTourStep =
   | 'IDLE'
@@ -23,6 +24,7 @@ type AppTourContextValue = {
   goToStep: (step: AppTourStep) => void;
   nextStep: () => void;
   completeTour: () => void;
+  skipTour: () => void;
   resetTourState: () => void;
 };
 
@@ -32,7 +34,7 @@ const TOUR_STEP_GAP_MS = 420;
 function getNextStep(step: AppTourStep): AppTourStep {
   switch (step) {
     case 'STEP_1_SAMPLE':
-      return 'STEP_2_UPLOAD_SAMPLE';
+      return 'STEP_8_ALBUM_SAMPLE';
     case 'STEP_2_UPLOAD_SAMPLE':
       return 'STEP_3_PASTE_SAMPLE_TEXT';
     case 'STEP_3_PASTE_SAMPLE_TEXT':
@@ -46,7 +48,7 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_6_GENERATE_SAMPLE':
       return 'STEP_7_SAVE_SAMPLE';
     case 'STEP_7_SAVE_SAMPLE':
-      return 'STEP_8_ALBUM_SAMPLE';
+      return 'STEP_1_SAMPLE';
     case 'STEP_8_ALBUM_SAMPLE':
       return 'STEP_9_COACH_SAMPLE';
     case 'STEP_9_COACH_SAMPLE':
@@ -69,6 +71,7 @@ function triggerTourCompleteHaptic() {
 export function AppTourProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = React.useState<AppTourStep>('IDLE');
   const pendingStepTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didMarkTourSeenRef = React.useRef(false);
 
   const clearPendingStepTimer = React.useCallback(() => {
     if (pendingStepTimerRef.current) {
@@ -81,7 +84,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
 
   const startTour = React.useCallback(() => {
     clearPendingStepTimer();
-    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_1_SAMPLE' : current));
+    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_2_UPLOAD_SAMPLE' : current));
   }, [clearPendingStepTimer]);
 
   const nextStep = React.useCallback(() => {
@@ -103,11 +106,38 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     setStep(nextStepValue);
   }, [clearPendingStepTimer]);
 
+  const markTourSeen = React.useCallback(async () => {
+    if (didMarkTourSeenRef.current) return;
+    didMarkTourSeenRef.current = true;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ has_seen_tour: true, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      if (error) throw error;
+    } catch (error) {
+      didMarkTourSeenRef.current = false;
+      console.warn('[AppTour] mark tour seen failed:', error);
+    }
+  }, []);
+
   const completeTour = React.useCallback(() => {
     triggerTourCompleteHaptic();
     clearPendingStepTimer();
     setStep('COMPLETED');
-  }, [clearPendingStepTimer]);
+    void markTourSeen();
+  }, [clearPendingStepTimer, markTourSeen]);
+
+  const skipTour = React.useCallback(() => {
+    void Haptics.selectionAsync();
+    clearPendingStepTimer();
+    setStep('COMPLETED');
+    void markTourSeen();
+  }, [clearPendingStepTimer, markTourSeen]);
 
   const resetTourState = React.useCallback(() => {
     clearPendingStepTimer();
@@ -122,9 +152,10 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
       goToStep,
       nextStep,
       completeTour,
+      skipTour,
       resetTourState,
     }),
-    [completeTour, goToStep, nextStep, resetTourState, startTour, step]
+    [completeTour, goToStep, nextStep, resetTourState, skipTour, startTour, step]
   );
 
   return <AppTourContext.Provider value={value}>{children}</AppTourContext.Provider>;

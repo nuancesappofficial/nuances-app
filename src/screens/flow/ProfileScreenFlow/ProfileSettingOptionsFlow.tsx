@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Image,
+  InteractionManager,
   PanResponder,
   Pressable,
   ScrollView,
@@ -57,12 +58,16 @@ import {
 } from '../../../theme/colors';
 import { STICKER_FONT_OPTIONS, type StickerFontKey } from '../../../theme/stickerFonts';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { getRevenueCatOfferingSummary, isRevenueCatConfigured } from '@services/subscription/revenueCat';
+import {
+  getRevenueCatOfferingSummary,
+  isRevenueCatConfigured,
+  type RevenueCatPackageSummary,
+} from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { supabase } from '@services/supabase/client';
 
 type SettingOptionKind = 'ai' | 'voice' | 'font' | 'main' | 'membership';
-type MembershipBillingPlan = 'weekly' | 'monthly' | 'yearly';
+type MembershipBillingPlan = string;
 
 type Props = {
   navigation: any;
@@ -266,6 +271,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const [newAlbumName, setNewAlbumName] = React.useState('');
   const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<string | null>(null);
   const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
+  const [membershipPackages, setMembershipPackages] = React.useState<RevenueCatPackageSummary[]>([]);
   const [membershipPlan, setMembershipPlan] = React.useState<MembershipBillingPlan>('monthly');
   const [savingMembership, setSavingMembership] = React.useState(false);
   const [membershipStatus, setMembershipStatus] = React.useState<'trial' | 'free' | 'premium'>('free');
@@ -281,65 +287,91 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const previewPanActiveRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (kind !== 'ai' && kind !== 'voice' && kind !== 'font' && kind !== 'main' && kind !== 'membership') {
+    if (
+      kind !== 'ai' &&
+      kind !== 'voice' &&
+      kind !== 'font' &&
+      kind !== 'main' &&
+      kind !== 'membership'
+    ) {
       navigation.goBack();
       return;
     }
 
-    void loadUserSettings()
-      .then(setSettings)
-      .catch((error) => {
-        console.error('[ProfileSettingOptions] load settings failed:', error);
-      });
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadUserSettings()
+        .then((nextSettings) => {
+          if (!cancelled) setSettings(nextSettings);
+        })
+        .catch((error) => {
+          console.error('[ProfileSettingOptions] load settings failed:', error);
+        });
+    });
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
   }, [kind, navigation]);
 
   React.useEffect(() => {
     if (kind !== 'membership') return;
     let cancelled = false;
-    void (async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user?.id) {
-          const snapshot = await SubscriptionService.getEntitlementSnapshot(user.id);
-          if (!cancelled) setMembershipStatus(snapshot.planType);
-        }
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (user?.id) {
+            const snapshot = await SubscriptionService.getEntitlementSnapshot(user.id);
+            if (!cancelled) setMembershipStatus(snapshot.planType);
+          }
 
-        if (!isRevenueCatConfigured()) {
-          if (!cancelled) setMembershipPriceLabel(null);
-          return;
-        }
+          if (!isRevenueCatConfigured()) {
+            if (!cancelled) setMembershipPriceLabel(null);
+            if (!cancelled) setMembershipPackages([]);
+            return;
+          }
 
-        const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
-        if (!cancelled) setMembershipPriceLabel(summary.priceLabel);
-      } catch (error) {
-        console.error('[ProfileSettingOptions] load membership failed:', error);
-      }
-    })();
+          const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
+          if (!cancelled) {
+            setMembershipPriceLabel(summary.priceLabel);
+            setMembershipPackages(summary.packages);
+            setMembershipPlan(summary.packageId || summary.packages[0]?.identifier || 'monthly');
+          }
+        } catch (error) {
+          console.error('[ProfileSettingOptions] load membership failed:', error);
+        }
+      })();
+    });
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, [kind]);
 
   React.useEffect(() => {
     if (kind !== 'main') return;
     let cancelled = false;
-    void (async () => {
-      try {
-        const [cards, prefs] = await Promise.all([
-          database.get<Card>('cards').query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc)).fetch(),
-          loadDeckAlbumPreferences(),
-        ]);
-        if (cancelled) return;
-        setMainScreenAlbums(buildDeckAlbums(cards, {}, prefs));
-      } catch (error) {
-        console.error('[ProfileSettingOptions] load main screen albums failed:', error);
-        if (!cancelled) setMainScreenAlbums([]);
-      }
-    })();
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        try {
+          const [cards, prefs] = await Promise.all([
+            database.get<Card>('cards').query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc)).fetch(),
+            loadDeckAlbumPreferences(),
+          ]);
+          if (cancelled) return;
+          setMainScreenAlbums(buildDeckAlbums(cards, {}, prefs));
+        } catch (error) {
+          console.error('[ProfileSettingOptions] load main screen albums failed:', error);
+          if (!cancelled) setMainScreenAlbums([]);
+        }
+      })();
+    });
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, [kind]);
 
@@ -479,7 +511,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
         return;
       }
-      const snapshot = await SubscriptionService.purchasePremium(user.id);
+      const packageIdentifier =
+        membershipPackages.find((item) => item.identifier === membershipPlan)?.identifier || null;
+      const snapshot = await SubscriptionService.purchasePremium(user.id, packageIdentifier);
       setMembershipStatus(snapshot.planType);
       Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
     } catch (error) {
@@ -488,7 +522,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     } finally {
       setSavingMembership(false);
     }
-  }, [savingMembership]);
+  }, [membershipPackages, membershipPlan, savingMembership]);
 
   const handleRestoreMembership = React.useCallback(async () => {
     if (savingMembership) return;
@@ -784,7 +818,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     }
 
     return [];
-  }, [handleSelectFont, handleSelectLanguage, handleSelectVoice, kind, palette.textOnContainer, settings, visibleTTSVoiceOptions]);
+  }, [
+    handleSelectFont,
+    handleSelectLanguage,
+    handleSelectVoice,
+    kind,
+    palette.textOnContainer,
+    settings,
+    visibleTTSVoiceOptions,
+  ]);
 
   const previewSlots = React.useMemo(
     () =>
@@ -983,11 +1025,22 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       title: string;
       price: string;
       perDay: string;
-    }> = [
-      { key: 'weekly', title: 'Weekly', price: '$4.99', perDay: '$0.71/day' },
-      { key: 'monthly', title: 'Monthly', price: membershipPriceLabel || '$9.99', perDay: '$0.33/day' },
-      { key: 'yearly', title: 'Yearly', price: '$39.99', perDay: '$0.11/day' },
-    ];
+    }> =
+      membershipPackages.length > 0
+        ? membershipPackages.map((item) => ({
+            key: item.identifier,
+            title: item.title || item.packageType || 'Premium',
+            price: item.priceLabel || membershipPriceLabel || 'Premium',
+            perDay: item.subscriptionPeriod || item.description || 'Auto-renews unless canceled',
+          }))
+        : [
+            {
+              key: 'current',
+              title: 'Premium',
+              price: membershipPriceLabel || 'Premium',
+              perDay: 'Auto-renews unless canceled',
+            },
+          ];
 
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
@@ -1051,8 +1104,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               </View>
 
               <View style={styles.membershipPlanGrid}>
-                {planItems.map((plan) => {
-                  const selected = membershipPlan === plan.key;
+                {planItems.map((plan, index) => {
+                  const hasSelectedPlan = planItems.some((item) => item.key === membershipPlan);
+                  const selected = membershipPlan === plan.key || (!hasSelectedPlan && index === 0);
                   return (
                     <MembershipPlanOption
                       key={plan.key}
@@ -1540,6 +1594,16 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  optionTextStack: {
+    flex: 1,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  optionDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
   },
   membershipRestoreButton: {
     minWidth: 64,

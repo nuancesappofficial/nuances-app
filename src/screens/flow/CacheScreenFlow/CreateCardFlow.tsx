@@ -26,7 +26,15 @@ import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
 import SubscriptionService from '@services/subscription/SubscriptionService';
-import { DEFAULT_USER_SETTINGS, loadUserSettings } from '@services/settings/userSettings';
+import {
+  AI_BREAKDOWN_MODE_OPTIONS,
+  DEFAULT_USER_SETTINGS,
+  getAIBreakdownModeLabel,
+  loadUserSettings,
+  normalizeAIBreakdownMode,
+  saveUserSettings,
+  type AIBreakdownMode,
+} from '@services/settings/userSettings';
 import { extractTextFromImage } from '@services/ocr/ocrService';
 import { getLocalPhoneticTranscription } from '@services/pronunciation/localPhonetics';
 import { supabase } from '@services/supabase/client';
@@ -222,6 +230,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [isOcrRunning, setIsOcrRunning] = React.useState(false);
   const [ocrError, setOcrError] = React.useState<string | null>(null);
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState(DEFAULT_USER_SETTINGS.aiReplyLanguage);
+  const [aiBreakdownMode, setAiBreakdownMode] = React.useState<AIBreakdownMode>(
+    DEFAULT_USER_SETTINGS.personalization.aiBreakdownMode
+  );
   const sourceText = React.useMemo(
     () => (ocrSourceText.trim() ? ocrSourceText : baseSourceText),
     [baseSourceText, ocrSourceText]
@@ -245,6 +256,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         const settings = await loadUserSettings();
         if (!cancelled) {
           setAiReplyLanguage(settings.aiReplyLanguage);
+          setAiBreakdownMode(normalizeAIBreakdownMode(settings.personalization.aiBreakdownMode));
         }
       } catch (error) {
         console.error('[CreateCard] load ai reply language failed:', error);
@@ -253,6 +265,42 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const handleSelectAIBreakdownMode = React.useCallback(async (mode: AIBreakdownMode) => {
+    const nextMode = normalizeAIBreakdownMode(mode);
+    setAiBreakdownMode(nextMode);
+
+    try {
+      const settings = await loadUserSettings();
+      await saveUserSettings({
+        ...settings,
+        personalization: {
+          ...settings.personalization,
+          aiBreakdownMode: nextMode,
+        },
+      });
+    } catch (error) {
+      console.error('[CreateCard] save AI mode failed:', error);
+    }
+
+    void (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user?.id) return;
+        await supabase
+          .from('profiles')
+          .update({
+            ai_breakdown_mode: nextMode,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+      } catch (error) {
+        console.error('[CreateCard] sync AI mode profile failed:', error);
+      }
+    })();
   }, []);
 
   const [selectedWords, setSelectedWords] = React.useState<string[]>([]);
@@ -502,6 +550,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
         const generated = await generateContentForWord(word, sentenceForCard, {
           replyLanguage: aiReplyLanguage,
+          aiBreakdownMode,
         });
         triggerBuzzHaptic();
         const resolvedDisplayWord =
@@ -527,6 +576,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           manualMode: false,
           addedToDeck: true,
           selectedAlbumIds: [],
+          aiBreakdownMode,
+          tags: generated.tags || [],
         };
 
         setGeneratingCards((prev) =>
@@ -568,7 +619,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         return true;
       }
     },
-    [aiReplyLanguage, appTour.step, effectiveGenerationMode, openMembershipPaywall, runCardRevealSequence, sourceText]
+    [aiBreakdownMode, aiReplyLanguage, appTour.step, effectiveGenerationMode, openMembershipPaywall, runCardRevealSequence, sourceText]
   );
 
   const beginGenerate = React.useCallback(async () => {
@@ -788,7 +839,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               .map((id) => albumIdToCategoryTag[id])
               .filter((tag): tag is string => Boolean(tag));
             const tags = Array.from(
-              new Set([cachedItem.sourceApp, 'create-flow', ...albumTags, ...categoryTags].filter(Boolean) as string[])
+              new Set([
+                cachedItem.sourceApp,
+                'create-flow',
+                cardDraft.aiBreakdownMode ? `ai_mode:${cardDraft.aiBreakdownMode}` : null,
+                ...(cardDraft.tags || []),
+                ...albumTags,
+                ...categoryTags,
+              ].filter(Boolean) as string[])
             );
             card.tags = tags.length > 0 ? tags : undefined;
             card.sourceApp = cachedItem.sourceApp;
@@ -844,12 +902,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
       if (appTour.step === 'STEP_7_SAVE_SAMPLE' && createdCardIds.length > 0) {
         appTour.nextStep();
-        navigation.navigate('CardDetail', {
-          cardId: createdCardIds[0],
-          cardIds: createdCardIds,
-          albumName: 'Nuances Tour',
-          headerTitle: 'Nuances Tour',
-        });
+        tabSwipeContext?.goToTab(0, { animation: 'slide', durationMs: 620 });
       } else {
         goToCacheHome();
       }
@@ -1052,6 +1105,57 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
         {!hasStarted && completedCards.length === 0 ? (
           <View>
+            {effectiveGenerationMode !== 'manual' ? (
+              <View
+                style={[
+                  styles.aiModeToggleWrap,
+                  {
+                    backgroundColor: palette.containerBg,
+                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                    shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                    shadowOpacity: isLight ? 0.05 : 0.14,
+                  },
+                ]}
+              >
+                <View style={styles.aiModeToggleHeader}>
+                  <Text style={[styles.aiModeToggleTitle, { color: palette.secondaryText }]}>
+                    AI mode
+                  </Text>
+                  <Text style={[styles.aiModeToggleSummary, { color: palette.textOnContainer }]}>
+                    {getAIBreakdownModeLabel(aiBreakdownMode)}
+                  </Text>
+                </View>
+                <View style={styles.aiModeToggleOptions}>
+                  {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
+                    const isActive = option.value === aiBreakdownMode;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={({ pressed }) => [
+                          styles.aiModeToggleOption,
+                          {
+                            backgroundColor: isActive ? MODAL_CTA_COLOR : palette.modalOptionBg,
+                            borderColor: isActive ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
+                          },
+                          pressed ? styles.pressableChipPressed : null,
+                        ]}
+                        onPress={() => void handleSelectAIBreakdownMode(option.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.aiModeToggleOptionText,
+                            { color: isActive ? TEXT_ON_CTA : palette.textOnContainer },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
             {selectedWords.length > 0 ? (
               <View style={styles.selectedSummary}>
                 <Text style={[styles.selectedSummaryText, { color: MODAL_CTA_COLOR }]}>
@@ -1369,6 +1473,49 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  aiModeToggleWrap: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 10,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  aiModeToggleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  aiModeToggleTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  aiModeToggleSummary: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  aiModeToggleOptions: {
+    flexDirection: 'row',
+    gap: 7,
+  },
+  aiModeToggleOption: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  aiModeToggleOptionText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   selectedSummary: {
     marginBottom: 8,

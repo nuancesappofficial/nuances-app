@@ -95,6 +95,7 @@ export async function generateCardContent(
 }> {
   try {
     const replyLanguage = normalizeOptionalString(personalization?.replyLanguage);
+    const aiBreakdownMode = normalizeOptionalString(personalization?.aiBreakdownMode);
     const localPhonetic = await getLocalPhoneticTranscription(targetWord);
     console.log(
       `[Phonetic] generate_card target="${targetWord}" source=${localPhonetic ? 'local' : 'api_fallback'}`
@@ -105,6 +106,7 @@ export async function generateCardContent(
         originalSentence: string;
         includePronunciation?: boolean;
         replyLanguage?: string;
+        aiBreakdownMode?: string;
       },
       {
       normalizedTargetWord?: string;
@@ -135,6 +137,7 @@ export async function generateCardContent(
       originalSentence,
       includePronunciation: !localPhonetic,
       replyLanguage,
+      aiBreakdownMode,
     });
 
     const resolvedHeadword = normalizeOptionalString(

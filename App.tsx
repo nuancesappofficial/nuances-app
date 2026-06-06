@@ -52,6 +52,11 @@ import {
 } from './src/services/supabase/client';
 import SubscriptionService from './src/services/subscription/SubscriptionService';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
+import {
+  loadUserSettings,
+  normalizeAIBreakdownMode,
+  saveUserSettings,
+} from './src/services/settings/userSettings';
 import { SCREEN_BG, resolveThemeColors } from './src/theme/colors';
 
 // Check if we're running in Expo Go
@@ -100,6 +105,31 @@ async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
   }
 
   return data?.onboarding_completed === true;
+}
+
+async function syncAIBreakdownModeFromProfile(nextUserId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('ai_breakdown_mode')
+    .eq('id', nextUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[Settings] ai mode profile sync failed:', error.message);
+    return;
+  }
+
+  if (!data?.ai_breakdown_mode) return;
+  const normalized = normalizeAIBreakdownMode(data.ai_breakdown_mode);
+  const settings = await loadUserSettings();
+  if (settings.personalization.aiBreakdownMode === normalized) return;
+  await saveUserSettings({
+    ...settings,
+    personalization: {
+      ...settings.personalization,
+      aiBreakdownMode: normalized,
+    },
+  });
 }
 
 function AuthGate({
@@ -404,6 +434,7 @@ export default function App() {
         const nextUserId = user?.id ?? null;
         setUserId(nextUserId);
         if (nextUserId) {
+          await syncAIBreakdownModeFromProfile(nextUserId);
           const completed = await withTimeout(
             checkOnboardingStatus(nextUserId),
             6000,
@@ -497,6 +528,7 @@ export default function App() {
           const nextUserId = user?.id ?? null;
           setUserId(nextUserId);
           if (nextUserId) {
+            await syncAIBreakdownModeFromProfile(nextUserId);
             const completed = await checkOnboardingStatus(nextUserId);
             setNeedsOnboarding(!completed);
           } else {
@@ -553,6 +585,7 @@ export default function App() {
             native_language: 'zh-TW',
             english_level: null,
             learning_goal: null,
+            ai_breakdown_mode: 'context',
             onboarding_completed: false,
             has_seen_tour: false,
             updated_at: new Date().toISOString(),
@@ -560,6 +593,14 @@ export default function App() {
           .eq('id', user.id);
 
         if (error) throw error;
+        const settings = await loadUserSettings();
+        await saveUserSettings({
+          ...settings,
+          personalization: {
+            ...settings.personalization,
+            aiBreakdownMode: 'context',
+          },
+        });
 
         setUserId(user.id);
         setAllowOfflineAccess(false);

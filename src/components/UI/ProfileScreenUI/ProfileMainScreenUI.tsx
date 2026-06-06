@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   FlatList,
@@ -60,6 +61,13 @@ export type HeatMapMonth = {
   days: HeatMapDay[];
 };
 
+export type MembershipPackageOption = {
+  identifier: string;
+  title: string;
+  priceLabel: string;
+  description: string;
+};
+
 type Props = {
   overlayMode?: boolean;
   title: string;
@@ -71,21 +79,24 @@ type Props = {
   entitlementMode: EntitlementMode;
   savingEntitlement: boolean;
   membershipPriceLabel?: string | null;
+  membershipPackages?: MembershipPackageOption[];
   membershipModalVisible: boolean;
   mainScreenAlbumGridCount: MainScreenAlbumGridCount;
   mainScreenWordPopEnabled: boolean;
+  isDeletingAccount: boolean;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   stickerFontKey: StickerFontKey;
   onPressUploadProfilePic: () => void;
   onOpenMembershipModal: () => void;
   onCloseMembershipModal: () => void;
-  onUpgradeMembership: () => void;
+  onUpgradeMembership: (packageIdentifier?: string | null) => void;
   onRestoreMembership: () => void;
   devBypassEnabled?: boolean;
   onDevSetMembership?: (mode: 'free' | 'trial' | 'premium') => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
+  onDeleteAccount: () => void;
   onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font' | 'main') => void;
   onPressBack: () => void;
   onPressMenu: () => void;
@@ -351,9 +362,11 @@ export default function ProfileMainScreenUI({
   entitlementMode,
   savingEntitlement,
   membershipPriceLabel,
+  membershipPackages = [],
   membershipModalVisible,
   mainScreenAlbumGridCount,
   mainScreenWordPopEnabled,
+  isDeletingAccount,
   aiReplyLanguage,
   ttsVoice,
   stickerFontKey,
@@ -364,6 +377,7 @@ export default function ProfileMainScreenUI({
   onRestoreMembership,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
+  onDeleteAccount,
   onOpenSettingsOption,
   onPressBack,
   onPressMenu,
@@ -382,6 +396,20 @@ export default function ProfileMainScreenUI({
   const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
+  const visibleMembershipPackages = React.useMemo<MembershipPackageOption[]>(
+    () =>
+      membershipPackages.length > 0
+        ? membershipPackages
+        : [
+            {
+              identifier: 'current',
+              title: 'Premium',
+              priceLabel: membershipPriceLabel || 'Premium',
+              description: 'Auto-renews unless canceled',
+            },
+          ],
+    [membershipPackages, membershipPriceLabel]
+  );
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
   const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
   const currentMonthIndexRef = React.useRef<number>(0);
@@ -733,12 +761,10 @@ export default function ProfileMainScreenUI({
     (kind: 'ai' | 'voice' | 'font' | 'main') => {
       if (optionNavigationLockRef.current) return;
       optionNavigationLockRef.current = true;
-      requestAnimationFrame(() => {
-        onOpenSettingsOption(kind);
-        setTimeout(() => {
-          optionNavigationLockRef.current = false;
-        }, 260);
-      });
+      onOpenSettingsOption(kind);
+      setTimeout(() => {
+        optionNavigationLockRef.current = false;
+      }, 420);
     },
     [onOpenSettingsOption]
   );
@@ -956,7 +982,7 @@ export default function ProfileMainScreenUI({
                 styles.settingsRow,
                 pressed ? { backgroundColor: palette.modalOptionBg } : null,
               ]}
-              onPressIn={() => triggerOpenSettingsOption('ai')}
+              onPress={() => triggerOpenSettingsOption('ai')}
             >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Language</Text>
               <View style={styles.settingsRowRight}>
@@ -975,7 +1001,7 @@ export default function ProfileMainScreenUI({
                 styles.settingsRow,
                 pressed ? { backgroundColor: palette.modalOptionBg } : null,
               ]}
-              onPressIn={() => triggerOpenSettingsOption('voice')}
+              onPress={() => triggerOpenSettingsOption('voice')}
             >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Voice</Text>
               <View style={styles.settingsRowRight}>
@@ -994,7 +1020,7 @@ export default function ProfileMainScreenUI({
                 styles.settingsRow,
                 pressed ? { backgroundColor: palette.modalOptionBg } : null,
               ]}
-              onPressIn={() => triggerOpenSettingsOption('font')}
+              onPress={() => triggerOpenSettingsOption('font')}
             >
               <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Font</Text>
               <View style={styles.settingsRowRight}>
@@ -1002,6 +1028,26 @@ export default function ProfileMainScreenUI({
                   {selectedStickerFont.label}
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+              </View>
+            </Pressable>
+
+            <View style={styles.settingsDivider} />
+
+            <Pressable
+              disabled={isDeletingAccount}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed && !isDeletingAccount ? { backgroundColor: palette.modalOptionBg } : null,
+              ]}
+              onPress={onDeleteAccount}
+            >
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+              <View style={styles.settingsRowRight}>
+                {isDeletingAccount ? (
+                  <ActivityIndicator color="#FF3B30" />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color="#FF3B30" style={styles.settingsRowIcon} />
+                )}
               </View>
             </Pressable>
           </View>
@@ -1071,38 +1117,36 @@ export default function ProfileMainScreenUI({
               </View>
 
               <View style={styles.membershipPlanGrid}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.membershipPlanCard,
-                    styles.membershipPlanCardSelected,
-                    pressed ? styles.membershipButtonPressed : null,
-                  ]}
-                  onPress={onUpgradeMembership}
-                  disabled={savingEntitlement}
-                >
-                  <View style={styles.membershipSelectedCheck}>
-                    <Ionicons name="checkmark" size={20} color="#071318" />
-                  </View>
-                  <Text style={styles.membershipPlanTitle}>Monthly</Text>
-                  <Text style={styles.membershipPlanPrice}>{membershipPriceLabel || '$9.99'}</Text>
-                  <Text style={styles.membershipPlanMeta}>Billed monthly</Text>
-                </Pressable>
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.membershipPlanCard,
-                    pressed ? styles.membershipButtonPressed : null,
-                  ]}
-                  onPress={onUpgradeMembership}
-                  disabled={savingEntitlement}
-                >
-                  <Text style={styles.membershipPlanTitleAlt}>Yearly</Text>
-                  <Text style={styles.membershipPlanPriceAlt}>Best value</Text>
-                  <View style={styles.membershipSavePill}>
-                    <Text style={styles.membershipSavePillText}>Save more</Text>
-                  </View>
-                  <Text style={styles.membershipPlanMetaAlt}>7-day free trial</Text>
-                </Pressable>
+                {visibleMembershipPackages.map((item, index) => {
+                  const selected = index === 0;
+                  return (
+                    <Pressable
+                      key={item.identifier}
+                      style={({ pressed }) => [
+                        styles.membershipPlanCard,
+                        selected ? styles.membershipPlanCardSelected : null,
+                        pressed ? styles.membershipButtonPressed : null,
+                      ]}
+                      onPress={() => onUpgradeMembership(item.identifier === 'current' ? null : item.identifier)}
+                      disabled={savingEntitlement}
+                    >
+                      {selected ? (
+                        <View style={styles.membershipSelectedCheck}>
+                          <Ionicons name="checkmark" size={20} color="#071318" />
+                        </View>
+                      ) : null}
+                      <Text style={selected ? styles.membershipPlanTitle : styles.membershipPlanTitleAlt}>
+                        {item.title}
+                      </Text>
+                      <Text style={selected ? styles.membershipPlanPrice : styles.membershipPlanPriceAlt}>
+                        {item.priceLabel}
+                      </Text>
+                      <Text style={selected ? styles.membershipPlanMeta : styles.membershipPlanMetaAlt}>
+                        {item.description || 'Auto-renews unless canceled'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <Pressable
@@ -1110,7 +1154,10 @@ export default function ProfileMainScreenUI({
                   styles.membershipActionPrimary,
                   pressed || savingEntitlement ? styles.membershipButtonPressed : null,
                 ]}
-                onPress={onUpgradeMembership}
+                onPress={() => {
+                  const firstIdentifier = visibleMembershipPackages[0]?.identifier;
+                  onUpgradeMembership(firstIdentifier === 'current' ? null : firstIdentifier || null);
+                }}
                 disabled={savingEntitlement}
               >
                 <Text style={styles.membershipActionPrimaryText}>
@@ -1714,6 +1761,11 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 1,
     marginLeft: 12,
+  },
+  deleteAccountText: {
+    color: '#FF3B30',
+    fontSize: 15,
+    fontWeight: '700',
   },
   settingsRowIcon: {
     width: 20,

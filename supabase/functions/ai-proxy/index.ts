@@ -83,12 +83,15 @@ type GenerateCardPayload = {
   originalSentence: string;
   includePronunciation?: boolean;
   replyLanguage?: string;
+  aiBreakdownMode?: string;
   learningGoal?: 'ielts' | 'casual' | 'professional' | string;
   proficiencyStandard?: string;
   proficiencyLevel?: string;
   domain?: string;
   tone?: string;
 };
+
+type AIBreakdownMode = 'short_punchy' | 'context' | 'deep_dive';
 
 type UsageSummaryPayload = {
   day?: string;
@@ -245,6 +248,43 @@ function resolveReplyLanguageMeta(input: unknown): {
   return { code: 'zh-TW', label: 'Traditional Chinese' };
 }
 
+function resolveAIBreakdownMode(input: unknown): AIBreakdownMode {
+  const normalized = sanitizeText(input, 40).toLowerCase();
+  if (normalized === 'short_punchy' || normalized === 'clarity') return 'short_punchy';
+  if (normalized === 'deep_dive' || normalized === 'mastery') return 'deep_dive';
+  return 'context';
+}
+
+function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel: string): string {
+  if (mode === 'short_punchy') {
+    return [
+      'AI mode: Clarity / short_punchy.',
+      `definition: 1-5 words in ${replyLanguageLabel}; direct translation or minimal explanation only.`,
+      'culturalBackground: maximum 1 very short sentence; use empty string if the context is self-explanatory.',
+      'frequentCollocations: return exactly 1 highly common collocation.',
+      'example: under 10 words.',
+    ].join(' ');
+  }
+
+  if (mode === 'deep_dive') {
+    return [
+      'AI mode: Mastery / deep_dive.',
+      `definition: comprehensive but still compact in ${replyLanguageLabel}; include subtle secondary meanings only when relevant.`,
+      'culturalBackground: use this existing string as the deep-dive area. Include nuance/tone, synonym contrast, helpful etymology or root origin, and usage warning when useful.',
+      'frequentCollocations: return exactly 2 effective collocations that show different contexts or structures.',
+      'example: a sophisticated or highly illustrative sentence that captures the target nuance.',
+    ].join(' ');
+  }
+
+  return [
+    'AI mode: Application / context.',
+    `definition: clear standard explanation in ${replyLanguageLabel}.`,
+    'culturalBackground: 1-2 sentences explaining why this word fits the specific context; mention formal/casual/slang when relevant.',
+    'frequentCollocations: return 1-2 practical collocations used in daily life.',
+    'example: natural conversational sentence demonstrating the primary use case.',
+  ].join(' ');
+}
+
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -288,19 +328,19 @@ function firstText(maxLen: number, ...values: unknown[]): string {
   return '';
 }
 
-function normalizeCollocations(value: unknown): string {
+function normalizeCollocations(value: unknown, limit = 2): string {
   if (Array.isArray(value)) {
     return value
       .map((item) => sanitizeText(item, 60))
       .filter(Boolean)
-      .slice(0, 2)
+      .slice(0, limit)
       .join(', ');
   }
   return sanitizeText(value, 180)
     .split(/[\n,;]+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 2)
+    .slice(0, limit)
     .join(', ');
 }
 
@@ -309,8 +349,9 @@ function buildStructuredContextExplanation(params: {
   targetWord: string;
   definition: string;
   originalSentence: string;
+  culturalBackgroundMaxChars?: number;
 }): string {
-  const { parsed, targetWord, definition, originalSentence } = params;
+  const { parsed, targetWord, definition, originalSentence, culturalBackgroundMaxChars = 240 } = params;
   const contextObject =
     parsed.contextualExplanation && typeof parsed.contextualExplanation === 'object' && !Array.isArray(parsed.contextualExplanation)
       ? parsed.contextualExplanation as Record<string, unknown>
@@ -333,7 +374,7 @@ function buildStructuredContextExplanation(params: {
     parsed.contextualExplanation,
   );
   const culturalBackground = firstText(
-    240,
+    culturalBackgroundMaxChars,
     parsed.context,
     parsed.culturalBackground,
     parsed.culturalContext,
@@ -485,6 +526,12 @@ function validateGenerateCardPayload(payload: unknown): string[] {
   }
   if (payload.replyLanguage !== undefined && typeof payload.replyLanguage !== 'string') {
     errors.push('payload.replyLanguage must be a string when provided');
+  }
+  if (
+    payload.aiBreakdownMode !== undefined &&
+    typeof payload.aiBreakdownMode !== 'string'
+  ) {
+    errors.push('payload.aiBreakdownMode must be a string when provided');
   }
   return errors;
 }
@@ -749,6 +796,8 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
   const targetWord = sanitizeText(payload.targetWord, MAX_WORD_CHARS);
   const originalSentence = sanitizeText(payload.originalSentence, MAX_SENTENCE_CHARS);
   const replyLanguage = resolveReplyLanguageMeta(payload.replyLanguage);
+  const aiBreakdownMode = resolveAIBreakdownMode(payload.aiBreakdownMode);
+  const modeInstruction = getAIBreakdownModeInstruction(aiBreakdownMode, replyLanguage.label);
 
   if (!targetWord || !originalSentence) {
     return jsonResponse({ error: 'targetWord and originalSentence are required' }, 400);
@@ -762,13 +811,16 @@ Return strict JSON with these exact keys:
 {
   "normalizedTargetWord": "base form or exact phrase with corrected spelling",
   "partOfSpeech": "noun | verb | adjective | adverb | phrase | slang | proper noun | other",
-  "definition": "what the target word means in this sentence in ${replyLanguage.label}; use minimal words that translate or explain it simply but correctly",
+  "definition": "what the target word means in this sentence in ${replyLanguage.label}; obey the selected AI mode length",
   "sentenceTranslation": "two lines: line 1 is the full original sentence from beginning to final punctuation with the target wrapped in natural quote marks for the source language; line 2 is the full ${replyLanguage.label} translation with the translated target wrapped in natural quote marks for ${replyLanguage.label}; never use square brackets",
-  "culturalBackground": "explain why the target word is used / a good fit in the original sentence, in ${replyLanguage.label}, max 30 words",
-  "frequentCollocations": ["1-2 short natural phrases in the source language"],
-  "example": "one short natural example sentence in the source language using the best collocation, max 18 words",
+  "culturalBackground": "explain why the target word is used / a good fit in the original sentence, in ${replyLanguage.label}; obey the selected AI mode depth",
+  "frequentCollocations": ["short natural phrases in the source language; count must follow selected AI mode"],
+  "example": "one natural example sentence in the source language using the best collocation; length must follow selected AI mode",
   "tags": ["max 3 short tags"]
 }
+
+Selected AI mode rules:
+${modeInstruction}
 
 Do not add introductions, markdown, bullet explanations, or extra keys.
 `;
@@ -782,6 +834,9 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     'Write example in the target/source language, not the reply language, because it is used as a learning example sentence.',
     'For sentenceTranslation, keep the whole sentence, not a fragment. Use language-appropriate quote marks such as English “...”, Traditional Chinese 「...」, Japanese 「...」, or Korean ‘...’. Do not use [brackets].',
     'Map output to flashcard UI sections: definition is the front meaning, sentenceTranslation is the front original/translation block, culturalBackground is the front Context section.',
+    'You must return a JSON object strictly matching the provided schema. DO NOT add any new keys, properties, nested objects, or extra arrays under any circumstances.',
+    'All tone, register, nuance, etymology, synonym contrast, and usage warning information MUST be seamlessly integrated into the existing culturalBackground string.',
+    modeInstruction,
     'Keep output compact. Avoid filler such as "This word means", "In this sentence", "The term", or "refers to" unless necessary for grammar.',
     'Always provide at least one usable collocation or short phrase in frequentCollocations. Prefer concrete, common combinations over isolated single words.',
     'Make the example sentence natural, short, different from the source sentence, and directly reusable by a learner.',
@@ -823,6 +878,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
           targetWord,
           originalSentence,
           replyLanguage: replyLanguage.code,
+          aiBreakdownMode,
           rawContentLength: rawBody.length,
           rawContentPreview: rawBody.slice(0, 2500),
         });
@@ -939,7 +995,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     : '需要更多上下文才能判定唯一意思';
   const safeDefinition = shouldForceAmbiguousOutput
     ? `此縮寫在此句脈絡可能有多種意思，${ambiguousHint}。`
-    : sanitizeText(parsed.definition || '', 180);
+    : sanitizeText(parsed.definition || '', aiBreakdownMode === 'deep_dive' ? 260 : 180);
   const safeContextualExplanation = shouldForceAmbiguousOutput
     ? sanitizeText(
       JSON.stringify({
@@ -954,6 +1010,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
       targetWord: safeNormalizedTargetWord || targetWord,
       definition: safeDefinition,
       originalSentence,
+      culturalBackgroundMaxChars: aiBreakdownMode === 'deep_dive' ? 520 : 240,
     });
 
   console.log('[ai-proxy][generate_card] disambiguation', {
@@ -966,6 +1023,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     confidence,
     alternatives,
     shouldForceAmbiguousOutput,
+    aiBreakdownMode,
     finalHeadword: safeNormalizedTargetWord,
   });
 
@@ -988,12 +1046,16 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
         parsed.frequentCollocations || 
         parsed['frequent_collocations'] || 
         parsed['collocations'] || 
-        parsed['Frequent collocations'] || ''
+        parsed['Frequent collocations'] || '',
+        aiBreakdownMode === 'deep_dive' ? 2 : 1
       ),
       phoneticTranscription: typeof (parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa) === 'string' 
         ? sanitizeText(parsed.phoneticTranscription || parsed.pronunciation || parsed.ipa, 120) 
         : null,
-      tags: Array.isArray(parsed.tags) ? parsed.tags : ['Vocabulary'],
+      tags: Array.from(new Set([
+        ...(Array.isArray(parsed.tags) ? parsed.tags : ['Vocabulary']),
+        `ai_mode:${aiBreakdownMode}`,
+      ].filter((tag) => typeof tag === 'string' && tag.trim()))),
     },
     meta: { modelUsed: usedModel, metrics: aiResponse?.metrics },
   });

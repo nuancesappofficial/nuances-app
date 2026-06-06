@@ -412,8 +412,8 @@ export const SubscriptionService = {
     });
   },
 
-  async purchasePremium(userId: string): Promise<EntitlementSnapshot> {
-    const customerInfo = await purchaseRevenueCatPremium(userId);
+  async purchasePremium(userId: string, packageIdentifier?: string | null): Promise<EntitlementSnapshot> {
+    const customerInfo = await purchaseRevenueCatPremium(userId, packageIdentifier);
     const settings = await loadUserSettings();
     await persistSettings({
       ...settings,

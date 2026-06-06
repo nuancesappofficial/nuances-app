@@ -24,6 +24,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import type Card from '@database/models/Card';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
+import { normalizeAIBreakdownMode } from '@services/settings/userSettings';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
@@ -267,19 +268,25 @@ function CardDetailCarouselCardUI({
     const replaced = raw.replace(reg, quotedWord);
     return replaced.includes(quotedWord) ? replaced : `${quotedWord}：${replaced}`;
   }, [contextSections.isStructured, sentenceTranslationRaw, item.definition, itemWord]);
+  const cardAIBreakdownMode = React.useMemo(() => {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    const rawModeTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith('ai_mode:'));
+    return normalizeAIBreakdownMode(rawModeTag?.replace('ai_mode:', ''));
+  }, [item.tags]);
+  const maxCollocationItems = cardAIBreakdownMode === 'deep_dive' ? 2 : 1;
   const collocationItems = React.useMemo(() => {
     const directItems = (item.frequentCollocations || '')
       .split(/[\n,;]+/)
       .map((phrase) => phrase.trim())
       .filter(Boolean)
-      .slice(0, 1);
+      .slice(0, maxCollocationItems);
     if (directItems.length > 0) return directItems;
     return buildFallbackCollocations({
       targetWord: itemWord,
       targetPhrase: item.targetPhrase,
       sourceSentence,
-    });
-  }, [item.frequentCollocations, item.targetPhrase, itemWord, sourceSentence]);
+    }).slice(0, maxCollocationItems);
+  }, [item.frequentCollocations, item.targetPhrase, itemWord, maxCollocationItems, sourceSentence]);
   const frontContentScale = React.useMemo(() => {
     const totalChars =
       (contextSections.isStructured ? 0 : sourceSentence?.length || 0) +
@@ -744,18 +751,21 @@ function CardDetailCarouselCardUI({
                   {collocationItems.length > 0 ? (
                     <View style={styles.referenceCollocationSection}>
                       <Text style={[localStyles.sectionLabel, { color: ui.secondaryText }]}>Collocation</Text>
-                      <Text
-                        style={[
-                          styles.referenceCollocationItem,
-                          {
-                            color: ui.primaryText,
-                            fontSize: backTextFontSize,
-                            lineHeight: backTextLineHeight,
-                          },
-                        ]}
-                      >
-                        {`• ${collocationItems[0]}`}
-                      </Text>
+                      {collocationItems.map((phrase) => (
+                        <Text
+                          key={phrase}
+                          style={[
+                            styles.referenceCollocationItem,
+                            {
+                              color: ui.primaryText,
+                              fontSize: backTextFontSize,
+                              lineHeight: backTextLineHeight,
+                            },
+                          ]}
+                        >
+                          {`• ${phrase}`}
+                        </Text>
+                      ))}
                     </View>
                   ) : null}
 
