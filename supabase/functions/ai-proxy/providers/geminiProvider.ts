@@ -51,7 +51,7 @@ export function routeGeminiModelForAction(params: {
     };
   }
 
-  const fast = GEMINI_ALLOWED_MODELS[0] ?? 'gemini-2.0-flash-lite';
+  const fast = GEMINI_ALLOWED_MODELS[0] ?? 'gemini-2.5-flash-lite';
   const balanced = GEMINI_ALLOWED_MODELS[Math.min(1, GEMINI_ALLOWED_MODELS.length - 1)] ?? fast;
   const quality = GEMINI_ALLOWED_MODELS[Math.min(2, GEMINI_ALLOWED_MODELS.length - 1)] ?? balanced;
 

@@ -64,6 +64,8 @@ export type Profile = {
   subscription_expires_at: string | null;
   trial_started_at: string | null;
   trial_ends_at: string | null;
+  pronunciation_used_today: number;
+  last_reset_date: string;
   created_at: string;
   updated_at: string;
 };
@@ -83,6 +85,8 @@ export type ProfileInsert = {
   subscription_expires_at?: string | null;
   trial_started_at?: string | null;
   trial_ends_at?: string | null;
+  pronunciation_used_today?: number;
+  last_reset_date?: string;
 };
 
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at'>>;

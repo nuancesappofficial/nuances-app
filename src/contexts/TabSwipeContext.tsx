@@ -5,13 +5,15 @@ export type SwipeExclusionRange = {
   bottom: number;
 };
 
+export type MembershipReturnTarget = 'settings' | 'create-card';
+
 export type TabSwipeContextValue = {
   setCacheSwipeExclusionRange: (range: SwipeExclusionRange | null) => void;
   swipeLockRef: React.MutableRefObject<boolean>;
   setPaginationEnabled: (enabled: boolean) => void;
   setPagerScrollEnabled: (enabled: boolean) => void;
   goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => void;
-  openMembershipPaywall: () => void;
+  openMembershipPaywall: (options?: { returnTo?: MembershipReturnTarget }) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

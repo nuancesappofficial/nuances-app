@@ -40,7 +40,6 @@ import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import { AppTourProvider } from './src/contexts/AppTourContext';
-import { purgeExpiredFreeCacheOnForeground } from './src/database/cacheLifecycle';
 import {
   completeOAuthFromUrl,
   getCurrentUser,
@@ -50,18 +49,24 @@ import {
   signOut,
   supabase,
 } from './src/services/supabase/client';
+import { enforceLocalDataScopeForUser } from './src/services/auth/localDataScope';
 import SubscriptionService from './src/services/subscription/SubscriptionService';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
 import {
   loadUserSettings,
   normalizeAIBreakdownMode,
+  normalizeLearningLanguages,
   saveUserSettings,
 } from './src/services/settings/userSettings';
+import { prepareOCRLanguagesForLearningLanguages } from './src/services/ocr/languagePacks';
+import { installUserMistakeAlertLogger } from './src/services/logging/userMistakeLog';
 import { SCREEN_BG, resolveThemeColors } from './src/theme/colors';
+import { tUI } from './src/i18n/uiLanguage';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
 WebBrowser.maybeCompleteAuthSession();
+installUserMistakeAlertLogger();
 const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
@@ -107,29 +112,37 @@ async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
   return data?.onboarding_completed === true;
 }
 
-async function syncAIBreakdownModeFromProfile(nextUserId: string): Promise<void> {
+async function syncProfileSettingsToLocal(nextUserId: string): Promise<void> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('ai_breakdown_mode')
+    .select('ai_breakdown_mode, target_language')
     .eq('id', nextUserId)
     .maybeSingle();
 
   if (error) {
-    console.warn('[Settings] ai mode profile sync failed:', error.message);
+    console.warn('[Settings] profile settings sync failed:', error.message);
     return;
   }
 
-  if (!data?.ai_breakdown_mode) return;
-  const normalized = normalizeAIBreakdownMode(data.ai_breakdown_mode);
+  if (!data?.ai_breakdown_mode && !data?.target_language) return;
+  const normalizedMode = normalizeAIBreakdownMode(data.ai_breakdown_mode);
+  const normalizedLearningLanguages = normalizeLearningLanguages(data.target_language);
   const settings = await loadUserSettings();
-  if (settings.personalization.aiBreakdownMode === normalized) return;
-  await saveUserSettings({
+  const shouldUpdateMode = settings.personalization.aiBreakdownMode !== normalizedMode;
+  const shouldUpdateLearningLanguages =
+    normalizedLearningLanguages.join(',') !== settings.learningLanguages.join(',');
+  if (!shouldUpdateMode && !shouldUpdateLearningLanguages) return;
+
+  const nextSettings = {
     ...settings,
+    learningLanguages: normalizedLearningLanguages,
     personalization: {
       ...settings.personalization,
-      aiBreakdownMode: normalized,
+      aiBreakdownMode: normalizedMode,
     },
-  });
+  };
+  await saveUserSettings(nextSettings);
+  void prepareOCRLanguagesForLearningLanguages(normalizedLearningLanguages);
 }
 
 function AuthGate({
@@ -429,12 +442,13 @@ export default function App() {
         const { user } = await withTimeout(getCurrentUser(), 6000, 'getCurrentUser');
         await SubscriptionService.ensureTrialEnrollment();
         if (user?.id) {
+          await enforceLocalDataScopeForUser(user.id);
           await SubscriptionService.syncEntitlements(user.id);
         }
         const nextUserId = user?.id ?? null;
         setUserId(nextUserId);
         if (nextUserId) {
-          await syncAIBreakdownModeFromProfile(nextUserId);
+          await syncProfileSettingsToLocal(nextUserId);
           const completed = await withTimeout(
             checkOnboardingStatus(nextUserId),
             6000,
@@ -476,6 +490,8 @@ export default function App() {
   const checkForAppVersionUpdate = React.useCallback(async () => {
     const status = await checkAppVersionUpdateStatus();
     if (!status) return;
+    const settings = await loadUserSettings().catch(() => null);
+    const uiLanguage = settings?.uiLanguage ?? 'en';
 
     const promptKey = [
       status.currentVersion,
@@ -488,23 +504,34 @@ export default function App() {
 
     const openUpdateUrl = () => {
       if (!status.updateUrl) {
-        Alert.alert('Update unavailable', 'The App Store update link is not configured yet.');
+        Alert.alert(
+          tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
+          tUI(uiLanguage, 'appVersion.updateUnavailableNoUrl')
+        );
         return;
       }
       void Linking.openURL(status.updateUrl).catch((error) => {
         console.warn('[AppVersion] failed to open update URL:', error);
-        Alert.alert('Update unavailable', 'Unable to open the App Store update page. Please try again later.');
+        Alert.alert(
+          tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
+          tUI(uiLanguage, 'appVersion.updateUnavailableOpenFailed')
+        );
       });
     };
 
     const actions = status.isRequired
-      ? [{ text: 'Update App', onPress: openUpdateUrl }]
+      ? [{ text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl }]
       : [
-          { text: 'Later', style: 'cancel' as const },
-          { text: 'Update App', onPress: openUpdateUrl },
+          { text: tUI(uiLanguage, 'appVersion.laterAction'), style: 'cancel' as const },
+          { text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl },
         ];
 
-    Alert.alert(status.title, status.message, actions, { cancelable: !status.isRequired });
+    Alert.alert(
+      tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredTitle' : 'appVersion.updateAvailableTitle'),
+      tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody'),
+      actions,
+      { cancelable: !status.isRequired }
+    );
   }, []);
 
   useEffect(() => {
@@ -523,12 +550,13 @@ export default function App() {
           const { user } = await getCurrentUser();
           await SubscriptionService.ensureTrialEnrollment();
           if (user?.id) {
+            await enforceLocalDataScopeForUser(user.id);
             await SubscriptionService.syncEntitlements(user.id);
           }
           const nextUserId = user?.id ?? null;
           setUserId(nextUserId);
           if (nextUserId) {
-            await syncAIBreakdownModeFromProfile(nextUserId);
+            await syncProfileSettingsToLocal(nextUserId);
             const completed = await checkOnboardingStatus(nextUserId);
             setNeedsOnboarding(!completed);
           } else {
@@ -664,9 +692,6 @@ export default function App() {
         void checkForAppVersionUpdate();
         void SubscriptionService.syncEntitlements(userId).catch((error) => {
           console.error('[Subscription] Foreground entitlement sync failed:', error);
-        });
-        void purgeExpiredFreeCacheOnForeground(userId).catch((error) => {
-          console.error('[CacheLifecycle] Foreground cleanup failed:', error);
         });
       }
       if (wasBackground && nextAppState === 'active' && !userId) {

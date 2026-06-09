@@ -374,6 +374,10 @@ function CardDetailCarouselCardUI({
     if (!isActiveCard) return;
     flipAnim.value = withTiming(flipAnim.value === 0 ? 1 : 0, { duration: 400 });
   };
+  const handleTourFlipPress = () => {
+    toggleFlip();
+    onTourTargetPress?.();
+  };
   const handleOpenHeroFullscreen = React.useCallback(
     (event: GestureResponderEvent) => {
       const fallbackOrigin = {
@@ -504,7 +508,13 @@ function CardDetailCarouselCardUI({
 
   return (
     <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
-      <Pressable style={styles.detailCardShell} onPress={toggleFlip}>
+      <TutorialSpotlight
+        active={tourStep === 'STEP_8_FLICK_CARD' && isActiveCard}
+        tooltip="Tap the card to flip."
+        onSpotlightPress={handleTourFlipPress}
+        showSkip={false}
+      >
+        <Pressable style={styles.detailCardShell} onPress={toggleFlip}>
         <View style={[styles.detailCardScroll, styles.detailCardScrollContent, { flex: 1 }]}>
           <View style={{ flex: 1, width: '100%', position: 'relative' }}>
             
@@ -841,7 +851,8 @@ function CardDetailCarouselCardUI({
 
           </View>
         </View>
-      </Pressable>
+        </Pressable>
+      </TutorialSpotlight>
       <Modal
         visible={isSharePickerVisible}
         transparent

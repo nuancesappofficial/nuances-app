@@ -244,6 +244,34 @@ eas build --profile development --platform android
 eas build --profile production --platform all
 ```
 
+### Cloud iOS Build via GitHub Actions
+
+This repo includes `.github/workflows/eas-ios-build.yml`.
+
+Required one-time setup:
+
+```bash
+# 1. Log in locally once
+npx eas-cli login
+
+# 2. Create a GitHub Actions token
+npx eas-cli token:create
+```
+
+Then add the generated token to GitHub:
+
+```text
+GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+Name: EXPO_TOKEN
+Value: <token from eas token:create>
+```
+
+Behavior:
+
+- Push to `main` starts an iOS `production` EAS cloud build.
+- `Actions -> EAS iOS Build -> Run workflow` lets you choose `development`, `preview`, or `production`.
+- In manual mode, enable `auto_submit` to submit the latest successful production build to App Store Connect / TestFlight.
+
 ## 🤝 貢獻指南
 
 1. 閱讀 `.cursorrules` 了解開發規範

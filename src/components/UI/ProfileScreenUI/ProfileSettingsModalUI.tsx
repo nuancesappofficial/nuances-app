@@ -58,6 +58,7 @@ type Props = {
   renderAsStaticPage?: boolean;
   membershipLabel: 'Trial' | 'Free' | 'Premium';
   aiReplyLanguage: AIReplyLanguage;
+  ttsVoiceLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   wordPopSlideMs: WordPopSlideMs;
   onClose: () => void;
@@ -77,6 +78,7 @@ export default function ProfileSettingsModalUI({
   renderAsStaticPage = false,
   membershipLabel,
   aiReplyLanguage,
+  ttsVoiceLanguage,
   ttsVoice,
   wordPopSlideMs,
   onClose,
@@ -150,9 +152,9 @@ export default function ProfileSettingsModalUI({
   const visibleTTSVoiceOptions = React.useMemo(
     () =>
       TTS_VOICE_OPTIONS.filter((option) =>
-        isTTSVoiceCompatibleWithAIReplyLanguage(option.code, aiReplyLanguage)
+        isTTSVoiceCompatibleWithAIReplyLanguage(option.code, ttsVoiceLanguage)
       ),
-    [aiReplyLanguage]
+    [ttsVoiceLanguage]
   );
   const selectedVoiceLabel = React.useMemo(
     () =>

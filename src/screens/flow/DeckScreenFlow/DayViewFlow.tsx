@@ -5,6 +5,7 @@ import { SCREEN_BG } from '../../../theme/colors';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 
 type Props = {
   navigation: any;
@@ -56,23 +57,34 @@ export default function DayViewScreen({ navigation, route }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const load = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAllCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setAllCards(data);
+        sub = queryCards.observe().subscribe((nextData) => setAllCards(nextData));
       } catch (error) {
         console.error('[DayView] load cards failed:', error);
-        setAllCards([]);
+        if (!cancelled) setAllCards([]);
       }
     };
 
     void load();
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   const day = route.params?.day || todayDayKey();

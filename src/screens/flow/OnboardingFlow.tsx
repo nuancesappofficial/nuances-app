@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import Svg, { Text as SvgText } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeInRight,
@@ -33,14 +34,21 @@ import {
 } from '../../theme/colors';
 import { supabase } from '../../services/supabase/client';
 import {
+  LEARNING_LANGUAGE_OPTIONS,
+  getDefaultTTSVoiceForLearningLanguages,
+  getPrimaryAIReplyLanguageForLearningLanguages,
+  type LearningLanguage,
   loadUserSettings,
   normalizeAIBreakdownMode,
+  normalizeLearningLanguages,
   saveUserSettings,
 } from '../../services/settings/userSettings';
+import { prepareOCRLanguagesForLearningLanguages } from '../../services/ocr/languagePacks';
 
-type OnboardingStep = 1 | 2 | 3;
+type OnboardingStep = 1 | 2 | 3 | 4;
 
 type OnboardingAnswers = {
+  learningLanguages: LearningLanguage[];
   captureHabit: string;
   stumbleContext: string;
   breakdownDepth: string;
@@ -95,13 +103,14 @@ const EMPTY_SELECTED_BY_STEP: Record<OnboardingStep, string[]> = {
   1: [],
   2: [],
   3: [],
+  4: [],
 };
 
 const QUESTION_TRANSITION_IN_MS = 360;
 const QUESTION_TRANSITION_OUT_MS = 260;
 
 function getProgressLabel(step: OnboardingStep): string {
-  return `${step}/3`;
+  return `${step}/4`;
 }
 
 function getOnboardingErrorMessage(error: unknown): string {
@@ -136,18 +145,142 @@ function mapStumbleContextToLearningGoal(value: string): string {
 
 function getQuestionForStep(step: OnboardingStep): string {
   if (step === 1) {
-    return 'What do you do when you see a word you don\'t know?';
+    return 'What languages do you want to learn?';
   }
   if (step === 2) {
+    return 'What do you do when you see a word you don\'t know?';
+  }
+  if (step === 3) {
     return 'Where do you see these words?';
   }
   return 'How thorough do you want us to be?';
 }
 
 function getAnswerKeyForStep(step: OnboardingStep): keyof OnboardingAnswers {
-  if (step === 1) return 'captureHabit';
-  if (step === 2) return 'stumbleContext';
+  if (step === 1) return 'learningLanguages';
+  if (step === 2) return 'captureHabit';
+  if (step === 3) return 'stumbleContext';
   return 'breakdownDepth';
+}
+
+function LanguageWordSticker({
+  option,
+  isSelected,
+  onPress,
+}: {
+  option: (typeof LEARNING_LANGUAGE_OPTIONS)[number];
+  isSelected: boolean;
+  onPress: () => void;
+}) {
+  const colorScheme = useColorScheme();
+  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const selectedScale = useSharedValue(isSelected ? 1.06 : 1);
+  const pressScale = useSharedValue(1);
+
+  React.useEffect(() => {
+    selectedScale.value = withSpring(isSelected ? 1.06 : 1, { damping: 13, stiffness: 190, mass: 0.85 });
+  }, [isSelected, selectedScale]);
+
+  const stickerStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: selectedScale.value * pressScale.value }],
+  }));
+
+  const handlePressIn = React.useCallback(() => {
+    pressScale.value = withSpring(0.96, { damping: 18, stiffness: 360, mass: 0.75 });
+  }, [pressScale]);
+
+  const handlePressOut = React.useCallback(() => {
+    pressScale.value = withSpring(1, { damping: 16, stiffness: 420, mass: 0.75 });
+  }, [pressScale]);
+
+  return (
+    <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut} style={styles.languageStickerPressable}>
+      <Animated.View
+        style={[
+          styles.languageStickerGroup,
+          {
+            opacity: isSelected ? 1 : 0.82,
+            shadowColor: isSelected ? MODAL_CTA_COLOR : '#000000',
+            shadowOpacity: isSelected ? 0.34 : 0.12,
+            shadowRadius: isSelected ? 20 : 10,
+          },
+          stickerStyle,
+        ]}
+      >
+        <Svg width={116} height={74} viewBox="0 0 116 74" style={styles.languageStickerSvg}>
+          <SvgText
+            x="58"
+            y="48"
+            textAnchor="middle"
+            fontSize="33"
+            fontWeight="900"
+            stroke={palette.screenBg}
+            strokeWidth={8}
+            strokeLinejoin="round"
+            fill={isSelected ? MODAL_CTA_COLOR : palette.textOnBg}
+          >
+            {option.stickerText}
+          </SvgText>
+          <SvgText
+            x="58"
+            y="48"
+            textAnchor="middle"
+            fontSize="33"
+            fontWeight="900"
+            fill={isSelected ? MODAL_CTA_COLOR : palette.textOnBg}
+          >
+            {option.stickerText}
+          </SvgText>
+        </Svg>
+        <Text style={[styles.languageStickerLabel, { color: isSelected ? MODAL_CTA_COLOR : palette.secondaryText }]}>
+          {option.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function LearningLanguageStickerLayout({
+  active,
+  selectedValues,
+  onToggle,
+}: {
+  active: boolean;
+  selectedValues: string[];
+  onToggle: (value: string) => void;
+}) {
+  const visibleProgress = useSharedValue(active ? 1 : 0);
+
+  React.useEffect(() => {
+    visibleProgress.value = withTiming(active ? 1 : 0, {
+      duration: active ? QUESTION_TRANSITION_IN_MS : QUESTION_TRANSITION_OUT_MS,
+    });
+  }, [active, visibleProgress]);
+
+  const layoutStyle = useAnimatedStyle(() => ({
+    opacity: visibleProgress.value,
+    transform: [{ translateX: (1 - visibleProgress.value) * 24 }],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents={active ? 'auto' : 'none'}
+      style={[
+        styles.languageStickerLayout,
+        active ? styles.stickerLayoutActive : styles.stickerLayoutHidden,
+        layoutStyle,
+      ]}
+    >
+      {LEARNING_LANGUAGE_OPTIONS.map((option) => (
+        <LanguageWordSticker
+          key={option.value}
+          option={option}
+          isSelected={selectedValues.includes(option.value)}
+          onPress={() => onToggle(option.value)}
+        />
+      ))}
+    </Animated.View>
+  );
 }
 
 function SelectableSticker({
@@ -198,17 +331,9 @@ function SelectableSticker({
         >
           <Image source={imageSource} resizeMode="contain" style={styles.stickerImage} />
         </View>
-        <View
-          style={[
-            styles.stickerLabelPill,
-            {
-              backgroundColor: isSelected ? MODAL_CTA_COLOR : palette.modalOptionBg,
-              borderColor: isSelected ? 'transparent' : palette.modalOptionBorder,
-            },
-          ]}
-        >
-          <Text style={[styles.stickerLabel, { color: isSelected ? TEXT_ON_CTA : palette.textOnContainer }]}>{label}</Text>
-        </View>
+        <Text style={[styles.stickerLabel, { color: isSelected ? MODAL_CTA_COLOR : palette.secondaryText }]}>
+          {label}
+        </Text>
       </Animated.View>
     </Pressable>
   );
@@ -278,6 +403,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
   const appTour = useAppTour();
   const [step, setStep] = React.useState<OnboardingStep>(1);
   const [answers, setAnswers] = React.useState<OnboardingAnswers>({
+    learningLanguages: [],
     captureHabit: '',
     stumbleContext: '',
     breakdownDepth: '',
@@ -303,18 +429,29 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     const { data: userData } = await supabase.auth.getUser();
     const userEmail = userData.user?.email?.trim() || `${userId}@nuances.local`;
     const aiBreakdownMode = normalizeAIBreakdownMode(answersToSave.breakdownDepth);
+    const learningLanguages = normalizeLearningLanguages(answersToSave.learningLanguages);
+    const primaryLearningAIReplyLanguage = getPrimaryAIReplyLanguageForLearningLanguages(learningLanguages);
+    const learningTTSVoice = getDefaultTTSVoiceForLearningLanguages(learningLanguages);
     const currentSettings = await loadUserSettings();
     await saveUserSettings({
       ...currentSettings,
+      learningLanguages,
+      ttsVoice: learningTTSVoice,
+      ttsVoiceByLanguage: {
+        ...currentSettings.ttsVoiceByLanguage,
+        [primaryLearningAIReplyLanguage]: learningTTSVoice,
+      },
       personalization: {
         ...currentSettings.personalization,
         aiBreakdownMode,
       },
     });
+    void prepareOCRLanguagesForLearningLanguages(learningLanguages);
     const { error } = await supabase.from('profiles').upsert(
       {
         id: userId,
         email: userEmail,
+        target_language: learningLanguages.join(','),
         native_language: 'en',
         english_level: mapBreakdownDepthToEnglishLevel(answersToSave.breakdownDepth),
         learning_goal: mapStumbleContextToLearningGoal(answersToSave.stumbleContext),
@@ -356,12 +493,15 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     triggerOnboardingQuestionHaptic();
     setSelectedStickerIds((prev) => {
       const currentValues = prev[step];
-      const nextValues = step === 3
+      const nextValues = step === 4
         ? [value]
         : currentValues.includes(value)
           ? currentValues.filter((item) => item !== value)
           : [...currentValues, value];
-      setAnswers((currentAnswers) => ({ ...currentAnswers, [answerKey]: nextValues.join(',') }));
+      setAnswers((currentAnswers) => ({
+        ...currentAnswers,
+        [answerKey]: answerKey === 'learningLanguages' ? normalizeLearningLanguages(nextValues) : nextValues.join(','),
+      }));
       return { ...prev, [step]: nextValues };
     });
   }, [step]);
@@ -370,11 +510,16 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     if (!canContinue) return;
     triggerOnboardingQuestionHaptic();
     if (step === 1) {
+      void prepareOCRLanguagesForLearningLanguages(normalizeLearningLanguages(selectedValues));
       setStep(2);
       return;
     }
     if (step === 2) {
       setStep(3);
+      return;
+    }
+    if (step === 3) {
+      setStep(4);
       return;
     }
     setSaving(true);
@@ -384,7 +529,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
       Alert.alert('Onboarding failed', message);
       setSaving(false);
     });
-  }, [answers, canContinue, completeOnboarding, step]);
+  }, [answers, canContinue, completeOnboarding, selectedValues, step]);
 
   if (showCompletionSplash) {
     return (
@@ -417,22 +562,27 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
       </View>
 
       <View style={styles.stickerStage}>
-        <StickerOptionLayout
+        <LearningLanguageStickerLayout
           active={step === 1}
-          options={CAPTURE_HABIT_OPTIONS}
           selectedValues={selectedStickerIds[1]}
           onToggle={toggleSticker}
         />
         <StickerOptionLayout
           active={step === 2}
-          options={STUMBLE_CONTEXT_OPTIONS}
+          options={CAPTURE_HABIT_OPTIONS}
           selectedValues={selectedStickerIds[2]}
           onToggle={toggleSticker}
         />
         <StickerOptionLayout
           active={step === 3}
-          options={BREAKDOWN_DEPTH_OPTIONS}
+          options={STUMBLE_CONTEXT_OPTIONS}
           selectedValues={selectedStickerIds[3]}
+          onToggle={toggleSticker}
+        />
+        <StickerOptionLayout
+          active={step === 4}
+          options={BREAKDOWN_DEPTH_OPTIONS}
+          selectedValues={selectedStickerIds[4]}
           onToggle={toggleSticker}
         />
       </View>
@@ -453,7 +603,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           ]}
         >
           <Text style={[styles.continueText, { color: canContinue ? TEXT_ON_CTA : palette.secondaryText }]}>
-            {step === 3 ? (saving ? 'Saving...' : 'Start Nuances') : 'Continue'}
+            {step === 4 ? (saving ? 'Saving...' : 'Start Nuances') : 'Continue'}
           </Text>
         </Pressable>
       </View>
@@ -513,6 +663,37 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     width: '100%',
   },
+  languageStickerLayout: {
+    position: 'absolute',
+    width: '100%',
+    maxWidth: 360,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: 18,
+    rowGap: 16,
+  },
+  languageStickerPressable: {
+    width: 112,
+    alignItems: 'center',
+  },
+  languageStickerGroup: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  languageStickerSvg: {
+    overflow: 'visible',
+  },
+  languageStickerLabel: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   stickerLayout: {
     position: 'absolute',
     width: '100%',
@@ -559,18 +740,10 @@ const styles = StyleSheet.create({
     width: '112%',
     height: '112%',
   },
-  stickerLabelPill: {
-    marginTop: 10,
-    minWidth: 94,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    alignItems: 'center',
-  },
   stickerLabel: {
-    fontSize: 13,
-    lineHeight: 16,
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: '800',
     letterSpacing: 0.2,
   },

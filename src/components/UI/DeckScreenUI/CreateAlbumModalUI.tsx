@@ -15,6 +15,7 @@ import {
   type EmitterSubscription,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import TutorialSpotlight from '../shared/TutorialSpotlight';
 import {
   CONTAINER_BG,
   MODAL_CTA_COLOR,
@@ -32,6 +33,8 @@ type Props = {
   onChangeAlbumName: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
+  tourConfirmActive?: boolean;
+  tourConfirmTooltip?: string;
 };
 
 const MODAL_ENTRY_TRANSLATE_Y = 420;
@@ -47,6 +50,8 @@ export default function CreateAlbumModalUI({
   onChangeAlbumName,
   onCancel,
   onConfirm,
+  tourConfirmActive = false,
+  tourConfirmTooltip = 'Create album.',
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -196,12 +201,20 @@ export default function CreateAlbumModalUI({
                 <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
               </Pressable>
 
-              <Pressable
-                style={({ pressed }) => [styles.confirmButton, pressed ? styles.pressablePrimaryPressed : null]}
-                onPress={onConfirm}
+              <TutorialSpotlight
+                active={tourConfirmActive}
+                tooltip={tourConfirmTooltip}
+                onSpotlightPress={onConfirm}
+                showSkip={false}
+                style={styles.tourButtonWrapper}
               >
-                <Text style={styles.confirmText}>Create</Text>
-              </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.confirmButton, pressed ? styles.pressablePrimaryPressed : null]}
+                  onPress={onConfirm}
+                >
+                  <Text style={styles.confirmText}>Create</Text>
+                </Pressable>
+              </TutorialSpotlight>
             </View>
           </Pressable>
         </Animated.View>
@@ -271,6 +284,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 4,
+  },
+  tourButtonWrapper: {
+    flex: 1,
   },
   cancelButton: {
     flex: 1,

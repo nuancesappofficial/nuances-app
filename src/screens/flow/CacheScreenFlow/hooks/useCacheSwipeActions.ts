@@ -7,6 +7,8 @@ type Params = {
   cards: CacheCardRecord[];
   navigation: any;
   appTour: { step?: string; nextStep: () => void };
+  hideCacheCardFromStack: (itemId: string) => void;
+  restoreCacheCardToStack: (itemId: string) => void;
   hideCacheCardImmediately: (itemId: string) => void;
   deleteCacheItemPermanently: (item: CachedItem, options?: { silent?: boolean }) => Promise<void>;
   openCropperForSwipeImage: (params: { item: CachedItem; imageUri: string; imageSize: { width: number; height: number } | null }) => void;
@@ -17,10 +19,19 @@ export function useCacheSwipeActions(params: Params) {
     cards,
     navigation,
     appTour,
+    hideCacheCardFromStack,
+    restoreCacheCardToStack,
     hideCacheCardImmediately,
     deleteCacheItemPermanently,
     openCropperForSwipeImage,
   } = params;
+
+  const isImageCacheCard = React.useCallback((target: CacheCardRecord) => {
+    return (
+      target.cachedItem.contentType === 'image' ||
+      Boolean(target.cachedItem.mediaUri || target.cachedItem.imageStoragePath)
+    );
+  }, []);
 
   const handleCardImageError = React.useCallback(
     (itemId: string) => {
@@ -34,10 +45,19 @@ export function useCacheSwipeActions(params: Params) {
 
   const handleCardSwipeStart = React.useCallback(
     (itemId: string, direction: 'left' | 'right') => {
-      if (direction !== 'left') return;
-      hideCacheCardImmediately(itemId);
+      const target = cards.find((card) => card.id === itemId);
+      if (!target) return;
+
+      if (direction === 'left') {
+        hideCacheCardImmediately(itemId);
+        return;
+      }
+
+      if (isImageCacheCard(target)) {
+        hideCacheCardFromStack(itemId);
+      }
     },
-    [hideCacheCardImmediately]
+    [cards, hideCacheCardFromStack, hideCacheCardImmediately, isImageCacheCard]
   );
 
   const handleCardSwipe = React.useCallback(
@@ -46,11 +66,7 @@ export function useCacheSwipeActions(params: Params) {
       if (!target) return;
 
       if (direction === 'right') {
-        const isImageCard =
-          target.cachedItem.contentType === 'image' ||
-          Boolean(target.cachedItem.mediaUri || target.cachedItem.imageStoragePath);
-
-        if (isImageCard) {
+        if (isImageCacheCard(target)) {
           const imageUri =
             target.cachedItem.imageStoragePath ||
             target.cachedItem.mediaUri ||
@@ -58,6 +74,7 @@ export function useCacheSwipeActions(params: Params) {
             target.imageUri ||
             null;
           if (!imageUri) {
+            restoreCacheCardToStack(itemId);
             Alert.alert('找不到圖片', '這張圖片卡沒有可裁切的圖片來源。');
             return;
           }
@@ -82,7 +99,17 @@ export function useCacheSwipeActions(params: Params) {
       hideCacheCardImmediately(itemId);
       void deleteCacheItemPermanently(target.cachedItem);
     },
-    [appTour, cards, deleteCacheItemPermanently, hideCacheCardImmediately, navigation, openCropperForSwipeImage]
+    [
+      appTour,
+      cards,
+      deleteCacheItemPermanently,
+      hideCacheCardFromStack,
+      hideCacheCardImmediately,
+      isImageCacheCard,
+      navigation,
+      openCropperForSwipeImage,
+      restoreCacheCardToStack,
+    ]
   );
 
   return {

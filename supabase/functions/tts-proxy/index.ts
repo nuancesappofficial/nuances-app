@@ -1,5 +1,6 @@
 import { getAuthenticatedUserFromAuthorization } from '../ai-proxy/auth/resolveUserFromBearerToken.ts';
 import { createServiceRoleClient, resolveServerEntitlement } from '../_shared/entitlement.ts';
+import { incrementPostgresRateLimitCounter } from '../_shared/rateLimitStore.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -161,11 +162,68 @@ async function incrementCounter(
 
 async function enforceTtsLimits(userId: string): Promise<Response | null> {
   const kv = await getKvClient();
+  const now = new Date();
+  const minuteBucket = now.toISOString().slice(0, 16);
+  const dayBucket = now.toISOString().slice(0, 10);
+  const increment = async (bucket: string, bucketKey: string, expireInMs: number) => {
+    if (kv) {
+      return incrementCounter(kv, ['tts-rate', userId, bucket, bucketKey], expireInMs);
+    }
+    const supabase = createServiceRoleClient();
+    return incrementPostgresRateLimitCounter({
+      supabase,
+      service: 'tts-proxy',
+      userId,
+      bucket,
+      bucketKey,
+      expireInMs,
+    });
+  };
+
   if (!kv) {
+    console.warn('[tts-proxy] KV unavailable; using Postgres rate-limit fallback');
+  }
+
+  try {
+    const minuteCount = await increment(
+      'minute',
+      minuteBucket,
+      2 * 60 * 1000
+    );
+    if (minuteCount > TTS_RATE_LIMIT_PER_MINUTE) {
+      return jsonResponse(
+        {
+          error: 'Rate limit exceeded',
+          limit: TTS_RATE_LIMIT_PER_MINUTE,
+          bucket: 'minute',
+        },
+        429
+      );
+    }
+
+    const dayCount = await increment(
+      'day',
+      dayBucket,
+      2 * 24 * 60 * 60 * 1000
+    );
+    if (dayCount > TTS_DAILY_QUOTA) {
+      return jsonResponse(
+        {
+          error: 'Daily quota exceeded',
+          limit: TTS_DAILY_QUOTA,
+          bucket: 'day',
+        },
+        429
+      );
+    }
+
+    return null;
+  } catch (error) {
     if (ALLOW_TTS_WITHOUT_KV) {
-      console.warn('[tts-proxy] KV unavailable; allowing request due to TTS_ALLOW_WITHOUT_KV=true');
+      console.warn('[tts-proxy] Rate limit store unavailable; allowing request due to TTS_ALLOW_WITHOUT_KV=true', error);
       return null;
     }
+    console.error('[tts-proxy] Rate limit store unavailable', error);
     return jsonResponse(
       {
         error: 'Service temporarily unavailable',
@@ -174,43 +232,6 @@ async function enforceTtsLimits(userId: string): Promise<Response | null> {
       503
     );
   }
-
-  const now = new Date();
-  const minuteBucket = now.toISOString().slice(0, 16);
-  const dayBucket = now.toISOString().slice(0, 10);
-  const minuteCount = await incrementCounter(
-    kv,
-    ['tts-rate', userId, minuteBucket],
-    2 * 60 * 1000
-  );
-  if (minuteCount > TTS_RATE_LIMIT_PER_MINUTE) {
-    return jsonResponse(
-      {
-        error: 'Rate limit exceeded',
-        limit: TTS_RATE_LIMIT_PER_MINUTE,
-        bucket: 'minute',
-      },
-      429
-    );
-  }
-
-  const dayCount = await incrementCounter(
-    kv,
-    ['tts-quota', userId, dayBucket],
-    2 * 24 * 60 * 60 * 1000
-  );
-  if (dayCount > TTS_DAILY_QUOTA) {
-    return jsonResponse(
-      {
-        error: 'Daily quota exceeded',
-        limit: TTS_DAILY_QUOTA,
-        bucket: 'day',
-      },
-      429
-    );
-  }
-
-  return null;
 }
 
 Deno.serve(async (req: Request) => {

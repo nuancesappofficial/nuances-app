@@ -42,6 +42,7 @@ import {
   loadUserSettings,
   subscribeUserSettings,
   type MainScreenAlbumGridCount,
+  type UILanguage,
 } from '@services/settings/userSettings';
 import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
 
@@ -110,6 +111,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
     DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
   );
+  const [mainScreenWordPopAlbumId, setMainScreenWordPopAlbumId] = React.useState<string | null>(
+    DEFAULT_USER_SETTINGS.mainScreenWordPopAlbumId
+  );
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(DEFAULT_USER_SETTINGS.uiLanguage);
   const [mainScreenAlbumOrder, setMainScreenAlbumOrder] = React.useState<string[]>(
     DEFAULT_USER_SETTINGS.mainScreenAlbumOrder
   );
@@ -183,24 +188,32 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     }
 
     if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
-      completeTour();
-      requestAnimationFrame(() => {
-        pressTodayReviewRef.current();
-      });
+      appTour.nextStep();
+      return;
+    }
+
+    if (appTour.step === 'STEP_11_CREATE_ALBUM') {
+      setNewAlbumName((prev) => (prev.trim() ? prev : 'My Nuances'));
+      setIsCreateModalVisible(true);
+      appTour.nextStep();
       return;
     }
     appTour.nextStep();
-  }, [allCards, appTour, completeTour, navigation, tourSampleCard]);
+  }, [allCards, appTour, navigation, tourSampleCard]);
 
   const applyMainScreenSettings = React.useCallback((settings: {
+    uiLanguage: UILanguage;
     wordPopSlideMs: number;
     mainScreenAlbumGridCount: MainScreenAlbumGridCount;
     mainScreenWordPopEnabled: boolean;
+    mainScreenWordPopAlbumId: string | null;
     mainScreenAlbumOrder: string[];
   }) => {
+    setUiLanguage(settings.uiLanguage);
     setWordPopSlideMs(settings.wordPopSlideMs);
     setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
     setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
+    setMainScreenWordPopAlbumId(settings.mainScreenWordPopAlbumId);
     setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
   }, []);
 
@@ -298,79 +311,69 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, []);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const load = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAllCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setAllCards(data);
+        sub = queryCards.observe().subscribe((nextData) => {
+          setAllCards(nextData);
+        });
       } catch (error) {
         console.error('[Deck] load cards failed:', error);
-        setAllCards([]);
+        if (!cancelled) setAllCards([]);
       }
     };
 
     void load();
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
-
-  const fallbackUserId = allCards[0]?.userId;
 
   React.useEffect(() => {
     let cancelled = false;
-    const ensureMockVisualCard = async () => {
+    const removeMockVisualCards = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId || cancelled) return;
+
         const mockQuery = database
           .get<Card>('cards')
           .query(
-            Q.where('deleted_at', null),
+            Q.where('user_id', userId),
             Q.where('source_app', 'mock-visual')
           );
-        const existingMockCards = await mockQuery.fetch();
+        const mockCards = await mockQuery.fetch();
         if (cancelled) return;
-        if (existingMockCards.length > 0) return;
-
-        const userId = await getCurrentAuthUserId();
-        const effectiveUserId = userId || fallbackUserId;
-        if (!effectiveUserId || cancelled) return;
-
-        const mockImageUrl = 'https://picsum.photos/seed/nuances-mock/900/1200';
+        if (mockCards.length === 0) return;
 
         await database.write(async () => {
-          await database.get<Card>('cards').create((card) => {
-            card.userId = effectiveUserId;
-            card.targetWord = 'mock';
-            card.targetPhrase = 'mock interview';
-            card.originalSentence =
-              'I have a mock interview tomorrow, so I am practicing common questions tonight.';
-            card.definition = '模擬的；用來練習真實情境的';
-            card.partOfSpeech = 'noun';
-            card.contextualExplanation =
-              '我明天有一場「模擬面試」，所以今晚正在練習常見問題。\n這裡的「mock」表示「模擬、演練」，通常用於考試、面試或法庭等正式情境前的練習。';
-            card.frequentCollocations =
-              'mock interview, mock exam, mock trial';
-            card.phoneticTranscription = '/mɑːk/';
-            card.tags = ['mock_visual', 'album_all'];
-            card.sourceApp = 'mock-visual';
-            card.imageUrl = mockImageUrl;
-            card.easeFactor = 2.5;
-            card.intervalDays = 1;
-            card.repetitions = 0;
-            card.nextReviewAt = new Date();
-          });
+          await database.batch(
+            ...mockCards.map((card) => card.prepareDestroyPermanently())
+          );
         });
       } catch (error) {
-        console.warn('[DeckMain] ensure mock visual card failed:', error);
+        console.warn('[DeckMain] remove mock visual cards failed:', error);
       }
     };
-    void ensureMockVisualCard();
+    void removeMockVisualCards();
     return () => {
       cancelled = true;
     };
-  }, [fallbackUserId]);
+  }, []);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -596,11 +599,27 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     return laidOutAlbums.length > 0 ? laidOutAlbums : sortedAlbums;
   }, [mainScreenAlbumOrder, mergedAlbums, searchQuery, sortOrder]);
 
+  const wordPopAlbum = React.useMemo(() => {
+    if (!mainScreenWordPopAlbumId) return mergedAlbums.find((album) => album.id === ALL_CARDS_ALBUM_ID) ?? null;
+    return mergedAlbums.find((album) => album.id === mainScreenWordPopAlbumId) ?? null;
+  }, [mainScreenWordPopAlbumId, mergedAlbums]);
+
+  const wordPopScopedCards = React.useMemo(() => {
+    if (!wordPopAlbum || wordPopAlbum.id === ALL_CARDS_ALBUM_ID) return allCards;
+    const allowedIds = new Set(wordPopAlbum.cardIds);
+    return allCards.filter((card) => allowedIds.has(card.id));
+  }, [allCards, wordPopAlbum]);
+
+  const wordPopScopedCardIds = React.useMemo(
+    () => wordPopScopedCards.map((card) => card.id),
+    [wordPopScopedCards]
+  );
+
   const slideshowItems = React.useMemo(() => {
     const seen = new Set<string>();
     const list: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }> = [];
 
-    allCards.forEach((card) => {
+    wordPopScopedCards.forEach((card) => {
       const phrase = (card.targetPhrase || '').trim();
       const word = (card.targetWord || '').trim();
       const candidate = phrase || word;
@@ -618,7 +637,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     });
 
     return list;
-  }, [allCards, cardImageMap]);
+  }, [wordPopScopedCards, cardImageMap]);
 
   const searchResults = React.useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
@@ -702,17 +721,6 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     void saveAlbumReviewPreferences('today-added', { selectedQuestionTypes: nextTypes });
   }, []);
 
-  const handleAddAlbum = React.useCallback(() => {
-    const trimmedName = newAlbumName.trim();
-    if (!trimmedName) return;
-
-    const newAlbum = createCustomAlbum(trimmedName);
-
-    setCustomAlbums((prev) => [newAlbum, ...prev]);
-    setIsCreateModalVisible(false);
-    setNewAlbumName('');
-  }, [newAlbumName]);
-
   const handleAlbumPress = React.useCallback(
     (album: DeckAlbum) => {
       const albumCardIdSet = new Set(album.cardIds);
@@ -744,6 +752,23 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     setSettingsCoverImageUri(albumCoverOverrides[album.id] || album.coverImageUri || '');
     setSettingsVisible(true);
   }, [albumCoverOverrides]);
+
+  const handleAddAlbum = React.useCallback(() => {
+    const trimmedName = newAlbumName.trim() || (appTour.step === 'STEP_12_CONFIRM_ALBUM' ? 'My Nuances' : '');
+    if (!trimmedName) return;
+
+    const newAlbum = createCustomAlbum(trimmedName);
+
+    setCustomAlbums((prev) => [newAlbum, ...prev]);
+    setIsCreateModalVisible(false);
+    setNewAlbumName('');
+    if (appTour.step === 'STEP_12_CONFIRM_ALBUM') {
+      requestAnimationFrame(() => {
+        openAlbumSettings(newAlbum);
+        appTour.nextStep();
+      });
+    }
+  }, [appTour, newAlbumName, openAlbumSettings]);
 
   const handleChangeSettingsEmoji = React.useCallback((emoji: string) => {
     setSettingsEmoji(emoji);
@@ -813,8 +838,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
 
   const handleSaveAlbumSettings = React.useCallback(() => {
-    applyAlbumSettings();
-  }, [applyAlbumSettings]);
+    const saved = applyAlbumSettings();
+    if (saved && appTour.step === 'STEP_13_ALBUM_SETTINGS') {
+      completeTour();
+    }
+  }, [appTour.step, applyAlbumSettings, completeTour]);
 
   const handlePickAlbumCoverImage = React.useCallback(async () => {
     if (!settingsAlbum) return;
@@ -920,20 +948,21 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const handlePressWordPopItem = React.useCallback(
     (item: { cardId: string; text: string; imageUri?: string }) => {
       if (!item?.cardId) return;
-      const scopedCardIds = allCards.map((card) => card.id);
+      const scopedCardIds = wordPopScopedCardIds.length > 0 ? wordPopScopedCardIds : allCards.map((card) => card.id);
       if (scopedCardIds.length === 0) {
         Alert.alert('目前沒有可開啟的卡片', '請先新增或同步卡片後再試。');
         return;
       }
       const targetCardId = scopedCardIds.includes(item.cardId) ? item.cardId : scopedCardIds[0];
+      const headerTitle = wordPopAlbum?.name || 'All cards';
       navigation.navigate('CardDetail', {
         cardId: targetCardId,
         cardIds: scopedCardIds,
-        albumName: 'All cards',
-        headerTitle: 'All cards',
+        albumName: headerTitle,
+        headerTitle,
       });
     },
-    [allCards, navigation]
+    [allCards, navigation, wordPopAlbum, wordPopScopedCardIds]
   );
 
   const handlePressSearchResult = React.useCallback(
@@ -957,6 +986,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     <>
       <DeckMainScreenUI
         heroStatusText={allCards.length > 0 ? "Cache isn't empty" : 'Cache is empty'}
+        uiLanguage={uiLanguage}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onClearSearch={() => setSearchQuery('')}
@@ -1007,6 +1037,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         visible={isCreateModalVisible}
         albumName={newAlbumName}
         onChangeAlbumName={setNewAlbumName}
+        tourConfirmActive={appTour.step === 'STEP_12_CONFIRM_ALBUM'}
+        tourConfirmTooltip="Create it."
         onCancel={() => {
           setIsCreateModalVisible(false);
           setNewAlbumName('');
@@ -1026,6 +1058,8 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onChangeEmoji={handleChangeSettingsEmoji}
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
+        tourSaveActive={appTour.step === 'STEP_13_ALBUM_SETTINGS'}
+        tourSaveTooltip="Album settings live here. Save to finish."
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);

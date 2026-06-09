@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+import './src/polyfills/webCrypto';
 import { registerRootComponent } from 'expo';
 
 import App from './App';

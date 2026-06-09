@@ -14,6 +14,7 @@ import ProfileMainScreenUI, {
 } from '../../../components/UI/ProfileScreenUI/ProfileMainScreenUI';
 import {
   DEFAULT_USER_SETTINGS,
+  getPrimaryAIReplyLanguageForLearningLanguages,
   loadUserSettings,
   resolveTTSVoiceForLanguage,
   saveUserSettings,
@@ -21,15 +22,11 @@ import {
   type EntitlementMode,
   type MainScreenAlbumGridCount,
   type TTSVoice,
+  type UILanguage,
   type WordPopSlideMs,
-  withUpdatedTTSVoiceForLanguage,
+  withUpdatedTTSVoiceOnlyForLanguage,
 } from '@services/settings/userSettings';
 import { supabase } from '@services/supabase/client';
-import {
-  getRevenueCatOfferingSummary,
-  isRevenueCatConfigured,
-  type RevenueCatPackageSummary,
-} from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../../theme/stickerFonts';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -250,6 +247,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
     DEFAULT_USER_SETTINGS.aiReplyLanguage
   );
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(DEFAULT_USER_SETTINGS.uiLanguage);
   const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
   const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
   const [stickerFontKey, setStickerFontKey] = React.useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
@@ -258,10 +256,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
     DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
   );
-  const [savingEntitlement, setSavingEntitlement] = React.useState(false);
-  const [showMembershipModal, setShowMembershipModal] = React.useState(false);
-  const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
-  const [membershipPackages, setMembershipPackages] = React.useState<RevenueCatPackageSummary[]>([]);
   const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
   const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
   const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
@@ -292,23 +286,36 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   }, [currentDate]);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const load = async () => {
       try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user?.id) {
+          if (!cancelled) setCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', user.id), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setCards(data);
+        sub = queryCards.observe().subscribe((nextData) => setCards(nextData));
       } catch (error) {
         console.error('[Profiles] load cards failed:', error);
-        setCards([]);
+        if (!cancelled) setCards([]);
       }
     };
 
     void load();
-    const sub = queryCards.observe().subscribe((data) => setCards(data));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -360,8 +367,14 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     try {
       const settings = await loadUserSettings();
       setEntitlementMode(settings.planType);
+      setUiLanguage(settings.uiLanguage);
       setAiReplyLanguage(settings.aiReplyLanguage);
-      setTtsVoice(resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage));
+      setTtsVoice(
+        resolveTTSVoiceForLanguage(
+          settings,
+          getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages)
+        )
+      );
       setWordPopSlideMs(settings.wordPopSlideMs);
       setStickerFontKey(settings.stickerFontKey);
       setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
@@ -380,81 +393,6 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       void refreshAppSettings();
     }, [refreshAppSettings])
   );
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (!isRevenueCatConfigured()) {
-        if (!cancelled) setMembershipPriceLabel(null);
-        if (!cancelled) setMembershipPackages([]);
-        return;
-      }
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
-        if (!cancelled) {
-          setMembershipPriceLabel(summary.priceLabel);
-          setMembershipPackages(summary.packages);
-        }
-      } catch (error) {
-        console.error('[Profiles] load RevenueCat offering summary failed:', error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleUpgradeMembership = React.useCallback(async (packageIdentifier?: string | null) => {
-    if (savingEntitlement) return;
-    setSavingEntitlement(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) {
-        Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
-        return;
-      }
-      const snapshot = await SubscriptionService.purchasePremium(user.id, packageIdentifier);
-      setEntitlementMode(snapshot.planType);
-      setShowMembershipModal(false);
-      Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
-    } catch (error) {
-      console.error('[Profiles] purchase premium failed:', error);
-      Alert.alert('升級失敗', error instanceof Error ? error.message : '請稍後再試。');
-    } finally {
-      setSavingEntitlement(false);
-    }
-  }, [savingEntitlement]);
-
-  const handleRestoreMembership = React.useCallback(async () => {
-    if (savingEntitlement) return;
-    setSavingEntitlement(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) {
-        Alert.alert('尚未登入', '請先登入，再恢復購買。');
-        return;
-      }
-      const snapshot = await SubscriptionService.restorePurchases(user.id);
-      setEntitlementMode(snapshot.planType);
-      setShowMembershipModal(false);
-      Alert.alert(
-        '恢復完成',
-        snapshot.planType === 'premium' ? '已恢復 Premium 購買。' : '目前沒有可恢復的有效 Premium 訂閱。'
-      );
-    } catch (error) {
-      console.error('[Profiles] restore purchases failed:', error);
-      Alert.alert('恢復失敗', error instanceof Error ? error.message : '請稍後再試。');
-    } finally {
-      setSavingEntitlement(false);
-    }
-  }, [savingEntitlement]);
 
   const handleDevSetMembership = React.useCallback(async (mode: 'free' | 'trial' | 'premium') => {
     if (!__DEV__ || !SubscriptionService.isDevBypassEnabled()) return;
@@ -517,12 +455,9 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
     try {
       const settings = await loadUserSettings();
-      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
-      const nextVoice = resolveTTSVoiceForLanguage(settings, language);
-      if (settings.aiReplyLanguage === language && currentVoice === nextVoice) return;
-      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, language, nextVoice));
+      if (settings.aiReplyLanguage === language) return;
+      await saveUserSettings({ ...settings, aiReplyLanguage: language });
       setAiReplyLanguage(language);
-      setTtsVoice(nextVoice);
     } catch (error) {
       console.error('[Profiles] update AI reply language failed:', error);
       Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
@@ -532,9 +467,10 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
     try {
       const settings = await loadUserSettings();
-      const currentVoice = resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage);
+      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
+      const currentVoice = resolveTTSVoiceForLanguage(settings, targetTTSLanguage);
       if (currentVoice === voice) return;
-      await saveUserSettings(withUpdatedTTSVoiceForLanguage(settings, settings.aiReplyLanguage, voice));
+      await saveUserSettings(withUpdatedTTSVoiceOnlyForLanguage(settings, targetTTSLanguage, voice));
       setTtsVoice(voice);
     } catch (error) {
       console.error('[Profiles] update TTS voice failed:', error);
@@ -630,27 +566,16 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         todayDateKey={getDateKey(currentDate)}
         heatMapMonths={heatMapMonths}
         initialMonthIndex={initialMonthIndex}
-        savingEntitlement={savingEntitlement}
         entitlementMode={entitlementMode}
-        membershipPriceLabel={membershipPriceLabel}
-        membershipPackages={membershipPackages.map((item) => ({
-          identifier: item.identifier,
-          title: item.title || item.packageType || 'Premium',
-          priceLabel: item.priceLabel || membershipPriceLabel || 'Premium',
-          description: item.subscriptionPeriod || item.description || 'Auto-renews unless canceled',
-        }))}
-        membershipModalVisible={showMembershipModal}
         mainScreenAlbumGridCount={mainScreenAlbumGridCount}
         mainScreenWordPopEnabled={mainScreenWordPopEnabled}
         isDeletingAccount={isDeletingAccount}
+        uiLanguage={uiLanguage}
         aiReplyLanguage={aiReplyLanguage}
         ttsVoice={ttsVoice}
         stickerFontKey={stickerFontKey}
         onPressUploadProfilePic={handleChangeProfilePhoto}
         onOpenMembershipModal={() => navigation.navigate('ProfileSettingOptions', { kind: 'membership' })}
-        onCloseMembershipModal={() => setShowMembershipModal(false)}
-        onUpgradeMembership={handleUpgradeMembership}
-        onRestoreMembership={handleRestoreMembership}
         devBypassEnabled={SubscriptionService.isDevBypassEnabled()}
         onDevSetMembership={handleDevSetMembership}
         onChangeAIReplyLanguage={handleChangeAIReplyLanguage}

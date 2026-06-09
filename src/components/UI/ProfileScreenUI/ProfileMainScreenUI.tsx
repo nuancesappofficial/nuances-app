@@ -29,7 +29,9 @@ import {
   type EntitlementMode,
   type MainScreenAlbumGridCount,
   type TTSVoice,
+  type UILanguage,
 } from '@services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   resolveStickerFont,
   type StickerFontKey,
@@ -43,7 +45,6 @@ import {
   TEXT_ON_CONTAINER,
   resolveThemeColors,
 } from '../../../theme/colors';
-import PaywallFooter from './PaywallFooter';
 
 export type HeatMapDay = {
   key: string;
@@ -61,13 +62,6 @@ export type HeatMapMonth = {
   days: HeatMapDay[];
 };
 
-export type MembershipPackageOption = {
-  identifier: string;
-  title: string;
-  priceLabel: string;
-  description: string;
-};
-
 type Props = {
   overlayMode?: boolean;
   title: string;
@@ -77,27 +71,21 @@ type Props = {
   heatMapMonths: HeatMapMonth[];
   initialMonthIndex: number;
   entitlementMode: EntitlementMode;
-  savingEntitlement: boolean;
-  membershipPriceLabel?: string | null;
-  membershipPackages?: MembershipPackageOption[];
-  membershipModalVisible: boolean;
   mainScreenAlbumGridCount: MainScreenAlbumGridCount;
   mainScreenWordPopEnabled: boolean;
   isDeletingAccount: boolean;
+  uiLanguage: UILanguage;
   aiReplyLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   stickerFontKey: StickerFontKey;
   onPressUploadProfilePic: () => void;
   onOpenMembershipModal: () => void;
-  onCloseMembershipModal: () => void;
-  onUpgradeMembership: (packageIdentifier?: string | null) => void;
-  onRestoreMembership: () => void;
   devBypassEnabled?: boolean;
   onDevSetMembership?: (mode: 'free' | 'trial' | 'premium') => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
   onChangeTTSVoice: (voice: TTSVoice) => void;
   onDeleteAccount: () => void;
-  onOpenSettingsOption: (kind: 'ai' | 'voice' | 'font' | 'main') => void;
+  onOpenSettingsOption: (kind: 'language' | 'voice' | 'font' | 'main') => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
@@ -129,7 +117,6 @@ const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
 const GRID_ROW_HEIGHT = GRID_SIZE + GRID_CELL_VERTICAL_PADDING * 2;
 const DAY_TILE_RADIUS = 14;
-const MEMBERSHIP_BG_ICON = require('../../../../assets/app_icons/icon.png');
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const CALENDAR_CELL_COUNT = 42;
 const BASE_BG = SCREEN_BG;
@@ -360,21 +347,15 @@ export default function ProfileMainScreenUI({
   heatMapMonths,
   initialMonthIndex,
   entitlementMode,
-  savingEntitlement,
-  membershipPriceLabel,
-  membershipPackages = [],
-  membershipModalVisible,
   mainScreenAlbumGridCount,
   mainScreenWordPopEnabled,
   isDeletingAccount,
+  uiLanguage,
   aiReplyLanguage,
   ttsVoice,
   stickerFontKey,
   onPressUploadProfilePic,
   onOpenMembershipModal,
-  onCloseMembershipModal,
-  onUpgradeMembership,
-  onRestoreMembership,
   onChangeAIReplyLanguage,
   onChangeTTSVoice,
   onDeleteAccount,
@@ -396,20 +377,6 @@ export default function ProfileMainScreenUI({
   const [monthPickerVisible, setMonthPickerVisible] = React.useState(false);
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
-  const visibleMembershipPackages = React.useMemo<MembershipPackageOption[]>(
-    () =>
-      membershipPackages.length > 0
-        ? membershipPackages
-        : [
-            {
-              identifier: 'current',
-              title: 'Premium',
-              priceLabel: membershipPriceLabel || 'Premium',
-              description: 'Auto-renews unless canceled',
-            },
-          ],
-    [membershipPackages, membershipPriceLabel]
-  );
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
   const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
   const currentMonthIndexRef = React.useRef<number>(0);
@@ -755,10 +722,26 @@ export default function ProfileMainScreenUI({
     TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ??
     'EN-US Jenny';
   const selectedStickerFont = resolveStickerFont(stickerFontKey);
-  const mainScreenSummary = `${mainScreenAlbumGridCount} per page · Word pop ${mainScreenWordPopEnabled ? 'on' : 'off'}`;
+  const mainScreenSummary = `${mainScreenAlbumGridCount} · ${
+    mainScreenWordPopEnabled
+      ? tUI(uiLanguage, 'profile.mainScreenSummary.wordPopOn')
+      : tUI(uiLanguage, 'profile.mainScreenSummary.wordPopOff')
+  }`;
+  const languageSummary =
+    uiLanguage === 'zh-TW'
+      ? tUI(uiLanguage, 'settings.language.chineseTraditional')
+      : uiLanguage === 'zh-CN'
+        ? tUI(uiLanguage, 'settings.language.chineseSimplified')
+        : tUI(uiLanguage, 'settings.language.english');
+  const entitlementLabel =
+    entitlementMode === 'premium'
+      ? tUI(uiLanguage, 'common.premium')
+      : entitlementMode === 'trial'
+        ? tUI(uiLanguage, 'common.trial')
+        : tUI(uiLanguage, 'common.free');
 
   const triggerOpenSettingsOption = React.useCallback(
-    (kind: 'ai' | 'voice' | 'font' | 'main') => {
+    (kind: 'language' | 'voice' | 'font' | 'main') => {
       if (optionNavigationLockRef.current) return;
       optionNavigationLockRef.current = true;
       onOpenSettingsOption(kind);
@@ -772,189 +755,194 @@ export default function ProfileMainScreenUI({
   return (
     <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
-        <View style={styles.monthHeaderRow}>
-          <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
-          <View style={styles.monthControlRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.monthNavButton,
-                isLight ? { backgroundColor: palette.containerBg } : null,
-                pressed ? styles.profileIconButtonPressed : null,
-              ]}
-              onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
-            >
-              <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>‹</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.monthSelectButton,
-                isLight ? { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle } : null,
-                pressed ? styles.profileMediumButtonPressed : null,
-              ]}
-              onPress={openMonthPicker}
-            >
-              <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.monthNavButton,
-                isLight ? { backgroundColor: palette.containerBg } : null,
-                pressed ? styles.profileIconButtonPressed : null,
-              ]}
-              onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
-            >
-              <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>›</Text>
-            </Pressable>
+        <ScrollView
+          style={styles.screenScroll}
+          contentContainerStyle={styles.screenScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.monthHeaderRow}>
+            <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
+            <View style={styles.monthControlRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthNavButton,
+                  isLight ? { backgroundColor: palette.containerBg } : null,
+                  pressed ? styles.profileIconButtonPressed : null,
+                ]}
+                onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
+              >
+                <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>‹</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthSelectButton,
+                  isLight ? { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle } : null,
+                  pressed ? styles.profileMediumButtonPressed : null,
+                ]}
+                onPress={openMonthPicker}
+              >
+                <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthNavButton,
+                  isLight ? { backgroundColor: palette.containerBg } : null,
+                  pressed ? styles.profileIconButtonPressed : null,
+                ]}
+                onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
+              >
+                <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>›</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
 
-        <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
-          <View
-            style={[
-              styles.heatMapPanel,
-              { backgroundColor: palette.containerBg, borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE, borderWidth: 1 },
-            ]}
-          >
-            <Animated.View
-              style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
-              onLayout={handlePagerLayout}
+          <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
+            <View
+              style={[
+                styles.heatMapPanel,
+                { backgroundColor: palette.containerBg, borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE, borderWidth: 1 },
+              ]}
             >
-            <FlatList
-              ref={listRef}
-              data={monthsWithCalendarItems}
-              initialScrollIndex={safeInitialIndex}
-              keyExtractor={(item) => item.key}
-              renderItem={({ item }) => (
-                <View style={[styles.monthPage, { height: stableMonthPageHeight, width: effectivePagerWidth }]}>
-                  <View
-                    style={[
-                      styles.monthPageInner,
-                      { paddingBottom: 2 },
-                    ]}
-                  >
-                    <View style={styles.calendarBlock}>
-                      <View style={styles.weekdayRow}>
-                        {WEEKDAY_LABELS.map((label) => (
-                          <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
-                            <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.64)' }]}>{label}</Text>
-                          </View>
-                        ))}
-                      </View>
-
-                      <View style={styles.calendarGridArea}>
-                        <View
-                          style={[
-                            styles.gridWrap,
-                            { height: GRID_ROW_HEIGHT * item.usedRowCount },
-                          ]}
-                        >
-                          {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
-                            'isPlaceholder' in calendarItem ? (
-                              <View key={calendarItem.key} style={styles.gridCell}>
-                                <View style={styles.placeholderCell} />
-                              </View>
-                            ) : (
-                              <View key={calendarItem.key} style={styles.gridCell}>
-                                <HeatMapCircle
-                                  item={calendarItem}
-                                  isToday={calendarItem.key === todayDateKey}
-                                  onPressDay={onPressDay}
-                                  palette={palette}
-                                  isLight={isLight}
-                                  stickerFontKey={stickerFontKey}
-                                />
-                              </View>
-                            )
+              <Animated.View
+                style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
+                onLayout={handlePagerLayout}
+              >
+              <FlatList
+                ref={listRef}
+                data={monthsWithCalendarItems}
+                initialScrollIndex={safeInitialIndex}
+                keyExtractor={(item) => item.key}
+                renderItem={({ item }) => (
+                  <View style={[styles.monthPage, { height: stableMonthPageHeight, width: effectivePagerWidth }]}>
+                    <View
+                      style={[
+                        styles.monthPageInner,
+                        { paddingBottom: 2 },
+                      ]}
+                    >
+                      <View style={styles.calendarBlock}>
+                        <View style={styles.weekdayRow}>
+                          {WEEKDAY_LABELS.map((label) => (
+                            <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
+                              <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.64)' }]}>{label}</Text>
+                            </View>
                           ))}
+                        </View>
+
+                        <View style={styles.calendarGridArea}>
+                          <View
+                            style={[
+                              styles.gridWrap,
+                              { height: GRID_ROW_HEIGHT * item.usedRowCount },
+                            ]}
+                          >
+                            {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
+                              'isPlaceholder' in calendarItem ? (
+                                <View key={calendarItem.key} style={styles.gridCell}>
+                                  <View style={styles.placeholderCell} />
+                                </View>
+                              ) : (
+                                <View key={calendarItem.key} style={styles.gridCell}>
+                                  <HeatMapCircle
+                                    item={calendarItem}
+                                    isToday={calendarItem.key === todayDateKey}
+                                    onPressDay={onPressDay}
+                                    palette={palette}
+                                    isLight={isLight}
+                                    stickerFontKey={stickerFontKey}
+                                  />
+                                </View>
+                              )
+                            ))}
+                          </View>
                         </View>
                       </View>
                     </View>
                   </View>
-                </View>
-              )}
-              horizontal
-              pagingEnabled
-              bounces={false}
-              alwaysBounceHorizontal={false}
-              alwaysBounceVertical={false}
-              disableIntervalMomentum
-              decelerationRate="fast"
-              snapToAlignment="start"
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.heatMapContent}
-              getItemLayout={(_, index) => ({
-                length: effectivePagerWidth,
-                offset: effectivePagerWidth * index,
-                index,
-              })}
-              onScrollToIndexFailed={(info) => {
-                listRef.current?.scrollToOffset({ offset: info.index * effectivePagerWidth, animated: true });
-              }}
-              onScrollBeginDrag={() => {
-                void Haptics.selectionAsync();
-              }}
-              onMomentumScrollEnd={(event) => {
-                const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
-                const next = Math.round(event.nativeEvent.contentOffset.x / width);
-                const clamped = Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1));
-                const pendingTarget = pendingTargetIndexRef.current;
+                )}
+                horizontal
+                pagingEnabled
+                bounces={false}
+                alwaysBounceHorizontal={false}
+                alwaysBounceVertical={false}
+                disableIntervalMomentum
+                decelerationRate="fast"
+                snapToAlignment="start"
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.heatMapContent}
+                getItemLayout={(_, index) => ({
+                  length: effectivePagerWidth,
+                  offset: effectivePagerWidth * index,
+                  index,
+                })}
+                onScrollToIndexFailed={(info) => {
+                  listRef.current?.scrollToOffset({ offset: info.index * effectivePagerWidth, animated: true });
+                }}
+                onScrollBeginDrag={() => {
+                  void Haptics.selectionAsync();
+                }}
+                onMomentumScrollEnd={(event) => {
+                  const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
+                  const next = Math.round(event.nativeEvent.contentOffset.x / width);
+                  const clamped = Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1));
+                  const pendingTarget = pendingTargetIndexRef.current;
 
-                // 快速連點時，會收到前一次動畫的 momentum 事件：
-                // 若不是最後一次目標，就忽略並對齊到最後目標，避免月份回跳閃現。
-                if (pendingTarget != null && clamped !== pendingTarget) {
-                  listRef.current?.scrollToOffset({
-                    offset: pendingTarget * width,
-                    animated: false,
-                  });
-                  setCurrentMonthIndex(pendingTarget);
-                  currentMonthIndexRef.current = pendingTarget;
-                  return;
-                }
+                  // 快速連點時，會收到前一次動畫的 momentum 事件：
+                  // 若不是最後一次目標，就忽略並對齊到最後目標，避免月份回跳閃現。
+                  if (pendingTarget != null && clamped !== pendingTarget) {
+                    listRef.current?.scrollToOffset({
+                      offset: pendingTarget * width,
+                      animated: false,
+                    });
+                    setCurrentMonthIndex(pendingTarget);
+                    currentMonthIndexRef.current = pendingTarget;
+                    return;
+                  }
 
-                if (pendingTarget != null && clamped === pendingTarget) {
-                  pendingTargetIndexRef.current = null;
-                }
-                setCurrentMonthIndex(clamped);
-                currentMonthIndexRef.current = clamped;
-              }}
-              style={styles.heatMapScroller}
-            />
-            </Animated.View>
-          </View>
-        </Animated.View>
+                  if (pendingTarget != null && clamped === pendingTarget) {
+                    pendingTargetIndexRef.current = null;
+                  }
+                  setCurrentMonthIndex(clamped);
+                  currentMonthIndexRef.current = clamped;
+                }}
+                style={styles.heatMapScroller}
+              />
+              </Animated.View>
+            </View>
+          </Animated.View>
 
-        <View style={styles.settingsListSection}>
           <View
             style={[
-              styles.settingsCard,
-              {
-                backgroundColor: palette.containerBg,
-                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-              },
+              styles.settingsListSection,
+              { paddingBottom: Math.max(insets.bottom, 16) + 88 },
             ]}
           >
-            <Pressable
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed ? { backgroundColor: palette.modalOptionBg } : null,
+            <View
+              style={[
+                styles.settingsCard,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                },
               ]}
-              onPress={onOpenMembershipModal}
             >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Membership</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {savingEntitlement
-                    ? 'Updating...'
-                    : entitlementMode === 'premium'
-                      ? 'Premium'
-                      : entitlementMode === 'trial'
-                        ? 'Trial'
-                        : 'Free'}
-                </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={onOpenMembershipModal}
+              >
+                <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.membership')}</Text>
+                <View style={styles.settingsRowRight}>
+                  <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                    {entitlementLabel}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+                </View>
+              </Pressable>
 
             <View style={styles.settingsDivider} />
 
@@ -965,7 +953,7 @@ export default function ProfileMainScreenUI({
               ]}
               onPress={() => triggerOpenSettingsOption('main')}
             >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Main screen</Text>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.mainScreen')}</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]} numberOfLines={1}>
                   {mainScreenSummary}
@@ -982,12 +970,12 @@ export default function ProfileMainScreenUI({
                 styles.settingsRow,
                 pressed ? { backgroundColor: palette.modalOptionBg } : null,
               ]}
-              onPress={() => triggerOpenSettingsOption('ai')}
+              onPress={() => triggerOpenSettingsOption('language')}
             >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Language</Text>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.language')}</Text>
               <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {AI_LANGUAGE_OPTIONS.find((item) => item.code === aiReplyLanguage)?.label ?? '繁中'}
+                <Text style={[styles.settingValue, { color: palette.textOnContainer }]} numberOfLines={1}>
+                  {languageSummary}
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
               </View>
@@ -1003,7 +991,7 @@ export default function ProfileMainScreenUI({
               ]}
               onPress={() => triggerOpenSettingsOption('voice')}
             >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Voice</Text>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.voice')}</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
                   {selectedVoiceLabel}
@@ -1022,7 +1010,7 @@ export default function ProfileMainScreenUI({
               ]}
               onPress={() => triggerOpenSettingsOption('font')}
             >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Font</Text>
+              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.font')}</Text>
               <View style={styles.settingsRowRight}>
                 <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
                   {selectedStickerFont.label}
@@ -1041,7 +1029,9 @@ export default function ProfileMainScreenUI({
               ]}
               onPress={onDeleteAccount}
             >
-              <Text style={styles.deleteAccountText}>Delete Account</Text>
+              <Text style={styles.deleteAccountText}>
+                {isDeletingAccount ? tUI(uiLanguage, 'profile.deleteAccountDeleting') : tUI(uiLanguage, 'profile.deleteAccount')}
+              </Text>
               <View style={styles.settingsRowRight}>
                 {isDeletingAccount ? (
                   <ActivityIndicator color="#FF3B30" />
@@ -1050,140 +1040,10 @@ export default function ProfileMainScreenUI({
                 )}
               </View>
             </Pressable>
-          </View>
-        </View>
-      </SafeAreaView>
-
-      <Modal
-        visible={membershipModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={onCloseMembershipModal}
-      >
-        <View style={styles.membershipBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={onCloseMembershipModal} />
-          <View style={styles.membershipSheetContainer} pointerEvents="box-none">
-            <View
-              style={[
-                styles.membershipSheet,
-                { shadowColor: isLight ? '#0F172A' : '#000000' },
-              ]}
-            >
-              <Image source={MEMBERSHIP_BG_ICON} style={styles.membershipHeroIconBg} resizeMode="contain" />
-              <View style={styles.membershipHeroDim} />
-              <Pressable
-                style={({ pressed }) => [
-                  styles.membershipCloseIcon,
-                  pressed ? styles.membershipButtonPressed : null,
-                ]}
-                onPress={onCloseMembershipModal}
-                hitSlop={10}
-              >
-                <Ionicons name="close" size={34} color="#FFFFFF" />
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [styles.membershipRestoreTopLink, pressed ? styles.membershipRestoreLinkPressed : null]}
-                onPress={onRestoreMembership}
-                disabled={savingEntitlement}
-              >
-                <Text style={styles.membershipRestoreTopText}>Restore</Text>
-              </Pressable>
-
-              <View style={styles.membershipHeroContent}>
-                <View style={styles.membershipBrandRow}>
-                  <Text style={styles.membershipBrandText}>Nuances</Text>
-                  <View style={styles.membershipProBadge}>
-                    <Text style={styles.membershipProBadgeText}>PRO</Text>
-                  </View>
-                </View>
-                <Text style={styles.membershipHeroSubtitle}>
-                  Unlock AI cards, high quality voices, and pronunciation coaching
-                </Text>
-              </View>
-
-              <View style={styles.membershipBenefitList}>
-                {[
-                  'AI-generated definitions, examples, and context',
-                  'Cloud TTS with cached premium voices',
-                  'Pronunciation coach with scoring feedback',
-                  'Unlimited cache and faster card creation',
-                ].map((item) => (
-                  <View key={item} style={styles.membershipBenefitRow}>
-                    <Ionicons name="checkmark" size={28} color="#22D3EE" />
-                    <Text style={styles.membershipBenefitText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.membershipPlanGrid}>
-                {visibleMembershipPackages.map((item, index) => {
-                  const selected = index === 0;
-                  return (
-                    <Pressable
-                      key={item.identifier}
-                      style={({ pressed }) => [
-                        styles.membershipPlanCard,
-                        selected ? styles.membershipPlanCardSelected : null,
-                        pressed ? styles.membershipButtonPressed : null,
-                      ]}
-                      onPress={() => onUpgradeMembership(item.identifier === 'current' ? null : item.identifier)}
-                      disabled={savingEntitlement}
-                    >
-                      {selected ? (
-                        <View style={styles.membershipSelectedCheck}>
-                          <Ionicons name="checkmark" size={20} color="#071318" />
-                        </View>
-                      ) : null}
-                      <Text style={selected ? styles.membershipPlanTitle : styles.membershipPlanTitleAlt}>
-                        {item.title}
-                      </Text>
-                      <Text style={selected ? styles.membershipPlanPrice : styles.membershipPlanPriceAlt}>
-                        {item.priceLabel}
-                      </Text>
-                      <Text style={selected ? styles.membershipPlanMeta : styles.membershipPlanMetaAlt}>
-                        {item.description || 'Auto-renews unless canceled'}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.membershipActionPrimary,
-                  pressed || savingEntitlement ? styles.membershipButtonPressed : null,
-                ]}
-                onPress={() => {
-                  const firstIdentifier = visibleMembershipPackages[0]?.identifier;
-                  onUpgradeMembership(firstIdentifier === 'current' ? null : firstIdentifier || null);
-                }}
-                disabled={savingEntitlement}
-              >
-                <Text style={styles.membershipActionPrimaryText}>
-                  {savingEntitlement
-                    ? 'Updating...'
-                    : entitlementMode === 'premium'
-                      ? 'Premium active'
-                      : 'Subscribe'}
-                </Text>
-                <Ionicons name="chevron-forward" size={24} color="#071318" />
-              </Pressable>
-
-              <Text style={styles.membershipRenewalCopy}>
-                7-day free trial. Auto-renews unless canceled.
-              </Text>
-
-              <PaywallFooter
-                style={[
-                  styles.membershipFooterLinks,
-                  { bottom: Math.max(insets.bottom, 12) },
-                ]}
-              />
             </View>
           </View>
-        </View>
-      </Modal>
+        </ScrollView>
+      </SafeAreaView>
 
       <Modal
         visible={monthPickerVisible}
@@ -1350,6 +1210,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BASE_BG,
+  },
+  screenScroll: {
+    flex: 1,
+  },
+  screenScrollContent: {
+    flexGrow: 1,
   },
   topNavRow: {
     display: 'none',
@@ -1866,251 +1732,6 @@ const styles = StyleSheet.create({
   settingValue: {
     fontSize: 13,
     fontWeight: '700',
-  },
-  membershipBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.58)',
-    justifyContent: 'flex-end',
-  },
-  membershipSheetContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  membershipSheet: {
-    minHeight: '82%',
-    maxHeight: '96%',
-    borderRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 26,
-    paddingBottom: 72,
-    backgroundColor: '#181818',
-    overflow: 'hidden',
-    shadowOpacity: 0.28,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 10,
-  },
-  membershipHeroIconBg: {
-    position: 'absolute',
-    top: 34,
-    alignSelf: 'center',
-    width: '104%',
-    height: '48%',
-    opacity: 0.34,
-  },
-  membershipHeroDim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10,14,15,0.62)',
-  },
-  membershipCloseIcon: {
-    position: 'absolute',
-    top: 24,
-    left: 20,
-    zIndex: 3,
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  membershipRestoreTopLink: {
-    position: 'absolute',
-    top: 28,
-    right: 24,
-    zIndex: 3,
-  },
-  membershipRestoreTopText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: '800',
-  },
-  membershipHeroContent: {
-    zIndex: 1,
-    marginTop: 72,
-    alignItems: 'center',
-  },
-  membershipBrandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  membershipBrandText: {
-    color: '#FFFFFF',
-    fontSize: 46,
-    lineHeight: 54,
-    fontWeight: '500',
-    letterSpacing: -1.4,
-  },
-  membershipProBadge: {
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  membershipProBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  membershipHeroSubtitle: {
-    marginTop: 10,
-    maxWidth: 320,
-    color: '#FFFFFF',
-    fontSize: 21,
-    lineHeight: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  membershipBenefitList: {
-    zIndex: 1,
-    marginTop: 'auto',
-    gap: 14,
-  },
-  membershipBenefitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  membershipBenefitText: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '800',
-  },
-  membershipPlanGrid: {
-    zIndex: 1,
-    marginTop: 26,
-    flexDirection: 'row',
-    gap: 14,
-  },
-  membershipPlanCard: {
-    flex: 1,
-    minHeight: 138,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    backgroundColor: 'rgba(15,15,15,0.72)',
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    overflow: 'hidden',
-  },
-  membershipPlanCardSelected: {
-    borderColor: '#22D3EE',
-    shadowColor: '#00E5FF',
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-  },
-  membershipSelectedCheck: {
-    position: 'absolute',
-    top: -1,
-    right: -1,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#22D3EE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-  membershipPlanTitle: {
-    color: '#22D3EE',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  membershipPlanTitleAlt: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  membershipPlanPrice: {
-    marginTop: 10,
-    color: '#22D3EE',
-    fontSize: 32,
-    lineHeight: 38,
-    fontWeight: '500',
-  },
-  membershipPlanPriceAlt: {
-    marginTop: 10,
-    color: '#FFFFFF',
-    fontSize: 27,
-    lineHeight: 34,
-    fontWeight: '700',
-  },
-  membershipPlanMeta: {
-    marginTop: 'auto',
-    color: '#22D3EE',
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  membershipPlanMetaAlt: {
-    marginTop: 'auto',
-    color: '#FFFFFF',
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  membershipSavePill: {
-    alignSelf: 'flex-start',
-    marginTop: 9,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  membershipSavePillText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  membershipActionPrimary: {
-    zIndex: 1,
-    marginTop: 26,
-    minHeight: 64,
-    borderRadius: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#22C1D6',
-    shadowColor: '#00E5FF',
-    shadowOpacity: 0.32,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  membershipActionPrimaryText: {
-    color: '#071318',
-    fontSize: 21,
-    fontWeight: '700',
-  },
-  membershipRenewalCopy: {
-    zIndex: 1,
-    marginTop: 18,
-    textAlign: 'center',
-    color: 'rgba(255,255,255,0.58)',
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
-  },
-  membershipFooterLinks: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 1,
-  },
-  membershipRestoreLinkPressed: {
-    opacity: 0.65,
-  },
-  membershipButtonPressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.985 }],
   },
   mainScreenSheetContainer: {
     paddingHorizontal: 16,

@@ -268,7 +268,7 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
       if (!entitlement.canUseCloudTTS) {
         Alert.alert(
           '升級解鎖高品質發音',
-          '免費版可使用本地 OCR 與手動建卡；雲端語音與快取下載需要試用版或 Premium。'
+          '雲端語音與快取下載需要有效試用或 Premium。'
         );
         options?.onError?.();
         return false;

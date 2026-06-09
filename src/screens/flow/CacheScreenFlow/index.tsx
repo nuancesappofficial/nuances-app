@@ -162,6 +162,7 @@ function TiltSticker({
   posYList,
   onPress,
   disabled = false,
+  obscured = false,
   stickerFontKey,
 }: {
   item: TodayUploadSticker;
@@ -173,6 +174,7 @@ function TiltSticker({
   posYList: SharedValue<number[]>;
   onPress?: () => void;
   disabled?: boolean;
+  obscured?: boolean;
   stickerFontKey: StickerFontKey;
 }) {
   const stickerTiltDeg = ((index % 5) - 2) * 1.2;
@@ -220,7 +222,11 @@ function TiltSticker({
             width={svgRenderWidth}
             height={svgHeight}
             viewBox={`${-STICKER_SVG_BLEED} 0 ${svgRenderWidth} ${svgHeight}`}
-            style={[styles.stickerWordSvg, { marginHorizontal: -STICKER_SVG_BLEED }]}
+            style={[
+              styles.stickerWordSvg,
+              { marginHorizontal: -STICKER_SVG_BLEED },
+              obscured ? styles.stickerWordSvgObscured : null,
+            ]}
           >
             {isLightMode ? (
               <SvgText
@@ -267,6 +273,14 @@ function TiltSticker({
               {labelText}
             </SvgText>
           </Svg>
+          {obscured ? (
+            <BlurView
+              pointerEvents="none"
+              style={styles.stickerWordBlurOverlay}
+              intensity={44}
+              tint={isLightMode ? 'light' : 'dark'}
+            />
+          ) : null}
         </View>
       </TouchableOpacity>
     </Reanimated.View>
@@ -277,11 +291,15 @@ function VocabStickerCloud({
   onPressSticker,
   stickerFontKey,
   hapticsEnabled = true,
+  disabled = false,
+  obscured = false,
 }: {
   items: TodayUploadSticker[];
   onPressSticker?: (item: TodayUploadSticker) => void;
   stickerFontKey: StickerFontKey;
   hapticsEnabled?: boolean;
+  disabled?: boolean;
+  obscured?: boolean;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -532,7 +550,8 @@ function VocabStickerCloud({
             posYList={posYList}
             stickerFontKey={stickerFontKey}
             onPress={() => onPressSticker?.(item)}
-            disabled={!item.cardId}
+            disabled={disabled || !item.cardId}
+            obscured={obscured}
           />
         );
       })}
@@ -629,6 +648,21 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const [optimisticallyHiddenCacheIds, setOptimisticallyHiddenCacheIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
+  const [visibleCacheIds, setVisibleCacheIds] = useState<string[]>([]);
+
+  const hideCacheCardFromStack = React.useCallback((itemId: string) => {
+    setVisibleCacheIds((prev) => prev.filter((id) => id !== itemId));
+  }, []);
+
+  const restoreCacheCardToStack = React.useCallback((itemId: string) => {
+    setVisibleCacheIds((prev) => {
+      if (prev.includes(itemId)) return prev;
+      return [...prev, itemId];
+    });
+    setRestoreSeed((prev) => prev + 1);
+  }, []);
+
   const {
     creatingImage,
     showQuickCamera,
@@ -656,14 +690,13 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     onBatchQuickAddCreated: (createdItemIds) => {
       setPendingBatchEnterIds(createdItemIds);
     },
+    onSwipeImageCropCancel: restoreCacheCardToStack,
   });
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
   const [stickerFontKey, setStickerFontKey] = useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
   const previousCardCountRef = React.useRef<number | null>(null);
   const hasSeenCacheOnceRef = React.useRef(false);
   const lastSeenStackCardIdsRef = React.useRef<string[]>([]);
-  const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
-  const [visibleCacheIds, setVisibleCacheIds] = useState<string[]>([]);
   const openAddModal = React.useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowAddModal(true);
@@ -762,6 +795,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       importedAtLabel: item.importedAtLabel,
     }));
   }, [cards, visibleCacheIds]);
+  const isTodayUploadObscured = cards.length > 0;
 
   useEffect(() => {
     if (!isCacheFocused) return;
@@ -990,18 +1024,20 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   }, [refreshPasteEnabled, showAddModal]);
 
   const hideCacheCardImmediately = React.useCallback((itemId: string) => {
-    setVisibleCacheIds((prev) => prev.filter((id) => id !== itemId));
+    hideCacheCardFromStack(itemId);
     setOptimisticallyHiddenCacheIds((prev) => {
       const next = new Set(prev);
       next.add(itemId);
       return next;
     });
-  }, []);
+  }, [hideCacheCardFromStack]);
 
   const { handleCardImageError, handleCardSwipeStart, handleCardSwipe } = useCacheSwipeActions({
     cards,
     navigation,
     appTour,
+    hideCacheCardFromStack,
+    restoreCacheCardToStack,
     hideCacheCardImmediately,
     deleteCacheItemPermanently,
     openCropperForSwipeImage,
@@ -1034,7 +1070,15 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={styles.vocabSection}>
-        <Text style={[styles.vocabTitleOutside, { color: isLight ? '#64748B' : '#FBFBFB' }]}>Today&apos;s Uploads</Text>
+        <Text
+          style={[
+            styles.vocabTitleOutside,
+            { color: isLight ? '#64748B' : '#FBFBFB' },
+            isTodayUploadObscured ? styles.vocabTitleObscured : null,
+          ]}
+        >
+          Today&apos;s Uploads
+        </Text>
         <View
           style={[
             styles.vocabContainer,
@@ -1051,9 +1095,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             items={todayStickerWords}
             stickerFontKey={stickerFontKey}
             onPressSticker={handlePressTodaySticker}
-            hapticsEnabled={isCacheFocused}
+            hapticsEnabled={isCacheFocused && !isTodayUploadObscured}
+            disabled={isTodayUploadObscured}
+            obscured={isTodayUploadObscured}
           />
-          {stackCards.length > 0 ? (
+          {isTodayUploadObscured ? (
             <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />
           ) : null}
         </View>
@@ -1069,7 +1115,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           onCardSwipe={handleCardSwipe}
           onCardImageError={handleCardImageError}
           tourCreateActive={appTour.step === 'STEP_5_PROCESS_CACHE_CARD'}
-          tourCreateTooltip="Create from cache."
+          tourCreateTooltip="Swipe right to create."
         />
       </View>
 
@@ -1171,6 +1217,12 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginBottom: 8,
   },
+  vocabTitleObscured: {
+    opacity: 0.36,
+    textShadowColor: 'rgba(148, 163, 184, 0.86)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 7,
+  },
   vocabContainer: {
     minHeight: 188,
     borderRadius: 16,
@@ -1208,9 +1260,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   stickerWordSvg: {
     overflow: 'visible',
+  },
+  stickerWordSvgObscured: {
+    opacity: 0.34,
+  },
+  stickerWordBlurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
   },
   vocabBlurOverlay: {
     ...StyleSheet.absoluteFillObject,

@@ -23,6 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
+import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
@@ -36,6 +37,7 @@ import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumM
 import {
   DEFAULT_USER_SETTINGS,
   createMainScreenEmptyAlbumSlot,
+  getPrimaryAIReplyLanguageForLearningLanguages,
   isTTSVoiceCompatibleWithAIReplyLanguage,
   isMainScreenEmptyAlbumSlot,
   loadUserSettings,
@@ -44,9 +46,11 @@ import {
   saveUserSettings,
   type AIReplyLanguage,
   type TTSVoice,
+  type UILanguage,
   type UserAppSettings,
-  withUpdatedTTSVoiceForLanguage,
+  withUpdatedTTSVoiceOnlyForLanguage,
 } from '@services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   CONTAINER_NEON_GLOW,
   CONTAINER_NEON_OUTLINE,
@@ -65,8 +69,10 @@ import {
 } from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { supabase } from '@services/supabase/client';
+import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import type { MembershipReturnTarget } from '../../../contexts/TabSwipeContext';
 
-type SettingOptionKind = 'ai' | 'voice' | 'font' | 'main' | 'membership';
+type SettingOptionKind = 'language' | 'voice' | 'font' | 'main' | 'membership';
 type MembershipBillingPlan = string;
 
 type Props = {
@@ -74,6 +80,7 @@ type Props = {
   route: {
     params?: {
       kind?: SettingOptionKind;
+      returnTo?: MembershipReturnTarget;
     };
   };
 };
@@ -86,6 +93,32 @@ const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'ko', label: '한국어' },
   { code: 'es', label: 'ES' },
   { code: 'fr', label: 'FR' },
+];
+
+const UI_LANGUAGE_OPTIONS: Array<{
+  code: UILanguage;
+  aiReplyLanguage: AIReplyLanguage;
+  labelKey: Parameters<typeof tUI>[1];
+  metaKey: Parameters<typeof tUI>[1];
+}> = [
+  {
+    code: 'en',
+    aiReplyLanguage: 'en',
+    labelKey: 'settings.language.english',
+    metaKey: 'settings.language.englishMeta',
+  },
+  {
+    code: 'zh-TW',
+    aiReplyLanguage: 'zh-TW',
+    labelKey: 'settings.language.chineseTraditional',
+    metaKey: 'settings.language.chineseTraditionalMeta',
+  },
+  {
+    code: 'zh-CN',
+    aiReplyLanguage: 'zh-CN',
+    labelKey: 'settings.language.chineseSimplified',
+    metaKey: 'settings.language.chineseSimplifiedMeta',
+  },
 ];
 
 const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
@@ -154,12 +187,43 @@ function normalizeMainScreenSlots(
   return trimmedSlots;
 }
 
-function getTitle(kind: SettingOptionKind): string {
-  if (kind === 'ai') return 'Language';
-  if (kind === 'voice') return 'Voice';
-  if (kind === 'main') return 'Main screen';
-  if (kind === 'membership') return 'Membership';
-  return 'Font';
+function getTitle(kind: SettingOptionKind, uiLanguage: UILanguage): string {
+  if (kind === 'language') return tUI(uiLanguage, 'settings.title.language');
+  if (kind === 'voice') return tUI(uiLanguage, 'settings.title.voice');
+  if (kind === 'main') return tUI(uiLanguage, 'settings.title.mainScreen');
+  if (kind === 'membership') return tUI(uiLanguage, 'settings.title.membership');
+  return tUI(uiLanguage, 'settings.title.font');
+}
+
+function resolveMembershipPeriodLabel(value?: string | null): 'Weekly' | 'Monthly' | 'Yearly' | null {
+  const normalized = (value || '').toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes('p1w') || normalized.includes('week')) return 'Weekly';
+  if (normalized.includes('p1m') || normalized.includes('month')) return 'Monthly';
+  if (normalized.includes('p1y') || normalized.includes('year') || normalized.includes('annual')) return 'Yearly';
+  return null;
+}
+
+function resolveMembershipPlanTitle(item: RevenueCatPackageSummary): string {
+  return (
+    resolveMembershipPeriodLabel(item.packageType) ||
+    resolveMembershipPeriodLabel(item.identifier) ||
+    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+    resolveMembershipPeriodLabel(item.title) ||
+    'Premium'
+  );
+}
+
+function resolveMembershipPlanMeta(item: RevenueCatPackageSummary): string {
+  const periodLabel =
+    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+    resolveMembershipPeriodLabel(item.packageType) ||
+    resolveMembershipPeriodLabel(item.identifier);
+  if (periodLabel) return `Billed ${periodLabel.toLowerCase()}`;
+
+  const description = (item.description || '').trim();
+  if (/^p\\d+[dwmy]$/i.test(description)) return 'Auto-renews unless canceled';
+  return description || 'Auto-renews unless canceled';
 }
 
 function MembershipPlanOption({
@@ -245,20 +309,33 @@ function MembershipPlanOption({
       onPressOut={() => animatePress(0)}
     >
       <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
-        <Animated.Text style={[styles.membershipPlanTitle, animatedTextStyle]}>{title}</Animated.Text>
-        <Animated.Text style={[styles.membershipPlanPrice, animatedTextStyle]}>{price}</Animated.Text>
-        <Text style={styles.membershipPlanMeta}>{perDay}</Text>
+        <Animated.Text style={[styles.membershipPlanTitle, animatedTextStyle]} numberOfLines={1}>
+          {title}
+        </Animated.Text>
+        <Animated.Text
+          style={[styles.membershipPlanPrice, animatedTextStyle]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {price}
+        </Animated.Text>
+        <Text style={styles.membershipPlanMeta} numberOfLines={2}>
+          {perDay}
+        </Text>
       </Animated.View>
     </Pressable>
   );
 }
 
 export default function ProfileSettingOptionsFlow({ navigation, route }: Props) {
-  const kind = route.params?.kind ?? 'ai';
+  const kind = route.params?.kind ?? 'language';
+  const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const tabSwipeContext = React.useContext(TabSwipeContext);
   const isLight = colorScheme === 'light';
   const membershipStageMinHeight = Math.max(728, windowHeight - 92);
   const [settings, setSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
@@ -275,6 +352,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const [membershipPlan, setMembershipPlan] = React.useState<MembershipBillingPlan>('monthly');
   const [savingMembership, setSavingMembership] = React.useState(false);
   const [membershipStatus, setMembershipStatus] = React.useState<'trial' | 'free' | 'premium'>('free');
+  const [premiumTransitionVisible, setPremiumTransitionVisible] = React.useState(false);
+  const [premiumTransitionReady, setPremiumTransitionReady] = React.useState(false);
+  const premiumGreetingShownRef = React.useRef(false);
   const dragTranslate = React.useRef(new Animated.ValueXY()).current;
   const previewPositionValuesRef = React.useRef<Record<string, Animated.ValueXY>>({});
   const previewPositionTargetsRef = React.useRef<Record<string, { x: number; y: number }>>({});
@@ -288,7 +368,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
   React.useEffect(() => {
     if (
-      kind !== 'ai' &&
+      kind !== 'language' &&
       kind !== 'voice' &&
       kind !== 'font' &&
       kind !== 'main' &&
@@ -357,8 +437,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
         try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user?.id) {
+            if (!cancelled) setMainScreenAlbums([]);
+            return;
+          }
           const [cards, prefs] = await Promise.all([
-            database.get<Card>('cards').query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc)).fetch(),
+            database
+              .get<Card>('cards')
+              .query(Q.where('user_id', user.id), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+              .fetch(),
             loadDeckAlbumPreferences(),
           ]);
           if (cancelled) return;
@@ -376,11 +466,13 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   }, [kind]);
 
   const visibleTTSVoiceOptions = React.useMemo(
-    () =>
-      TTS_VOICE_OPTIONS.filter((item) =>
-        isTTSVoiceCompatibleWithAIReplyLanguage(item.code, settings.aiReplyLanguage)
-      ),
-    [settings.aiReplyLanguage]
+    () => {
+      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
+      return TTS_VOICE_OPTIONS.filter((item) =>
+        isTTSVoiceCompatibleWithAIReplyLanguage(item.code, targetTTSLanguage)
+      );
+    },
+    [settings.learningLanguages]
   );
 
   const persistSettings = React.useCallback(async (next: UserAppSettings) => {
@@ -461,10 +553,13 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   }, [previewEditMode, previewWiggleValue]);
 
   const handleSelectLanguage = React.useCallback(
-    async (language: AIReplyLanguage) => {
+    async (language: UILanguage, aiReplyLanguage: AIReplyLanguage) => {
       try {
-        const nextVoice = resolveTTSVoiceForLanguage(settings, language);
-        const nextSettings = withUpdatedTTSVoiceForLanguage(settings, language, nextVoice);
+        const nextSettings = {
+          ...settings,
+          uiLanguage: language,
+          aiReplyLanguage,
+        };
         await persistSettings(nextSettings);
       } catch (error) {
         console.error('[ProfileSettingOptions] update language failed:', error);
@@ -477,7 +572,8 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const handleSelectVoice = React.useCallback(
     async (voice: TTSVoice) => {
       try {
-        const nextSettings = withUpdatedTTSVoiceForLanguage(settings, settings.aiReplyLanguage, voice);
+        const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
+        const nextSettings = withUpdatedTTSVoiceOnlyForLanguage(settings, targetTTSLanguage, voice);
         await persistSettings(nextSettings);
       } catch (error) {
         console.error('[ProfileSettingOptions] update voice failed:', error);
@@ -500,6 +596,33 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     [persistSettings, settings]
   );
 
+  const startPremiumSuccessTransition = React.useCallback(() => {
+    premiumGreetingShownRef.current = false;
+    setPremiumTransitionVisible(true);
+    setPremiumTransitionReady(false);
+    requestAnimationFrame(() => {
+      setPremiumTransitionReady(true);
+    });
+  }, []);
+
+  const finishPremiumSuccessTransition = React.useCallback(() => {
+    setPremiumTransitionVisible(false);
+    setPremiumTransitionReady(false);
+    if (membershipReturnTo === 'create-card') {
+      if (navigation.canGoBack?.()) {
+        navigation.popToTop?.();
+      }
+      tabSwipeContext?.goToTab(1, { animation: 'fade', durationMs: 360 });
+    } else {
+      navigation.goBack?.();
+    }
+    if (premiumGreetingShownRef.current) return;
+    premiumGreetingShownRef.current = true;
+    setTimeout(() => {
+      Alert.alert('Welcome to Premium', 'Nuances Pro is ready. AI cards, voices, and coaching are unlocked.');
+    }, 360);
+  }, [membershipReturnTo, navigation, tabSwipeContext]);
+
   const handlePurchaseMembership = React.useCallback(async () => {
     if (savingMembership) return;
     setSavingMembership(true);
@@ -515,14 +638,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         membershipPackages.find((item) => item.identifier === membershipPlan)?.identifier || null;
       const snapshot = await SubscriptionService.purchasePremium(user.id, packageIdentifier);
       setMembershipStatus(snapshot.planType);
-      Alert.alert('升級成功', 'Premium 已解鎖 AI、雲端語音與發音評分。');
+      if (snapshot.planType === 'premium') {
+        startPremiumSuccessTransition();
+        return;
+      }
+      Alert.alert('升級完成', '付款流程已完成，但 Premium 狀態尚未同步。請稍後再試或恢復購買。');
     } catch (error) {
       console.error('[ProfileSettingOptions] purchase premium failed:', error);
       Alert.alert('升級失敗', error instanceof Error ? error.message : '請稍後再試。');
     } finally {
       setSavingMembership(false);
     }
-  }, [membershipPackages, membershipPlan, savingMembership]);
+  }, [membershipPackages, membershipPlan, savingMembership, startPremiumSuccessTransition]);
 
   const handleRestoreMembership = React.useCallback(async () => {
     if (savingMembership) return;
@@ -537,17 +664,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       }
       const snapshot = await SubscriptionService.restorePurchases(user.id);
       setMembershipStatus(snapshot.planType);
-      Alert.alert(
-        '恢復完成',
-        snapshot.planType === 'premium' ? '已恢復 Premium 購買。' : '目前沒有可恢復的有效 Premium 訂閱。'
-      );
+      if (snapshot.planType === 'premium') {
+        startPremiumSuccessTransition();
+        return;
+      }
+      Alert.alert('恢復完成', '目前沒有可恢復的有效 Premium 訂閱。');
     } catch (error) {
       console.error('[ProfileSettingOptions] restore purchases failed:', error);
       Alert.alert('恢復失敗', error instanceof Error ? error.message : '請稍後再試。');
     } finally {
       setSavingMembership(false);
     }
-  }, [savingMembership]);
+  }, [savingMembership, startPremiumSuccessTransition]);
 
   const handleSelectMainScreenAlbumGridCount = React.useCallback(
     async (count: MainScreenAlbumGridCount) => {
@@ -570,13 +698,26 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         ...settings,
         mainScreenWordPopEnabled: nextWordPopEnabled,
         mainScreenAlbumGridCount:
-          nextWordPopEnabled && settings.mainScreenAlbumGridCount === 9 ? 6 : settings.mainScreenAlbumGridCount,
+          nextWordPopEnabled && settings.mainScreenAlbumGridCount === 9 ? 4 : settings.mainScreenAlbumGridCount,
       });
     } catch (error) {
       console.error('[ProfileSettingOptions] update word pop visibility failed:', error);
       Alert.alert('更新失敗', '無法儲存 Word pop 顯示設定，請稍後再試。');
     }
   }, [persistSettings, settings]);
+
+  const handleSelectWordPopAlbum = React.useCallback(
+    async (albumId: string | null) => {
+      try {
+        if (settings.mainScreenWordPopAlbumId === albumId) return;
+        await persistSettings({ ...settings, mainScreenWordPopAlbumId: albumId });
+      } catch (error) {
+        console.error('[ProfileSettingOptions] update word pop album failed:', error);
+        Alert.alert('更新失敗', '無法儲存 Word pop 相簿來源，請稍後再試。');
+      }
+    },
+    [persistSettings, settings]
+  );
 
   const persistAlbumOrder = React.useCallback(
     async (nextOrder: string[]) => {
@@ -790,19 +931,29 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   ]);
 
   const rows = React.useMemo(() => {
-    if (kind === 'ai') {
-      return AI_LANGUAGE_OPTIONS.map((item) => ({
+    if (kind === 'language') {
+      return UI_LANGUAGE_OPTIONS.map((item) => ({
         key: item.code,
-        selected: item.code === settings.aiReplyLanguage,
-        content: <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{item.label}</Text>,
-        onPress: () => void handleSelectLanguage(item.code),
+        selected: item.code === settings.uiLanguage,
+        content: (
+          <View style={styles.optionTextStack}>
+            <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>
+              {tUI(settings.uiLanguage, item.labelKey)}
+            </Text>
+            <Text style={[styles.optionDescription, { color: palette.secondaryText }]}>
+              {tUI(settings.uiLanguage, item.metaKey)}
+            </Text>
+          </View>
+        ),
+        onPress: () => void handleSelectLanguage(item.code, item.aiReplyLanguage),
       }));
     }
 
     if (kind === 'voice') {
+      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
       return visibleTTSVoiceOptions.map((item) => ({
         key: item.code,
-        selected: item.code === resolveTTSVoiceForLanguage(settings, settings.aiReplyLanguage),
+        selected: item.code === resolveTTSVoiceForLanguage(settings, targetTTSLanguage),
         content: <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{item.label}</Text>,
         onPress: () => void handleSelectVoice(item.code),
       }));
@@ -823,6 +974,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     handleSelectLanguage,
     handleSelectVoice,
     kind,
+    palette.secondaryText,
     palette.textOnContainer,
     settings,
     visibleTTSVoiceOptions,
@@ -841,10 +993,11 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   );
   const previewGridSlotCount = previewSlots.length;
   const previewPageCount = Math.max(1, Math.ceil(previewGridSlotCount / settings.mainScreenAlbumGridCount));
-  const previewRowsPerPage = Math.max(1, Math.ceil(settings.mainScreenAlbumGridCount / PREVIEW_GRID_COLUMNS));
+  const previewGridColumns = settings.mainScreenAlbumGridCount === 4 ? 2 : PREVIEW_GRID_COLUMNS;
+  const previewRowsPerPage = Math.max(1, Math.ceil(settings.mainScreenAlbumGridCount / previewGridColumns));
   const previewCellWidth =
     previewGridWidth > 0
-      ? (previewGridWidth - PREVIEW_GRID_GAP * (PREVIEW_GRID_COLUMNS - 1)) / PREVIEW_GRID_COLUMNS
+      ? (previewGridWidth - PREVIEW_GRID_GAP * (previewGridColumns - 1)) / previewGridColumns
       : 0;
   const previewCellHeight = previewCellWidth > 0 ? previewCellWidth + 25 : 0;
   const previewPageHeight =
@@ -857,22 +1010,44 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       : 0;
   const mainScreenGridCountOptions = React.useMemo(
     () =>
-      (settings.mainScreenWordPopEnabled ? [3, 6] : [3, 6, 9]) as MainScreenAlbumGridCount[],
+      (settings.mainScreenWordPopEnabled ? [3, 4] : [3, 4, 9]) as MainScreenAlbumGridCount[],
     [settings.mainScreenWordPopEnabled]
+  );
+  const wordPopAlbumOptions = React.useMemo(
+    () => [
+      { id: null, name: 'All cards', emoji: '📌', color: MODAL_CTA_COLOR },
+      ...mainScreenAlbums
+        .filter((album) => album.id !== 'all')
+        .map((album) => ({
+          id: album.id,
+          name: album.name,
+          emoji: album.emoji,
+          color: album.color,
+        })),
+    ],
+    [mainScreenAlbums]
+  );
+  const effectiveWordPopAlbumId = React.useMemo(
+    () =>
+      settings.mainScreenWordPopAlbumId &&
+      wordPopAlbumOptions.some((album) => album.id === settings.mainScreenWordPopAlbumId)
+        ? settings.mainScreenWordPopAlbumId
+        : null,
+    [settings.mainScreenWordPopAlbumId, wordPopAlbumOptions]
   );
 
   const getPreviewSlotPosition = React.useCallback(
     (index: number) => {
       const pageIndex = Math.floor(index / settings.mainScreenAlbumGridCount);
       const indexInPage = index % settings.mainScreenAlbumGridCount;
-      const row = Math.floor(indexInPage / PREVIEW_GRID_COLUMNS);
-      const col = indexInPage % PREVIEW_GRID_COLUMNS;
+      const row = Math.floor(indexInPage / previewGridColumns);
+      const col = indexInPage % previewGridColumns;
       return {
         x: col * (previewCellWidth + PREVIEW_GRID_GAP),
         y: pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP) + row * (previewCellHeight + PREVIEW_GRID_GAP),
       };
     },
-    [previewCellHeight, previewCellWidth, previewPageHeight, settings.mainScreenAlbumGridCount]
+    [previewCellHeight, previewCellWidth, previewGridColumns, previewPageHeight, settings.mainScreenAlbumGridCount]
   );
 
   const beginPreviewAlbumDrag = React.useCallback(
@@ -901,17 +1076,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       );
       const col = Math.max(
         0,
-        Math.min(PREVIEW_GRID_COLUMNS - 1, Math.floor(centerX / Math.max(1, previewCellWidth + PREVIEW_GRID_GAP)))
+        Math.min(previewGridColumns - 1, Math.floor(centerX / Math.max(1, previewCellWidth + PREVIEW_GRID_GAP)))
       );
       return Math.max(
         0,
-        Math.min(previewSlots.length - 1, pageIndex * settings.mainScreenAlbumGridCount + row * PREVIEW_GRID_COLUMNS + col)
+        Math.min(previewSlots.length - 1, pageIndex * settings.mainScreenAlbumGridCount + row * previewGridColumns + col)
       );
     },
     [
       previewCellHeight,
       previewCellWidth,
       previewPageCount,
+      previewGridColumns,
       previewRowsPerPage,
       previewSlots.length,
       settings.mainScreenAlbumGridCount,
@@ -1029,9 +1205,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       membershipPackages.length > 0
         ? membershipPackages.map((item) => ({
             key: item.identifier,
-            title: item.title || item.packageType || 'Premium',
+            title: resolveMembershipPlanTitle(item),
             price: item.priceLabel || membershipPriceLabel || 'Premium',
-            perDay: item.subscriptionPeriod || item.description || 'Auto-renews unless canceled',
+            perDay: resolveMembershipPlanMeta(item),
           }))
         : [
             {
@@ -1067,7 +1243,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             style={styles.mainScroll}
             contentContainerStyle={[
               styles.membershipScrollContent,
-              { paddingBottom: Math.max(insets.bottom + 64, 84) },
+              { paddingBottom: Math.max(insets.bottom + 132, 156) },
             ]}
             showsVerticalScrollIndicator={false}
           >
@@ -1144,10 +1320,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
           <PaywallFooter
             style={[
               styles.membershipFooterLinks,
-              { bottom: Math.max(insets.bottom, 12) },
+              { bottom: Math.max(insets.bottom, 8) },
             ]}
           />
         </SafeAreaView>
+        {premiumTransitionVisible ? (
+          <View style={styles.premiumTransitionBlocker} pointerEvents="auto">
+            <AnimatedSplashV2 ready={premiumTransitionReady} onAnimationComplete={finishPremiumSuccessTransition} />
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -1162,9 +1343,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               onPress={() => navigation.goBack()}
             >
               <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-              <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
+              <Text style={[styles.backText, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'common.back')}</Text>
             </Pressable>
-            <Text style={[styles.title, { color: palette.textOnBg }]}>Main screen</Text>
+            <Text style={[styles.title, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'settings.title.mainScreen')}</Text>
             <View style={styles.headerSpacer} />
           </View>
 
@@ -1419,7 +1600,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               ]}
             >
               <View style={styles.mainBlock}>
-                <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>Albums per page</Text>
+                <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.albumsPerPage')}</Text>
                 <View style={styles.segmentRow}>
                   {mainScreenGridCountOptions.map((count) => {
                     const active = settings.mainScreenAlbumGridCount === count;
@@ -1449,8 +1630,8 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
               <View style={styles.wordPopRow}>
                 <View>
-                  <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>Word pop</Text>
-                  <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>Show section on main screen</Text>
+                  <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.wordPop')}</Text>
+                  <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>{tUI(settings.uiLanguage, 'settings.main.wordPopMeta')}</Text>
                 </View>
                 <Switch
                   value={settings.mainScreenWordPopEnabled}
@@ -1459,6 +1640,51 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                   thumbColor={TEXT_ON_CTA}
                   ios_backgroundColor={palette.modalOptionBg}
                 />
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: isLight ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.32)' }]} />
+
+              <View style={styles.wordPopSourceBlock}>
+                <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.wordPopSource')}</Text>
+                <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>
+                  {tUI(settings.uiLanguage, 'settings.main.wordPopSourceMeta')}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.wordPopAlbumScroller}
+                >
+                  {wordPopAlbumOptions.map((album) => {
+                    const active =
+                      album.id == null
+                        ? effectiveWordPopAlbumId == null
+                        : effectiveWordPopAlbumId === album.id;
+                    return (
+                      <Pressable
+                        key={album.id ?? 'all'}
+                        style={({ pressed }) => [
+                          styles.wordPopAlbumPill,
+                          {
+                            backgroundColor: active ? MODAL_CTA_COLOR : palette.modalOptionBg,
+                            borderColor: active ? MODAL_CTA_COLOR : isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                          },
+                          pressed ? styles.pressed : null,
+                        ]}
+                        onPress={() => void handleSelectWordPopAlbum(album.id)}
+                      >
+                        <View style={[styles.wordPopAlbumIcon, { backgroundColor: active ? 'rgba(255,255,255,0.18)' : album.color }]}>
+                          <Text style={styles.wordPopAlbumEmoji}>{album.emoji}</Text>
+                        </View>
+                        <Text
+                          style={[styles.wordPopAlbumName, { color: active ? '#FFFFFF' : palette.textOnContainer }]}
+                          numberOfLines={1}
+                        >
+                          {album.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               </View>
             </View>
 
@@ -1484,9 +1710,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-            <Text style={[styles.backText, { color: palette.textOnBg }]}>Back</Text>
+            <Text style={[styles.backText, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'common.back')}</Text>
           </Pressable>
-          <Text style={[styles.title, { color: palette.textOnBg }]}>{getTitle(kind)}</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>{getTitle(kind, settings.uiLanguage)}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -1595,6 +1821,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  settingDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
   optionTextStack: {
     flex: 1,
     paddingVertical: 10,
@@ -1626,7 +1857,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     overflow: 'visible',
     paddingHorizontal: 16,
-    paddingBottom: 42,
+    paddingBottom: 92,
   },
   membershipHeroIcon: {
     position: 'absolute',
@@ -1645,7 +1876,7 @@ const styles = StyleSheet.create({
   },
   membershipHeadlineBlock: {
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 14,
     paddingHorizontal: 18,
   },
   membershipBrandLine: {
@@ -1676,9 +1907,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   membershipFeatureList: {
-    gap: 18,
+    gap: 11,
     paddingHorizontal: 18,
-    marginBottom: 28,
+    marginBottom: 18,
   },
   membershipFeatureRow: {
     flexDirection: 'row',
@@ -1688,8 +1919,8 @@ const styles = StyleSheet.create({
   membershipFeatureText: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '800',
   },
   membershipPlanGrid: {
@@ -1702,33 +1933,34 @@ const styles = StyleSheet.create({
   },
   membershipPlanCard: {
     flex: 1,
-    minHeight: 124,
+    minHeight: 112,
     borderRadius: 18,
     borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 10,
     overflow: 'hidden',
+    justifyContent: 'center',
   },
   membershipPlanTitle: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
   membershipPlanPrice: {
-    marginTop: 9,
-    fontSize: 20,
-    lineHeight: 25,
+    marginTop: 6,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: '800',
   },
   membershipPlanMeta: {
-    marginTop: 'auto',
+    marginTop: 7,
     color: 'rgba(255,255,255,0.68)',
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: '700',
   },
   membershipSubscribeButton: {
-    marginTop: 24,
+    marginTop: 14,
     height: BUTTON_TOKENS.height.prominent,
     borderRadius: BUTTON_TOKENS.radius.lg,
     backgroundColor: UPLOAD_CACHE_CTA_COLOR,
@@ -1755,6 +1987,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1,
+  },
+  premiumTransitionBlocker: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
   },
   mainScroll: {
     flex: 1,
@@ -1953,5 +2189,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 14,
+  },
+  wordPopSourceBlock: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 6,
+  },
+  wordPopAlbumScroller: {
+    paddingTop: 8,
+    paddingRight: 8,
+    gap: 10,
+  },
+  wordPopAlbumPill: {
+    maxWidth: 180,
+    minHeight: 46,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingLeft: 7,
+    paddingRight: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  wordPopAlbumIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wordPopAlbumEmoji: {
+    fontSize: 17,
+  },
+  wordPopAlbumName: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

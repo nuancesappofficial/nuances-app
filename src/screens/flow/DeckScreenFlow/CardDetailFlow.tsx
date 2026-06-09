@@ -45,6 +45,7 @@ import {
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
@@ -305,6 +306,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [newAlbumName, setNewAlbumName] = React.useState('');
+  const [pronunciationRecordingElapsedMs, setPronunciationRecordingElapsedMs] = React.useState(0);
+  const pronunciationHardCapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPronunciationHardCapTimer = React.useCallback(() => {
+    if (pronunciationHardCapTimerRef.current) {
+      clearTimeout(pronunciationHardCapTimerRef.current);
+      pronunciationHardCapTimerRef.current = null;
+    }
+  }, []);
 
   React.useEffect(() => {
     activeIndexUI.value = currentIndex ?? 0;
@@ -322,28 +332,39 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, []);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const loadCards = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAllCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setAllCards(data);
+        sub = queryCards.observe().subscribe((nextData) => {
+          setAllCards(nextData);
+          setLoading(false);
+        });
       } catch (error) {
         console.error('[CardDetail] load failed:', error);
-        setAllCards([]);
+        if (!cancelled) setAllCards([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     void loadCards();
-    const sub = queryCards.observe().subscribe((data) => {
-      setAllCards(data);
-      setLoading(false);
-    });
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, [cardId]);
 
   React.useEffect(() => {
@@ -741,7 +762,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
       const quota = await SubscriptionService.consumeVoiceQuota(card.userId);
       if (!quota.allowed) {
-        Alert.alert('升級解鎖發音評分', '免費版保留 OCR 與手動建卡；發音評分需要試用版或 Premium。', [
+        Alert.alert('升級解鎖發音評分', '發音評分需要有效試用或 Premium。', [
           { text: '稍後', style: 'cancel' },
           {
             text: '前往設定',
@@ -766,6 +787,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPhonemeFeedback([]);
       setShowFeedback(false);
       setHasRecorded(false);
+      clearPronunciationHardCapTimer();
+      setPronunciationRecordingElapsedMs(0);
       pronunciationRevealRunIdRef.current += 1;
       setPronunciationAnalysisError(null);
       setPronunciationRevealStep(3);
@@ -795,6 +818,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       recording.setProgressUpdateInterval(120);
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status?.isRecording) return;
+        if (typeof status.durationMillis === 'number' && Number.isFinite(status.durationMillis)) {
+          setPronunciationRecordingElapsedMs(Math.min(status.durationMillis, MAX_PRONUNCIATION_RECORDING_MS));
+        }
         if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
           updateWaveByMetering(status.metering);
         }
@@ -809,6 +835,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       await recording.startAsync();
       recordingRef.current = recording;
       setIsRecording(true);
+      pronunciationHardCapTimerRef.current = setTimeout(() => {
+        pronunciationHardCapTimerRef.current = null;
+        void stopPronunciationRecording();
+      }, MAX_PRONUNCIATION_RECORDING_MS);
       Vibration.vibrate(10);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] start recording failed:', error);
@@ -822,6 +852,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const stopPronunciationRecording = async () => {
     if (recordingTransitionRef.current) return;
     recordingTransitionRef.current = true;
+    clearPronunciationHardCapTimer();
     const recording = recordingRef.current;
     if (!recording) {
       recordingTransitionRef.current = false;
@@ -840,6 +871,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const uri = recording.getURI();
       recordingRef.current = null;
       setIsRecording(false);
+      setPronunciationRecordingElapsedMs(0);
       setHasRecorded(Boolean(uri));
       const currentCardId = pronunciationTargetCardIdRef.current;
       lastRecordingUriRef.current = uri || null;
@@ -898,6 +930,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPronunciationRevealStep(3);
     } finally {
       setIsAnalyzing(false);
+      setPronunciationRecordingElapsedMs(0);
       pronunciationTargetCardIdRef.current = null;
       recordingTransitionRef.current = false;
     }
@@ -914,6 +947,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const closePronunciationModal = React.useCallback(async () => {
     pronunciationRevealRunIdRef.current += 1;
+    clearPronunciationHardCapTimer();
     const activeRecording = recordingRef.current;
     if (activeRecording) {
       try {
@@ -926,6 +960,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         recordingTransitionRef.current = false;
         pronunciationTargetCardIdRef.current = null;
         setIsRecording(false);
+        setPronunciationRecordingElapsedMs(0);
       }
     }
     setShowPronunciationModal(false);
@@ -961,6 +996,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setHasRecorded(false);
     setShowFeedback(false);
     setIsRecording(false);
+    clearPronunciationHardCapTimer();
+    setPronunciationRecordingElapsedMs(0);
     setIsAnalyzing(false);
     pronunciationRevealRunIdRef.current += 1;
     setPronunciationScore(null);
@@ -1419,15 +1456,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [appTour, card]);
 
   const handleCardTourTargetPress = React.useCallback(() => {
+    if (appTour.step === 'STEP_8_FLICK_CARD') {
+      appTour.nextStep();
+      return;
+    }
     if (appTour.step === 'STEP_8_ALBUM_SAMPLE') {
       void addTourSampleToWorkAlbum();
       return;
     }
     if (appTour.step === 'STEP_9_COACH_SAMPLE') {
       appTour.nextStep();
-      if (typeof navigation?.popToTop === 'function') {
+      if (typeof navigation?.popToTop === 'function' && navigation.canGoBack?.()) {
         navigation.popToTop();
-      } else {
+      } else if (navigation.canGoBack?.()) {
         navigation.goBack();
       }
       requestAnimationFrame(() => {
@@ -1696,6 +1737,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               <PronunciationCoachUI
                 isActiveCard
                 isRecording={isRecording}
+                recordingElapsedMs={pronunciationRecordingElapsedMs}
+                recordingLimitMs={MAX_PRONUNCIATION_RECORDING_MS}
                 hasRecorded={hasRecorded}
                 showFeedback={showFeedback}
                 isAnalyzing={isAnalyzing}

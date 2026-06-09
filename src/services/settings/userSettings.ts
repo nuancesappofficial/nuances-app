@@ -1,10 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules, Platform } from 'react-native';
 import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../theme/stickerFonts';
+import { setAppGroupUILanguage } from '../../native/SharedDefaultsModule';
 
 export type ClipboardMode = 'active' | 'passive';
 export type EntitlementMode = 'trial' | 'free' | 'premium' | 'guest';
 export type PlanType = 'trial' | 'free' | 'premium';
 export type AIReplyLanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko' | 'es' | 'fr';
+export type UILanguage = 'zh-TW' | 'zh-CN' | 'en' | 'ja' | 'ko' | 'es';
+export type LearningLanguage = 'zh' | 'en' | 'ko' | 'ja' | 'es';
 export type TTSVoice =
   | 'en-US-JennyNeural'
   | 'en-US-GuyNeural'
@@ -16,7 +20,7 @@ export type TTSVoice =
   | 'es-ES-ElviraNeural'
   | 'fr-FR-DeniseNeural';
 export type WordPopSlideMs = 1800 | 2600 | 3400 | 4200 | 5200;
-export type MainScreenAlbumGridCount = 3 | 6 | 9;
+export type MainScreenAlbumGridCount = 3 | 4 | 9;
 export type LearningGoalPreset = 'ielts' | 'casual' | 'professional' | 'custom';
 export type ProficiencyStandardPreset =
   | 'cefr'
@@ -29,6 +33,18 @@ export type DomainPreset = 'medical' | 'technology' | 'business' | 'custom';
 export type TonePreset = 'brief' | 'detailed' | 'custom';
 export type AIBreakdownMode = 'short_punchy' | 'context' | 'deep_dive';
 
+export const LEARNING_LANGUAGE_OPTIONS: Array<{
+  value: LearningLanguage;
+  label: 'Chinese' | 'English' | 'Korean' | 'Japanese' | 'Spanish';
+  stickerText: string;
+}> = [
+  { value: 'zh', label: 'Chinese', stickerText: '嗨' },
+  { value: 'en', label: 'English', stickerText: 'Hi' },
+  { value: 'ko', label: 'Korean', stickerText: '안녕' },
+  { value: 'ja', label: 'Japanese', stickerText: 'やあ' },
+  { value: 'es', label: 'Spanish', stickerText: 'Hola' },
+];
+
 export const AI_BREAKDOWN_MODE_OPTIONS: Array<{
   value: AIBreakdownMode;
   label: 'Clarity' | 'Application' | 'Mastery';
@@ -37,17 +53,17 @@ export const AI_BREAKDOWN_MODE_OPTIONS: Array<{
   {
     value: 'short_punchy',
     label: 'Clarity',
-    description: 'Fastest, cleanest explanation.',
+    description: 'Quick',
   },
   {
     value: 'context',
     label: 'Application',
-    description: 'Context, usage, and real-life examples.',
+    description: 'Balanced',
   },
   {
     value: 'deep_dive',
     label: 'Mastery',
-    description: 'Nuance, tone, synonyms, and deeper context.',
+    description: 'Detailed',
   },
 ];
 
@@ -73,12 +89,15 @@ export type UserAppSettings = {
   trialEndsAt: string | null;
   subscriptionExpiresAt: string | null;
   lastEntitlementSyncAt: string | null;
+  uiLanguage: UILanguage;
   aiReplyLanguage: AIReplyLanguage;
+  learningLanguages: LearningLanguage[];
   ttsVoice: TTSVoice;
   ttsVoiceByLanguage: Partial<Record<AIReplyLanguage, TTSVoice>>;
   wordPopSlideMs: WordPopSlideMs;
   mainScreenAlbumGridCount: MainScreenAlbumGridCount;
   mainScreenWordPopEnabled: boolean;
+  mainScreenWordPopAlbumId: string | null;
   mainScreenAlbumOrder: string[];
   stickerFontKey: StickerFontKey;
   personalization: UserPersonalizationSettings;
@@ -123,10 +142,129 @@ export function normalizeAIBreakdownMode(value: unknown): AIBreakdownMode {
   return 'context';
 }
 
+export function normalizeUILanguage(value: unknown): UILanguage {
+  if (value === 'zh-TW' || value === 'zh-CN' || value === 'en' || value === 'ja' || value === 'ko' || value === 'es') {
+    return value;
+  }
+  return 'en';
+}
+
+export function normalizeLearningLanguages(value: unknown): LearningLanguage[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const normalized = rawValues
+    .map((item) => String(item).trim())
+    .filter((item): item is LearningLanguage =>
+      item === 'zh' || item === 'en' || item === 'ko' || item === 'ja' || item === 'es'
+    );
+  const deduped = Array.from(new Set(normalized));
+  return deduped.length > 0 ? deduped : ['en'];
+}
+
+export function getLearningLanguageSummary(languages: LearningLanguage[]): string {
+  const normalized = normalizeLearningLanguages(languages);
+  return normalized
+    .map((language) => LEARNING_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ?? language)
+    .join(', ');
+}
+
 export function getAIBreakdownModeLabel(mode: AIBreakdownMode | string | null | undefined): string {
   const normalized = normalizeAIBreakdownMode(mode);
   return AI_BREAKDOWN_MODE_OPTIONS.find((option) => option.value === normalized)?.label ?? 'Application';
 }
+
+function normalizeDeviceLocale(raw: unknown): string {
+  return typeof raw === 'string'
+    ? raw.trim().replace(/_/g, '-')
+    : '';
+}
+
+function getDeviceLocaleCandidates(): string[] {
+  const candidates: string[] = [];
+
+  try {
+    const settings = NativeModules.SettingsManager?.settings;
+    candidates.push(
+      normalizeDeviceLocale(settings?.AppleLocale),
+      normalizeDeviceLocale(settings?.AppleLanguages?.[0])
+    );
+  } catch {
+    // Native locale access can be unavailable in tests or non-iOS runtimes.
+  }
+
+  try {
+    candidates.push(
+      normalizeDeviceLocale(NativeModules.I18nManager?.localeIdentifier),
+      normalizeDeviceLocale(NativeModules.I18nManager?.locale)
+    );
+  } catch {
+    // Android/bridgeless runtimes may expose different locale fields.
+  }
+
+  try {
+    candidates.push(normalizeDeviceLocale(Intl.DateTimeFormat().resolvedOptions().locale));
+  } catch {
+    // Intl may be unavailable in older JS runtimes.
+  }
+
+  if (Platform.OS === 'ios') {
+    candidates.push('en');
+  }
+
+  return candidates.filter(Boolean);
+}
+
+function getDefaultLanguagesFromDevice(): Pick<UserAppSettings, 'uiLanguage' | 'aiReplyLanguage'> {
+  const locale = getDeviceLocaleCandidates()[0]?.toLowerCase() ?? 'en';
+  const isChinese = locale.startsWith('zh');
+  const isSimplifiedChinese =
+    locale.includes('hans') ||
+    locale.includes('-cn') ||
+    locale.includes('-sg') ||
+    locale.includes('-my');
+
+  if (isChinese) {
+    const chineseLanguage = isSimplifiedChinese ? 'zh-CN' : 'zh-TW';
+    return {
+      uiLanguage: chineseLanguage,
+      aiReplyLanguage: chineseLanguage,
+    };
+  }
+
+  if (locale.startsWith('ja')) {
+    return { uiLanguage: 'en', aiReplyLanguage: 'ja' };
+  }
+
+  if (locale.startsWith('ko')) {
+    return { uiLanguage: 'en', aiReplyLanguage: 'ko' };
+  }
+
+  if (locale.startsWith('es')) {
+    return { uiLanguage: 'en', aiReplyLanguage: 'es' };
+  }
+
+  return {
+    uiLanguage: 'en',
+    aiReplyLanguage: 'en',
+  };
+}
+
+const DEVICE_DEFAULT_LANGUAGES = getDefaultLanguagesFromDevice();
+const DEVICE_DEFAULT_TTS_VOICE: TTSVoice =
+  DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage === 'zh-TW'
+    ? 'zh-TW-HsiaoChenNeural'
+    : DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage === 'zh-CN'
+      ? 'zh-CN-XiaoxiaoNeural'
+      : DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage === 'ja'
+        ? 'ja-JP-NanamiNeural'
+        : DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage === 'ko'
+          ? 'ko-KR-SunHiNeural'
+          : DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage === 'es'
+            ? 'es-ES-ElviraNeural'
+            : 'en-US-JennyNeural';
 
 export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   clipboardMode: 'passive',
@@ -136,8 +274,10 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   trialEndsAt: null,
   subscriptionExpiresAt: null,
   lastEntitlementSyncAt: null,
-  aiReplyLanguage: 'zh-TW',
-  ttsVoice: 'en-US-JennyNeural',
+  uiLanguage: DEVICE_DEFAULT_LANGUAGES.uiLanguage,
+  aiReplyLanguage: DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage,
+  learningLanguages: ['en'],
+  ttsVoice: DEVICE_DEFAULT_TTS_VOICE,
   ttsVoiceByLanguage: {
     'zh-TW': 'zh-TW-HsiaoChenNeural',
     'zh-CN': 'zh-CN-XiaoxiaoNeural',
@@ -148,8 +288,9 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
     fr: 'fr-FR-DeniseNeural',
   },
   wordPopSlideMs: 2600,
-  mainScreenAlbumGridCount: 6,
+  mainScreenAlbumGridCount: 4,
   mainScreenWordPopEnabled: true,
+  mainScreenWordPopAlbumId: null,
   mainScreenAlbumOrder: [],
   stickerFontKey: DEFAULT_STICKER_FONT_KEY,
   personalization: {
@@ -191,6 +332,21 @@ export function getDefaultTTSVoiceForAIReplyLanguage(language: AIReplyLanguage):
   return DEFAULT_TTS_VOICE_BY_LANGUAGE[language];
 }
 
+export function getPrimaryAIReplyLanguageForLearningLanguages(
+  languages: LearningLanguage[]
+): AIReplyLanguage {
+  const primary = normalizeLearningLanguages(languages)[0];
+  if (primary === 'zh') return 'zh-TW';
+  if (primary === 'ja') return 'ja';
+  if (primary === 'ko') return 'ko';
+  if (primary === 'es') return 'es';
+  return 'en';
+}
+
+export function getDefaultTTSVoiceForLearningLanguages(languages: LearningLanguage[]): TTSVoice {
+  return getDefaultTTSVoiceForAIReplyLanguage(getPrimaryAIReplyLanguageForLearningLanguages(languages));
+}
+
 export function resolveTTSVoiceForLanguage(
   settings: Pick<UserAppSettings, 'ttsVoice' | 'ttsVoiceByLanguage'>,
   language: AIReplyLanguage
@@ -205,14 +361,13 @@ export function resolveTTSVoiceForLanguage(
   return getDefaultTTSVoiceForAIReplyLanguage(language);
 }
 
-export function withUpdatedTTSVoiceForLanguage(
+export function withUpdatedTTSVoiceOnlyForLanguage(
   settings: UserAppSettings,
   language: AIReplyLanguage,
   voice: TTSVoice
 ): UserAppSettings {
   return {
     ...settings,
-    aiReplyLanguage: language,
     ttsVoice: voice,
     ttsVoiceByLanguage: {
       ...DEFAULT_USER_SETTINGS.ttsVoiceByLanguage,
@@ -229,30 +384,37 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
       ? DEV_DEFAULT_PLAN
       : partial?.planType ?? partial?.entitlementMode ?? DEFAULT_USER_SETTINGS.planType
   );
+  const learningLanguages = normalizeLearningLanguages(partial?.learningLanguages);
+  const primaryLearningLanguage = getPrimaryAIReplyLanguageForLearningLanguages(learningLanguages);
   const nextLanguage =
     partial?.aiReplyLanguage && DEFAULT_TTS_VOICE_BY_LANGUAGE[partial.aiReplyLanguage]
       ? partial.aiReplyLanguage
       : DEFAULT_USER_SETTINGS.aiReplyLanguage;
+  const uiLanguage =
+    partial?.uiLanguage !== undefined
+      ? normalizeUILanguage(partial.uiLanguage)
+      : DEFAULT_USER_SETTINGS.uiLanguage;
   const mergedVoiceMap: Partial<Record<AIReplyLanguage, TTSVoice>> = {
     ...DEFAULT_USER_SETTINGS.ttsVoiceByLanguage,
     ...(partial?.ttsVoiceByLanguage ?? {}),
   };
-  if (partial?.ttsVoice && isTTSVoiceCompatibleWithAIReplyLanguage(partial.ttsVoice, nextLanguage)) {
-    mergedVoiceMap[nextLanguage] = partial.ttsVoice;
+  if (partial?.ttsVoice && isTTSVoiceCompatibleWithAIReplyLanguage(partial.ttsVoice, primaryLearningLanguage)) {
+    mergedVoiceMap[primaryLearningLanguage] = partial.ttsVoice;
   }
   const resolvedCurrentVoice =
     resolveTTSVoiceForLanguage(
       {
-        ttsVoice: partial?.ttsVoice ?? DEFAULT_USER_SETTINGS.ttsVoice,
+        ttsVoice: partial?.ttsVoice ?? getDefaultTTSVoiceForLearningLanguages(learningLanguages),
         ttsVoiceByLanguage: mergedVoiceMap,
       },
-      nextLanguage
+      primaryLearningLanguage
     );
+  const rawMainScreenAlbumGridCount = partial?.mainScreenAlbumGridCount;
   const mainScreenAlbumGridCount =
-    partial?.mainScreenAlbumGridCount === 3 ||
-    partial?.mainScreenAlbumGridCount === 6 ||
-    partial?.mainScreenAlbumGridCount === 9
-      ? partial.mainScreenAlbumGridCount
+    rawMainScreenAlbumGridCount === 3 ||
+    rawMainScreenAlbumGridCount === 4 ||
+    rawMainScreenAlbumGridCount === 9
+      ? rawMainScreenAlbumGridCount
       : DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount;
   const mainScreenAlbumOrder = Array.isArray(partial?.mainScreenAlbumOrder)
     ? partial.mainScreenAlbumOrder
@@ -265,7 +427,9 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
     ...partial,
     entitlementMode: normalizedPlanType,
     planType: normalizedPlanType,
+    uiLanguage,
     aiReplyLanguage: nextLanguage,
+    learningLanguages,
     ttsVoice: resolvedCurrentVoice,
     ttsVoiceByLanguage: mergedVoiceMap,
     mainScreenAlbumGridCount,
@@ -273,6 +437,10 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
       typeof partial?.mainScreenWordPopEnabled === 'boolean'
         ? partial.mainScreenWordPopEnabled
         : DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled,
+    mainScreenWordPopAlbumId:
+      typeof partial?.mainScreenWordPopAlbumId === 'string' && partial.mainScreenWordPopAlbumId.trim()
+        ? partial.mainScreenWordPopAlbumId.trim()
+        : null,
     mainScreenAlbumOrder,
     trialStartedAt:
       typeof partial?.trialStartedAt === 'string' && partial.trialStartedAt.trim()
@@ -301,24 +469,34 @@ function mergeSettings(partial?: Partial<UserAppSettings> | null): UserAppSettin
 export async function loadUserSettings(): Promise<UserAppSettings> {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return mergeSettings(null);
+    if (!raw) {
+      const defaults = mergeSettings(null);
+      void setAppGroupUILanguage(defaults.uiLanguage);
+      return defaults;
+    }
     const parsed = JSON.parse(raw) as Partial<UserAppSettings>;
-    return mergeSettings(parsed);
+    const merged = mergeSettings(parsed);
+    void setAppGroupUILanguage(merged.uiLanguage);
+    return merged;
   } catch (error) {
     console.error('[Settings] Failed to load user settings:', error);
-    return mergeSettings(null);
+    const defaults = mergeSettings(null);
+    void setAppGroupUILanguage(defaults.uiLanguage);
+    return defaults;
   }
 }
 
 export async function saveUserSettings(next: UserAppSettings): Promise<void> {
   const merged = mergeSettings(next);
   await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+  void setAppGroupUILanguage(merged.uiLanguage);
   userSettingsListeners.forEach((listener) => listener(merged));
 }
 
 export async function clearUserSettings(): Promise<void> {
   const defaults = mergeSettings(null);
   await AsyncStorage.removeItem(SETTINGS_STORAGE_KEY);
+  void setAppGroupUILanguage(defaults.uiLanguage);
   userSettingsListeners.forEach((listener) => listener(defaults));
 }
 

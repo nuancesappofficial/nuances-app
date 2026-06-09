@@ -257,7 +257,7 @@ export async function resolveServerEntitlement(params: {
     canUseCloudTTS: planType !== 'free',
     canUsePronunciationCoach: planType !== 'free',
     canUseAutoCardGeneration: planType !== 'free',
-    canUseManualOCRCardCreation: true,
-    cacheCardLimit: planType === 'free' ? 5 : null,
+    canUseManualOCRCardCreation: planType !== 'free',
+    cacheCardLimit: null,
   };
 }

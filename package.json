@@ -12,7 +12,8 @@
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "type-check": "tsc --noEmit",
     "check-assets": "node scripts/check-assets.js",
-    "check:app-store": "node scripts/check-app-store-readiness.js"
+    "check:app-store": "node scripts/check-app-store-readiness.js",
+    "check:security": "node scripts/security-preflight.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -35,6 +36,7 @@
     "expo-camera": "~17.0.10",
     "expo-clipboard": "^8.0.8",
     "expo-constants": "~18.0.13",
+    "expo-crypto": "~15.0.9",
     "expo-dev-client": "~6.0.20",
     "expo-file-system": "~19.0.21",
     "expo-haptics": "~15.0.8",
@@ -52,6 +54,7 @@
     "react-dom": "^19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
+    "react-native-get-random-values": "~1.11.0",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-pager-view": "6.9.1",
     "react-native-purchases": "^10.1.0",
@@ -67,6 +70,10 @@
     "react-native-youtube-iframe": "^2.4.1",
     "rxjs": "^7.8.2",
     "rxjs-hooks": "^0.8.0-alpha.0"
+  },
+  "overrides": {
+    "@babel/runtime": "7.28.6",
+    "@xmldom/xmldom": "0.8.13"
   },
   "devDependencies": {
     "@babel/plugin-proposal-decorators": "^7.29.0",

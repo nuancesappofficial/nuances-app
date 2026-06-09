@@ -21,6 +21,7 @@ import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { assessPronunciationCloud } from '@services/pronunciation/cloudCoach';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
 import { resolveThemeColors } from '../../../theme/colors';
 import {
@@ -604,23 +605,34 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const pronunciationRecordingStartedAtRef = React.useRef<number>(0);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const loadCards = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAllCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setAllCards(data);
+        sub = queryCards.observe().subscribe((nextData) => setAllCards(nextData));
       } catch (error) {
         console.error('[ReviewFlow] load cards failed:', error);
-        setAllCards([]);
+        if (!cancelled) setAllCards([]);
       }
     };
 
     void loadCards();
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   const sourceCards = React.useMemo(() => {

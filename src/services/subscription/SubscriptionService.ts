@@ -19,7 +19,6 @@ import {
 } from './revenueCat';
 
 const DAILY_FREE_VOICE_LIMIT = 3;
-const FREE_CACHE_CARD_LIMIT = 5;
 const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const TRIAL_STARTED_AT_KEY = 'nuances_trial_started_at';
@@ -115,12 +114,12 @@ function buildSnapshot(params: {
     canUsePronunciationCoach: canUseCloudFeatures,
     canUseCloudTTS: canUseCloudFeatures,
     canUseAutoCardGeneration: canUseCloudFeatures,
-    canUseManualOCRCardCreation: true,
+    canUseManualOCRCardCreation: canUseCloudFeatures,
     dailyVoiceUses,
     dailyVoiceLimit: DAILY_FREE_VOICE_LIMIT,
     remainingVoiceUses: calcRemaining(dailyVoiceUses, planType),
     lastVoiceResetDate,
-    cacheCardLimit: planType === 'free' ? FREE_CACHE_CARD_LIMIT : null,
+    cacheCardLimit: null,
     devBypass,
   };
 }
@@ -337,7 +336,6 @@ export const SubscriptionService = {
   TRIAL_DURATION_MS,
   TRIAL_STARTED_AT_KEY,
   TRIAL_ENDS_AT_KEY,
-  FREE_CACHE_CARD_LIMIT,
 
   isDevBypassEnabled(): boolean {
     return DEV_BYPASS_ENABLED;
@@ -422,7 +420,7 @@ export const SubscriptionService = {
       subscriptionExpiresAt: getRevenueCatExpiration(customerInfo),
       lastEntitlementSyncAt: new Date().toISOString(),
     });
-    return this.syncEntitlements(userId, { preferServer: true });
+    return this.syncEntitlements(userId, { preferServer: false });
   },
 
   async restorePurchases(userId: string): Promise<EntitlementSnapshot> {
@@ -440,7 +438,7 @@ export const SubscriptionService = {
       subscriptionExpiresAt: getRevenueCatExpiration(customerInfo),
       lastEntitlementSyncAt: new Date().toISOString(),
     });
-    return this.syncEntitlements(userId, { preferServer: true });
+    return this.syncEntitlements(userId, { preferServer: false });
   },
 
   async isPremium(userId: string): Promise<boolean> {

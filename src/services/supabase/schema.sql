@@ -27,6 +27,8 @@ CREATE TABLE public.profiles (
     subscription_expires_at TIMESTAMPTZ,
     trial_started_at TIMESTAMPTZ,
     trial_ends_at TIMESTAMPTZ,
+    pronunciation_used_today INTEGER NOT NULL DEFAULT 0 CHECK (pronunciation_used_today >= 0),
+    last_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

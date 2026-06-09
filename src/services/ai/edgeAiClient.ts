@@ -68,6 +68,14 @@ export function isPremiumFeatureError(error: unknown): boolean {
   );
 }
 
+function isPronunciationQuotaError(detail: string): boolean {
+  const lower = detail.toLowerCase();
+  return (
+    lower.includes('pronunciation_daily_quota_exceeded') ||
+    lower.includes('daily pronunciation quota exceeded')
+  );
+}
+
 async function ensureCloudAIAccess(featureLabel: string): Promise<void> {
   const {
     data: { user },
@@ -316,7 +324,11 @@ export async function callAIAction<TPayload, TResult>(
   payload: TPayload,
   options: AsyncActionOptions = {}
 ): Promise<TResult> {
-  if (action !== 'usage_summary' && action !== 'get_task_result') {
+  if (
+    action !== 'usage_summary' &&
+    action !== 'get_task_result' &&
+    action !== 'pronunciation_assess'
+  ) {
     await ensureCloudAIAccess('AI 自動生成');
   }
   let authHeaders = await getAuthHeader();
@@ -400,6 +412,11 @@ export async function callAIAction<TPayload, TResult>(
     }
     if (isPremiumFeatureError(detail)) {
       throw new PremiumFeatureError('Premium or active trial required');
+    }
+    if (isPronunciationQuotaError(detail)) {
+      throw new Error(
+        'Daily pronunciation check limit reached. Please try again tomorrow or upgrade for a higher fair-use limit.'
+      );
     }
     throw new Error(`AI action error: ${detail}`);
   }

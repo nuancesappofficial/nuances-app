@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 
 export type StoredPronunciationResult = {
   score: number | null;
@@ -10,6 +11,11 @@ export type StoredPronunciationResult = {
 };
 
 const PRONUNCIATION_HISTORY_KEY = 'card_pronunciation_history_v1';
+
+async function getPronunciationHistoryKey(): Promise<string> {
+  const userId = await getCurrentAuthUserId();
+  return `${PRONUNCIATION_HISTORY_KEY}:${userId ?? 'guest'}`;
+}
 
 function sanitizeResult(input: unknown): StoredPronunciationResult | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -34,7 +40,7 @@ function sanitizeResult(input: unknown): StoredPronunciationResult | null {
 
 export async function loadPronunciationHistory(): Promise<Record<string, StoredPronunciationResult>> {
   try {
-    const raw = await AsyncStorage.getItem(PRONUNCIATION_HISTORY_KEY);
+    const raw = await AsyncStorage.getItem(await getPronunciationHistoryKey());
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -61,6 +67,6 @@ export async function upsertPronunciationResult(
       updatedAt: new Date().toISOString(),
     },
   };
-  await AsyncStorage.setItem(PRONUNCIATION_HISTORY_KEY, JSON.stringify(next));
+  await AsyncStorage.setItem(await getPronunciationHistoryKey(), JSON.stringify(next));
   return next;
 }

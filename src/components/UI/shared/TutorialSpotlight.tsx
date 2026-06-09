@@ -41,7 +41,6 @@ type Props = {
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
 const SPOTLIGHT_SCALE = 1;
-const TOOLTIP_WIDTH = 284;
 const TOUR_FADE_IN_MS = 420;
 const TOUR_FADE_OUT_MS = 180;
 const TOOLTIP_DELAY_MS = 220;
@@ -102,19 +101,16 @@ export default function TutorialSpotlight({
     };
   });
 
-  const tooltipTop = React.useMemo(() => {
-    if (!layout) return 120;
-    const below = layout.pageY + layout.height + 26;
-    const above = layout.pageY - 120;
-    if (below + 108 < windowHeight) return below;
-    return Math.max(70, above);
-  }, [layout, windowHeight]);
-
-  const tooltipLeft = React.useMemo(() => {
-    if (!layout) return 24;
-    const centered = layout.pageX + layout.width / 2 - TOOLTIP_WIDTH / 2;
-    return Math.max(18, Math.min(centered, windowWidth - TOOLTIP_WIDTH - 18));
-  }, [layout, windowWidth]);
+  const tooltipLayout = React.useMemo(() => {
+    const horizontalInset = 24;
+    const width = Math.min(windowWidth - horizontalInset * 2, 390);
+    const left = Math.max(horizontalInset, (windowWidth - width) / 2);
+    const top = Math.min(
+      windowHeight - insets.bottom - 190,
+      Math.max(insets.top + 130, windowHeight * 0.38)
+    );
+    return { top, left, width };
+  }, [insets.bottom, insets.top, windowHeight, windowWidth]);
 
   const handleSkipPress = React.useCallback(() => {
     if (onSkip) {
@@ -166,7 +162,7 @@ export default function TutorialSpotlight({
             style={[
               styles.tooltip,
               isDarkMode ? styles.tooltipDarkModeLightBox : null,
-              { top: tooltipTop, left: tooltipLeft },
+              tooltipLayout,
             ]}
           >
             <Text style={[styles.tooltipText, isDarkMode ? styles.tooltipTextDarkModeLightBox : null]}>
@@ -213,24 +209,25 @@ const styles = StyleSheet.create({
   tooltip: {
     position: 'absolute',
     zIndex: 40,
-    width: TOOLTIP_WIDTH,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    paddingVertical: 22,
     backgroundColor: 'rgba(2,33,61,0.94)',
     borderWidth: 1,
     borderColor: 'rgba(137,206,255,0.38)',
     shadowColor: '#4EAFF4',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
     elevation: 18,
   },
   tooltipText: {
     color: '#F8FAFC',
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    lineHeight: 29,
+    fontWeight: '900',
+    letterSpacing: -0.35,
+    textAlign: 'center',
   },
   tooltipDarkModeLightBox: {
     backgroundColor: DARK_MODE_TOOLTIP_BG,

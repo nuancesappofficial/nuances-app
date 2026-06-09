@@ -17,6 +17,7 @@ import {
   type ReviewQuestionType,
 } from '../../../features/deck/reviewPreferences';
 import { consumeAlbumPreload } from '../../../features/deck/albumPreloadCache';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 
 type Album = {
   id: string;
@@ -140,29 +141,41 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
 
   const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
   React.useEffect(() => {
-    const cardsCollection = database.get<Card>('cards');
-    const queryCards =
-      album.id === 'all-cards' || !album.cardIds.length
-        ? cardsCollection.query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
-        : cardsCollection.query(
-            Q.where('deleted_at', null),
-            Q.where('id', Q.oneOf(album.cardIds)),
-            Q.sortBy('created_at', Q.desc)
-          );
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
     const load = async () => {
       try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAlbumCards([]);
+          return;
+        }
+        const cardsCollection = database.get<Card>('cards');
+        const queryCards =
+          album.id === 'all-cards' || !album.cardIds.length
+            ? cardsCollection.query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+            : cardsCollection.query(
+                Q.where('user_id', userId),
+                Q.where('deleted_at', null),
+                Q.where('id', Q.oneOf(album.cardIds)),
+                Q.sortBy('created_at', Q.desc)
+              );
         const data = await queryCards.fetch();
+        if (cancelled) return;
         setAlbumCards(data);
+        sub = queryCards.observe().subscribe((nextData) => setAlbumCards(nextData));
       } catch (error) {
         console.error('[AlbumView] load album cards failed:', error);
-        setAlbumCards([]);
+        if (!cancelled) setAlbumCards([]);
       }
     };
 
     void load();
-    const sub = queryCards.observe().subscribe((data) => setAlbumCards(data));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, [album.cardIds, album.id]);
 
   useFocusEffect(

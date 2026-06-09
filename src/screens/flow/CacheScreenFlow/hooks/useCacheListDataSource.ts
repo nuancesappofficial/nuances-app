@@ -3,6 +3,7 @@ import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 
 export type CacheCardRecord = {
   id: string;
@@ -43,31 +44,65 @@ export function useCacheListDataSource(params: Params) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
 
   React.useEffect(() => {
-    const query = database
-      .get<CachedItem>('cached_items')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
-    void query.fetch().then(setCacheItems).catch((error) => {
-      console.error('[CacheList] load cached items failed:', error);
-      setCacheItems([]);
-    });
+    const load = async () => {
+      try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setCacheItems([]);
+          return;
+        }
+        const query = database
+          .get<CachedItem>('cached_items')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+        const data = await query.fetch();
+        if (cancelled) return;
+        setCacheItems(data);
+        sub = query.observe().subscribe((nextData) => setCacheItems(nextData));
+      } catch (error) {
+        console.error('[CacheList] load cached items failed:', error);
+        if (!cancelled) setCacheItems([]);
+      }
+    };
 
-    const sub = query.observe().subscribe((data) => setCacheItems(data));
-    return () => sub.unsubscribe();
+    void load();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {
-    const queryCards = database
-      .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+    let sub: { unsubscribe: () => void } | undefined;
+    let cancelled = false;
 
-    void queryCards.fetch().then(setAllCards).catch((error) => {
-      console.error('[CacheList] load cards failed:', error);
-      setAllCards([]);
-    });
+    const load = async () => {
+      try {
+        const userId = await getCurrentAuthUserId();
+        if (!userId) {
+          if (!cancelled) setAllCards([]);
+          return;
+        }
+        const queryCards = database
+          .get<Card>('cards')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+        const data = await queryCards.fetch();
+        if (cancelled) return;
+        setAllCards(data);
+        sub = queryCards.observe().subscribe((nextData) => setAllCards(nextData));
+      } catch (error) {
+        console.error('[CacheList] load cards failed:', error);
+        if (!cancelled) setAllCards([]);
+      }
+    };
 
-    const sub = queryCards.observe().subscribe((data) => setAllCards(data));
-    return () => sub.unsubscribe();
+    void load();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   const cards = React.useMemo<CacheCardRecord[]>(() => {

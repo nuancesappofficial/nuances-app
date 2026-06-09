@@ -15,6 +15,8 @@ type PhonemeChip = {
 type Props = {
   isActiveCard: boolean;
   isRecording: boolean;
+  recordingElapsedMs?: number;
+  recordingLimitMs?: number;
   hasRecorded: boolean;
   showFeedback: boolean;
   isAnalyzing: boolean;
@@ -37,6 +39,8 @@ type Props = {
 export default function PronunciationCoachUI({
   isActiveCard,
   isRecording,
+  recordingElapsedMs = 0,
+  recordingLimitMs = 10_000,
   hasRecorded,
   showFeedback,
   isAnalyzing,
@@ -228,6 +232,12 @@ export default function PronunciationCoachUI({
     : isLight
       ? palette.textOnContainer
       : '#CBD5E1';
+  const safeRecordingLimitMs = Math.max(1000, recordingLimitMs);
+  const recordingProgress = Math.max(0, Math.min(1, recordingElapsedMs / safeRecordingLimitMs));
+  const recordingRemainingSeconds = Math.max(
+    0,
+    Math.ceil((safeRecordingLimitMs - recordingElapsedMs) / 1000)
+  );
   const handlePrimaryPress = () => {
     if (!isActiveCard || isAnalyzing) return;
     if (isReviewState) {
@@ -283,7 +293,13 @@ export default function PronunciationCoachUI({
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
     >
-      <View style={[styles.resultsPanel, showIntroState ? styles.resultsPanelCompact : null]}>
+      <View
+        style={[
+          styles.resultsPanel,
+          showIntroState ? styles.resultsPanelCompact : null,
+          hasResultContent ? styles.resultsPanelResult : null,
+        ]}
+      >
         {isRecording ? (
           <Reanimated.View
             key="recording-wave-panel"
@@ -300,6 +316,22 @@ export default function PronunciationCoachUI({
             <Text style={[styles.recordingEyebrow, isLight ? { color: '#0369A1' } : null]}>Listening</Text>
             <Text style={[styles.recordingWord, isLight ? { color: '#0F172A' } : null]}>{itemWord}</Text>
             {renderWaveform('panel')}
+            <View style={styles.recordingLimitRow}>
+              <Text style={[styles.recordingLimitText, isLight ? { color: '#0369A1' } : null]}>
+                {recordingRemainingSeconds}s left
+              </Text>
+              <Text style={[styles.recordingLimitText, isLight ? { color: '#64748B' } : null]}>
+                {Math.round(safeRecordingLimitMs / 1000)}s max
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.recordingProgressTrack,
+                isLight ? { backgroundColor: 'rgba(15,23,42,0.10)' } : null,
+              ]}
+            >
+              <View style={[styles.recordingProgressFill, { width: `${recordingProgress * 100}%` }]} />
+            </View>
           </Reanimated.View>
         ) : showLoadingState || showRevealPreparingState ? (
           <Reanimated.View
@@ -504,7 +536,7 @@ export default function PronunciationCoachUI({
         ) : null}
       </View>
 
-      <View style={styles.audioControlCenter}>
+      <View style={[styles.audioControlCenter, hasResultContent ? styles.audioControlCenterResult : null]}>
         <View style={[styles.restingWaveSlot, isRecording ? styles.restingWaveSlotRecording : styles.restingWaveSlotIdle]}>
           {isRecording ? renderWaveform('resting') : null}
         </View>
@@ -603,6 +635,9 @@ const styles = StyleSheet.create({
   resultsPanelCompact: {
     height: 156,
   },
+  resultsPanelResult: {
+    height: 270,
+  },
   crossBlurLayer: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 24,
@@ -649,6 +684,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(78,175,244,0.08)',
     paddingHorizontal: 14,
     paddingTop: 16,
+    paddingBottom: 14,
     justifyContent: 'center',
     overflow: 'hidden',
     shadowColor: '#4EAFF4',
@@ -672,6 +708,31 @@ const styles = StyleSheet.create({
     lineHeight: 30,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  recordingLimitRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  recordingLimitText: {
+    color: '#BFE7FF',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  recordingProgressTrack: {
+    marginTop: 7,
+    height: 5,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(191,231,255,0.18)',
+  },
+  recordingProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#4EAFF4',
   },
   analysisGhostPanel: {
     minHeight: 192,
@@ -771,6 +832,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignItems: 'center',
     gap: 6,
+  },
+  audioControlCenterResult: {
+    marginTop: 22,
   },
   restingWaveSlot: {
     width: '100%',

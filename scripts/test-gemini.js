@@ -1,15 +1,16 @@
+/* eslint-disable @typescript-eslint/no-require-imports, no-undef */
 /**
  * Gemini API 測試腳本
  * 
  * 使用方式：
- * 1. 確保 .env 中有設定 EXPO_PUBLIC_GEMINI_API_KEY
+ * 1. 確保 .env 中有設定 GEMINI_API_KEY
  * 2. 在專案根目錄執行：node scripts/test-gemini.js
  */
 
 // 載入環境變數
 require('dotenv').config();
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 async function testGeminiAPI() {
@@ -17,9 +18,9 @@ async function testGeminiAPI() {
 
   // 檢查 API Key
   if (!GEMINI_API_KEY) {
-    console.error('❌ 錯誤：未找到 EXPO_PUBLIC_GEMINI_API_KEY');
+    console.error('❌ 錯誤：未找到 GEMINI_API_KEY');
     console.log('請在 .env 文件中設定：');
-    console.log('EXPO_PUBLIC_GEMINI_API_KEY=your_api_key_here\n');
+    console.log('GEMINI_API_KEY=your_api_key_here\n');
     process.exit(1);
   }
 
@@ -28,7 +29,7 @@ async function testGeminiAPI() {
 
   // 測試 1: 文本分析（提取關鍵字）
   console.log('📝 測試 1: 文本關鍵字提取');
-  const testText = `The ephemeral nature of social media content creates a paradox where permanent digital footprints coexist with fleeting moments of engagement.`;
+  const testText = 'The ephemeral nature of social media content creates a paradox where permanent digital footprints coexist with fleeting moments of engagement.';
 
   try {
     const response1 = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {

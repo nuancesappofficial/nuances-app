@@ -5,10 +5,6 @@ import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { getCurrentAuthUserId } from '@services/auth/userIdentity';
-import {
-  formatCacheLimitReachedMessage,
-  getCacheCapacitySnapshot,
-} from '@services/cache/cacheLimitService';
 
 export type CropperFlowTarget = 'quick-add' | 'swipe-image';
 
@@ -17,6 +13,7 @@ type UseCacheQuickAddFlowArgs = {
   setShowAddModal: React.Dispatch<React.SetStateAction<boolean>>;
   setAddTab: React.Dispatch<React.SetStateAction<'text' | 'image'>>;
   onBatchQuickAddCreated?: (createdItemIds: string[]) => void;
+  onSwipeImageCropCancel?: (itemId: string) => void;
 };
 
 export function useCacheQuickAddFlow({
@@ -24,6 +21,7 @@ export function useCacheQuickAddFlow({
   setShowAddModal,
   setAddTab,
   onBatchQuickAddCreated,
+  onSwipeImageCropCancel,
 }: UseCacheQuickAddFlowArgs) {
   const [creatingImage, setCreatingImage] = React.useState(false);
   const [showQuickCamera, setShowQuickCamera] = React.useState(false);
@@ -50,28 +48,8 @@ export function useCacheQuickAddFlow({
       const validUris = imageUris.filter(Boolean);
       if (validUris.length === 0) return [];
 
-      const capacity = await getCacheCapacitySnapshot(userId);
-      if (capacity.isAtLimit) {
-        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
-        return [];
-      }
-
-      const allowedUris =
-        capacity.limit == null ? validUris : validUris.slice(0, Math.max(0, capacity.remainingSlots));
-      if (allowedUris.length === 0) {
-        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
-        return [];
-      }
-      if (allowedUris.length < validUris.length) {
-        const nextCount = capacity.currentCount + allowedUris.length;
-        Alert.alert(
-          '快取空間不足',
-          `免費版快取最多 ${capacity.limit} 張，這次只新增前 ${allowedUris.length} 張（${nextCount}/${capacity.limit}）。`
-        );
-      }
-
       const collection = database.get<CachedItem>('cached_items');
-      const preparedItems = allowedUris.map((uri) =>
+      const preparedItems = validUris.map((uri) =>
         collection.prepareCreate((item) => {
           item.userId = userId;
           item.contentType = 'image';
@@ -231,12 +209,6 @@ export function useCacheQuickAddFlow({
         return null;
       }
 
-      const capacity = await getCacheCapacitySnapshot(userId);
-      if (capacity.isAtLimit) {
-        Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
-        return null;
-      }
-
       let createdItem: CachedItem | null = null;
       await database.write(async () => {
         const collection = database.get<CachedItem>('cached_items');
@@ -266,16 +238,21 @@ export function useCacheQuickAddFlow({
 
   const handleUploadCropCancel = React.useCallback(() => {
     const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
+    const cancelledSwipeItemId =
+      cropperFlowTarget === 'swipe-image' ? pendingSwipeImageItem?.id ?? null : null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);
     setPendingSwipeImageItem(null);
     setCropperFlowTarget('quick-add');
     setAddTab('image');
+    if (cancelledSwipeItemId) {
+      onSwipeImageCropCancel?.(cancelledSwipeItemId);
+    }
     if (shouldReopenAddModal) {
       setShowAddModal(true);
     }
-  }, [cropperFlowTarget, setAddTab, setShowAddModal]);
+  }, [cropperFlowTarget, onSwipeImageCropCancel, pendingSwipeImageItem, setAddTab, setShowAddModal]);
 
   const handleUploadCropConfirm = React.useCallback(
     async (croppedUri: string) => {

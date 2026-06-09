@@ -8,6 +8,8 @@ import LightPressable from '../shared/LightPressable';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
 import type { AppTourStep } from '../../../contexts/AppTourContext';
 import type { DeckAlbum } from './deckTypes';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   CONTAINER_BG,
   CONTAINER_NEON_GLOW,
@@ -18,10 +20,11 @@ import {
   resolveThemeColors,
 } from '../../../theme/colors';
 
-const GRID_COLUMNS = 3;
+const DEFAULT_GRID_COLUMNS = 3;
 const GRID_GAP = 12;
 const GRID_HORIZONTAL_PADDING = 12;
 const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
+const TWO_BY_TWO_ALBUM_SCALE = 0.82;
 // 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
 const ALBUM_GROUP_OFFSET_Y = 0;
 const WORD_POP_MIN_HEIGHT = 220;
@@ -35,6 +38,7 @@ const QUIZ_SAFE_BUFFER = 14;
 
 type Props = {
   heroStatusText?: string;
+  uiLanguage: UILanguage;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
@@ -71,6 +75,7 @@ type Props = {
 };
 
 export default function DeckMainScreenUI({
+  uiLanguage,
   searchQuery,
   onSearchChange,
   onClearSearch,
@@ -117,13 +122,18 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const wordOpacity = React.useRef(new Animated.Value(1)).current;
-  const albumsPerPage = albumGridCount === 3 || albumGridCount === 6 || albumGridCount === 9 ? albumGridCount : 6;
-  const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / GRID_COLUMNS));
+  const albumsPerPage =
+    albumGridCount === 3 || albumGridCount === 4 || albumGridCount === 9
+      ? albumGridCount
+      : 4;
+  const albumGridColumns = albumsPerPage === 4 ? 2 : DEFAULT_GRID_COLUMNS;
+  const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / albumGridColumns));
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
   const albumItemWidth = Math.max(
     0,
-    (albumPageWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS
+    (albumPageWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (albumGridColumns - 1)) / albumGridColumns
   );
+  const albumCellWidth = albumsPerPage === 4 ? albumItemWidth * TWO_BY_TWO_ALBUM_SCALE : albumItemWidth;
   const [currentPage, setCurrentPage] = React.useState(0);
   const maxSearchWidth = Math.max(200, screenWidth - 16 * 2);
   const compactLevel = React.useMemo(() => {
@@ -149,7 +159,17 @@ export default function DeckMainScreenUI({
   const wordPopTextLineLimit = compactLevel === 2 ? 1 : WORD_POP_TEXT_LINE_LIMIT;
   const wordPopSentenceLineLimit = compactLevel === 2 ? 2 : compactLevel === 1 ? 3 : WORD_POP_SENTENCE_LINE_LIMIT;
   const compactGridPaddingTop = compactLevel === 2 ? 8 : compactLevel === 1 ? 9 : 10;
-  const compactGridPaddingBottom = compactLevel === 2 ? 24 : compactLevel === 1 ? 28 : 32;
+  const compactGridPaddingBottom = albumsPerPage === 4
+    ? compactLevel === 2
+      ? 18
+      : compactLevel === 1
+        ? 20
+        : 22
+    : compactLevel === 2
+      ? 24
+      : compactLevel === 1
+        ? 28
+        : 32;
   const compactGridGap = compactLevel === 2 ? 10 : compactLevel === 1 ? 11 : GRID_GAP;
   const quizBottomSafeSpacing =
     Math.max(insets.bottom, TAB_BAR_BOTTOM_MARGIN_BUFFER) +
@@ -303,20 +323,27 @@ export default function DeckMainScreenUI({
         <View style={[styles.page, { width: albumPageWidth }]}>
           <View style={styles.albumGridContent}>
             {Array.from({ length: albumRowCount }).map((_, rowIndex) => {
-              const rowAlbums = pageAlbums.slice(rowIndex * GRID_COLUMNS, (rowIndex + 1) * GRID_COLUMNS);
+              const rowAlbums = pageAlbums.slice(
+                rowIndex * albumGridColumns,
+                (rowIndex + 1) * albumGridColumns
+              );
               return (
                 <View
                   key={`page-${pageIndex}-row-${rowIndex}`}
                   style={[
                     styles.albumRow,
-                    { gap: compactGridGap, marginBottom: compactGridGap },
+                    {
+                      gap: compactGridGap,
+                      justifyContent: albumsPerPage === 4 ? 'center' : 'flex-start',
+                      marginBottom: albumsPerPage === 4 ? Math.max(4, compactGridGap - 5) : compactGridGap,
+                    },
                     rowIndex === albumRowCount - 1 ? styles.albumRowLast : null,
                   ]}
                 >
-                  {Array.from({ length: GRID_COLUMNS }).map((__, colIndex) => {
+                  {Array.from({ length: albumGridColumns }).map((__, colIndex) => {
                     const item = rowAlbums[colIndex];
                     return (
-                      <View key={`cell-${pageIndex}-${rowIndex}-${colIndex}`} style={{ width: albumItemWidth }}>
+                      <View key={`cell-${pageIndex}-${rowIndex}-${colIndex}`} style={{ width: albumCellWidth }}>
                         {item ? (
                           <AlbumIconItemUI
                             item={item}
@@ -346,6 +373,9 @@ export default function DeckMainScreenUI({
     [
       albumPageWidth,
       albumRowCount,
+      albumGridColumns,
+      albumsPerPage,
+      albumCellWidth,
       onPressAlbum,
       isMenuVisible,
       startX,
@@ -355,7 +385,6 @@ export default function DeckMainScreenUI({
       onMenuStart,
       onMenuFinish,
       onActionEnd,
-      albumItemWidth,
       compactGridGap,
     ]
   );
@@ -498,7 +527,7 @@ export default function DeckMainScreenUI({
                     ref={searchInputRef}
                     value={searchQuery}
                     onChangeText={onSearchChange}
-                    placeholder="搜尋卡片關鍵字"
+                    placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
                     placeholderTextColor={palette.secondaryText}
                     style={[styles.searchInput, { color: palette.textOnContainer }]}
                     returnKeyType="search"
@@ -581,12 +610,19 @@ export default function DeckMainScreenUI({
             </Animated.View>
 
             {!isSearchExpanded ? (
-              <Pressable
-                style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
-                onPress={onOpenCreateAlbum}
+              <TutorialSpotlight
+                active={tourStep === 'STEP_11_CREATE_ALBUM'}
+                tooltip="Create an album."
+                onSpotlightPress={handleTourTargetPress}
+                showSkip={false}
               >
-                <Ionicons name="add" size={38} color={palette.textOnBg} />
-              </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+                  onPress={onOpenCreateAlbum}
+                >
+                  <Ionicons name="add" size={38} color={palette.textOnBg} />
+                </Pressable>
+              </TutorialSpotlight>
             ) : null}
           </View>
       </View>
@@ -634,7 +670,7 @@ export default function DeckMainScreenUI({
                     style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
                     numberOfLines={wordPopSentenceLineLimit}
                   >
-                    {activeShowcaseItem?.sentence || 'No original sentence yet.'}
+                    {activeShowcaseItem?.sentence || tUI(uiLanguage, 'deck.noOriginalSentence')}
                   </Text>
                 </Animated.View>
               )}
@@ -649,13 +685,13 @@ export default function DeckMainScreenUI({
                   ]}
                   numberOfLines={1}
                 >
-                  {activeShowcaseItem?.text || 'Start adding cards to generate words'}
+                  {activeShowcaseItem?.text || tUI(uiLanguage, 'deck.emptyWordPopTitle')}
                 </Animated.Text>
                 <Animated.Text
                   style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
                   numberOfLines={wordPopTextLineLimit}
                 >
-                  {activeShowcaseItem?.translation || 'Tap to open card details'}
+                  {activeShowcaseItem?.translation || tUI(uiLanguage, 'deck.emptyWordPopSubtitle')}
                 </Animated.Text>
               </View>
             </View>
@@ -772,7 +808,7 @@ export default function DeckMainScreenUI({
                   ]}
                 />
                 <View style={styles.todayReviewHeaderRow}>
-                  <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>New words</Text>
+                  <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'deck.newWords')}</Text>
                   {newWordsLevel >= 2 ? (
                     <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
                       <Text
@@ -809,7 +845,7 @@ export default function DeckMainScreenUI({
                   onPress={onPressTodayReview}
                 >
                   <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                    <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>Quick quiz</Text>
+                    <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'deck.quickQuiz')}</Text>
                     <Ionicons name="play" size={16} color={palette.textOnContainer} />
                   </View>
                 </LightPressable>

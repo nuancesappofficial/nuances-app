@@ -8,13 +8,10 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { checkAndProcessSharedContent } from '../services/shareExtension/shareExtensionService';
 import { syncWithRetry } from '../services/sync';
-import { useShareExtensionSnackbar } from '../contexts/ShareExtensionContext';
-import { FREE_CACHE_CARD_LIMIT } from '../services/cache/cacheLimitService';
 
 export function useShareExtension(userId: string | null) {
   const appState = useRef(AppState.currentState);
   const delayedCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { triggerShareSnackbar } = useShareExtensionSnackbar();
 
   const clearDelayedCheck = useCallback(() => {
     if (delayedCheckRef.current) {
@@ -32,7 +29,7 @@ export function useShareExtension(userId: string | null) {
         addedCount: 0,
         blockedCount: 0,
         currentCacheCount: 0,
-        planType: 'free' as const,
+        planType: 'premium' as const,
       };
     });
 
@@ -44,17 +41,11 @@ export function useShareExtension(userId: string | null) {
       planType: result.planType,
     });
 
-    if (result.blockedCount > 0) {
-      const message = `The tray is full, so I held this one back. (${result.currentCacheCount}/${FREE_CACHE_CARD_LIMIT})`;
-      console.log('[ShareExtension] Showing snackbar:', message);
-      triggerShareSnackbar(message);
-    }
-
     // 在 App 啟動/回前景時做一次背景同步，不阻斷 UI 流程
     await syncWithRetry(2).catch((error) => {
       console.error('[ShareExtension] Background sync failed:', error);
     });
-  }, [triggerShareSnackbar, userId]);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;

@@ -13,10 +13,6 @@ import type CachedItem from '@database/models/CachedItem';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
 import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
-import {
-  formatCacheLimitReachedMessage,
-  getCacheCapacitySnapshot,
-} from '@services/cache/cacheLimitService';
 
 type Props = {
   navigation: any;
@@ -224,14 +220,6 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
     try {
       const userId = await requireCurrentAuthUserId();
-      if (!isEditMode) {
-        const capacity = await getCacheCapacitySnapshot(userId);
-        if (capacity.isAtLimit) {
-          Alert.alert('快取已滿', formatCacheLimitReachedMessage(capacity));
-          setSaving(false);
-          return;
-        }
-      }
       let createdItem: CachedItem | null = null;
 
       await database.write(async () => {

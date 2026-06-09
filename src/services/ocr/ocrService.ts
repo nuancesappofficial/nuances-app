@@ -10,6 +10,7 @@ import { isVisionOCRAvailable, recognizeTextWithVision } from '../../native/Visi
 import { callAIAction } from '../ai/edgeAiClient';
 import type { AIPersonalizationOptions } from '../ai/types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
+import { getPreparedOCRVisionLanguages } from './languagePacks';
 
 // ============================================================
 // Interfaces
@@ -97,9 +98,10 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
       throw new Error('Apple Vision OCR is not available on this device');
     }
 
+    const preferredVisionLanguages = await getPreparedOCRVisionLanguages();
     const primaryResult = await recognizeTextWithVision(imageUri, {
       // 混合語系時先偏向 CJK，再補英文，避免只抓到英數。
-      languages: ['zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR', 'en-US'],
+      languages: preferredVisionLanguages,
       usesLanguageCorrection: false,
       automaticallyDetectsLanguage: true,
     });

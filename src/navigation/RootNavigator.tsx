@@ -101,19 +101,24 @@ const SyncReviewFlow = withNavBarSync(ReviewFlow);
 const SyncProfileSettingsFlow = withNavBarSync(ProfileSettingsFlow);
 const SyncProfileSettingOptionsFlow = withNavBarSync(ProfileSettingOptionsFlow);
 
-function CacheStack({ onSwipeEnabledChange }: { onSwipeEnabledChange: (enabled: boolean) => void }) {
-  const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+function CacheStack({
+  onSwipeEnabledChange,
+  navigationRef,
+}: {
+  onSwipeEnabledChange: (enabled: boolean) => void;
+  navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+}) {
   const syncSwipeEnabled = React.useCallback(() => {
-    const state = cacheNavigationRef.getRootState();
+    const state = navigationRef.getRootState();
     const routeName = getActiveRouteName(state);
     const isRootRoute = routeName === 'CacheList';
     onSwipeEnabledChange(isRootRoute);
-  }, [cacheNavigationRef, onSwipeEnabledChange]);
+  }, [navigationRef, onSwipeEnabledChange]);
 
   return (
     <NavigationIndependentTree>
       <NavigationContainer
-        ref={cacheNavigationRef}
+        ref={navigationRef}
         theme={APP_DARK_THEME}
         onReady={() => onSwipeEnabledChange(true)}
         onStateChange={(state) => {
@@ -308,6 +313,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
+  const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
 
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
@@ -336,7 +342,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
   }, [tabOpacities]);
 
-  const openMembershipPaywall = React.useCallback(() => {
+  const openMembershipPaywall = React.useCallback((options?: { returnTo?: 'settings' | 'create-card' }) => {
     setTabBarForcedHidden(false);
     switchTabImmediately(2);
 
@@ -348,11 +354,20 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
         requestAnimationFrame(navigateToMembership);
         return;
       }
-      profileNavigationRef.navigate('ProfileSettingOptions', { kind: 'membership' });
+      profileNavigationRef.navigate('ProfileSettingOptions', {
+        kind: 'membership',
+        returnTo: options?.returnTo ?? 'settings',
+      });
     };
 
     setTimeout(navigateToMembership, 280);
   }, [profileNavigationRef, switchTabImmediately]);
+
+  const resetCacheStackToRoot = React.useCallback(() => {
+    if (!cacheNavigationRef.isReady()) return;
+    if (!cacheNavigationRef.canGoBack()) return;
+    cacheNavigationRef.dispatch(StackActions.popToTop());
+  }, [cacheNavigationRef]);
 
   const setTabRootRouteEnabled = React.useCallback((index: number, enabled: boolean) => {
     setTabRootRouteEnabledMap((prev) => {
@@ -428,7 +443,7 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
             <CardsStack navigationRef={cardsNavigationRef} onSwipeEnabledChange={handleDeckRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View style={[styles.tabScene, { opacity: tabOpacities[1], zIndex: selectedTabIndex === 1 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}>
-            <CacheStack onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
+            <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
             <ProfileStack navigationRef={profileNavigationRef} onSwipeEnabledChange={handleProfileRootRouteEnabledChange} />
@@ -439,8 +454,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
           <LiquidTabBar
             selectedTabIndex={selectedTabIndex}
             onSelectTab={(index: number) => {
-              if (index === 0 && selectedTabIndex === 0 && cardsNavigationRef.isReady()) {
+              if (index === 0 && selectedTabIndex === 0 && cardsNavigationRef.isReady() && cardsNavigationRef.canGoBack()) {
                 cardsNavigationRef.dispatch(StackActions.popToTop());
+              } else if (index === 1) {
+                resetCacheStackToRoot();
+                switchTabImmediately(index);
               } else {
                 switchTabImmediately(index);
               }

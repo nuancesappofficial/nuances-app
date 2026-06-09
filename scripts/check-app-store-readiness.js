@@ -105,7 +105,10 @@ add(
   'Privacy Policy and Terms links must be real before App Review.'
 );
   add(
-    todo.includes('[x] Add backend account deletion support') ? 'pass' : 'warn',
+    todo.includes('✓ Add backend account deletion support') ||
+      todo.includes('[x] Add backend account deletion support')
+      ? 'pass'
+      : 'warn',
     'Checklist marks backend account deletion complete',
     'Keep to-do list.md synchronized with implemented backend support.'
   );

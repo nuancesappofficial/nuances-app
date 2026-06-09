@@ -33,6 +33,7 @@ import {
   USAGE_RECENT_LIMIT_MAX,
   USAGE_RETENTION_DAYS,
 } from './_shared/runtimeConfig.ts';
+import { incrementPostgresRateLimitCounter } from '../_shared/rateLimitStore.ts';
 
 declare const Deno: any;
 
@@ -152,12 +153,23 @@ const BILLABLE_ACTIONS = new Set<Action>([
   'generate_card',
   'pronunciation_assess',
 ]);
+const FREE_PRONUNCIATION_DAILY_QUOTA = Number(Deno.env.get('FREE_PRONUNCIATION_DAILY_QUOTA') ?? '5');
+const PREMIUM_PRONUNCIATION_DAILY_QUOTA = Number(Deno.env.get('PREMIUM_PRONUNCIATION_DAILY_QUOTA') ?? '100');
 const LOG_RAW_GEMINI = String(Deno.env.get('AI_LOG_RAW_GEMINI') || '').toLowerCase() === 'true';
 const GENERATE_CARD_MODEL =
   sanitizeText(Deno.env.get('AI_GENERATE_CARD_MODEL') || '', 120) ||
   'gemini-2.5-flash';
+const GENERATE_CARD_CLARITY_MODEL =
+  sanitizeText(Deno.env.get('AI_GENERATE_CARD_CLARITY_MODEL') || '', 120) ||
+  'gemini-2.5-flash-lite';
+const GENERATE_CARD_APPLICATION_MODEL =
+  sanitizeText(Deno.env.get('AI_GENERATE_CARD_APPLICATION_MODEL') || '', 120) ||
+  GENERATE_CARD_MODEL;
+const GENERATE_CARD_MASTERY_MODEL =
+  sanitizeText(Deno.env.get('AI_GENERATE_CARD_MASTERY_MODEL') || '', 120) ||
+  GENERATE_CARD_MODEL;
 const GENERATE_CARD_FALLBACK_MODELS = String(
-  Deno.env.get('AI_GENERATE_CARD_FALLBACK_MODELS') || 'gemini-2.0-flash-lite,gemini-3-flash-preview'
+  Deno.env.get('AI_GENERATE_CARD_FALLBACK_MODELS') || 'gemini-2.5-flash-lite,gemini-2.5-flash'
 )
   .split(',')
   .map((item) => sanitizeText(item, 120))
@@ -262,7 +274,7 @@ function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel
       `definition: 1-5 words in ${replyLanguageLabel}; direct translation or minimal explanation only.`,
       'culturalBackground: maximum 1 very short sentence; use empty string if the context is self-explanatory.',
       'frequentCollocations: return exactly 1 highly common collocation.',
-      'example: under 10 words.',
+      'example: under 10 words. Keep the entire card extremely compact.',
     ].join(' ');
   }
 
@@ -283,6 +295,46 @@ function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel
     'frequentCollocations: return 1-2 practical collocations used in daily life.',
     'example: natural conversational sentence demonstrating the primary use case.',
   ].join(' ');
+}
+
+function getGenerateCardModelCandidates(mode: AIBreakdownMode): string[] {
+  const primaryByMode: Record<AIBreakdownMode, string> = {
+    short_punchy: GENERATE_CARD_CLARITY_MODEL,
+    context: GENERATE_CARD_APPLICATION_MODEL,
+    deep_dive: GENERATE_CARD_MASTERY_MODEL,
+  };
+
+  return Array.from(
+    new Set([
+      primaryByMode[mode],
+      GENERATE_CARD_MODEL,
+      ...GENERATE_CARD_FALLBACK_MODELS,
+    ].filter(Boolean))
+  );
+}
+
+function getGenerateCardRuntimeOptions(mode: AIBreakdownMode): {
+  maxTokens: number;
+  temperature: number;
+} {
+  if (mode === 'short_punchy') {
+    return {
+      maxTokens: Math.min(MAX_TOKENS_GENERATE, 520),
+      temperature: 0.35,
+    };
+  }
+
+  if (mode === 'deep_dive') {
+    return {
+      maxTokens: MAX_TOKENS_GENERATE,
+      temperature: 0.55,
+    };
+  }
+
+  return {
+    maxTokens: Math.min(MAX_TOKENS_GENERATE, 820),
+    temperature: 0.5,
+  };
 }
 
 function escapeRegExp(input: string): string {
@@ -626,11 +678,68 @@ async function incrementCounter(
 
 async function enforceLimits(userId: string): Promise<Response | null> {
   const kv = await getKvClient();
+  const now = new Date();
+  const minuteBucket = `${now.toISOString().slice(0, 16)}`;
+  const dayBucket = now.toISOString().slice(0, 10);
+  const increment = async (bucket: string, bucketKey: string, expireInMs: number) => {
+    if (kv) {
+      return incrementCounter(kv, ['ai-rate', userId, bucket, bucketKey], expireInMs);
+    }
+    const supabase = createServiceRoleClient();
+    return incrementPostgresRateLimitCounter({
+      supabase,
+      service: 'ai-proxy',
+      userId,
+      bucket,
+      bucketKey,
+      expireInMs,
+    });
+  };
+
   if (!kv) {
+    console.warn('[ai-proxy] KV unavailable; using Postgres rate-limit fallback');
+  }
+
+  try {
+    const minuteCount = await increment(
+      'minute',
+      minuteBucket,
+      2 * 60 * 1000
+    );
+    if (minuteCount > RATE_LIMIT_PER_MINUTE) {
+      return jsonResponse(
+        {
+          error: 'Rate limit exceeded',
+          limit: RATE_LIMIT_PER_MINUTE,
+          bucket: 'minute',
+        },
+        429
+      );
+    }
+
+    const dayCount = await increment(
+      'day',
+      dayBucket,
+      2 * 24 * 60 * 60 * 1000
+    );
+    if (dayCount > DAILY_QUOTA) {
+      return jsonResponse(
+        {
+          error: 'Daily quota exceeded',
+          limit: DAILY_QUOTA,
+          bucket: 'day',
+        },
+        429
+      );
+    }
+
+    return null;
+  } catch (error) {
     if (ALLOW_BILLABLE_WITHOUT_KV) {
-      console.warn('[ai-proxy] KV unavailable; allowing request due to AI_ALLOW_BILLABLE_WITHOUT_KV=true');
+      console.warn('[ai-proxy] Rate limit store unavailable; allowing request due to AI_ALLOW_BILLABLE_WITHOUT_KV=true', error);
       return null;
     }
+    console.error('[ai-proxy] Rate limit store unavailable', error);
     return jsonResponse(
       {
         error: 'Service temporarily unavailable',
@@ -639,38 +748,59 @@ async function enforceLimits(userId: string): Promise<Response | null> {
       503
     );
   }
+}
 
-  const now = new Date();
-  const minuteBucket = `${now.toISOString().slice(0, 16)}`;
-  const dayBucket = now.toISOString().slice(0, 10);
+async function consumePronunciationDailyQuota(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  userId: string;
+  planType: 'trial' | 'free' | 'premium';
+}): Promise<Response | null> {
+  const { supabase, userId, planType } = params;
+  const dailyLimit = planType === 'premium'
+    ? PREMIUM_PRONUNCIATION_DAILY_QUOTA
+    : FREE_PRONUNCIATION_DAILY_QUOTA;
+  const { data, error } = await supabase.rpc('consume_pronunciation_quota', {
+    p_user_id: userId,
+    p_daily_limit: dailyLimit,
+  });
 
-  const minuteCount = await incrementCounter(
-    kv,
-    ['ai-rate', userId, minuteBucket],
-    2 * 60 * 1000
-  );
-  if (minuteCount > RATE_LIMIT_PER_MINUTE) {
+  if (error) {
+    console.error('[ai-proxy] pronunciation quota check failed', { userId, error: error.message });
     return jsonResponse(
       {
-        error: 'Rate limit exceeded',
-        limit: RATE_LIMIT_PER_MINUTE,
-        bucket: 'minute',
+        error: 'Pronunciation quota check failed',
+        reason: 'pronunciation_quota_unavailable',
       },
-      429
+      503
     );
   }
 
-  const dayCount = await incrementCounter(
-    kv,
-    ['ai-quota', userId, dayBucket],
-    2 * 24 * 60 * 60 * 1000
-  );
-  if (dayCount > DAILY_QUOTA) {
+  const quota = Array.isArray(data) ? data[0] : data;
+  if (!quota) {
+    console.error('[ai-proxy] pronunciation quota returned no row', { userId });
     return jsonResponse(
       {
-        error: 'Daily quota exceeded',
-        limit: DAILY_QUOTA,
-        bucket: 'day',
+        error: 'Pronunciation quota check failed',
+        reason: 'pronunciation_quota_unavailable',
+      },
+      503
+    );
+  }
+  const allowed = Boolean(quota?.allowed);
+  const used = Number(quota?.used ?? 0);
+  const limit = Number(quota?.daily_limit ?? dailyLimit);
+  const resetDate = typeof quota?.reset_date === 'string' ? quota.reset_date : new Date().toISOString().slice(0, 10);
+
+  if (!allowed) {
+    return jsonResponse(
+      {
+        error: 'Daily pronunciation quota exceeded',
+        reason: 'pronunciation_daily_quota_exceeded',
+        planType,
+        used,
+        limit,
+        resetDate,
+        message: `Daily pronunciation check limit reached (${used}/${limit}). Please try again tomorrow or upgrade for a higher fair-use limit.`,
       },
       429
     );
@@ -844,9 +974,8 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     'Return strict JSON only matching the requested schema. Do not include markdown.'
   ].join(' ');
 
-  const modelCandidates = Array.from(
-    new Set([GENERATE_CARD_MODEL, ...GENERATE_CARD_FALLBACK_MODELS])
-  );
+  const modelCandidates = getGenerateCardModelCandidates(aiBreakdownMode);
+  const runtimeOptions = getGenerateCardRuntimeOptions(aiBreakdownMode);
   let parsed: any = null;
   let aiResponse: any = null;
   let lastErrorMsg = '';
@@ -864,8 +993,8 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
           },
           { role: 'user', content: prompt },
         ],
-        maxTokens: MAX_TOKENS_GENERATE,
-        temperature: 0.6,
+        maxTokens: runtimeOptions.maxTokens,
+        temperature: runtimeOptions.temperature,
         jsonMode: true,
       });
       usedModel = modelName;
@@ -879,8 +1008,9 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
           originalSentence,
           replyLanguage: replyLanguage.code,
           aiBreakdownMode,
+          maxTokens: runtimeOptions.maxTokens,
+          temperature: runtimeOptions.temperature,
           rawContentLength: rawBody.length,
-          rawContentPreview: rawBody.slice(0, 2500),
         });
       }
 
@@ -1275,6 +1405,23 @@ Deno.serve(async (req: Request) => {
             status: 'rate_limited',
           });
           return limitsError;
+        }
+      }
+
+      if (body.action === 'pronunciation_assess') {
+        const pronunciationQuotaError = await consumePronunciationDailyQuota({
+          supabase,
+          userId,
+          planType,
+        });
+        if (pronunciationQuotaError) {
+          await trackUsage({
+            userId,
+            action: body.action,
+            status: 'rate_limited',
+            meta: { reason: 'pronunciation_daily_quota_exceeded', planType },
+          });
+          return pronunciationQuotaError;
         }
       }
 

@@ -14,14 +14,11 @@ import { Paths } from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { database } from '@database/index';
 import CachedItem from '@database/models/CachedItem';
+import { getCurrentCacheCardCount } from '@services/cache/cacheLimitService';
+import type { PlanType } from '@services/settings/userSettings';
 import {
-  getCacheCapacitySnapshot,
-  getCurrentCacheCardCount,
-  type CacheCapacitySnapshot,
-} from '@services/cache/cacheLimitService';
-import {
-  getAppGroupSharedContent,
-  clearAppGroupSharedContent,
+  getAppGroupSharedContentSnapshot,
+  clearAppGroupSharedContentIfUnchanged,
   type SharedContentItem,
 } from '../../native/SharedDefaultsModule';
 
@@ -36,7 +33,7 @@ export interface ShareContentProcessResult {
   addedCount: number;
   blockedCount: number;
   currentCacheCount: number;
-  planType: CacheCapacitySnapshot['planType'];
+  planType: PlanType;
 }
 
 export type ShareIngestEventLevel = 'info' | 'warn' | 'error';
@@ -145,7 +142,8 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         message: 'Start checking App Group shared content',
         meta: { userId },
       });
-      const items: SharedContentItem[] | null = await getAppGroupSharedContent();
+      const snapshot = await getAppGroupSharedContentSnapshot();
+      const items: SharedContentItem[] | null = snapshot?.items ?? null;
 
       if (!items || items.length === 0) {
         await appendShareIngestEvent({
@@ -158,7 +156,7 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
           addedCount: 0,
           blockedCount: 0,
           currentCacheCount: 0,
-          planType: 'free',
+          planType: 'premium',
         };
       }
 
@@ -166,44 +164,15 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         level: 'info',
         stage: 'check_found',
         message: 'Found pending shared content items',
-        meta: { userId, itemCount: items.length },
+        meta: { userId, itemCount: items.length, timestamp: snapshot?.timestamp ?? 0 },
       });
 
-      const requestedCount = items.reduce((sum, item) => {
-        if (item.type === 'text' && item.content) return sum + 1;
-        if (item.type === 'image' && item.images?.length) return sum + item.images.length;
-        return sum;
-      }, 0);
-      const capacity = await getCacheCapacitySnapshot(userId);
-      let remainingSlots = capacity.remainingSlots;
       let totalCount = 0;
-      let blockedCount = 0;
-
-      if (capacity.planType === 'free' && remainingSlots <= 0) {
-        await appendShareIngestEvent({
-          level: 'warn',
-          stage: 'cache_limit_blocked',
-          message: 'Skipped all shared content because free cache is already full',
-          meta: { userId, requestedCount, currentCacheCount: capacity.currentCount },
-        });
-        await clearAppGroupSharedContent();
-        return {
-          addedCount: 0,
-          blockedCount: requestedCount,
-          currentCacheCount: capacity.currentCount,
-          planType: capacity.planType,
-        };
-      }
 
       for (const item of items) {
         if (item.type === 'text' && item.content) {
-          if (capacity.planType === 'free' && remainingSlots <= 0) {
-            blockedCount += 1;
-            continue;
-          }
           await saveTextToCache(userId, item.content);
           totalCount += 1;
-          if (capacity.planType === 'free') remainingSlots -= 1;
           await appendShareIngestEvent({
             level: 'info',
             stage: 'ingest_text_ok',
@@ -211,15 +180,8 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
             meta: { userId, textLength: item.content.length },
           });
         } else if (item.type === 'image' && item.images && item.images.length > 0) {
-          const acceptedImages =
-            capacity.planType === 'free' ? item.images.slice(0, Math.max(0, remainingSlots)) : item.images;
-          const skippedImageCount = item.images.length - acceptedImages.length;
-          if (acceptedImages.length > 0) {
-            await saveImagesToCache(userId, acceptedImages);
-            totalCount += acceptedImages.length;
-            if (capacity.planType === 'free') remainingSlots -= acceptedImages.length;
-          }
-          blockedCount += Math.max(0, skippedImageCount);
+          await saveImagesToCache(userId, item.images);
+          totalCount += item.images.length;
           await appendShareIngestEvent({
             level: 'info',
             stage: 'ingest_image_ok',
@@ -227,8 +189,8 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
             meta: {
               userId,
               imageCount: item.images.length,
-              acceptedImageCount: acceptedImages.length,
-              blockedImageCount: skippedImageCount,
+              acceptedImageCount: item.images.length,
+              blockedImageCount: 0,
             },
           });
         } else {
@@ -241,19 +203,19 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         }
       }
 
-      await clearAppGroupSharedContent();
+      const cleared = await clearAppGroupSharedContentIfUnchanged(snapshot?.timestamp ?? 0);
       await appendShareIngestEvent({
         level: 'info',
         stage: 'check_complete',
         message: 'Finished processing shared content and cleared App Group queue',
-        meta: { userId, totalCount, blockedCount },
+        meta: { userId, totalCount, blockedCount: 0, cleared },
       });
-      const currentCacheCount = await getCurrentCacheCardCount(userId).catch(() => capacity.currentCount + totalCount);
+      const currentCacheCount = await getCurrentCacheCardCount(userId).catch(() => totalCount);
       return {
         addedCount: totalCount,
-        blockedCount,
+        blockedCount: 0,
         currentCacheCount,
-        planType: capacity.planType,
+        planType: 'premium',
       };
     } catch (error) {
       console.error('Error processing shared content:', error);
@@ -270,7 +232,7 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         addedCount: 0,
         blockedCount: 0,
         currentCacheCount: 0,
-        planType: 'free',
+        planType: 'premium',
       };
     }
   })();
@@ -427,9 +389,6 @@ export async function manualCheckSharedContent(userId: string): Promise<{ succes
 
     if (result.addedCount > 0) {
       return { success: true, message: `成功匯入 ${result.addedCount} 個分享內容` };
-    }
-    if (result.blockedCount > 0) {
-      return { success: false, message: '快取已滿，新的分享內容沒有匯入。' };
     }
     return { success: false, message: '沒有待處理的分享內容' };
   } catch (error) {

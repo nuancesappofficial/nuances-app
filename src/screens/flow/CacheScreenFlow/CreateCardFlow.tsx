@@ -18,6 +18,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
+import { useFocusEffect } from '@react-navigation/native';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
@@ -92,6 +93,12 @@ const albumIdToCategoryTag: Record<string, string> = {
   slang: 'slang',
   culture: 'culture',
   work: 'work',
+};
+
+const AI_MODE_ICON_BY_VALUE: Record<AIBreakdownMode, any> = {
+  short_punchy: require('../../../../assets/onboarding_q3_assets/q3-lightning-cutout.png'),
+  context: require('../../../../assets/onboarding_q3_assets/q3-bubble-cutout.png'),
+  deep_dive: require('../../../../assets/onboarding_q3_assets/q3-nodes-cutout.png'),
 };
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
@@ -233,6 +240,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [aiBreakdownMode, setAiBreakdownMode] = React.useState<AIBreakdownMode>(
     DEFAULT_USER_SETTINGS.personalization.aiBreakdownMode
   );
+  const [isAIModeDropdownOpen, setIsAIModeDropdownOpen] = React.useState(false);
+  const selectedAIBreakdownOption = React.useMemo(
+    () =>
+      AI_BREAKDOWN_MODE_OPTIONS.find((option) => option.value === aiBreakdownMode) ??
+      AI_BREAKDOWN_MODE_OPTIONS[1],
+    [aiBreakdownMode]
+  );
   const sourceText = React.useMemo(
     () => (ocrSourceText.trim() ? ocrSourceText : baseSourceText),
     [baseSourceText, ocrSourceText]
@@ -270,6 +284,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const handleSelectAIBreakdownMode = React.useCallback(async (mode: AIBreakdownMode) => {
     const nextMode = normalizeAIBreakdownMode(mode);
     setAiBreakdownMode(nextMode);
+    setIsAIModeDropdownOpen(false);
 
     try {
       const settings = await loadUserSettings();
@@ -405,27 +420,42 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     };
   }, [ocrImageUri, runOcrOnLoad]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+  const refreshEntitlementSnapshot = React.useCallback(
+    async (options?: { cancelled?: () => boolean }) => {
       try {
         const snapshot = await SubscriptionService.getEntitlementSnapshot(cachedItem.userId);
-        if (!cancelled) {
+        if (!options?.cancelled?.()) {
           setEntitlementSnapshot(snapshot);
         }
       } catch (error) {
         console.error('[CreateCard] load entitlement snapshot failed:', error);
       }
-    })();
+    },
+    [cachedItem.userId]
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void refreshEntitlementSnapshot({ cancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, [cachedItem.userId]);
+  }, [refreshEntitlementSnapshot]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancelled = false;
+      void refreshEntitlementSnapshot({ cancelled: () => cancelled });
+      return () => {
+        cancelled = true;
+      };
+    }, [refreshEntitlementSnapshot])
+  );
 
   React.useEffect(() => {
     const queryCards = database
       .get<Card>('cards')
-      .query(Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+      .query(Q.where('user_id', cachedItem.userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
 
     void queryCards.fetch().then(setAllCards).catch((error) => {
       console.error('[CreateCard] load deck cards failed:', error);
@@ -436,7 +466,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       setAllCards(data);
     });
     return () => sub.unsubscribe();
-  }, []);
+  }, [cachedItem.userId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -489,7 +519,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   };
 
   const openMembershipPaywall = React.useCallback(() => {
-    tabSwipeContext?.openMembershipPaywall();
+    tabSwipeContext?.openMembershipPaywall({ returnTo: 'create-card' });
   }, [tabSwipeContext]);
 
   React.useEffect(() => {
@@ -1108,7 +1138,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             {effectiveGenerationMode !== 'manual' ? (
               <View
                 style={[
-                  styles.aiModeToggleWrap,
+                  styles.aiModeDropdownWrap,
                   {
                     backgroundColor: palette.containerBg,
                     borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
@@ -1117,43 +1147,110 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <View style={styles.aiModeToggleHeader}>
-                  <Text style={[styles.aiModeToggleTitle, { color: palette.secondaryText }]}>
-                    AI mode
+                <Pressable
+                  style={styles.aiModeDropdownTrigger}
+                  onPress={() => setIsAIModeDropdownOpen((prev) => !prev)}
+                >
+                  <View style={styles.aiModeDropdownCopy}>
+                    <Text style={[styles.aiModeDropdownTitle, { color: palette.secondaryText }]}>
+                      AI depth
+                    </Text>
+                    <Text style={[styles.aiModeDropdownValue, { color: palette.textOnContainer }]}>
+                      {getAIBreakdownModeLabel(aiBreakdownMode)}
+                    </Text>
+                    <Text
+                      style={[styles.aiModeDropdownDescription, { color: palette.secondaryText }]}
+                      numberOfLines={1}
+                    >
+                      {selectedAIBreakdownOption.description}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.aiModeDropdownChevron,
+                      {
+                        color: MODAL_CTA_COLOR,
+                        transform: [{ rotate: isAIModeDropdownOpen ? '180deg' : '0deg' }],
+                      },
+                    ]}
+                  >
+                    ⌄
                   </Text>
-                  <Text style={[styles.aiModeToggleSummary, { color: palette.textOnContainer }]}>
-                    {getAIBreakdownModeLabel(aiBreakdownMode)}
-                  </Text>
-                </View>
-                <View style={styles.aiModeToggleOptions}>
-                  {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
-                    const isActive = option.value === aiBreakdownMode;
-                    return (
-                      <Pressable
-                        key={option.value}
-                        style={({ pressed }) => [
-                          styles.aiModeToggleOption,
-                          {
-                            backgroundColor: isActive ? MODAL_CTA_COLOR : palette.modalOptionBg,
-                            borderColor: isActive ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
-                          },
-                          pressed ? styles.pressableChipPressed : null,
-                        ]}
-                        onPress={() => void handleSelectAIBreakdownMode(option.value)}
-                      >
-                        <Text
+                </Pressable>
+                {isAIModeDropdownOpen ? (
+                  <View
+                    style={[
+                      styles.aiModeDropdownList,
+                      {
+                        backgroundColor: palette.modalOptionBg,
+                        borderColor: palette.modalOptionBorder,
+                      },
+                    ]}
+                  >
+                    {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
+                      const isActive = option.value === aiBreakdownMode;
+                      return (
+                        <Pressable
+                          key={option.value}
                           style={[
-                            styles.aiModeToggleOptionText,
-                            { color: isActive ? TEXT_ON_CTA : palette.textOnContainer },
+                            styles.aiModeDropdownOption,
+                            isActive
+                              ? {
+                                  backgroundColor: isLight ? 'rgba(78,175,244,0.14)' : 'rgba(78,175,244,0.18)',
+                                  borderColor: MODAL_CTA_COLOR_BORDER,
+                                }
+                              : { borderColor: 'transparent' },
                           ]}
-                          numberOfLines={1}
+                          onPress={() => void handleSelectAIBreakdownMode(option.value)}
                         >
-                          {option.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                          <View
+                            style={[
+                              styles.aiModeDropdownIconFrame,
+                              {
+                                backgroundColor: isActive
+                                  ? isLight
+                                    ? 'rgba(78,175,244,0.18)'
+                                    : 'rgba(78,175,244,0.22)'
+                                  : palette.containerBg,
+                                borderColor: isActive ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
+                              },
+                            ]}
+                          >
+                            <Image
+                              source={AI_MODE_ICON_BY_VALUE[option.value]}
+                              style={styles.aiModeDropdownIcon}
+                              resizeMode="contain"
+                            />
+                          </View>
+                          <View style={styles.aiModeDropdownOptionCopy}>
+                            <Text
+                              style={[
+                                styles.aiModeDropdownOptionLabel,
+                                { color: isActive ? MODAL_CTA_COLOR : palette.textOnContainer },
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                            <Text
+                              style={[styles.aiModeDropdownOptionDescription, { color: palette.secondaryText }]}
+                              numberOfLines={1}
+                            >
+                              {option.description}
+                            </Text>
+                          </View>
+                          {isActive ? (
+                            <View
+                              style={[
+                                styles.aiModeDropdownActiveDot,
+                                { backgroundColor: MODAL_CTA_COLOR },
+                              ]}
+                            />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
               </View>
             ) : null}
             {selectedWords.length > 0 ? (
@@ -1474,48 +1571,101 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  aiModeToggleWrap: {
-    borderRadius: 18,
+  aiModeDropdownWrap: {
+    borderRadius: 20,
     borderWidth: 1,
-    padding: 10,
-    marginBottom: 10,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
+    padding: 8,
+    marginBottom: 12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
-  aiModeToggleHeader: {
+  aiModeDropdownTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginBottom: 8,
+    borderRadius: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
   },
-  aiModeToggleTitle: {
-    fontSize: 11,
+  aiModeDropdownCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  aiModeDropdownTitle: {
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.75,
     textTransform: 'uppercase',
   },
-  aiModeToggleSummary: {
-    fontSize: 12,
+  aiModeDropdownValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  aiModeDropdownDescription: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  aiModeDropdownChevron: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    overflow: 'hidden',
+    textAlign: 'center',
+    lineHeight: 31,
+    fontSize: 23,
     fontWeight: '800',
   },
-  aiModeToggleOptions: {
-    flexDirection: 'row',
-    gap: 7,
+  aiModeDropdownList: {
+    gap: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 8,
+    padding: 5,
   },
-  aiModeToggleOption: {
-    flex: 1,
-    minHeight: 34,
-    borderRadius: 12,
+  aiModeDropdownOption: {
+    minHeight: 56,
+    borderRadius: 13,
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  aiModeDropdownIconFrame: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    overflow: 'hidden',
   },
-  aiModeToggleOptionText: {
-    fontSize: 11,
+  aiModeDropdownIcon: {
+    width: 31,
+    height: 31,
+  },
+  aiModeDropdownOptionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  aiModeDropdownOptionLabel: {
+    fontSize: 13,
     fontWeight: '800',
+  },
+  aiModeDropdownOptionDescription: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+  },
+  aiModeDropdownActiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   selectedSummary: {
     marginBottom: 8,

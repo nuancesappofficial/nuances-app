@@ -12,9 +12,13 @@ export type AppTourStep =
   | 'STEP_5_SELECT_TARGET'
   | 'STEP_6_GENERATE_SAMPLE'
   | 'STEP_7_SAVE_SAMPLE'
+  | 'STEP_8_FLICK_CARD'
   | 'STEP_8_ALBUM_SAMPLE'
   | 'STEP_9_COACH_SAMPLE'
   | 'STEP_10_QUIZ_SAMPLE'
+  | 'STEP_11_CREATE_ALBUM'
+  | 'STEP_12_CONFIRM_ALBUM'
+  | 'STEP_13_ALBUM_SETTINGS'
   | 'COMPLETED';
 
 type AppTourContextValue = {
@@ -34,7 +38,9 @@ const TOUR_STEP_GAP_MS = 420;
 function getNextStep(step: AppTourStep): AppTourStep {
   switch (step) {
     case 'STEP_1_SAMPLE':
-      return 'STEP_8_ALBUM_SAMPLE';
+      return 'STEP_8_FLICK_CARD';
+    case 'STEP_8_FLICK_CARD':
+      return 'STEP_9_COACH_SAMPLE';
     case 'STEP_2_UPLOAD_SAMPLE':
       return 'STEP_3_PASTE_SAMPLE_TEXT';
     case 'STEP_3_PASTE_SAMPLE_TEXT':
@@ -54,6 +60,12 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_9_COACH_SAMPLE':
       return 'STEP_10_QUIZ_SAMPLE';
     case 'STEP_10_QUIZ_SAMPLE':
+      return 'STEP_11_CREATE_ALBUM';
+    case 'STEP_11_CREATE_ALBUM':
+      return 'STEP_12_CONFIRM_ALBUM';
+    case 'STEP_12_CONFIRM_ALBUM':
+      return 'STEP_13_ALBUM_SETTINGS';
+    case 'STEP_13_ALBUM_SETTINGS':
       return 'COMPLETED';
     default:
       return step;

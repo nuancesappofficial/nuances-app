@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../components/UI/DeckScreenUI/deckTypes';
+import { getCurrentAuthUserId } from '@services/auth/userIdentity';
 
 export type DeckAlbumPreferences = {
   customAlbums: DeckAlbum[];
@@ -49,9 +50,14 @@ export function getTagsArray(tags: unknown): string[] {
   return [];
 }
 
+async function getDeckAlbumPrefsKey(): Promise<string> {
+  const userId = await getCurrentAuthUserId();
+  return `${DECK_ALBUM_PREFS_KEY}:${userId ?? 'guest'}`;
+}
+
 export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> {
   try {
-    const raw = await AsyncStorage.getItem(DECK_ALBUM_PREFS_KEY);
+    const raw = await AsyncStorage.getItem(await getDeckAlbumPrefsKey());
     if (!raw) {
       return {
         customAlbums: [],
@@ -98,7 +104,7 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
 }
 
 export async function saveDeckAlbumPreferences(payload: DeckAlbumPreferences): Promise<void> {
-  await AsyncStorage.setItem(DECK_ALBUM_PREFS_KEY, JSON.stringify(payload));
+  await AsyncStorage.setItem(await getDeckAlbumPrefsKey(), JSON.stringify(payload));
 }
 
 export function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>) {
@@ -132,8 +138,6 @@ export function buildDeckAlbums(
 ): DeckAlbum[] {
   const favoriteCards: Card[] = [];
   const slangCards: Card[] = [];
-  const cultureCards: Card[] = [];
-  const workCards: Card[] = [];
   const customAlbumCards = new Map<string, Card[]>(
     prefs.customAlbums.map((album) => [album.id, []])
   );
@@ -143,7 +147,6 @@ export function buildDeckAlbums(
     const albumTagIds = tags
       .filter((tag) => tag.startsWith(ALBUM_TAG_PREFIX))
       .map((tag) => tag.slice(ALBUM_TAG_PREFIX.length).trim());
-    const source = (card.sourceApp || '').toLowerCase();
     const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
 
     if (albumTagIds.includes(FAVORITES_ALBUM_ID)) {
@@ -156,23 +159,6 @@ export function buildDeckAlbums(
       /slang|internet|meme/.test(text)
     ) {
       slangCards.push(card);
-    }
-
-    if (
-      tags.some((t) => ['culture', 'pop', 'movie'].includes(t)) ||
-      albumTagIds.includes('culture') ||
-      /culture|movie|music|pop/.test(text)
-    ) {
-      cultureCards.push(card);
-    }
-
-    if (
-      tags.some((t) => ['work', 'business', 'office'].includes(t)) ||
-      albumTagIds.includes('work') ||
-      /work|business|office/.test(text) ||
-      source.includes('slack')
-    ) {
-      workCards.push(card);
     }
 
     albumTagIds.forEach((albumId) => {
@@ -206,28 +192,10 @@ export function buildDeckAlbums(
       id: 'slang',
       name: 'Internet Slang',
       emoji: '💬',
-      color: '#1B1B1F',
+      color: '#4EAFF4',
       cardIds: Array.from(new Set(slangCards.map((card) => card.id))),
       wordCount: slangCards.length,
       latestCards: buildPreviewCards(slangCards, cardImageMap),
-    },
-    {
-      id: 'culture',
-      name: 'Pop Culture',
-      emoji: '🎬',
-      color: '#1B1B1F',
-      cardIds: Array.from(new Set(cultureCards.map((card) => card.id))),
-      wordCount: cultureCards.length,
-      latestCards: buildPreviewCards(cultureCards, cardImageMap),
-    },
-    {
-      id: 'work',
-      name: 'Work Phrases',
-      emoji: '💼',
-      color: '#1B1B1F',
-      cardIds: Array.from(new Set(workCards.map((card) => card.id))),
-      wordCount: workCards.length,
-      latestCards: buildPreviewCards(workCards, cardImageMap),
     },
   ];
 

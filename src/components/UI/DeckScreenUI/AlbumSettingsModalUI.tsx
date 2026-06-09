@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import TutorialSpotlight from '../shared/TutorialSpotlight';
 import {
   MODAL_CTA_COLOR,
   MODAL_CTA_COLOR_BORDER,
@@ -36,6 +37,8 @@ type Props = {
   onCancel: () => void;
   onSave: () => void;
   onDidClose?: () => void;
+  tourSaveActive?: boolean;
+  tourSaveTooltip?: string;
   children?: React.ReactNode;
 };
 
@@ -73,6 +76,8 @@ export default function AlbumSettingsModalUI({
   onCancel,
   onSave,
   onDidClose,
+  tourSaveActive = false,
+  tourSaveTooltip = 'Save album settings.',
   children,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -364,12 +369,20 @@ export default function AlbumSettingsModalUI({
               >
                 <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
               </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
-                onPress={onSave}
+              <TutorialSpotlight
+                active={tourSaveActive}
+                tooltip={tourSaveTooltip}
+                onSpotlightPress={onSave}
+                showSkip={false}
+                style={styles.tourButtonWrapper}
               >
-                <Text style={styles.saveText}>Save</Text>
-              </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
+                  onPress={onSave}
+                >
+                  <Text style={styles.saveText}>Save</Text>
+                </Pressable>
+              </TutorialSpotlight>
             </View>
           </Pressable>
         </Animated.View>
@@ -608,6 +621,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 4,
+  },
+  tourButtonWrapper: {
+    flex: 1,
   },
   cancelButton: {
     flex: 1,
