@@ -4,11 +4,14 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { extractTextFromImage, isOCRAvailable, type OCRBlock } from '@services/ocr';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 
 type UseCacheOcrBackfillArgs = {
   cacheItems: CachedItem[];
   getDetectedPreview: (annotations: unknown) => string | undefined;
 };
+
+const MAX_OCR_ITEMS_PER_PASS = 3;
 
 function hasOCRAnnotations(annotations: unknown): boolean {
   if (annotations == null) return false;
@@ -37,7 +40,12 @@ async function normalizeImageUriForCache(imageUri: string): Promise<string> {
     );
     return normalized.uri || imageUri;
   } catch (error) {
-    console.warn('[CacheList] normalize image uri failed, fallback to original:', error);
+    void logDiagnosticEvent({
+      severity: 'warn',
+      category: 'ocr',
+      event: 'cache_image_normalize_failed',
+      context: { errorName: error instanceof Error ? error.name : 'UnknownError' },
+    });
     return imageUri;
   }
 }
@@ -80,7 +88,12 @@ async function runLocalOCRForPreview(imageUri: string): Promise<OCRBlock[] | und
     if (!Array.isArray(result.blocks) || result.blocks.length === 0) return undefined;
     return result.blocks;
   } catch (error) {
-    console.warn('[CacheList] quick cache OCR failed:', error);
+    void logDiagnosticEvent({
+      severity: 'warn',
+      category: 'ocr',
+      event: 'cache_ocr_preview_failed',
+      context: { errorName: error instanceof Error ? error.name : 'UnknownError' },
+    });
     return undefined;
   }
 }
@@ -134,7 +147,8 @@ export function useCacheOcrBackfill({
           const aTs = a.createdAt?.getTime?.() ?? 0;
           const bTs = b.createdAt?.getTime?.() ?? 0;
           return bTs - aTs;
-        });
+        })
+        .slice(0, MAX_OCR_ITEMS_PER_PASS);
 
       for (const item of targets) {
         if (cancelled) return;
@@ -166,7 +180,16 @@ export function useCacheOcrBackfill({
             });
           });
         } catch (error) {
-          console.warn('[CacheList] backfill OCR failed:', error);
+          void logDiagnosticEvent({
+            severity: 'warn',
+            category: 'ocr',
+            event: 'cache_ocr_backfill_failed',
+            context: {
+              cacheItemId: item.id,
+              errorName: error instanceof Error ? error.name : 'UnknownError',
+            },
+            userId: item.userId,
+          });
         } finally {
           ocrProcessingIdsRef.current.delete(item.id);
           ocrSettledIdsRef.current.add(item.id);

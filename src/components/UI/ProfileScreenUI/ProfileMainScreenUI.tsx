@@ -17,18 +17,18 @@ import {
   View,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused } from '@react-navigation/native';
 import type Card from '@database/models/Card';
 import {
-  isTTSVoiceCompatibleWithAIReplyLanguage,
-  type AIReplyLanguage,
   type EntitlementMode,
-  type MainScreenAlbumGridCount,
-  type TTSVoice,
+  type ThemeMode,
   type UILanguage,
 } from '@services/settings/userSettings';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -40,8 +40,10 @@ import {
   CONTAINER_BG,
   CONTAINER_NEON_GLOW,
   CONTAINER_NEON_OUTLINE,
+  MODAL_CTA_COLOR,
   SCREEN_BG,
   TEXT_ON_BG,
+  TEXT_ON_CTA,
   TEXT_ON_CONTAINER,
   resolveThemeColors,
 } from '../../../theme/colors';
@@ -71,47 +73,23 @@ type Props = {
   heatMapMonths: HeatMapMonth[];
   initialMonthIndex: number;
   entitlementMode: EntitlementMode;
-  mainScreenAlbumGridCount: MainScreenAlbumGridCount;
-  mainScreenWordPopEnabled: boolean;
   isDeletingAccount: boolean;
   uiLanguage: UILanguage;
-  aiReplyLanguage: AIReplyLanguage;
-  ttsVoice: TTSVoice;
+  themeMode: ThemeMode;
   stickerFontKey: StickerFontKey;
+  stickerFontScalePercent: number;
   onPressUploadProfilePic: () => void;
   onOpenMembershipModal: () => void;
   devBypassEnabled?: boolean;
   onDevSetMembership?: (mode: 'free' | 'trial' | 'premium') => void;
-  onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
-  onChangeTTSVoice: (voice: TTSVoice) => void;
+  onReportFeedback: () => void;
   onDeleteAccount: () => void;
-  onOpenSettingsOption: (kind: 'language' | 'voice' | 'font' | 'main') => void;
+  onReplayVideoTutorial: () => void;
+  onOpenSettingsOption: (kind: 'language' | 'theme' | 'font') => void;
   onPressBack: () => void;
   onPressMenu: () => void;
   onPressDay: (day: HeatMapDay) => void;
 };
-
-const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
-  { code: 'zh-TW', label: '繁中' },
-  { code: 'zh-CN', label: '简中' },
-  { code: 'en', label: 'EN' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'es', label: 'ES' },
-  { code: 'fr', label: 'FR' },
-];
-
-const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
-  { code: 'en-US-JennyNeural', label: 'EN-US Jenny' },
-  { code: 'en-US-GuyNeural', label: 'EN-US Guy' },
-  { code: 'en-GB-SoniaNeural', label: 'EN-GB Sonia' },
-  { code: 'ja-JP-NanamiNeural', label: '日本語 Nanami' },
-  { code: 'ko-KR-SunHiNeural', label: '한국어 SunHi' },
-  { code: 'zh-TW-HsiaoChenNeural', label: '繁中 曉臻' },
-  { code: 'zh-CN-XiaoxiaoNeural', label: '简中 晓晓' },
-  { code: 'es-ES-ElviraNeural', label: 'Español Elvira' },
-  { code: 'fr-FR-DeniseNeural', label: 'Français Denise' },
-];
 
 const GRID_SIZE = 42;
 const GRID_CELL_VERTICAL_PADDING = 4;
@@ -128,9 +106,11 @@ const TEXT_ON_BASE = TEXT_ON_BG;
 const HEATMAP_TOP_PADDING = 28;
 const HEATMAP_WEEKDAY_AND_GAP = 16;
 const HEATMAP_BOTTOM_PADDING = 6;
+const HEATMAP_STICKER_REFERENCE_WORD = 'intellect';
 const MONTH_PICKER_ROW_HEIGHT = 56;
 const MONTH_PICKER_WHEEL_HEIGHT = 300;
-const MONTH_PICKER_WHEEL_SIDE_PADDING = (MONTH_PICKER_WHEEL_HEIGHT - MONTH_PICKER_ROW_HEIGHT) / 2;
+const MONTH_PICKER_WHEEL_SIDE_PADDING =
+  (MONTH_PICKER_WHEEL_HEIGHT - MONTH_PICKER_ROW_HEIGHT) / 2;
 const MONTH_PICKER_ANIM_DURATION = 240;
 type MonthPickerItem = {
   index: number;
@@ -139,7 +119,12 @@ type MonthPickerItem = {
 };
 
 function getHeatMapPanelHeight(usedRowCount: number): number {
-  return HEATMAP_TOP_PADDING + HEATMAP_WEEKDAY_AND_GAP + usedRowCount * GRID_ROW_HEIGHT + HEATMAP_BOTTOM_PADDING;
+  return (
+    HEATMAP_TOP_PADDING +
+    HEATMAP_WEEKDAY_AND_GAP +
+    usedRowCount * GRID_ROW_HEIGHT +
+    HEATMAP_BOTTOM_PADDING
+  );
 }
 
 function normalizeStickerText(value: string): string {
@@ -167,7 +152,9 @@ function getHeatmapStickerLabels(item: HeatMapDay, limit = 2): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
   for (const card of item.cards) {
-    const text = normalizeStickerText((card.targetPhrase || card.targetWord || '').trim());
+    const text = normalizeStickerText(
+      (card.targetPhrase || card.targetWord || '').trim()
+    );
     if (!text) continue;
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
@@ -176,6 +163,20 @@ function getHeatmapStickerLabels(item: HeatMapDay, limit = 2): string[] {
     if (labels.length >= limit) break;
   }
   return labels;
+}
+
+function getHeatmapStickerFontSize(label: string, usableWidth: number): number {
+  const widthFactor = 0.66;
+  const referenceVisualLength = getVisualTextLength(
+    HEATMAP_STICKER_REFERENCE_WORD
+  );
+  const labelVisualLength = getVisualTextLength(label);
+  const referenceFontSize =
+    usableWidth / Math.max(1.2, referenceVisualLength * widthFactor);
+  const solvedFontSize =
+    usableWidth / Math.max(1.2, labelVisualLength * widthFactor);
+
+  return Math.max(7.5, Math.min(referenceFontSize, solvedFontSize));
 }
 
 function canUseSFSymbolsOnDevice() {
@@ -204,7 +205,11 @@ function IconSymbol({
   color?: string;
 }) {
   if (!canUseSFSymbolsOnDevice()) {
-    return <Text style={{ color, fontSize: size, lineHeight: size + 2 }}>{fallback}</Text>;
+    return (
+      <Text style={{ color, fontSize: size, lineHeight: size + 2 }}>
+        {fallback}
+      </Text>
+    );
   }
 
   return (
@@ -214,7 +219,11 @@ function IconSymbol({
       tintColor={color}
       type="hierarchical"
       style={{ width: size, height: size }}
-      fallback={<Text style={{ color, fontSize: size, lineHeight: size + 2 }}>{fallback}</Text>}
+      fallback={
+        <Text style={{ color, fontSize: size, lineHeight: size + 2 }}>
+          {fallback}
+        </Text>
+      }
     />
   );
 }
@@ -226,6 +235,7 @@ function HeatMapCircle({
   palette,
   isLight,
   stickerFontKey,
+  stickerFontScalePercent,
 }: {
   item: HeatMapDay;
   isToday: boolean;
@@ -233,6 +243,7 @@ function HeatMapCircle({
   palette: ReturnType<typeof resolveThemeColors>;
   isLight: boolean;
   stickerFontKey: StickerFontKey;
+  stickerFontScalePercent: number;
 }) {
   const circleStyle = {
     width: GRID_SIZE,
@@ -246,27 +257,27 @@ function HeatMapCircle({
 
   const renderSticker = (label: string, index: number) => {
     const capped = label.length > 16 ? `${label.slice(0, 16)}…` : label;
-    const visualLength = getVisualTextLength(capped);
     const dynamicWidth = GRID_SIZE + 14;
     const textHorizontalPadding = 4;
     const usableWidth = Math.max(22, GRID_SIZE - textHorizontalPadding * 2);
-    // Approximate sticker text width ~= visualLength * fontSize * factor
-    const widthFactor = 0.66;
-    const solvedFontSize = usableWidth / Math.max(1.2, visualLength * widthFactor);
-    // Short words should scale up more aggressively to fill the container width.
-    const shortWordBoost = visualLength <= 4 ? 1.34 : visualLength <= 6 ? 1.16 : 1;
-    const boostedFontSize = solvedFontSize * shortWordBoost;
-    const maxFontSize = hasTwoStickers ? 18 : 20;
-    const fontSize = Math.max(7.5, Math.min(maxFontSize, boostedFontSize));
+    const fontSize =
+      getHeatmapStickerFontSize(capped, usableWidth) *
+      (stickerFontScalePercent / 100);
     const strokeWidth = Math.max(2, Math.min(3.2, fontSize * 0.23));
-    const rowStyle = index === 0 ? styles.dayStickerTokenTop : styles.dayStickerTokenBottom;
+    const rowStyle =
+      index === 0 ? styles.dayStickerTokenTop : styles.dayStickerTokenBottom;
     const stickerFont = resolveStickerFont(stickerFontKey);
     return (
       <View
         key={`${item.key}-sticker-${index}`}
         style={[styles.dayStickerToken, rowStyle]}
       >
-        <Svg width={dynamicWidth} height={26} viewBox={`0 0 ${dynamicWidth} 26`} style={styles.dayStickerSvg}>
+        <Svg
+          width={dynamicWidth}
+          height={26}
+          viewBox={`0 0 ${dynamicWidth} 26`}
+          style={styles.dayStickerSvg}
+        >
           <SvgText
             x={dynamicWidth / 2}
             y={18}
@@ -300,14 +311,32 @@ function HeatMapCircle({
   };
 
   const content = hasCards ? (
-    <View style={[styles.dayCircle, styles.dayCircleSticker, circleStyle, { backgroundColor: palette.screenBg }]}>
+    <View
+      style={[
+        styles.dayCircle,
+        styles.dayCircleSticker,
+        circleStyle,
+        { backgroundColor: palette.screenBg },
+      ]}
+    >
       <View style={styles.dayStickerCloud}>
         {stickerLabels.map((label, index) => renderSticker(label, index))}
       </View>
     </View>
   ) : (
-    <View style={[styles.dayCircle, styles.dayCircleEmpty, circleStyle, { backgroundColor: palette.screenBg }]}>
-      <Text style={[styles.dayNumber, { color: isLight ? '#0F172A' : '#EAF3FF' }]}>{item.dayNumber}</Text>
+    <View
+      style={[
+        styles.dayCircle,
+        styles.dayCircleEmpty,
+        circleStyle,
+        { backgroundColor: palette.screenBg },
+      ]}
+    >
+      <Text
+        style={[styles.dayNumber, { color: isLight ? '#0F172A' : '#EAF3FF' }]}
+      >
+        {item.dayNumber}
+      </Text>
     </View>
   );
 
@@ -327,10 +356,20 @@ function HeatMapCircle({
           <View
             style={[
               styles.todayGlow,
-              isLight ? { backgroundColor: 'rgba(78,175,244,0.16)', shadowColor: '#4EAFF4' } : null,
+              isLight
+                ? {
+                    backgroundColor: 'rgba(78,175,244,0.16)',
+                    shadowColor: '#4EAFF4',
+                  }
+                : null,
             ]}
           />
-          <View style={[styles.todayRing, isLight ? { borderColor: '#4EAFF4' } : null]} />
+          <View
+            style={[
+              styles.todayRing,
+              isLight ? { borderColor: '#4EAFF4' } : null,
+            ]}
+          />
         </>
       ) : null}
       {content}
@@ -347,25 +386,26 @@ export default function ProfileMainScreenUI({
   heatMapMonths,
   initialMonthIndex,
   entitlementMode,
-  mainScreenAlbumGridCount,
-  mainScreenWordPopEnabled,
   isDeletingAccount,
   uiLanguage,
-  aiReplyLanguage,
-  ttsVoice,
+  themeMode,
   stickerFontKey,
+  stickerFontScalePercent,
   onPressUploadProfilePic,
   onOpenMembershipModal,
-  onChangeAIReplyLanguage,
-  onChangeTTSVoice,
+  onReportFeedback,
   onDeleteAccount,
+  onReplayVideoTutorial,
   onOpenSettingsOption,
   onPressBack,
   onPressMenu,
   onPressDay,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const isLight = colorScheme === 'light';
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -378,13 +418,17 @@ export default function ProfileMainScreenUI({
   const [monthPickerYear, setMonthPickerYear] = React.useState<number>(0);
   const [monthPickerMonth, setMonthPickerMonth] = React.useState<number>(0);
   const monthPickerOverlayOpacity = React.useRef(new Animated.Value(0)).current;
-  const monthPickerSheetTranslateY = React.useRef(new Animated.Value(40)).current;
+  const monthPickerSheetTranslateY = React.useRef(
+    new Animated.Value(40)
+  ).current;
   const currentMonthIndexRef = React.useRef<number>(0);
   const pendingTargetIndexRef = React.useRef<number | null>(null);
   const yearWheelRef = React.useRef<FlatList<number> | null>(null);
   const monthWheelRef = React.useRef<FlatList<number> | null>(null);
   const edgePullX = React.useRef(new Animated.Value(0)).current;
-  const edgeBounceAnimRef = React.useRef<Animated.CompositeAnimation | null>(null);
+  const edgeBounceAnimRef = React.useRef<Animated.CompositeAnimation | null>(
+    null
+  );
   const lastMonthPickerHapticIndexRef = React.useRef({ year: -1, month: -1 });
   const lastMonthPickerHapticAtRef = React.useRef(0);
 
@@ -396,10 +440,11 @@ export default function ProfileMainScreenUI({
   const monthsWithCalendarItems = React.useMemo(
     () =>
       heatMapMonths.map((month) => {
-        const firstDate = month.days[0]?.date;
-        const firstWeekday = firstDate
-          ? new Date(firstDate.getFullYear(), firstDate.getMonth(), 1).getDay()
-          : 0;
+        const firstWeekday = new Date(
+          month.monthDate.getFullYear(),
+          month.monthDate.getMonth(),
+          1
+        ).getDay();
         const usedRowCount = Math.ceil((firstWeekday + month.days.length) / 7);
 
         return {
@@ -412,7 +457,12 @@ export default function ProfileMainScreenUI({
             })),
             ...month.days,
             ...Array.from(
-              { length: Math.max(0, CALENDAR_CELL_COUNT - (firstWeekday + month.days.length)) },
+              {
+                length: Math.max(
+                  0,
+                  CALENDAR_CELL_COUNT - (firstWeekday + month.days.length)
+                ),
+              },
               (_, index) => ({
                 key: `${month.key}-tail-placeholder-${index}`,
                 isPlaceholder: true as const,
@@ -425,11 +475,18 @@ export default function ProfileMainScreenUI({
   );
 
   // 計算安全的初始索引，避免超出陣列範圍
-  const safeInitialIndex = Math.max(0, Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1));
+  const safeInitialIndex = Math.max(
+    0,
+    Math.min(initialMonthIndex, monthsWithCalendarItems.length - 1)
+  );
   const fallbackPagerWidth = Math.max(1, screenWidth - 32);
   const effectivePagerWidth = pagerWidth > 1 ? pagerWidth : fallbackPagerWidth;
   const maxUsedRowCount = React.useMemo(
-    () => monthsWithCalendarItems.reduce((acc, month) => Math.max(acc, month.usedRowCount), 1),
+    () =>
+      monthsWithCalendarItems.reduce(
+        (acc, month) => Math.max(acc, month.usedRowCount),
+        1
+      ),
     [monthsWithCalendarItems]
   );
   const stableMonthPageHeight = React.useMemo(
@@ -441,7 +498,9 @@ export default function ProfileMainScreenUI({
     const rows = initialMonth?.usedRowCount ?? 1;
     return getHeatMapPanelHeight(rows);
   }, [monthsWithCalendarItems, safeInitialIndex]);
-  const panelHeightAnim = React.useRef(new Animated.Value(initialPanelHeight)).current;
+  const panelHeightAnim = React.useRef(
+    new Animated.Value(initialPanelHeight)
+  ).current;
   React.useEffect(() => {
     setCurrentMonthIndex(safeInitialIndex);
     currentMonthIndexRef.current = safeInitialIndex;
@@ -451,7 +510,10 @@ export default function ProfileMainScreenUI({
   React.useEffect(() => {
     if (!isFocused) return;
     if (monthsWithCalendarItems.length === 0) return;
-    const clamped = Math.max(0, Math.min(safeInitialIndex, monthsWithCalendarItems.length - 1));
+    const clamped = Math.max(
+      0,
+      Math.min(safeInitialIndex, monthsWithCalendarItems.length - 1)
+    );
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({
         offset: clamped * effectivePagerWidth,
@@ -461,7 +523,12 @@ export default function ProfileMainScreenUI({
       currentMonthIndexRef.current = clamped;
       pendingTargetIndexRef.current = null;
     });
-  }, [isFocused, safeInitialIndex, monthsWithCalendarItems.length, effectivePagerWidth]);
+  }, [
+    isFocused,
+    safeInitialIndex,
+    monthsWithCalendarItems.length,
+    effectivePagerWidth,
+  ]);
 
   React.useEffect(
     () => () => {
@@ -470,7 +537,9 @@ export default function ProfileMainScreenUI({
     []
   );
 
-  const activeMonth = monthsWithCalendarItems[currentMonthIndex] ?? monthsWithCalendarItems[safeInitialIndex];
+  const activeMonth =
+    monthsWithCalendarItems[currentMonthIndex] ??
+    monthsWithCalendarItems[safeInitialIndex];
   const activeMonthDate = activeMonth?.monthDate ?? new Date();
   const activeUsedRowCount = activeMonth?.usedRowCount ?? 1;
   const heatMapPanelHeight = React.useMemo(
@@ -490,7 +559,10 @@ export default function ProfileMainScreenUI({
     [monthsWithCalendarItems]
   );
   const monthPickerYears = React.useMemo<number[]>(
-    () => Array.from(new Set(monthPickerItems.map((item) => item.year))).sort((a, b) => a - b),
+    () =>
+      Array.from(new Set(monthPickerItems.map((item) => item.year))).sort(
+        (a, b) => a - b
+      ),
     [monthPickerItems]
   );
   const monthPickerMonthsInYear = React.useMemo<number[]>(
@@ -534,12 +606,18 @@ export default function ProfileMainScreenUI({
     monthPickerOverlayOpacity.setValue(0);
     monthPickerSheetTranslateY.setValue(40);
     requestAnimationFrame(() => {
-      const yearIndex = Math.max(0, monthPickerYears.findIndex((value) => value === activeYear));
+      const yearIndex = Math.max(
+        0,
+        monthPickerYears.findIndex((value) => value === activeYear)
+      );
       const months = monthPickerItems
         .filter((item) => item.year === activeYear)
         .map((item) => item.month)
         .sort((a, b) => a - b);
-      const monthIndex = Math.max(0, months.findIndex((value) => value === activeMonth));
+      const monthIndex = Math.max(
+        0,
+        months.findIndex((value) => value === activeMonth)
+      );
       yearWheelRef.current?.scrollToOffset({
         offset: yearIndex * MONTH_PICKER_ROW_HEIGHT,
         animated: false,
@@ -581,19 +659,22 @@ export default function ProfileMainScreenUI({
     }).start();
   }, [heatMapPanelHeight, panelHeightAnim]);
 
-  const triggerMonthPickerScrollHaptic = React.useCallback((wheel: 'year' | 'month', offsetY: number) => {
-    const nextIndex = Math.round(offsetY / MONTH_PICKER_ROW_HEIGHT);
-    if (lastMonthPickerHapticIndexRef.current[wheel] === nextIndex) return;
+  const triggerMonthPickerScrollHaptic = React.useCallback(
+    (wheel: 'year' | 'month', offsetY: number) => {
+      const nextIndex = Math.round(offsetY / MONTH_PICKER_ROW_HEIGHT);
+      if (lastMonthPickerHapticIndexRef.current[wheel] === nextIndex) return;
 
-    const now = Date.now();
-    if (now - lastMonthPickerHapticAtRef.current < 42) return;
-    lastMonthPickerHapticIndexRef.current = {
-      ...lastMonthPickerHapticIndexRef.current,
-      [wheel]: nextIndex,
-    };
-    lastMonthPickerHapticAtRef.current = now;
-    void Haptics.selectionAsync();
-  }, []);
+      const now = Date.now();
+      if (now - lastMonthPickerHapticAtRef.current < 42) return;
+      lastMonthPickerHapticIndexRef.current = {
+        ...lastMonthPickerHapticIndexRef.current,
+        [wheel]: nextIndex,
+      };
+      lastMonthPickerHapticAtRef.current = now;
+      void Haptics.selectionAsync();
+    },
+    []
+  );
 
   const scrollToMonth = React.useCallback(
     (index: number) => {
@@ -601,7 +682,10 @@ export default function ProfileMainScreenUI({
       if (!total) return;
       const clamped = Math.max(0, Math.min(index, total - 1));
       pendingTargetIndexRef.current = clamped;
-      listRef.current?.scrollToOffset({ offset: clamped * effectivePagerWidth, animated: true });
+      listRef.current?.scrollToOffset({
+        offset: clamped * effectivePagerWidth,
+        animated: true,
+      });
       setCurrentMonthIndex(clamped);
       currentMonthIndexRef.current = clamped;
     },
@@ -709,30 +793,25 @@ export default function ProfileMainScreenUI({
     monthPickerYear,
   ]);
 
-  const visibleTTSVoiceOptions = React.useMemo(
-    () =>
-      TTS_VOICE_OPTIONS.filter((item) =>
-        isTTSVoiceCompatibleWithAIReplyLanguage(item.code, aiReplyLanguage)
-      ),
-    [aiReplyLanguage]
-  );
-
-  const selectedVoiceLabel =
-    visibleTTSVoiceOptions.find((item) => item.code === ttsVoice)?.label ??
-    TTS_VOICE_OPTIONS.find((item) => item.code === ttsVoice)?.label ??
-    'EN-US Jenny';
   const selectedStickerFont = resolveStickerFont(stickerFontKey);
-  const mainScreenSummary = `${mainScreenAlbumGridCount} · ${
-    mainScreenWordPopEnabled
-      ? tUI(uiLanguage, 'profile.mainScreenSummary.wordPopOn')
-      : tUI(uiLanguage, 'profile.mainScreenSummary.wordPopOff')
-  }`;
-  const languageSummary =
-    uiLanguage === 'zh-TW'
-      ? tUI(uiLanguage, 'settings.language.chineseTraditional')
-      : uiLanguage === 'zh-CN'
-        ? tUI(uiLanguage, 'settings.language.chineseSimplified')
-        : tUI(uiLanguage, 'settings.language.english');
+  const languageSummaryKey = {
+    en: 'settings.language.english',
+    'zh-TW': 'settings.language.chineseTraditional',
+    'zh-CN': 'settings.language.chineseSimplified',
+    ja: 'settings.language.japanese',
+    ko: 'settings.language.korean',
+    es: 'settings.language.spanish',
+    fr: 'settings.language.french',
+  } as const;
+  const languageSummary = tUI(uiLanguage, languageSummaryKey[uiLanguage]);
+  const themeSummary = tUI(
+    uiLanguage,
+    themeMode === 'light'
+      ? 'settings.theme.light'
+      : themeMode === 'dark'
+        ? 'settings.theme.dark'
+        : 'settings.theme.system'
+  );
   const entitlementLabel =
     entitlementMode === 'premium'
       ? tUI(uiLanguage, 'common.premium')
@@ -741,7 +820,7 @@ export default function ProfileMainScreenUI({
         : tUI(uiLanguage, 'common.free');
 
   const triggerOpenSettingsOption = React.useCallback(
-    (kind: 'language' | 'voice' | 'font' | 'main') => {
+    (kind: 'language' | 'theme' | 'font') => {
       if (optionNavigationLockRef.current) return;
       optionNavigationLockRef.current = true;
       onOpenSettingsOption(kind);
@@ -753,8 +832,17 @@ export default function ProfileMainScreenUI({
   );
 
   return (
-    <View style={[styles.root, overlayMode && styles.rootOverlay, { backgroundColor: palette.screenBg }]}>
-      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
+    <View
+      style={[
+        styles.root,
+        overlayMode && styles.rootOverlay,
+        { backgroundColor: palette.screenBg },
+      ]}
+    >
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.screenBg }]}
+        edges={['top']}
+      >
         <ScrollView
           style={styles.screenScroll}
           contentContainerStyle={styles.screenScrollContent}
@@ -762,7 +850,11 @@ export default function ProfileMainScreenUI({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.monthHeaderRow}>
-            <Text style={[styles.monthTitleOutside, { color: palette.textOnBg }]}>{monthTitle}</Text>
+            <Text
+              style={[styles.monthTitleOutside, { color: palette.textOnBg }]}
+            >
+              {monthTitle}
+            </Text>
             <View style={styles.monthControlRow}>
               <Pressable
                 style={({ pressed }) => [
@@ -770,19 +862,40 @@ export default function ProfileMainScreenUI({
                   isLight ? { backgroundColor: palette.containerBg } : null,
                   pressed ? styles.profileIconButtonPressed : null,
                 ]}
-                onPress={() => handleMonthNavPress(currentMonthIndexRef.current - 1)}
+                onPress={() =>
+                  handleMonthNavPress(currentMonthIndexRef.current - 1)
+                }
               >
-                <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>‹</Text>
+                <Text
+                  style={[
+                    styles.monthNavButtonText,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  ‹
+                </Text>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [
                   styles.monthSelectButton,
-                  isLight ? { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle } : null,
+                  isLight
+                    ? {
+                        backgroundColor: palette.containerBg,
+                        borderColor: palette.borderSubtle,
+                      }
+                    : null,
                   pressed ? styles.profileMediumButtonPressed : null,
                 ]}
                 onPress={openMonthPicker}
               >
-                <Text style={[styles.monthSelectButtonText, { color: palette.textOnContainer }]}>{monthButtonLabel} ▾</Text>
+                <Text
+                  style={[
+                    styles.monthSelectButtonText,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {monthButtonLabel} ▾
+                </Text>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [
@@ -790,125 +903,219 @@ export default function ProfileMainScreenUI({
                   isLight ? { backgroundColor: palette.containerBg } : null,
                   pressed ? styles.profileIconButtonPressed : null,
                 ]}
-                onPress={() => handleMonthNavPress(currentMonthIndexRef.current + 1)}
+                onPress={() =>
+                  handleMonthNavPress(currentMonthIndexRef.current + 1)
+                }
               >
-                <Text style={[styles.monthNavButtonText, { color: palette.textOnContainer }]}>›</Text>
+                <Text
+                  style={[
+                    styles.monthNavButtonText,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  ›
+                </Text>
               </Pressable>
             </View>
           </View>
 
-          <Animated.View style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}>
+          <Animated.View
+            style={[styles.heatMapPanelShadow, { height: panelHeightAnim }]}
+          >
             <View
               style={[
                 styles.heatMapPanel,
-                { backgroundColor: palette.containerBg, borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE, borderWidth: 1 },
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
+                  borderWidth: 1,
+                },
               ]}
             >
               <Animated.View
-                style={[styles.heatMapPagerWrap, { transform: [{ translateX: edgePullX }] }]}
+                style={[
+                  styles.heatMapPagerWrap,
+                  { transform: [{ translateX: edgePullX }] },
+                ]}
                 onLayout={handlePagerLayout}
               >
-              <FlatList
-                ref={listRef}
-                data={monthsWithCalendarItems}
-                initialScrollIndex={safeInitialIndex}
-                keyExtractor={(item) => item.key}
-                renderItem={({ item }) => (
-                  <View style={[styles.monthPage, { height: stableMonthPageHeight, width: effectivePagerWidth }]}>
+                <FlatList
+                  ref={listRef}
+                  data={monthsWithCalendarItems}
+                  initialScrollIndex={safeInitialIndex}
+                  keyExtractor={(item) => item.key}
+                  renderItem={({ item }) => (
                     <View
                       style={[
-                        styles.monthPageInner,
-                        { paddingBottom: 2 },
+                        styles.monthPage,
+                        {
+                          height: stableMonthPageHeight,
+                          width: effectivePagerWidth,
+                        },
                       ]}
                     >
-                      <View style={styles.calendarBlock}>
-                        <View style={styles.weekdayRow}>
-                          {WEEKDAY_LABELS.map((label) => (
-                            <View key={`${item.key}-${label}`} style={styles.weekdayCell}>
-                              <Text style={[styles.weekdayText, { color: isLight ? '#64748B' : 'rgba(234,243,255,0.64)' }]}>{label}</Text>
-                            </View>
-                          ))}
-                        </View>
-
-                        <View style={styles.calendarGridArea}>
-                          <View
-                            style={[
-                              styles.gridWrap,
-                              { height: GRID_ROW_HEIGHT * item.usedRowCount },
-                            ]}
-                          >
-                            {item.calendarItems.map((calendarItem: HeatMapDay | { key: string; isPlaceholder: true }) => (
-                              'isPlaceholder' in calendarItem ? (
-                                <View key={calendarItem.key} style={styles.gridCell}>
-                                  <View style={styles.placeholderCell} />
-                                </View>
-                              ) : (
-                                <View key={calendarItem.key} style={styles.gridCell}>
-                                  <HeatMapCircle
-                                    item={calendarItem}
-                                    isToday={calendarItem.key === todayDateKey}
-                                    onPressDay={onPressDay}
-                                    palette={palette}
-                                    isLight={isLight}
-                                    stickerFontKey={stickerFontKey}
-                                  />
-                                </View>
-                              )
+                      <View
+                        style={[styles.monthPageInner, { paddingBottom: 2 }]}
+                      >
+                        <View style={styles.calendarBlock}>
+                          <View style={styles.weekdayRow}>
+                            {WEEKDAY_LABELS.map((label) => (
+                              <View
+                                key={`${item.key}-${label}`}
+                                style={styles.weekdayCell}
+                              >
+                                <Text
+                                  style={[
+                                    styles.weekdayText,
+                                    {
+                                      color: isLight
+                                        ? '#64748B'
+                                        : 'rgba(234,243,255,0.64)',
+                                    },
+                                  ]}
+                                >
+                                  {label}
+                                </Text>
+                              </View>
                             ))}
+                          </View>
+
+                          <View style={styles.calendarGridArea}>
+                            <View
+                              style={[
+                                styles.gridWrap,
+                                { height: GRID_ROW_HEIGHT * item.usedRowCount },
+                              ]}
+                            >
+                              {Array.from({ length: item.usedRowCount }).map(
+                                (_, rowIndex) => {
+                                  const rowItems = item.calendarItems.slice(
+                                    rowIndex * 7,
+                                    rowIndex * 7 + 7
+                                  );
+                                  return (
+                                    <View
+                                      key={`${item.key}-row-${rowIndex}`}
+                                      style={styles.gridRow}
+                                    >
+                                      {Array.from({ length: 7 }).map(
+                                        (__, colIndex) => {
+                                          const calendarItem =
+                                            rowItems[colIndex];
+                                          if (
+                                            !calendarItem ||
+                                            'isPlaceholder' in calendarItem
+                                          ) {
+                                            return (
+                                              <View
+                                                key={
+                                                  calendarItem?.key ??
+                                                  `${item.key}-row-${rowIndex}-empty-${colIndex}`
+                                                }
+                                                style={styles.gridCell}
+                                              >
+                                                <View
+                                                  style={styles.placeholderCell}
+                                                />
+                                              </View>
+                                            );
+                                          }
+                                          return (
+                                            <View
+                                              key={calendarItem.key}
+                                              style={styles.gridCell}
+                                            >
+                                              <HeatMapCircle
+                                                item={calendarItem}
+                                                isToday={
+                                                  calendarItem.key ===
+                                                  todayDateKey
+                                                }
+                                                onPressDay={onPressDay}
+                                                palette={palette}
+                                                isLight={isLight}
+                                                stickerFontKey={stickerFontKey}
+                                                stickerFontScalePercent={
+                                                  stickerFontScalePercent
+                                                }
+                                              />
+                                            </View>
+                                          );
+                                        }
+                                      )}
+                                    </View>
+                                  );
+                                }
+                              )}
+                            </View>
                           </View>
                         </View>
                       </View>
                     </View>
-                  </View>
-                )}
-                horizontal
-                pagingEnabled
-                bounces={false}
-                alwaysBounceHorizontal={false}
-                alwaysBounceVertical={false}
-                disableIntervalMomentum
-                decelerationRate="fast"
-                snapToAlignment="start"
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.heatMapContent}
-                getItemLayout={(_, index) => ({
-                  length: effectivePagerWidth,
-                  offset: effectivePagerWidth * index,
-                  index,
-                })}
-                onScrollToIndexFailed={(info) => {
-                  listRef.current?.scrollToOffset({ offset: info.index * effectivePagerWidth, animated: true });
-                }}
-                onScrollBeginDrag={() => {
-                  void Haptics.selectionAsync();
-                }}
-                onMomentumScrollEnd={(event) => {
-                  const width = Math.max(1, effectivePagerWidth || event.nativeEvent.layoutMeasurement.width || 1);
-                  const next = Math.round(event.nativeEvent.contentOffset.x / width);
-                  const clamped = Math.max(0, Math.min(next, monthsWithCalendarItems.length - 1));
-                  const pendingTarget = pendingTargetIndexRef.current;
-
-                  // 快速連點時，會收到前一次動畫的 momentum 事件：
-                  // 若不是最後一次目標，就忽略並對齊到最後目標，避免月份回跳閃現。
-                  if (pendingTarget != null && clamped !== pendingTarget) {
+                  )}
+                  horizontal
+                  pagingEnabled
+                  bounces={false}
+                  alwaysBounceHorizontal={false}
+                  alwaysBounceVertical={false}
+                  disableIntervalMomentum
+                  decelerationRate="fast"
+                  snapToAlignment="start"
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.heatMapContent}
+                  getItemLayout={(_, index) => ({
+                    length: effectivePagerWidth,
+                    offset: effectivePagerWidth * index,
+                    index,
+                  })}
+                  onScrollToIndexFailed={(info) => {
                     listRef.current?.scrollToOffset({
-                      offset: pendingTarget * width,
-                      animated: false,
+                      offset: info.index * effectivePagerWidth,
+                      animated: true,
                     });
-                    setCurrentMonthIndex(pendingTarget);
-                    currentMonthIndexRef.current = pendingTarget;
-                    return;
-                  }
+                  }}
+                  onScrollBeginDrag={() => {
+                    void Haptics.selectionAsync();
+                  }}
+                  onMomentumScrollEnd={(event) => {
+                    const width = Math.max(
+                      1,
+                      effectivePagerWidth ||
+                        event.nativeEvent.layoutMeasurement.width ||
+                        1
+                    );
+                    const next = Math.round(
+                      event.nativeEvent.contentOffset.x / width
+                    );
+                    const clamped = Math.max(
+                      0,
+                      Math.min(next, monthsWithCalendarItems.length - 1)
+                    );
+                    const pendingTarget = pendingTargetIndexRef.current;
 
-                  if (pendingTarget != null && clamped === pendingTarget) {
-                    pendingTargetIndexRef.current = null;
-                  }
-                  setCurrentMonthIndex(clamped);
-                  currentMonthIndexRef.current = clamped;
-                }}
-                style={styles.heatMapScroller}
-              />
+                    // 快速連點時，會收到前一次動畫的 momentum 事件：
+                    // 若不是最後一次目標，就忽略並對齊到最後目標，避免月份回跳閃現。
+                    if (pendingTarget != null && clamped !== pendingTarget) {
+                      listRef.current?.scrollToOffset({
+                        offset: pendingTarget * width,
+                        animated: false,
+                      });
+                      setCurrentMonthIndex(pendingTarget);
+                      currentMonthIndexRef.current = pendingTarget;
+                      return;
+                    }
+
+                    if (pendingTarget != null && clamped === pendingTarget) {
+                      pendingTargetIndexRef.current = null;
+                    }
+                    setCurrentMonthIndex(clamped);
+                    currentMonthIndexRef.current = clamped;
+                  }}
+                  style={styles.heatMapScroller}
+                />
               </Animated.View>
             </View>
           </Animated.View>
@@ -924,7 +1131,9 @@ export default function ProfileMainScreenUI({
                 styles.settingsCard,
                 {
                   backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
                 },
               ]}
             >
@@ -935,111 +1144,228 @@ export default function ProfileMainScreenUI({
                 ]}
                 onPress={onOpenMembershipModal}
               >
-                <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.membership')}</Text>
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.membership')}
+                </Text>
                 <View style={styles.settingsRowRight}>
-                  <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
+                  <Text
+                    style={[
+                      styles.settingValue,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
                     {entitlementLabel}
                   </Text>
-                  <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
                 </View>
               </Pressable>
 
-            <View style={styles.settingsDivider} />
+              <View style={styles.settingsDivider} />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed ? { backgroundColor: palette.modalOptionBg } : null,
-              ]}
-              onPress={() => triggerOpenSettingsOption('main')}
-            >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.mainScreen')}</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]} numberOfLines={1}>
-                  {mainScreenSummary}
+              <Pressable
+                unstable_pressDelay={0}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={() => triggerOpenSettingsOption('theme')}
+              >
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.appearance')}
                 </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </Pressable>
+                <View style={styles.settingsRowRight}>
+                  <Text
+                    style={[
+                      styles.settingValue,
+                      { color: palette.textOnContainer },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {themeSummary}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
+                </View>
+              </Pressable>
 
-            <View style={styles.settingsDivider} />
+              <View style={styles.settingsDivider} />
 
-            <Pressable
-              unstable_pressDelay={0}
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed ? { backgroundColor: palette.modalOptionBg } : null,
-              ]}
-              onPress={() => triggerOpenSettingsOption('language')}
-            >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.language')}</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]} numberOfLines={1}>
-                  {languageSummary}
+              <Pressable
+                unstable_pressDelay={0}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={() => triggerOpenSettingsOption('language')}
+              >
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.language')}
                 </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </Pressable>
+                <View style={styles.settingsRowRight}>
+                  <Text
+                    style={[
+                      styles.settingValue,
+                      { color: palette.textOnContainer },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {languageSummary}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
+                </View>
+              </Pressable>
 
-            <View style={styles.settingsDivider} />
+              <View style={styles.settingsDivider} />
 
-            <Pressable
-              unstable_pressDelay={0}
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed ? { backgroundColor: palette.modalOptionBg } : null,
-              ]}
-              onPress={() => triggerOpenSettingsOption('voice')}
-            >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.voice')}</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {selectedVoiceLabel}
+              <Pressable
+                unstable_pressDelay={0}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={() => triggerOpenSettingsOption('font')}
+              >
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.font')}
                 </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </Pressable>
+                <View style={styles.settingsRowRight}>
+                  <Text
+                    style={[
+                      styles.settingValue,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    {selectedStickerFont.label}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
+                </View>
+              </Pressable>
 
-            <View style={styles.settingsDivider} />
+              <View style={styles.settingsDivider} />
 
-            <Pressable
-              unstable_pressDelay={0}
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed ? { backgroundColor: palette.modalOptionBg } : null,
-              ]}
-              onPress={() => triggerOpenSettingsOption('font')}
-            >
-              <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.font')}</Text>
-              <View style={styles.settingsRowRight}>
-                <Text style={[styles.settingValue, { color: palette.textOnContainer }]}>
-                  {selectedStickerFont.label}
+              <Pressable
+                unstable_pressDelay={0}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={onReplayVideoTutorial}
+              >
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.replayTutorial')}
                 </Text>
-                <Ionicons name="chevron-forward" size={20} color={palette.textOnContainer} style={styles.settingsRowIcon} />
-              </View>
-            </Pressable>
+                <View style={styles.settingsRowRight}>
+                  <Ionicons
+                    name="play-circle-outline"
+                    size={22}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
+                </View>
+              </Pressable>
 
-            <View style={styles.settingsDivider} />
+              <View style={styles.settingsDivider} />
 
-            <Pressable
-              disabled={isDeletingAccount}
-              style={({ pressed }) => [
-                styles.settingsRow,
-                pressed && !isDeletingAccount ? { backgroundColor: palette.modalOptionBg } : null,
-              ]}
-              onPress={onDeleteAccount}
-            >
-              <Text style={styles.deleteAccountText}>
-                {isDeletingAccount ? tUI(uiLanguage, 'profile.deleteAccountDeleting') : tUI(uiLanguage, 'profile.deleteAccount')}
-              </Text>
-              <View style={styles.settingsRowRight}>
-                {isDeletingAccount ? (
-                  <ActivityIndicator color="#FF3B30" />
-                ) : (
-                  <Ionicons name="chevron-forward" size={20} color="#FF3B30" style={styles.settingsRowIcon} />
-                )}
-              </View>
-            </Pressable>
+              <Pressable
+                unstable_pressDelay={0}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed ? { backgroundColor: palette.modalOptionBg } : null,
+                ]}
+                onPress={onReportFeedback}
+              >
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'profile.messageDeveloper')}
+                </Text>
+                <View style={styles.settingsRowRight}>
+                  <Ionicons
+                    name="mail-outline"
+                    size={21}
+                    color={palette.textOnContainer}
+                    style={styles.settingsRowIcon}
+                  />
+                </View>
+              </Pressable>
+
+              <View style={styles.settingsDivider} />
+
+              <Pressable
+                disabled={isDeletingAccount}
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  pressed && !isDeletingAccount
+                    ? { backgroundColor: palette.modalOptionBg }
+                    : null,
+                ]}
+                onPress={onDeleteAccount}
+              >
+                <Text style={styles.deleteAccountText}>
+                  {isDeletingAccount
+                    ? tUI(uiLanguage, 'profile.deleteAccountDeleting')
+                    : tUI(uiLanguage, 'profile.deleteAccount')}
+                </Text>
+                <View style={styles.settingsRowRight}>
+                  {isDeletingAccount ? (
+                    <ActivityIndicator color="#FF3B30" />
+                  ) : (
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color="#FF3B30"
+                      style={styles.settingsRowIcon}
+                    />
+                  )}
+                </View>
+              </Pressable>
             </View>
           </View>
         </ScrollView>
@@ -1051,147 +1377,192 @@ export default function ProfileMainScreenUI({
         animationType="none"
         onRequestClose={closeMonthPicker}
       >
-        <Animated.View style={[styles.monthPickerBackdrop, { opacity: monthPickerOverlayOpacity }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeMonthPicker} />
-          <View style={styles.monthPickerSheetContainer} pointerEvents="box-none">
-              <Animated.View
-                style={[
-                  styles.monthPickerSheet,
-                  { backgroundColor: palette.screenBg },
-                  { height: monthPickerSheetHeight, transform: [{ translateY: monthPickerSheetTranslateY }] },
-                ]}
-              >
-            <View style={styles.monthPickerHandle} />
-            <View style={styles.monthPickerTopBar}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.monthPickerDoneButton,
-                  {
-                    backgroundColor: palette.containerBg,
-                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                  },
-                  pressed ? styles.profileMediumButtonPressed : null,
-                ]}
-                onPress={handleConfirmMonthPicker}
-              >
-                <Text style={[styles.monthPickerDoneText, { color: palette.textOnContainer }]}>完成</Text>
-              </Pressable>
-            </View>
-
-            <View
+        <Animated.View
+          style={[
+            styles.monthPickerBackdrop,
+            { opacity: monthPickerOverlayOpacity },
+          ]}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={closeMonthPicker}
+          />
+          <View
+            style={styles.monthPickerSheetContainer}
+            pointerEvents="box-none"
+          >
+            <Animated.View
               style={[
-                styles.monthPickerWheelsCard,
+                styles.monthPickerSheet,
+                { backgroundColor: palette.screenBg },
                 {
-                  backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  height: monthPickerSheetHeight,
+                  transform: [{ translateY: monthPickerSheetTranslateY }],
                 },
               ]}
             >
-              <View
-                style={[
-                  styles.monthPickerSelectionHighlight,
-                  {
-                    backgroundColor: isLight ? '#F2F2F7' : '#334155',
-                  },
-                ]}
-                pointerEvents="none"
-              />
-
-              <View style={styles.monthPickerWheelColumn}>
-                <FlatList
-                  ref={yearWheelRef}
-                  data={monthPickerYears}
-                  keyExtractor={(item) => `year-${item}`}
-                  scrollEnabled
-                  nestedScrollEnabled
-                  scrollEventThrottle={16}
-                  showsVerticalScrollIndicator={false}
-                  bounces={false}
-                  decelerationRate="fast"
-                  snapToInterval={MONTH_PICKER_ROW_HEIGHT}
-                  contentContainerStyle={styles.monthPickerWheelContent}
-                  onScroll={(event) => {
-                    triggerMonthPickerScrollHaptic('year', event.nativeEvent.contentOffset.y);
-                  }}
-                  getItemLayout={(_, index) => ({
-                    length: MONTH_PICKER_ROW_HEIGHT,
-                    offset: MONTH_PICKER_ROW_HEIGHT * index,
-                    index,
-                  })}
-                  onMomentumScrollEnd={(event) => {
-                    const next = Math.round(event.nativeEvent.contentOffset.y / MONTH_PICKER_ROW_HEIGHT);
-                    const clamped = Math.max(0, Math.min(next, monthPickerYears.length - 1));
-                    setMonthPickerYear(monthPickerYears[clamped]);
-                  }}
-                  renderItem={({ item }) => (
-                    <View style={styles.monthPickerWheelRow}>
-                      <Text
-                        style={[
-                          styles.monthPickerWheelText,
-                          { color: palette.textOnContainer },
-                          item === monthPickerYear && styles.monthPickerWheelTextActive,
-                        ]}
-                      >
-                        {item.toLocaleString('en-US')}
-                      </Text>
-                    </View>
-                  )}
-                />
+              <View style={styles.monthPickerHandle} />
+              <View style={styles.monthPickerTopBar}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.monthPickerDoneButton,
+                    {
+                      backgroundColor: palette.containerBg,
+                      borderColor: isLight
+                        ? palette.borderSubtle
+                        : CONTAINER_NEON_OUTLINE,
+                    },
+                    pressed ? styles.profileMediumButtonPressed : null,
+                  ]}
+                  onPress={handleConfirmMonthPicker}
+                >
+                  <Text
+                    style={[
+                      styles.monthPickerDoneText,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    {tUI(uiLanguage, 'common.done')}
+                  </Text>
+                </Pressable>
               </View>
 
               <View
                 style={[
-                  styles.monthPickerWheelDivider,
+                  styles.monthPickerWheelsCard,
                   {
-                    backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : '#334155',
+                    backgroundColor: palette.containerBg,
+                    borderColor: isLight
+                      ? palette.borderSubtle
+                      : CONTAINER_NEON_OUTLINE,
                   },
                 ]}
-              />
-
-              <View style={styles.monthPickerWheelColumn}>
-                <FlatList
-                  ref={monthWheelRef}
-                  data={monthPickerMonthsInYear}
-                  key={`month-wheel-${monthPickerYear}`}
-                  keyExtractor={(item) => `month-${monthPickerYear}-${item}`}
-                  scrollEnabled
-                  nestedScrollEnabled
-                  scrollEventThrottle={16}
-                  showsVerticalScrollIndicator={false}
-                  bounces={false}
-                  decelerationRate="fast"
-                  snapToInterval={MONTH_PICKER_ROW_HEIGHT}
-                  contentContainerStyle={styles.monthPickerWheelContent}
-                  onScroll={(event) => {
-                    triggerMonthPickerScrollHaptic('month', event.nativeEvent.contentOffset.y);
-                  }}
-                  getItemLayout={(_, index) => ({
-                    length: MONTH_PICKER_ROW_HEIGHT,
-                    offset: MONTH_PICKER_ROW_HEIGHT * index,
-                    index,
-                  })}
-                  onMomentumScrollEnd={(event) => {
-                    const next = Math.round(event.nativeEvent.contentOffset.y / MONTH_PICKER_ROW_HEIGHT);
-                    const clamped = Math.max(0, Math.min(next, monthPickerMonthsInYear.length - 1));
-                    setMonthPickerMonth(monthPickerMonthsInYear[clamped]);
-                  }}
-                  renderItem={({ item }) => (
-                    <View style={styles.monthPickerWheelRow}>
-                      <Text
-                        style={[
-                          styles.monthPickerWheelText,
-                          { color: palette.textOnContainer },
-                          item === monthPickerMonth && styles.monthPickerWheelTextActive,
-                        ]}
-                      >
-                        {item}
-                      </Text>
-                    </View>
-                  )}
+              >
+                <View
+                  style={[
+                    styles.monthPickerSelectionHighlight,
+                    {
+                      backgroundColor: isLight ? '#F2F2F7' : '#334155',
+                    },
+                  ]}
+                  pointerEvents="none"
                 />
+
+                <View style={styles.monthPickerWheelColumn}>
+                  <FlatList
+                    ref={yearWheelRef}
+                    data={monthPickerYears}
+                    keyExtractor={(item) => `year-${item}`}
+                    scrollEnabled
+                    nestedScrollEnabled
+                    scrollEventThrottle={16}
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                    decelerationRate="fast"
+                    snapToInterval={MONTH_PICKER_ROW_HEIGHT}
+                    contentContainerStyle={styles.monthPickerWheelContent}
+                    onScroll={(event) => {
+                      triggerMonthPickerScrollHaptic(
+                        'year',
+                        event.nativeEvent.contentOffset.y
+                      );
+                    }}
+                    getItemLayout={(_, index) => ({
+                      length: MONTH_PICKER_ROW_HEIGHT,
+                      offset: MONTH_PICKER_ROW_HEIGHT * index,
+                      index,
+                    })}
+                    onMomentumScrollEnd={(event) => {
+                      const next = Math.round(
+                        event.nativeEvent.contentOffset.y /
+                          MONTH_PICKER_ROW_HEIGHT
+                      );
+                      const clamped = Math.max(
+                        0,
+                        Math.min(next, monthPickerYears.length - 1)
+                      );
+                      setMonthPickerYear(monthPickerYears[clamped]);
+                    }}
+                    renderItem={({ item }) => (
+                      <View style={styles.monthPickerWheelRow}>
+                        <Text
+                          style={[
+                            styles.monthPickerWheelText,
+                            { color: palette.textOnContainer },
+                            item === monthPickerYear &&
+                              styles.monthPickerWheelTextActive,
+                          ]}
+                        >
+                          {item.toLocaleString('en-US')}
+                        </Text>
+                      </View>
+                    )}
+                  />
+                </View>
+
+                <View
+                  style={[
+                    styles.monthPickerWheelDivider,
+                    {
+                      backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : '#334155',
+                    },
+                  ]}
+                />
+
+                <View style={styles.monthPickerWheelColumn}>
+                  <FlatList
+                    ref={monthWheelRef}
+                    data={monthPickerMonthsInYear}
+                    key={`month-wheel-${monthPickerYear}`}
+                    keyExtractor={(item) => `month-${monthPickerYear}-${item}`}
+                    scrollEnabled
+                    nestedScrollEnabled
+                    scrollEventThrottle={16}
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                    decelerationRate="fast"
+                    snapToInterval={MONTH_PICKER_ROW_HEIGHT}
+                    contentContainerStyle={styles.monthPickerWheelContent}
+                    onScroll={(event) => {
+                      triggerMonthPickerScrollHaptic(
+                        'month',
+                        event.nativeEvent.contentOffset.y
+                      );
+                    }}
+                    getItemLayout={(_, index) => ({
+                      length: MONTH_PICKER_ROW_HEIGHT,
+                      offset: MONTH_PICKER_ROW_HEIGHT * index,
+                      index,
+                    })}
+                    onMomentumScrollEnd={(event) => {
+                      const next = Math.round(
+                        event.nativeEvent.contentOffset.y /
+                          MONTH_PICKER_ROW_HEIGHT
+                      );
+                      const clamped = Math.max(
+                        0,
+                        Math.min(next, monthPickerMonthsInYear.length - 1)
+                      );
+                      setMonthPickerMonth(monthPickerMonthsInYear[clamped]);
+                    }}
+                    renderItem={({ item }) => (
+                      <View style={styles.monthPickerWheelRow}>
+                        <Text
+                          style={[
+                            styles.monthPickerWheelText,
+                            { color: palette.textOnContainer },
+                            item === monthPickerMonth &&
+                              styles.monthPickerWheelTextActive,
+                          ]}
+                        >
+                          {item}
+                        </Text>
+                      </View>
+                    )}
+                  />
+                </View>
               </View>
-            </View>
-              </Animated.View>
+            </Animated.View>
           </View>
         </Animated.View>
       </Modal>
@@ -1469,9 +1840,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: 'transparent',
+    direction: 'ltr',
   },
   weekdayCell: {
-    width: '14.285714%',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1484,14 +1856,20 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   gridWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
     width: '100%',
     paddingHorizontal: 16,
     backgroundColor: 'transparent',
+    direction: 'ltr',
+  },
+  gridRow: {
+    flexDirection: 'row',
+    width: '100%',
+    height: GRID_ROW_HEIGHT,
+    direction: 'ltr',
   },
   gridCell: {
-    width: '14.285714%',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: GRID_CELL_VERTICAL_PADDING,
@@ -1821,26 +2199,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     lineHeight: 17,
-  },
-  mainScreenSwitchTrack: {
-    width: 52,
-    height: 32,
-    borderRadius: 16,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  mainScreenSwitchThumb: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  mainScreenSwitchThumbOn: {
-    alignSelf: 'flex-end',
   },
   mainScreenAlbumList: {
     maxHeight: 260,

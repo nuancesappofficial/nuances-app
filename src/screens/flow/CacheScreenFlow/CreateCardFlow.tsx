@@ -1,8 +1,12 @@
 import React from 'react';
+import { traceFirstRun } from '../../../services/logging/firstRunTraceRuntime';
 import {
   Alert,
+  DeviceEventEmitter,
   Image,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -12,61 +16,120 @@ import {
   TouchableOpacity,
   useColorScheme,
   View,
+  type ImageStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as FileSystemLegacy from 'expo-file-system/legacy';
-import * as ImageManipulator from 'expo-image-manipulator';
+import Reanimated, {
+  Easing,
+  FadeIn,
+  Layout,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
-import { generateContentForWord } from '@services/ai';
+import {
+  generateContentForWord,
+  generateContentForWordStream,
+  generateDefaultExperienceCardContent,
+} from '@services/ai';
 import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
-import SubscriptionService from '@services/subscription/SubscriptionService';
+import SubscriptionService, {
+  SUBSCRIPTION_ENTITLEMENT_UPDATED_EVENT,
+} from '@services/subscription/SubscriptionService';
+import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
+import { shouldOpenStarterPaywall } from '../../../features/tour/firstRunJourney';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
+import { analytics } from '@services/analytics';
 import {
   AI_BREAKDOWN_MODE_OPTIONS,
   DEFAULT_USER_SETTINGS,
-  getAIBreakdownModeLabel,
+  getInitialUserSettings,
   loadUserSettings,
   normalizeAIBreakdownMode,
   saveUserSettings,
+  subscribeUserSettings,
   type AIBreakdownMode,
+  type UILanguage,
 } from '@services/settings/userSettings';
-import { extractTextFromImage } from '@services/ocr/ocrService';
-import { getLocalPhoneticTranscription } from '@services/pronunciation/localPhonetics';
+import {
+  buildTargetAnchoredOCRText,
+  extractTextFromImage,
+  type OCRBlock,
+} from '@services/ocr/ocrService';
 import { supabase } from '@services/supabase/client';
 import { persistLocalCardImage } from '@services/media/localCardImageStore';
+import {
+  assignCloudCardId,
+  queueSavedCardsForCloudPersistence,
+} from '@services/cards/cardCloudPersistence';
+import { queueCardImageUploads } from '@services/cards/cardImageCloudQueue';
+import {
+  assertRecordOwnedByCurrentUser,
+  getCurrentSessionUserId,
+} from '@services/auth/userIdentity';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
-import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
-import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
+import {
+  loadCardStickyNotes,
+  saveCardStickyNotes,
+} from '../../../features/deck/cardStickyNotes';
 import {
   ALBUM_TAG_PREFIX,
   ALL_CARDS_ALBUM_ID,
   FAVORITES_ALBUM_ID,
   buildDeckAlbums,
   createCustomAlbum,
+  getDeckAlbumDisplayName,
   loadDeckAlbumPreferences,
   saveDeckAlbumPreferences,
+  subscribeDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { CreateCardGhostPreviewScene as CreateCardPreviewScene } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import {
-  CreateCardGhostPreviewScene as CreateCardPreviewScene,
-  GHOST_CARD_STATUS_TEXT,
-} from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
+  DEMO_GHOST_SCROLL_DURATION_MS,
+} from '../../../features/createCard/ghostAnimationTiming';
+import {
+  resolveBottomAlignedScrollTarget,
+  resolveCardTopAlignedScrollTarget,
+} from '../../../features/createCard/ghostScrollTargets';
+import {
+  claimUnsavedCards,
+} from '../../../features/createCard/optimisticCardSave';
 import type { CompletedCard, PreviewPhase, PreviewRevealState } from './types';
-import { buildManualCardDraft, buildTourSampleCard, TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
-import { normalizeDisplayWord, normalizeSelectableTerm, pickSentenceContainingWord, tokenizeSourceText } from '../../../features/createCard/textTransforms';
+import {
+  groupSelectedSourceTokens,
+  normalizeDisplayWord,
+  normalizeSelectableTerm,
+  pickSentenceContainingWord,
+  tokenizeSourceText,
+  type SelectedSourceTarget,
+} from '../../../features/createCard/textTransforms';
+import { parseCardContextSections } from '../../../features/cards/cardContextSections';
+import { filterUsageTextPairs } from '../../../features/cards/usageValidation';
 import {
   COMPLETE_PREVIEW_REVEAL,
   EMPTY_PREVIEW_REVEAL,
   runCardRevealSequence as runPreviewRevealSequence,
 } from '../../../features/createCard/revealSequence';
 import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
+import MovingTutorialArrow from '../../../components/UI/shared/MovingTutorialArrow';
+import {
+  DEFAULT_EXPERIENCE_TARGET_WORD,
+  isEligibleDefaultExperienceGeneration,
+  markDefaultExperienceQuizHintPending,
+} from '../../../features/cache/defaultExperienceCard';
+import { resolveTutorialGenerationSource } from '../../../features/tour/tutorialGenerationPolicy';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import {
   CONTAINER_NEON_GLOW,
@@ -78,6 +141,18 @@ import {
   UPLOAD_CACHE_CTA_COLOR_BORDER,
   resolveThemeColors,
 } from '../../../theme/colors';
+import { tUI, type UIStringKey } from '../../../i18n/uiLanguage';
+
+const GHOST_CARD_STATUS_KEYS: UIStringKey[] = [
+  'create.ghostStatusExtracting',
+  'create.ghostStatusAnalyzing',
+  'create.ghostStatusStructuring',
+  'create.ghostStatusFinalizing',
+];
+
+const STACK_CARD_ENTERING = FadeIn.duration(260);
+const STACK_CARD_LAYOUT = Layout.duration(260);
+const GHOST_INITIAL_LOADING_BEAT_MS = 320;
 
 type Props = {
   navigation: any;
@@ -85,6 +160,7 @@ type Props = {
 };
 
 type GeneratingCard = {
+  targetId: string;
   word: string;
   completed: boolean;
 };
@@ -100,6 +176,407 @@ const AI_MODE_ICON_BY_VALUE: Record<AIBreakdownMode, any> = {
   context: require('../../../../assets/onboarding_q3_assets/q3-bubble-cutout.png'),
   deep_dive: require('../../../../assets/onboarding_q3_assets/q3-nodes-cutout.png'),
 };
+
+type ProcessWordResult =
+  | { status: 'success'; card: CompletedCard }
+  | { status: 'failed' }
+  | { status: 'blocked' };
+
+function getAIModeLabel(mode: AIBreakdownMode, uiLanguage: UILanguage): string {
+  if (mode === 'short_punchy') return tUI(uiLanguage, 'create.aiMode.clarity');
+  if (mode === 'deep_dive') return tUI(uiLanguage, 'create.aiMode.mastery');
+  return tUI(uiLanguage, 'create.aiMode.application');
+}
+
+function buildRecordingBypassCard(params: {
+  word: string;
+  sentenceForCard: string;
+  uiLanguage: UILanguage;
+  aiBreakdownMode: AIBreakdownMode;
+  selectedAlbumIds: string[];
+}): CompletedCard {
+  const displayWord = normalizeDisplayWord(params.word) || params.word;
+  const isChinese = params.uiLanguage !== 'en';
+  const normalizedDisplayWord = displayWord.trim().toLowerCase();
+
+  if (normalizedDisplayWord === 'ceasefire') {
+    return {
+      word: params.word,
+      displayWord,
+      partOfSpeech: 'noun',
+      definition: isChinese
+        ? '停火；交戰雙方同意暫時停止攻擊。它通常很脆弱，不等於和平已經達成。'
+        : 'A temporary stop in fighting, usually agreed by opposing sides. It is fragile and does not mean peace has been reached.',
+      cultural: isChinese
+        ? '新聞裡說 a ceasefire is over，意思是「停火結束了」：原本暫停的攻擊可能重新開始，局勢也可能再次升級。'
+        : 'In news, “a ceasefire is over” means the pause in fighting has ended, so attacks may resume and the conflict may escalate again.',
+      collocationsText: isChinese
+        ? 'call for a ceasefire — 呼籲停火\nbroker a ceasefire — 促成停火\nviolate a ceasefire — 違反停火\nceasefire agreement — 停火協議'
+        : 'call for a ceasefire — ask both sides to stop fighting\nbroker a ceasefire — help negotiate a halt\nviolate a ceasefire — break the agreement\nceasefire agreement — a deal to pause fighting',
+      semanticRelationsText: isChinese
+        ? 'truce — 停戰；休戰\narmistice — 休戰協定\nde-escalation — 降低衝突\nescalation — 衝突升級'
+        : 'truce — a temporary stop in fighting\narmistice — a formal agreement to stop fighting\nde-escalation — reducing tension\nescalation — conflict getting worse',
+      note: '',
+      phoneticTranscription: '/ˈsiːsˌfaɪr/',
+      sourceSentence: params.sentenceForCard,
+      manualMode: false,
+      addedToDeck: true,
+      selectedAlbumIds: [...params.selectedAlbumIds],
+      aiBreakdownMode: params.aiBreakdownMode,
+      tags: ['demo'],
+    };
+  }
+
+  return {
+    word: params.word,
+    displayWord,
+    partOfSpeech: 'phrase',
+    definition: isChinese
+      ? `在這句話裡，${displayWord} 表示臨場應變、沒有完整準備也先把事情完成。`
+      : `In this sentence, ${displayWord} means to improvise and get through something without a full plan.`,
+    cultural: isChinese
+      ? '這種說法很口語，常用在工作、簡報、考試或社交場合。重點不是完美，而是靠反應把情況撐住。'
+      : 'This is casual and useful for work, presentations, exams, or social moments. The nuance is not perfection — it is handling the moment.',
+    collocationsText: isChinese
+      ? `${displayWord} during a presentation — 簡報時臨場發揮\n${displayWord} in a meeting — 會議中即興應對\n${displayWord} under pressure — 壓力下靠反應撐住`
+      : `${displayWord} during a presentation — improvise while presenting\n${displayWord} in a meeting — respond without a full script\n${displayWord} under pressure — handle it on the fly`,
+    semanticRelationsText: isChinese
+      ? 'improvise — 即興發揮\nmake do — 將就應付\nthink on your feet — 反應很快'
+      : 'improvise — create a response in the moment\nmake do — manage with what you have\nthink on your feet — react quickly',
+    note: '',
+    phoneticTranscription: null,
+    sourceSentence: params.sentenceForCard,
+    manualMode: false,
+    addedToDeck: true,
+    selectedAlbumIds: [...params.selectedAlbumIds],
+    aiBreakdownMode: params.aiBreakdownMode,
+    tags: ['demo'],
+  };
+}
+
+type PartialGeneratedCardFields = {
+  normalizedTargetWord?: string;
+  correctedTargetWord?: string;
+  isLikelyTypo?: boolean;
+  typoReason?: string;
+  partOfSpeech?: string;
+  definition?: string;
+  sentenceTranslation?: string;
+  culturalBackground?: string;
+  frequentCollocations?: string;
+  semanticRelations?: string;
+  example?: string;
+};
+
+function decodePartialJSONString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+}
+
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractPartialJSONString(
+  raw: string,
+  key: string
+): string | undefined {
+  const pattern = new RegExp(
+    `"${escapeRegExpLiteral(key)}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)`
+  );
+  const match = raw.match(pattern);
+  const value = match?.[1];
+  return value ? decodePartialJSONString(value).trim() : undefined;
+}
+
+function extractPartialJSONBoolean(
+  raw: string,
+  key: string
+): boolean | undefined {
+  const keyIndex = raw.indexOf(`"${key}"`);
+  if (keyIndex < 0) return undefined;
+  const colonIndex = raw.indexOf(':', keyIndex);
+  if (colonIndex < 0) return undefined;
+  const afterColon = raw.slice(colonIndex + 1).trimStart();
+  if (afterColon.startsWith('true')) return true;
+  if (afterColon.startsWith('false')) return false;
+  return undefined;
+}
+
+function extractPartialJSONObjectItems(
+  raw: string,
+  key: string,
+  firstKey: string,
+  secondKey = 'translation'
+): string {
+  const arrayStartPattern = new RegExp(
+    `"${escapeRegExpLiteral(key)}"\\s*:\\s*\\[`
+  );
+  const keyStart = raw.search(arrayStartPattern);
+  if (keyStart < 0) return '';
+  const arrayStart = raw.indexOf('[', keyStart);
+  if (arrayStart < 0) return '';
+  let arrayEnd = raw.length;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrayStart; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '[') depth += 1;
+    if (char === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        arrayEnd = index + 1;
+        break;
+      }
+    }
+  }
+  const segment = raw.slice(arrayStart, arrayEnd);
+  const firstPattern = new RegExp(
+    `"${escapeRegExpLiteral(firstKey)}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)`,
+    'g'
+  );
+  const items: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = firstPattern.exec(segment))) {
+    const first = decodePartialJSONString(match[1] || '').trim();
+    if (!first) break;
+    const objectTail = segment.slice(match.index);
+    const nextObjectIndex = objectTail.slice(1).search(/\{\s*"/);
+    const currentObjectSegment =
+      nextObjectIndex >= 0
+        ? objectTail.slice(0, nextObjectIndex + 1)
+        : objectTail;
+    const second = extractPartialJSONString(currentObjectSegment, secondKey);
+    items.push(second ? `${first} — ${second}` : first);
+  }
+  return items.join('\n');
+}
+
+function extractPartialSemanticRelations(raw: string): string | undefined {
+  // 1. 因為後端已經把 JSON 攤平，我們直接抓取 synonyms 和 antonyms
+  const rawSynonyms = extractPartialJSONObjectItems(raw, 'synonyms', 'term');
+  const rawAntonyms = extractPartialJSONObjectItems(raw, 'antonyms', 'term');
+
+  // 2. 如果兩個都沒有，代表資料還沒流過來，先不要顯示
+  if (!rawSynonyms && !rawAntonyms) return undefined;
+
+  // 3. 把 Regex 抓出來的字串轉換為前端預期的物件格式
+  const parseItems = (text: string) =>
+    text
+      .split('\n')
+      .filter(Boolean)
+      .map((item) => {
+        const [term, ...translationParts] = item.split(/\s+[—–-]\s+/);
+        const translation = translationParts.join(' — ');
+        return translation ? { term, translation } : { term };
+      });
+
+  // 4. 重新包裝成舊版 UI 期待的 JSON 字串結構
+  return JSON.stringify({
+    synonyms: parseItems(rawSynonyms),
+    antonyms: parseItems(rawAntonyms),
+  });
+}
+
+function sectionHeaderPattern(header: string): RegExp {
+  const normalized = header.replace(/=/g, '').trim();
+  return new RegExp(`==\\s*${escapeRegExpLiteral(normalized)}\\s*==`, 'i');
+}
+
+function stripStreamingSectionHeaders(
+  value: string | undefined
+): string | undefined {
+  const cleaned = (value || '')
+    .replace(/==\s*(?:TRANS|DEF|WORD|POS|RESOLUTION)\s*==/gi, '')
+    .replace(/^\s*["']?undefined["']?\s*$/i, '')
+    .trim();
+  return cleaned || undefined;
+}
+
+function extractTextSection(
+  raw: string,
+  header: string,
+  nextHeader?: string
+): string | undefined {
+  const cleanRaw = raw
+    .replace(/```(json|text|markdown)?/gi, '')
+    .replace(/```/g, '');
+  const startMatch = cleanRaw.match(sectionHeaderPattern(header));
+  if (!startMatch || startMatch.index === undefined) return undefined;
+  const contentStart = startMatch.index + startMatch[0].length;
+  const nextMarkerIndex = nextHeader
+    ? cleanRaw.slice(contentStart).search(sectionHeaderPattern(nextHeader))
+    : -1;
+  const enrichmentStart = cleanRaw.indexOf('\n{', contentStart);
+  const absoluteNextMarkerIndex =
+    nextMarkerIndex >= 0 ? contentStart + nextMarkerIndex : -1;
+  const contentEnd =
+    absoluteNextMarkerIndex >= 0
+      ? absoluteNextMarkerIndex
+      : enrichmentStart >= 0
+        ? enrichmentStart
+        : cleanRaw.length;
+  const value = cleanRaw
+    .slice(contentStart, contentEnd)
+    .replace(/\n?==[A-Z]*=?=?\s*$/i, '')
+    .trim();
+  return stripStreamingSectionHeaders(value);
+}
+
+function parseIncompleteGenerateCardJSON(
+  raw: string
+): PartialGeneratedCardFields {
+  const jsonFields: PartialGeneratedCardFields = {
+    normalizedTargetWord: extractPartialJSONString(raw, 'normalizedTargetWord'),
+    correctedTargetWord: extractPartialJSONString(raw, 'correctedTargetWord'),
+    isLikelyTypo: extractPartialJSONBoolean(raw, 'isLikelyTypo'),
+    typoReason: extractPartialJSONString(raw, 'typoReason'),
+    partOfSpeech: extractPartialJSONString(raw, 'partOfSpeech'),
+    definition: extractPartialJSONString(raw, 'definition'),
+    sentenceTranslation: extractPartialJSONString(raw, 'sentenceTranslation'),
+    culturalBackground: extractPartialJSONString(raw, 'culturalBackground'),
+    frequentCollocations: extractPartialJSONObjectItems(
+      raw,
+      'frequentCollocations',
+      'phrase'
+    ),
+    semanticRelations: extractPartialSemanticRelations(raw),
+    example: extractPartialJSONObjectItems(raw, 'example', 'sentence'),
+  };
+  if (!/==\s*(?:DEF|TRANS)\s*==/i.test(raw)) return jsonFields;
+
+  const defIndex = raw.search(/==\s*DEF\s*==/i);
+  const transIndex = raw.search(/==\s*TRANS\s*==/i);
+  const transComesFirst =
+    transIndex >= 0 && defIndex >= 0 && transIndex < defIndex;
+
+  return {
+    ...jsonFields,
+    definition: transComesFirst
+      ? extractTextSection(raw, '==DEF==', '==WORD==') || jsonFields.definition
+      : extractTextSection(raw, '==DEF==', '==TRANS==') ||
+        jsonFields.definition,
+    sentenceTranslation: transComesFirst
+      ? extractTextSection(raw, '==TRANS==', '==DEF==') ||
+        jsonFields.sentenceTranslation
+      : extractTextSection(raw, '==TRANS==', '==WORD==') ||
+        jsonFields.sentenceTranslation,
+    normalizedTargetWord:
+      extractTextSection(raw, '==WORD==', '==POS==') ||
+      stripStreamingSectionHeaders(jsonFields.normalizedTargetWord),
+    partOfSpeech:
+      extractTextSection(raw, '==POS==', '==RESOLUTION==') ||
+      stripStreamingSectionHeaders(jsonFields.partOfSpeech),
+  };
+}
+
+function buildPartialGhostCard(params: {
+  word: string;
+  sourceSentence: string;
+  fields: PartialGeneratedCardFields;
+  uiLanguage: UILanguage;
+  aiBreakdownMode: AIBreakdownMode;
+  selectedAlbumIds: string[];
+}): CompletedCard | null {
+  const {
+    word,
+    sourceSentence,
+    fields,
+    uiLanguage,
+    aiBreakdownMode,
+    selectedAlbumIds,
+  } = params;
+  const hasVisibleContent = Boolean(
+    (fields.definition && fields.definition.length >= 2) ||
+    fields.sentenceTranslation ||
+    fields.culturalBackground ||
+    fields.frequentCollocations ||
+    fields.semanticRelations ||
+    fields.example
+  );
+  if (!hasVisibleContent) return null;
+
+  const typoSuggestionRaw = fields.isLikelyTypo
+    ? normalizeDisplayWord(fields.correctedTargetWord || '')
+    : '';
+  const typoSuggestion =
+    typoSuggestionRaw &&
+    normalizeSelectableTerm(typoSuggestionRaw).toLowerCase() !==
+      normalizeSelectableTerm(word).toLowerCase()
+      ? typoSuggestionRaw
+      : undefined;
+  const displayWord = typoSuggestion
+    ? word
+    : normalizeDisplayWord(
+        fields.normalizedTargetWord || fields.correctedTargetWord || word
+      ) || word;
+  const cleanDefinition = stripStreamingSectionHeaders(fields.definition) || '';
+  const cleanSentenceTranslation =
+    stripStreamingSectionHeaders(fields.sentenceTranslation) || sourceSentence;
+  const cleanCulturalBackground =
+    stripStreamingSectionHeaders(fields.culturalBackground) || '';
+  const sentenceTranslation = cleanSentenceTranslation;
+  const usagePairs = filterUsageTextPairs(
+    fields.frequentCollocations || '',
+    fields.example || '',
+    displayWord
+  );
+  const cultural = JSON.stringify({
+    sentenceTranslation,
+    sentenceNotes: '',
+    culturalBackground: cleanCulturalBackground,
+    exampleSentence: usagePairs.examples,
+  });
+
+  return {
+    word,
+    displayWord,
+    typoSuggestion,
+    typoReason: fields.typoReason || undefined,
+    partOfSpeech: fields.partOfSpeech || '',
+    definition: cleanDefinition,
+    cultural,
+    collocationsText: usagePairs.collocations,
+    semanticRelationsText: fields.semanticRelations || '',
+    note: '',
+    phoneticTranscription: null,
+    sourceSentence,
+    manualMode: false,
+    addedToDeck: true,
+    selectedAlbumIds: [...selectedAlbumIds],
+    aiBreakdownMode,
+    tags: [],
+  };
+}
+
+function getAIModeDescription(
+  mode: AIBreakdownMode,
+  uiLanguage: UILanguage
+): string {
+  if (mode === 'short_punchy')
+    return tUI(uiLanguage, 'create.aiMode.clarityDescription');
+  if (mode === 'deep_dive')
+    return tUI(uiLanguage, 'create.aiMode.masteryDescription');
+  return tUI(uiLanguage, 'create.aiMode.applicationDescription');
+}
 
 function getAnnotationsArray(val: unknown): { text?: string }[] {
   if (Array.isArray(val)) return val;
@@ -133,89 +610,30 @@ function triggerBuzzHaptic() {
   }, 90);
 }
 
-async function uploadCardImageToSupabase(params: {
-  imageUri: string;
-  cachedItemId: string;
-}): Promise<string | null> {
-  const { imageUri, cachedItemId } = params;
-  if (!imageUri.trim()) return null;
-  if (/^https?:\/\//i.test(imageUri)) return imageUri;
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user?.id) {
-    throw authError || new Error('尚未登入，無法上傳圖片');
-  }
-
-  // Normalize to JPEG before upload to avoid iOS Blob corruption / decoder issues.
-  const normalized = await ImageManipulator.manipulateAsync(
-    imageUri,
-    [],
-    { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
-  );
-  const base64 = await FileSystemLegacy.readAsStringAsync(normalized.uri, {
-    encoding: 'base64',
-  });
-  if (!base64) {
-    throw new Error('圖片轉碼失敗：無法讀取 base64');
-  }
-  const dataUrl = `data:image/jpeg;base64,${base64}`;
-  const imageBytes = await fetch(dataUrl).then((res) => res.arrayBuffer());
-  if (!imageBytes || imageBytes.byteLength === 0) {
-    throw new Error('圖片轉碼失敗：位元組內容為空');
-  }
-  const storagePath = `${user.id}/${cachedItemId}/${Date.now()}.jpg`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('cached-images')
-    .upload(storagePath, imageBytes, {
-      cacheControl: '3600',
-      contentType: 'image/jpeg',
-      upsert: true,
-    });
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
-  const { data: signedData, error: signedError } = await supabase.storage
-    .from('cached-images')
-    .createSignedUrl(storagePath, 60 * 60);
-  if (signedError || !signedData?.signedUrl) {
-    throw new Error(
-      `圖片已上傳，但無法建立讀取簽名網址（可能是 Storage 權限設定問題）: ${signedError?.message || 'unknown error'}`
-    );
-  }
-
-  return storagePath;
-}
-
 export default function CreateCardScreen({ navigation, route }: Props) {
+  const initialSettings = getInitialUserSettings();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const appTour = useAppTour();
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const reduceMotion = useReducedMotion();
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const isLight = colorScheme === 'light';
   const {
     cachedItem,
     croppedImageUri,
     originalImageUri: routeOriginalImageUri,
     runOcrOnLoad,
-    generationMode,
+    isDefaultExperienceTutorial = false,
   } = route.params as {
     cachedItem: CachedItem;
     croppedImageUri?: string;
     originalImageUri?: string;
     runOcrOnLoad?: boolean;
-    generationMode?: 'manual' | 'ai-assisted';
+    isDefaultExperienceTutorial?: boolean;
   };
-  const normalizedTourSampleTarget = React.useMemo(
-    () => normalizeSelectableTerm(TOUR_TARGET_WORD),
-    []
-  );
-
   const goToCacheHome = React.useCallback(() => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
       navigation.goBack();
@@ -224,44 +642,189 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     navigation.navigate('CacheList');
   }, [navigation]);
 
-  const baseSourceText = React.useMemo(() => getCachedItemSourceText(cachedItem), [cachedItem]);
+  const baseSourceText = React.useMemo(
+    () => getCachedItemSourceText(cachedItem),
+    [cachedItem]
+  );
   const ocrImageUri = React.useMemo(
-    () => croppedImageUri || routeOriginalImageUri || cachedItem.mediaUri || cachedItem.imageStoragePath || null,
-    [cachedItem.imageStoragePath, cachedItem.mediaUri, croppedImageUri, routeOriginalImageUri]
+    () =>
+      croppedImageUri ||
+      routeOriginalImageUri ||
+      cachedItem.mediaUri ||
+      cachedItem.imageStoragePath ||
+      null,
+    [
+      cachedItem.imageStoragePath,
+      cachedItem.mediaUri,
+      croppedImageUri,
+      routeOriginalImageUri,
+    ]
   );
   const originalImageUri = React.useMemo(
-    () => routeOriginalImageUri || cachedItem.mediaUri || croppedImageUri || cachedItem.imageStoragePath || null,
-    [cachedItem.imageStoragePath, cachedItem.mediaUri, croppedImageUri, routeOriginalImageUri]
+    () =>
+      routeOriginalImageUri ||
+      cachedItem.mediaUri ||
+      croppedImageUri ||
+      cachedItem.imageStoragePath ||
+      null,
+    [
+      cachedItem.imageStoragePath,
+      cachedItem.mediaUri,
+      croppedImageUri,
+      routeOriginalImageUri,
+    ]
   );
   const [ocrSourceText, setOcrSourceText] = React.useState('');
+  const [ocrBlocks, setOcrBlocks] = React.useState<OCRBlock[]>([]);
+  const [editedSourceText, setEditedSourceText] = React.useState('');
   const [isOcrRunning, setIsOcrRunning] = React.useState(false);
   const [ocrError, setOcrError] = React.useState<string | null>(null);
-  const [aiReplyLanguage, setAiReplyLanguage] = React.useState(DEFAULT_USER_SETTINGS.aiReplyLanguage);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    initialSettings.uiLanguage
+  );
+  const [aiReplyLanguage, setAiReplyLanguage] = React.useState(
+    initialSettings.aiReplyLanguage
+  );
   const [aiBreakdownMode, setAiBreakdownMode] = React.useState<AIBreakdownMode>(
-    DEFAULT_USER_SETTINGS.personalization.aiBreakdownMode
+    initialSettings.personalization.aiBreakdownMode
   );
   const [isAIModeDropdownOpen, setIsAIModeDropdownOpen] = React.useState(false);
-  const selectedAIBreakdownOption = React.useMemo(
-    () =>
-      AI_BREAKDOWN_MODE_OPTIONS.find((option) => option.value === aiBreakdownMode) ??
-      AI_BREAKDOWN_MODE_OPTIONS[1],
-    [aiBreakdownMode]
+  const [selectedBatchAlbumIds, setSelectedBatchAlbumIds] = React.useState<
+    string[]
+  >([]);
+  const [isAlbumDestinationDropdownOpen, setIsAlbumDestinationDropdownOpen] =
+    React.useState(false);
+  const aiModeDropdownProgress = useSharedValue(0);
+  const aiModeDropdownContentHeight = useSharedValue(0);
+  const albumDestinationDropdownProgress = useSharedValue(0);
+  const albumDestinationDropdownContentHeight = useSharedValue(0);
+  const aiModeDropdownAnimatedStyle = useAnimatedStyle(() => ({
+    height: aiModeDropdownContentHeight.value * aiModeDropdownProgress.value,
+    opacity: interpolate(aiModeDropdownProgress.value, [0, 0.35, 1], [0, 0, 1]),
+  }));
+  const aiModeDropdownContentAnimatedStyle = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          translateY: isAIModeDropdownOpen
+            ? -(1 - aiModeDropdownProgress.value) *
+              aiModeDropdownContentHeight.value
+            : 0,
+        },
+      ],
+    }),
+    [isAIModeDropdownOpen]
   );
-  const sourceText = React.useMemo(
-    () => (ocrSourceText.trim() ? ocrSourceText : baseSourceText),
-    [baseSourceText, ocrSourceText]
+  const aiModeDropdownChevronStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${interpolate(aiModeDropdownProgress.value, [0, 1], [0, 180])}deg`,
+      },
+    ],
+  }));
+  const albumDestinationDropdownAnimatedStyle = useAnimatedStyle(() => ({
+    height:
+      albumDestinationDropdownContentHeight.value *
+      albumDestinationDropdownProgress.value,
+    opacity: interpolate(
+      albumDestinationDropdownProgress.value,
+      [0, 0.35, 1],
+      [0, 0, 1]
+    ),
+  }));
+  const albumDestinationDropdownContentAnimatedStyle = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          translateY: isAlbumDestinationDropdownOpen
+            ? -(1 - albumDestinationDropdownProgress.value) *
+              albumDestinationDropdownContentHeight.value
+            : 0,
+        },
+      ],
+    }),
+    [isAlbumDestinationDropdownOpen]
   );
+  const albumDestinationDropdownChevronStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${interpolate(albumDestinationDropdownProgress.value, [0, 1], [0, 180])}deg`,
+      },
+    ],
+  }));
+  React.useEffect(() => {
+    const target = isAIModeDropdownOpen ? 1 : 0;
+    aiModeDropdownProgress.value = reduceMotion
+      ? target
+      : withTiming(target, {
+          duration: 240,
+          easing: Easing.bezier(0.2, 0, 0, 1),
+        });
+  }, [aiModeDropdownProgress, isAIModeDropdownOpen, reduceMotion]);
+  React.useEffect(() => {
+    const target = isAlbumDestinationDropdownOpen ? 1 : 0;
+    albumDestinationDropdownProgress.value = reduceMotion
+      ? target
+      : withTiming(target, {
+          duration: 240,
+          easing: Easing.bezier(0.2, 0, 0, 1),
+        });
+  }, [
+    albumDestinationDropdownProgress,
+    isAlbumDestinationDropdownOpen,
+    reduceMotion,
+  ]);
+  const handleAIModeDropdownContentLayout = React.useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      aiModeDropdownContentHeight.value = event.nativeEvent.layout.height;
+    },
+    [aiModeDropdownContentHeight]
+  );
+  const handleAlbumDestinationDropdownContentLayout = React.useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      albumDestinationDropdownContentHeight.value =
+        event.nativeEvent.layout.height;
+    },
+    [albumDestinationDropdownContentHeight]
+  );
+  const shouldUseFreshCroppedOcrOnly = Boolean(runOcrOnLoad && croppedImageUri);
+  const sourceText = React.useMemo(() => {
+    const trimmedEditedSourceText = editedSourceText.trim();
+    if (trimmedEditedSourceText) return editedSourceText;
+
+    const trimmedOcrSourceText = ocrSourceText.trim();
+    if (trimmedOcrSourceText) return ocrSourceText;
+
+    if (shouldUseFreshCroppedOcrOnly) return '';
+
+    return baseSourceText;
+  }, [
+    baseSourceText,
+    editedSourceText,
+    ocrSourceText,
+    shouldUseFreshCroppedOcrOnly,
+  ]);
   const sourceTokens = React.useMemo(() => {
     const fromText = sourceText.trim() ? tokenizeSourceText(sourceText) : [];
     if (fromText.length > 0) return fromText;
+
+    if (shouldUseFreshCroppedOcrOnly) return [];
 
     const highlights = Array.isArray(cachedItem.aiHighlightedTerms)
       ? cachedItem.aiHighlightedTerms.filter(Boolean)
       : [];
     if (highlights.length > 0) return highlights;
 
+    if (isOcrRunning || ocrImageUri) return [];
+
     return ['example', 'word'];
-  }, [cachedItem.aiHighlightedTerms, sourceText]);
+  }, [
+    cachedItem.aiHighlightedTerms,
+    isOcrRunning,
+    ocrImageUri,
+    shouldUseFreshCroppedOcrOnly,
+    sourceText,
+  ]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -270,7 +833,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         const settings = await loadUserSettings();
         if (!cancelled) {
           setAiReplyLanguage(settings.aiReplyLanguage);
-          setAiBreakdownMode(normalizeAIBreakdownMode(settings.personalization.aiBreakdownMode));
+          setUiLanguage(settings.uiLanguage);
+          setAiBreakdownMode(
+            normalizeAIBreakdownMode(settings.personalization.aiBreakdownMode)
+          );
         }
       } catch (error) {
         console.error('[CreateCard] load ai reply language failed:', error);
@@ -281,52 +847,90 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     };
   }, []);
 
-  const handleSelectAIBreakdownMode = React.useCallback(async (mode: AIBreakdownMode) => {
-    const nextMode = normalizeAIBreakdownMode(mode);
-    setAiBreakdownMode(nextMode);
-    setIsAIModeDropdownOpen(false);
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        setAiReplyLanguage(settings.aiReplyLanguage);
+        setUiLanguage(settings.uiLanguage);
+        setAiBreakdownMode(
+          normalizeAIBreakdownMode(settings.personalization.aiBreakdownMode)
+        );
+      }),
+    []
+  );
 
-    try {
-      const settings = await loadUserSettings();
-      await saveUserSettings({
-        ...settings,
-        personalization: {
-          ...settings.personalization,
-          aiBreakdownMode: nextMode,
-        },
-      });
-    } catch (error) {
-      console.error('[CreateCard] save AI mode failed:', error);
-    }
+  const handleSelectAIBreakdownMode = React.useCallback(
+    async (mode: AIBreakdownMode) => {
+      const nextMode = normalizeAIBreakdownMode(mode);
+      setAiBreakdownMode(nextMode);
+      setIsAIModeDropdownOpen(false);
 
-    void (async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user?.id) return;
-        await supabase
-          .from('profiles')
-          .update({
-            ai_breakdown_mode: nextMode,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', user.id);
+        const settings = await loadUserSettings();
+        await saveUserSettings({
+          ...settings,
+          personalization: {
+            ...settings.personalization,
+            aiBreakdownMode: nextMode,
+          },
+        });
       } catch (error) {
-        console.error('[CreateCard] sync AI mode profile failed:', error);
+        console.error('[CreateCard] save AI mode failed:', error);
       }
-    })();
-  }, []);
 
-  const [selectedWords, setSelectedWords] = React.useState<string[]>([]);
+      void (async () => {
+        try {
+          const userId = await getCurrentSessionUserId();
+          if (!userId) return;
+          await supabase
+            .from('profiles')
+            .update({
+              ai_breakdown_mode: nextMode,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId);
+        } catch (error) {
+          console.error('[CreateCard] sync AI mode profile failed:', error);
+        }
+      })();
+    },
+    []
+  );
+
+  const [selectedTokenIndices, setSelectedTokenIndices] = React.useState<
+    number[]
+  >([]);
+  const selectedTargets = React.useMemo(
+    () =>
+      groupSelectedSourceTokens(sourceTokens, selectedTokenIndices, sourceText),
+    [selectedTokenIndices, sourceText, sourceTokens]
+  );
   const [hasStarted, setHasStarted] = React.useState(false);
-  const [generatingCards, setGeneratingCards] = React.useState<GeneratingCard[]>([]);
-  const [completedCards, setCompletedCards] = React.useState<CompletedCard[]>([]);
-  const [entitlementSnapshot, setEntitlementSnapshot] = React.useState<EntitlementSnapshot | null>(null);
-  const [showCollocations, setShowCollocations] = React.useState<Record<string, boolean>>({});
-  const [generatedWords, setGeneratedWords] = React.useState<Set<string>>(new Set());
+  const [generatingCards, setGeneratingCards] = React.useState<
+    GeneratingCard[]
+  >([]);
+  const [completedCards, setCompletedCards] = React.useState<CompletedCard[]>(
+    []
+  );
+  const [entitlementSnapshot, setEntitlementSnapshot] =
+    React.useState<EntitlementSnapshot | null>(null);
+  const [showCollocations, setShowCollocations] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [generatedTargetIds, setGeneratedTargetIds] = React.useState<
+    Set<string>
+  >(new Set());
   const [saving, setSaving] = React.useState(false);
+  const optimisticSaveClaimsRef = React.useRef(new Set<string>());
   const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const defaultExperienceTargetIndex = React.useMemo(
+    () =>
+      sourceTokens.findIndex(
+        (token) =>
+          normalizeSelectableTerm(token) === DEFAULT_EXPERIENCE_TARGET_WORD
+      ),
+    [sourceTokens]
+  );
   const [albumPrefs, setAlbumPrefs] = React.useState<DeckAlbumPreferences>({
     customAlbums: [],
     albumNameOverrides: {},
@@ -336,43 +940,254 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     deletedAlbumIds: [],
   });
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
-  const [albumTargetWord, setAlbumTargetWord] = React.useState<string | null>(null);
-  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
+  const [albumTargetWord, setAlbumTargetWord] = React.useState<string | null>(
+    null
+  );
+  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] =
+    React.useState(false);
   const [newAlbumName, setNewAlbumName] = React.useState('');
   const [ghostStatusIndex, setGhostStatusIndex] = React.useState(0);
-  const [previewWordAudioLoading, setPreviewWordAudioLoading] = React.useState<string | null>(null);
-  const [generationFailure, setGenerationFailure] = React.useState<{ word: string; message: string } | null>(null);
-  const scrollRef = React.useRef<ScrollView | null>(null);
-  const previewSceneYRef = React.useRef<number>(0);
+  const [streamStatusText, setStreamStatusText] = React.useState('');
+  const [previewWordAudioLoading, setPreviewWordAudioLoading] = React.useState<
+    string | null
+  >(null);
+  const [generationFailure, setGenerationFailure] = React.useState<{
+    word: string;
+    message: string;
+  } | null>(null);
+  const [typoOverrideInputs, setTypoOverrideInputs] = React.useState<
+    Record<string, string>
+  >({});
   const previewRunIdRef = React.useRef(0);
-  const [activePreviewCard, setActivePreviewCard] = React.useState<CompletedCard | null>(null);
-  const [previewPhase, setPreviewPhase] = React.useState<PreviewPhase>('frontThinking');
-  const [previewRevealState, setPreviewRevealState] = React.useState<PreviewRevealState>(EMPTY_PREVIEW_REVEAL);
-  const effectiveGenerationMode = React.useMemo<'manual' | 'ai-assisted'>(() => {
-    if (generationMode) return generationMode;
-    if (!entitlementSnapshot) return 'manual';
-    return entitlementSnapshot.canUseAutoCardGeneration ? 'ai-assisted' : 'manual';
-  }, [entitlementSnapshot?.canUseAutoCardGeneration, generationMode]);
-  const isGhostGenerating = hasStarted && generatingCards.some((card) => !card.completed);
-  const isPreviewSceneActive = Boolean(activePreviewCard) || isGhostGenerating;
-  const shouldHideSourcePanels = hasStarted;
+  const scrollRef = React.useRef<ScrollView | null>(null);
+  const activePreviewLayoutRef = React.useRef({ y: 0, height: 0 });
+  const [scrollViewportHeight, setScrollViewportHeight] = React.useState(0);
+  const scrollContentHeightRef = React.useRef(0);
+  const currentScrollYRef = React.useRef(0);
+  const previewScrollTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const previewScrollRequestIdRef = React.useRef(0);
+  const previewScrollAnimationFrameRef = React.useRef<number | null>(null);
+  const autoScrolledPreviewKeyRef = React.useRef<string | null>(null);
+  const didAutoScrollDefaultExperienceCompletionRef = React.useRef(false);
+  const pendingPremiumRetryRef = React.useRef(false);
+  const [activePreviewCard, setActivePreviewCard] =
+    React.useState<CompletedCard | null>(null);
+  const [partialGeneratedCard, setPartialGeneratedCard] =
+    React.useState<CompletedCard | null>(null);
+  const [isBufferedStreamPreview, setIsBufferedStreamPreview] =
+    React.useState(false);
+  const [previewPhase, setPreviewPhase] =
+    React.useState<PreviewPhase>('frontThinking');
+  const [previewRevealState, setPreviewRevealState] =
+    React.useState<PreviewRevealState>(EMPTY_PREVIEW_REVEAL);
+  const effectiveGenerationMode = 'ai-assisted' as const;
+  const shouldPromptTourSaveOnScrollRef = React.useRef(false);
+  const isGhostGenerating =
+    hasStarted && generatingCards.some((card) => !card.completed);
+  const isPreviewSceneActive =
+    Boolean(activePreviewCard || partialGeneratedCard) || isGhostGenerating;
+  const shouldHideSourcePanels = hasStarted || completedCards.length > 0;
   const allAlbums = React.useMemo(
-    () => buildDeckAlbums(allCards, {}, albumPrefs).filter((album) => album.id !== ALL_CARDS_ALBUM_ID),
+    () =>
+      buildDeckAlbums(allCards, {}, albumPrefs).filter(
+        (album) => album.id !== ALL_CARDS_ALBUM_ID
+      ),
     [albumPrefs, allCards]
   );
+  const batchAlbumSummary = React.useMemo(() => {
+    const selectedAlbums = allAlbums.filter((album) =>
+      selectedBatchAlbumIds.includes(album.id)
+    );
+    return [
+      tUI(uiLanguage, 'deck.albumAllCards'),
+      ...selectedAlbums.map((album) =>
+        getDeckAlbumDisplayName(album, uiLanguage)
+      ),
+    ].join('、');
+  }, [allAlbums, selectedBatchAlbumIds, uiLanguage]);
+
+  const toggleBatchAlbum = React.useCallback((albumId: string) => {
+    void Haptics.selectionAsync();
+    setSelectedBatchAlbumIds((current) =>
+      current.includes(albumId)
+        ? current.filter((id) => id !== albumId)
+        : [...current, albumId]
+    );
+  }, []);
   const albumTargetCard = React.useMemo(
     () =>
-      (albumTargetWord && completedCards.find((card) => card.word === albumTargetWord)) ||
-      (albumTargetWord && activePreviewCard?.word === albumTargetWord ? activePreviewCard : null),
+      (albumTargetWord &&
+        completedCards.find((card) => card.word === albumTargetWord)) ||
+      (albumTargetWord && activePreviewCard?.word === albumTargetWord
+        ? activePreviewCard
+        : null),
     [activePreviewCard, albumTargetWord, completedCards]
   );
 
-  const selectTourSampleTarget = React.useCallback(() => {
-    if (!normalizedTourSampleTarget) return;
-    setSelectedWords((prev) =>
-      prev.includes(normalizedTourSampleTarget) ? prev : [normalizedTourSampleTarget, ...prev]
-    );
-  }, [normalizedTourSampleTarget]);
+  const cancelPendingPreviewScroll = React.useCallback(() => {
+    previewScrollRequestIdRef.current += 1;
+    if (previewScrollTimeoutRef.current) {
+      clearTimeout(previewScrollTimeoutRef.current);
+      previewScrollTimeoutRef.current = null;
+    }
+    if (previewScrollAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(previewScrollAnimationFrameRef.current);
+      previewScrollAnimationFrameRef.current = null;
+    }
+  }, []);
+
+  const animatePreviewScrollTo = React.useCallback(
+    (targetY: number) => {
+      if (previewScrollAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(previewScrollAnimationFrameRef.current);
+        previewScrollAnimationFrameRef.current = null;
+      }
+
+      const startY = currentScrollYRef.current;
+      if (reduceMotion) {
+        currentScrollYRef.current = targetY;
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, targetY),
+          animated: false,
+        });
+        return;
+      }
+      if (!isDefaultExperienceTutorial) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, targetY),
+          animated: true,
+        });
+        return;
+      }
+      const distance = targetY - startY;
+      const startedAt = Date.now();
+      const easeInOutCubic = (progress: number) =>
+        progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      const step = () => {
+        const elapsed = Date.now() - startedAt;
+        const progress = Math.min(
+          1,
+          elapsed / DEMO_GHOST_SCROLL_DURATION_MS
+        );
+        const nextY = startY + distance * easeInOutCubic(progress);
+        currentScrollYRef.current = nextY;
+        scrollRef.current?.scrollTo({ y: Math.max(0, nextY), animated: false });
+
+        if (progress < 1) {
+          previewScrollAnimationFrameRef.current = requestAnimationFrame(step);
+        } else {
+          currentScrollYRef.current = targetY;
+          previewScrollAnimationFrameRef.current = null;
+        }
+      };
+
+      previewScrollAnimationFrameRef.current = requestAnimationFrame(step);
+    },
+    [isDefaultExperienceTutorial, reduceMotion]
+  );
+
+  const scrollToActivePreviewCard = React.useCallback(
+    (delayMs = 120) => {
+      const requestId = ++previewScrollRequestIdRef.current;
+      if (previewScrollTimeoutRef.current) {
+        clearTimeout(previewScrollTimeoutRef.current);
+      }
+      previewScrollTimeoutRef.current = setTimeout(() => {
+        requestAnimationFrame(() => {
+          if (previewScrollRequestIdRef.current !== requestId) return;
+          const { y } = activePreviewLayoutRef.current;
+          animatePreviewScrollTo(
+            resolveCardTopAlignedScrollTarget({
+              previewY: y,
+              cardYWithinPreview: 0,
+            })
+          );
+        });
+      }, delayMs);
+    },
+    [animatePreviewScrollTo]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      cancelPendingPreviewScroll();
+    };
+  }, [cancelPendingPreviewScroll]);
+
+  const handleActivePreviewLayout = React.useCallback(
+    (event: { nativeEvent: { layout: { y: number; height: number } } }) => {
+      activePreviewLayoutRef.current = {
+        y: event.nativeEvent.layout.y,
+        height: event.nativeEvent.layout.height,
+      };
+      const previewKey =
+        generatingCards[0]?.word ||
+        activePreviewCard?.word ||
+        partialGeneratedCard?.word ||
+        null;
+      if (
+        isPreviewSceneActive &&
+        previewKey &&
+        autoScrolledPreviewKeyRef.current !== previewKey
+      ) {
+        autoScrolledPreviewKeyRef.current = previewKey;
+        scrollToActivePreviewCard(80);
+      }
+    },
+    [
+      activePreviewCard?.word,
+      generatingCards,
+      isPreviewSceneActive,
+      partialGeneratedCard?.word,
+      scrollToActivePreviewCard,
+    ]
+  );
+
+  React.useEffect(() => {
+    if (isPreviewSceneActive) return;
+    autoScrolledPreviewKeyRef.current = null;
+    cancelPendingPreviewScroll();
+  }, [cancelPendingPreviewScroll, isPreviewSceneActive]);
+
+  const handleScrollLayout = React.useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      setScrollViewportHeight(event.nativeEvent.layout.height);
+    },
+    []
+  );
+
+  const handleCompletedActionsLayout = React.useCallback(() => {
+    if (
+      !isDefaultExperienceTutorial ||
+      hasStarted ||
+      completedCards.length === 0 ||
+      didAutoScrollDefaultExperienceCompletionRef.current
+    )
+      return;
+
+    didAutoScrollDefaultExperienceCompletionRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        animatePreviewScrollTo(
+          resolveBottomAlignedScrollTarget({
+            contentHeight: scrollContentHeightRef.current,
+            viewportHeight: scrollViewportHeight,
+          })
+        );
+      });
+    });
+  }, [
+    animatePreviewScrollTo,
+    completedCards.length,
+    hasStarted,
+    isDefaultExperienceTutorial,
+    scrollViewportHeight,
+  ]);
 
   React.useEffect(() => {
     if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
@@ -380,7 +1195,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       return;
     }
     const timer = setInterval(() => {
-      setGhostStatusIndex((prev) => (prev + 1) % GHOST_CARD_STATUS_TEXT.length);
+      setGhostStatusIndex((prev) => (prev + 1) % GHOST_CARD_STATUS_KEYS.length);
     }, 3200);
     return () => clearInterval(timer);
   }, [generatingCards, hasStarted]);
@@ -391,9 +1206,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       if (!runOcrOnLoad || !ocrImageUri) return;
       setIsOcrRunning(true);
       setOcrError(null);
+      setOcrBlocks([]);
+      setOcrSourceText('');
+      setEditedSourceText('');
       try {
         const result = await extractTextFromImage(ocrImageUri);
         if (!active) return;
+        setOcrBlocks(result.blocks);
         const textFromBlocks = result.blocks
           .map((block) => block.text?.trim() || '')
           .filter(Boolean)
@@ -401,13 +1220,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         const nextText = (result.fullText || '').trim() || textFromBlocks;
         if (nextText) {
           setOcrSourceText(nextText);
+          setEditedSourceText('');
         } else {
-          setOcrError('OCR 沒有辨識到可用文字');
+          setOcrError(tUI(uiLanguage, 'create.ocrNoText'));
         }
       } catch (error) {
         if (!active) return;
         console.error('[CreateCard] OCR failed:', error);
-        setOcrError('OCR 失敗，已使用原始內容');
+        setOcrBlocks([]);
+        setOcrError(tUI(uiLanguage, 'create.ocrFailed'));
       } finally {
         if (active) {
           setIsOcrRunning(false);
@@ -418,12 +1239,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => {
       active = false;
     };
-  }, [ocrImageUri, runOcrOnLoad]);
+  }, [ocrImageUri, runOcrOnLoad, uiLanguage]);
 
   const refreshEntitlementSnapshot = React.useCallback(
     async (options?: { cancelled?: () => boolean }) => {
       try {
-        const snapshot = await SubscriptionService.getEntitlementSnapshot(cachedItem.userId);
+        const snapshot = await SubscriptionService.syncEntitlements(
+          cachedItem.userId,
+          {
+            preferServer: true,
+          }
+        );
         if (!options?.cancelled?.()) {
           setEntitlementSnapshot(snapshot);
         }
@@ -455,12 +1281,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   React.useEffect(() => {
     const queryCards = database
       .get<Card>('cards')
-      .query(Q.where('user_id', cachedItem.userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+      .query(
+        Q.where('user_id', cachedItem.userId),
+        Q.where('deleted_at', null),
+        Q.sortBy('created_at', Q.desc)
+      );
 
-    void queryCards.fetch().then(setAllCards).catch((error) => {
-      console.error('[CreateCard] load deck cards failed:', error);
-      setAllCards([]);
-    });
+    void queryCards
+      .fetch()
+      .then(setAllCards)
+      .catch((error) => {
+        console.error('[CreateCard] load deck cards failed:', error);
+        setAllCards([]);
+      });
 
     const sub = queryCards.observe().subscribe((data) => {
       setAllCards(data);
@@ -468,9 +1301,18 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => sub.unsubscribe();
   }, [cachedItem.userId]);
 
+  React.useEffect(
+    () =>
+      subscribeDeckAlbumPreferences((prefs, userId) => {
+        if (userId && userId !== cachedItem.userId) return;
+        setAlbumPrefs(prefs);
+      }),
+    [cachedItem.userId]
+  );
+
   React.useEffect(() => {
     let cancelled = false;
-    void loadDeckAlbumPreferences()
+    void loadDeckAlbumPreferences(cachedItem.userId)
       .then((prefs) => {
         if (!cancelled) setAlbumPrefs(prefs);
       })
@@ -480,18 +1322,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const scrollToPreviewPosition = React.useCallback((targetY: number) => {
-    scrollRef.current?.scrollTo({
-      y: Math.max(0, targetY),
-      animated: true,
-    });
-  }, []);
-
-  const scrollToPreviewFront = React.useCallback(() => {
-    scrollToPreviewPosition(previewSceneYRef.current - 10);
-  }, [scrollToPreviewPosition]);
+  }, [cachedItem.userId]);
 
   const runCardRevealSequence = React.useCallback(
     async (card: CompletedCard) => {
@@ -503,186 +1334,529 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         setActivePreviewCard,
         setPreviewPhase,
         setPreviewRevealState,
-        scrollToPreviewFront,
       });
     },
-    [scrollToPreviewFront]
+    []
   );
 
-  const toggleWord = (word: string) => {
-    const cleanWord = normalizeSelectableTerm(word);
-    if (!cleanWord) return;
+  const appendCompletedCard = React.useCallback((card: CompletedCard) => {
+    setCompletedCards((prev) => {
+      const alreadyAdded = prev.some(
+        (item) =>
+          item.displayWord === card.displayWord &&
+          item.sourceSentence === card.sourceSentence
+      );
+      return alreadyAdded ? prev : [...prev, card];
+    });
+  }, []);
 
-    setSelectedWords((prev) =>
-      prev.includes(cleanWord) ? prev.filter((w) => w !== cleanWord) : [...prev, cleanWord]
+  const toggleSourceToken = (sourceTokenIndex: number) => {
+    if (sourceTokenIndex < 0 || sourceTokenIndex >= sourceTokens.length) return;
+    const containingTarget = selectedTargets.find(
+      (target) =>
+        sourceTokenIndex >= target.startIndex &&
+        sourceTokenIndex <= target.endIndex
     );
-  };
-
-  const openMembershipPaywall = React.useCallback(() => {
-    tabSwipeContext?.openMembershipPaywall({ returnTo: 'create-card' });
-  }, [tabSwipeContext]);
-
-  React.useEffect(() => {
-    if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
-      selectTourSampleTarget();
-    }
-  }, [appTour.step, selectTourSampleTarget]);
-
-  const handleTourWordPress = React.useCallback(() => {
-    selectTourSampleTarget();
-    if (appTour.step === 'STEP_5_SELECT_TARGET') {
+    const wasSelected = Boolean(containingTarget);
+    setSelectedTokenIndices((previous) => {
+      if (containingTarget) {
+        return previous.filter(
+          (index) =>
+            index < containingTarget.startIndex ||
+            index > containingTarget.endIndex
+        );
+      }
+      return [...previous, sourceTokenIndex].sort((a, b) => a - b);
+    });
+    if (!wasSelected && appTour.step === 'STEP_5_SELECT_TARGET') {
       appTour.nextStep();
     }
-  }, [appTour, selectTourSampleTarget]);
+  };
+
+  const removeSelectedTarget = React.useCallback(
+    (targetId: string) => {
+      const target = selectedTargets.find((item) => item.id === targetId);
+      if (!target) return;
+      setSelectedTokenIndices((previous) =>
+        previous.filter(
+          (index) => index < target.startIndex || index > target.endIndex
+        )
+      );
+    },
+    [selectedTargets]
+  );
+
+  const editSourceToken = React.useCallback(
+    (token: string, index: number) => {
+      const currentToken = sourceTokens[index] || token;
+      const title = tUI(uiLanguage, 'create.editOcrTokenTitle');
+      const message = tUI(uiLanguage, 'create.editOcrTokenBody');
+      const applyEdit = (nextRaw?: string) => {
+        const nextToken = normalizeDisplayWord(nextRaw || '');
+        if (!nextToken) return;
+
+        const nextTokens = sourceTokens.map((item, itemIndex) =>
+          itemIndex === index ? nextToken : item
+        );
+        setEditedSourceText(nextTokens.join(' '));
+      };
+
+      void Haptics.selectionAsync();
+      if (Platform.OS === 'ios' && typeof Alert.prompt === 'function') {
+        Alert.prompt(
+          title,
+          message,
+          [
+            {
+              text: tUI(uiLanguage, 'create.editOcrTokenCancel'),
+              style: 'cancel',
+            },
+            {
+              text: tUI(uiLanguage, 'create.editOcrTokenSave'),
+              onPress: applyEdit,
+            },
+          ],
+          'plain-text',
+          currentToken
+        );
+        return;
+      }
+
+      Alert.alert(title, message);
+    },
+    [sourceTokens, uiLanguage]
+  );
+
+  const openMembershipPaywall = React.useCallback(() => {
+    traceFirstRun('paywall', 'create_card_limit_reached');
+    tabSwipeContext?.openMembershipPaywall({
+      returnTo: 'create-card',
+      source: 'create_card',
+    });
+  }, [tabSwipeContext]);
 
   const processWord = React.useCallback(
-    async (word: string) => {
-      const sentenceForCard = pickSentenceContainingWord(sourceText, word) || sourceText || word;
-      try {
-        const isTourSampleGeneration =
-          appTour.step === 'STEP_6_GENERATE_SAMPLE' &&
-          normalizeSelectableTerm(word) === normalizeSelectableTerm(TOUR_TARGET_WORD);
-
-        if (isTourSampleGeneration) {
-          const card = buildTourSampleCard(sentenceForCard);
-          setGeneratingCards((prev) =>
-            prev.map((item) =>
-              item.word === word ? { ...item, completed: true } : item
-            )
-          );
-          await runCardRevealSequence(card);
-          setCompletedCards((prev) => [card, ...prev]);
-          setActivePreviewCard(null);
-          setPreviewPhase('complete');
-          setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
-          setGenerationFailure((current) => (current?.word === word ? null : current));
-          setGeneratedWords((prev) => new Set([...prev, word]));
-          return true;
-        }
-
-        if (effectiveGenerationMode === 'manual') {
-          const localPhonetic = await getLocalPhoneticTranscription(word);
-          const card = {
-            ...buildManualCardDraft(word, localPhonetic),
-            sourceSentence: sentenceForCard,
-            selectedAlbumIds: [],
-          };
-          setGeneratingCards((prev) =>
-            prev.map((item) =>
-              item.word === word ? { ...item, completed: true } : item
-            )
-          );
-          setCompletedCards((prev) => [card, ...prev]);
-          setGenerationFailure((current) => (current?.word === word ? null : current));
-          setGeneratedWords((prev) => new Set([...prev, word]));
-          return true;
-        }
-
-        const generated = await generateContentForWord(word, sentenceForCard, {
-          replyLanguage: aiReplyLanguage,
-          aiBreakdownMode,
+    async (target: SelectedSourceTarget) => {
+      const word = target.text;
+      const targetAnchoredOCRText =
+        !editedSourceText.trim() && ocrBlocks.length > 0
+          ? buildTargetAnchoredOCRText(ocrBlocks, word, {
+              targetOccurrence: target.targetOccurrence,
+            })
+          : null;
+      const sentenceForCard =
+        pickSentenceContainingWord(targetAnchoredOCRText || sourceText, word, {
+          targetOccurrence: target.targetOccurrence,
+        }) ||
+        targetAnchoredOCRText ||
+        sourceText ||
+        word;
+      if (__DEV__ && targetAnchoredOCRText) {
+        console.log('[CreateCard][OCR] Using target-anchored region', {
+          target: word,
+          sourceLength: sourceText.length,
+          regionLength: targetAnchoredOCRText.length,
         });
-        triggerBuzzHaptic();
-        const resolvedDisplayWord =
-          normalizeDisplayWord(generated.suggestedWord || word) || word;
-        const resolvedTargetPhrase =
-          generated.isPartOfPhrase && generated.detectedPhrase
-            ? normalizeDisplayWord(generated.detectedPhrase)
+      }
+      try {
+        traceFirstRun('starter_allowance', 'card_generation_started', {
+          isTutorial: isDefaultExperienceTutorial,
+        });
+        setStreamStatusText('');
+        setPartialGeneratedCard(null);
+        setIsBufferedStreamPreview(false);
+        setPreviewPhase('frontThinking');
+        setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+        await new Promise((resolve) =>
+          setTimeout(resolve, GHOST_INITIAL_LOADING_BEAT_MS)
+        );
+        const initialGhostCard = buildPartialGhostCard({
+          word,
+          sourceSentence: sentenceForCard,
+          fields: {
+            normalizedTargetWord: word,
+            sentenceTranslation: sentenceForCard,
+          },
+          uiLanguage,
+          aiBreakdownMode,
+          selectedAlbumIds: selectedBatchAlbumIds,
+        });
+        setPartialGeneratedCard(initialGhostCard);
+        setIsBufferedStreamPreview(true);
+        setPreviewPhase('complete');
+        setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+        let accumulatedRaw = '';
+        let didShowStreamPreview = Boolean(initialGhostCard);
+        let generated: Awaited<ReturnType<typeof generateContentForWord>>;
+        const aiGenerationStartedAt = Date.now();
+        try {
+          const isBundledDemoContent =
+            isEligibleDefaultExperienceGeneration({
+              isTutorial: isDefaultExperienceTutorial,
+              targetWord: word,
+              originalSentence: sentenceForCard,
+            });
+          const generationSource = resolveTutorialGenerationSource({
+            isTutorial: isDefaultExperienceTutorial,
+            isBundledDemoContent,
+          });
+
+          if (generationSource === 'bundled-fixture') {
+            generated = await generateDefaultExperienceCardContent({
+              replyLanguage: aiReplyLanguage,
+              aiBreakdownMode: 'context',
+            });
+            setStreamStatusText(
+              tUI(uiLanguage, 'create.ghostStatusFinalizing')
+            );
+          } else {
+            generated = await generateContentForWordStream(
+              word,
+              sentenceForCard,
+              {
+                replyLanguage: aiReplyLanguage,
+                aiBreakdownMode,
+              },
+              {
+                onFirstToken: () => {
+                  setStreamStatusText(
+                    tUI(uiLanguage, 'create.ghostStatusFinalizing')
+                  );
+                },
+                onToken: (delta) => {
+                  accumulatedRaw += delta;
+                  const partialFields =
+                    parseIncompleteGenerateCardJSON(accumulatedRaw);
+                  const partialCard = buildPartialGhostCard({
+                    word,
+                    sourceSentence: sentenceForCard,
+                    fields: partialFields,
+                    uiLanguage,
+                    aiBreakdownMode,
+                    selectedAlbumIds: selectedBatchAlbumIds,
+                  });
+                  if (partialCard) {
+                    didShowStreamPreview = true;
+                    setIsBufferedStreamPreview(true);
+                    setPreviewPhase('complete');
+                    setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+                    setPartialGeneratedCard(partialCard);
+                  }
+                },
+              }
+            );
+          }
+        } catch (streamError) {
+          // Access-control failures are authoritative. Do not hide them behind
+          // a second non-stream request; let the outer handler open membership.
+          if (isPremiumFeatureError(streamError)) {
+            throw streamError;
+          }
+          console.warn('[CreateCard] stream generate fallback:', streamError);
+          setStreamStatusText('');
+          setPartialGeneratedCard(null);
+          setIsBufferedStreamPreview(false);
+          setPreviewPhase('frontThinking');
+          setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
+          generated = await generateContentForWord(word, sentenceForCard, {
+            replyLanguage: aiReplyLanguage,
+            aiBreakdownMode,
+          });
+        }
+        void logDiagnosticEvent({
+          severity: 'info',
+          category: 'ai',
+          event: 'create_card_ai_generation_completed',
+          context: {
+            elapsedMs: Date.now() - aiGenerationStartedAt,
+            aiBreakdownMode,
+            replyLanguage: aiReplyLanguage,
+            targetLength: word.length,
+            sourceLength: sentenceForCard.length,
+            usedStreamPreview: didShowStreamPreview,
+            hasCollocations: Boolean((generated.frequentCollocations || '').trim()),
+            hasExamples: Boolean((generated.exampleSentence || '').trim()),
+            hasSemanticRelations: Boolean((generated.semanticRelations || '').trim()),
+            hasPhoneticTranscription: Boolean(generated.phoneticTranscription),
+          },
+        });
+        const typoSuggestionRaw = generated.isLikelyTypo
+          ? normalizeDisplayWord(generated.correctedTargetWord || '')
+          : '';
+        const typoSuggestion =
+          typoSuggestionRaw &&
+          normalizeSelectableTerm(typoSuggestionRaw).toLowerCase() !==
+            normalizeSelectableTerm(word).toLowerCase()
+            ? typoSuggestionRaw
             : undefined;
+        const aiDetectedPhrase = normalizeDisplayWord(
+          generated.detectedPhrase ||
+            (generated.isPartOfPhrase ? generated.suggestedWord || '' : '')
+        );
+        triggerBuzzHaptic();
+        const aiSuggestedWord =
+          normalizeDisplayWord(generated.suggestedWord || word) || word;
+        const heuristicTargetPhrase = normalizeDisplayWord(
+          aiDetectedPhrase ||
+            generated.detectedPhrase ||
+            (generated.isPartOfPhrase ? generated.suggestedWord || '' : '')
+        );
+        const resolvedDisplayWord = typoSuggestion
+          ? word
+          : heuristicTargetPhrase &&
+              heuristicTargetPhrase.toLowerCase() !==
+                normalizeSelectableTerm(word).toLowerCase()
+            ? heuristicTargetPhrase
+            : aiSuggestedWord;
+        const resolvedTargetPhrase =
+          heuristicTargetPhrase &&
+          heuristicTargetPhrase.toLowerCase() !== aiSuggestedWord.toLowerCase()
+            ? heuristicTargetPhrase
+            : undefined;
+        const generatedContextSections = parseCardContextSections({
+          raw: generated.contextualExplanation,
+          displayWord: resolvedDisplayWord,
+          definition: generated.definition,
+          sourceSentence: sentenceForCard,
+          manualMode: false,
+        });
         const card: CompletedCard = {
           word,
           displayWord: resolvedDisplayWord,
+          typoSuggestion,
+          typoReason: generated.typoReason || undefined,
           targetPhrase:
-            resolvedTargetPhrase && resolvedTargetPhrase.toLowerCase() !== resolvedDisplayWord.toLowerCase()
+            !typoSuggestion &&
+            resolvedTargetPhrase &&
+            resolvedTargetPhrase.toLowerCase() !==
+              resolvedDisplayWord.toLowerCase()
               ? resolvedTargetPhrase
               : undefined,
           partOfSpeech: generated.partOfSpeech || 'noun',
-          definition: generated.definition || `${resolvedDisplayWord}（待補充定義）`,
+          definition:
+            generated.definition ||
+            `${resolvedDisplayWord} (${tUI(uiLanguage, 'create.definitionFallback')})`,
           cultural: generated.contextualExplanation || '',
           collocationsText: (generated.frequentCollocations || '').trim(),
+          semanticRelationsText: (generated.semanticRelations || '').trim(),
           note: '',
           phoneticTranscription: generated.phoneticTranscription || null,
+          // The source excerpt is selected locally. AI may quote or format it
+          // for translation, but must never replace the stored original.
           sourceSentence: sentenceForCard,
           manualMode: false,
           addedToDeck: true,
-          selectedAlbumIds: [],
+          selectedAlbumIds: [...selectedBatchAlbumIds],
           aiBreakdownMode,
           tags: generated.tags || [],
         };
 
         setGeneratingCards((prev) =>
           prev.map((item) =>
-            item.word === word ? { ...item, completed: true } : item
+            item.targetId === target.id ? { ...item, completed: true } : item
           )
         );
-        await runCardRevealSequence(card);
-        setCompletedCards((prev) => [card, ...prev]);
-        setActivePreviewCard(null);
+        setPartialGeneratedCard(null);
+        setActivePreviewCard(card);
+        appendCompletedCard(card);
+        if (didShowStreamPreview) {
+          setPreviewPhase('complete');
+          setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+          await new Promise((resolve) => setTimeout(resolve, 420));
+        } else {
+          await runCardRevealSequence(card);
+        }
+        setActivePreviewCard((current) =>
+          current?.word === card.word &&
+          current?.sourceSentence === card.sourceSentence
+            ? null
+            : current
+        );
+        setIsBufferedStreamPreview(false);
         setPreviewPhase('complete');
         setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
-        setGenerationFailure((current) => (current?.word === word ? null : current));
-        setGeneratedWords((prev) => new Set([...prev, word]));
-        return true;
+        setGenerationFailure((current) =>
+          current?.word === word ? null : current
+        );
+        setGeneratedTargetIds((prev) => new Set([...prev, target.id]));
+        return { status: 'success' as const, card };
       } catch (error) {
         if (isPremiumFeatureError(error)) {
+          if (SubscriptionService.isPremiumBypassEnabled()) {
+            console.warn(
+              '[CreateCard] Premium bypass is active, but backend still returned a premium gate.',
+              error
+            );
+            const card = buildRecordingBypassCard({
+              word,
+              sentenceForCard,
+              uiLanguage,
+              aiBreakdownMode,
+              selectedAlbumIds: selectedBatchAlbumIds,
+            });
+            triggerBuzzHaptic();
+            setGeneratingCards((prev) =>
+              prev.map((item) =>
+                item.targetId === target.id
+                  ? { ...item, completed: true }
+                  : item
+              )
+            );
+            setPartialGeneratedCard(null);
+            setActivePreviewCard(card);
+            appendCompletedCard(card);
+            await runCardRevealSequence(card);
+            setActivePreviewCard((current) =>
+              current?.word === card.word &&
+              current?.sourceSentence === card.sourceSentence
+                ? null
+                : current
+            );
+            setIsBufferedStreamPreview(false);
+            setPreviewPhase('complete');
+            setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+            setGenerationFailure((current) =>
+              current?.word === word ? null : current
+            );
+            setGeneratedTargetIds((prev) => new Set([...prev, target.id]));
+            traceFirstRun('starter_allowance', 'card_generation_succeeded', {
+              isTutorial: isDefaultExperienceTutorial,
+            });
+            return { status: 'success' as const, card };
+          }
           setGeneratingCards([]);
           setActivePreviewCard(null);
+          setPartialGeneratedCard(null);
+          setIsBufferedStreamPreview(false);
           setPreviewPhase('frontThinking');
           setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
           setGenerationFailure(null);
-          if (appTour.step !== 'STEP_6_GENERATE_SAMPLE') {
+          pendingPremiumRetryRef.current = true;
+          traceFirstRun('starter_allowance', 'card_generation_paywalled', {
+            isTutorial: isDefaultExperienceTutorial,
+          });
+          if (
+            shouldOpenStarterPaywall({
+              isTutorial: isDefaultExperienceTutorial,
+              tourStep: appTour.step,
+            })
+          ) {
             openMembershipPaywall();
           }
-          return false;
+          return { status: 'blocked' as const };
         }
         console.error('[CreateCard] generate failed:', word, error);
-        const message = error instanceof Error ? error.message : 'Unable to generate this card. Please try again.';
-        setGeneratingCards((prev) =>
-          prev.map((item) =>
-            item.word === word ? { ...item, completed: true } : item
-          )
-        );
+        traceFirstRun('starter_allowance', 'card_generation_failed', {
+          isTutorial: isDefaultExperienceTutorial,
+          error,
+        });
+        const message =
+          error instanceof Error
+            ? error.message
+            : tUI(uiLanguage, 'create.generateFailedBody');
+        setGeneratingCards([]);
         setActivePreviewCard(null);
+        setPartialGeneratedCard(null);
+        setIsBufferedStreamPreview(false);
         setPreviewPhase('frontThinking');
         setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
         setGenerationFailure({ word, message });
-        return true;
+        return { status: 'failed' as const };
       }
     },
-    [aiBreakdownMode, aiReplyLanguage, appTour.step, effectiveGenerationMode, openMembershipPaywall, runCardRevealSequence, sourceText]
+    [
+      aiBreakdownMode,
+      aiReplyLanguage,
+      appendCompletedCard,
+      appTour.step,
+      editedSourceText,
+      ocrBlocks,
+      openMembershipPaywall,
+      runCardRevealSequence,
+      selectedBatchAlbumIds,
+      sourceText,
+      uiLanguage,
+      isDefaultExperienceTutorial,
+    ]
   );
 
   const beginGenerate = React.useCallback(async () => {
-    if (selectedWords.length === 0) return;
+    if (selectedTargets.length === 0) return;
 
-    const newWords = selectedWords.filter((word) => !generatedWords.has(word));
-    if (newWords.length === 0) return;
+    const newTargets = selectedTargets.filter(
+      (target) => !generatedTargetIds.has(target.id)
+    );
+    if (newTargets.length === 0) return;
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setGenerationFailure(null);
     setHasStarted(true);
     setActivePreviewCard(null);
+    setPartialGeneratedCard(null);
+    setIsBufferedStreamPreview(false);
     setPreviewPhase('frontThinking');
     setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
-    scrollToPreviewFront();
 
-    for (const word of newWords) {
+    const handledTargetIds = new Set<string>();
+    for (const target of newTargets) {
+      if (handledTargetIds.has(target.id)) continue;
       setPreviewPhase('frontThinking');
       setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
-      setGeneratingCards([{ word, completed: false }]);
-      const shouldContinue = await processWord(word);
-      if (!shouldContinue) break;
+      setPartialGeneratedCard(null);
+      setIsBufferedStreamPreview(false);
+      setStreamStatusText('');
+      setGeneratingCards([
+        { targetId: target.id, word: target.text, completed: false },
+      ]);
+      const result = await processWord(target);
+      if (result.status === 'blocked') break;
+      handledTargetIds.add(target.id);
+      if (result.status !== 'success') continue;
+
+      const resolvedSubject = normalizeSelectableTerm(
+        result.card.targetPhrase || result.card.displayWord
+      );
+      const resolvedSubjectTokens = resolvedSubject
+        .split(/\s+/)
+        .filter(Boolean);
+      if (resolvedSubjectTokens.length < 2 || result.card.typoSuggestion)
+        continue;
+
+      for (const candidate of newTargets) {
+        const candidateText = normalizeSelectableTerm(candidate.text);
+        if (
+          candidate.id !== target.id &&
+          candidateText &&
+          ` ${resolvedSubject} `.includes(` ${candidateText} `)
+        ) {
+          handledTargetIds.add(candidate.id);
+          setGeneratedTargetIds((prev) => new Set([...prev, candidate.id]));
+        }
+      }
     }
 
     setTimeout(() => {
+      cancelPendingPreviewScroll();
       setHasStarted(false);
       setGeneratingCards([]);
+      setPartialGeneratedCard(null);
+      setIsBufferedStreamPreview(false);
     }, 220);
-  }, [generatedWords, processWord, scrollToPreviewFront, selectedWords]);
+  }, [
+    cancelPendingPreviewScroll,
+    generatedTargetIds,
+    processWord,
+    selectedTargets,
+  ]);
 
-  const cardsToSave = completedCards.filter((card) => card.addedToDeck);
-  const newSelectedWords = selectedWords.filter((word) => !generatedWords.has(word));
-  const hasNewWords = newSelectedWords.length > 0;
+  const newSelectedTargets = selectedTargets.filter(
+    (target) => !generatedTargetIds.has(target.id)
+  );
+  const hasNewWords = newSelectedTargets.length > 0;
+  const previewDisplayCard = activePreviewCard || partialGeneratedCard;
+  const isPartialPreviewActive = Boolean(
+    partialGeneratedCard && !activePreviewCard
+  );
   const previewStackCards = React.useMemo(
     () =>
       activePreviewCard
@@ -690,30 +1864,52 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         : completedCards,
     [activePreviewCard, completedCards]
   );
-  const isPlanResolving = !generationMode && !entitlementSnapshot;
-  const isGenerateDisabled = selectedWords.length === 0 || isPlanResolving;
-
-  React.useEffect(() => {
-    if (!isGhostGenerating) return;
-    const timer = setTimeout(() => {
-      scrollToPreviewFront();
-    }, 60);
-    return () => clearTimeout(timer);
-  }, [isGhostGenerating, scrollToPreviewFront]);
+  const isGenerateDisabled = selectedTargets.length === 0;
 
   const handleGenerate = React.useCallback(async () => {
-    if (selectedWords.length === 0 || isPlanResolving) return;
-    if (effectiveGenerationMode === 'manual') {
-      await beginGenerate();
-      return;
-    }
-
+    if (selectedTargets.length === 0) return;
+    console.log('[CreateCard][Generate] pressed', {
+      selectedTargets: selectedTargets.length,
+      effectiveGenerationMode,
+      planType: entitlementSnapshot?.planType ?? 'unknown',
+      canUseAutoCardGeneration:
+        entitlementSnapshot?.canUseAutoCardGeneration ?? null,
+      canUseCloudAI: entitlementSnapshot?.canUseCloudAI ?? null,
+    });
     await beginGenerate();
-  }, [beginGenerate, effectiveGenerationMode, isPlanResolving, selectedWords.length]);
+  }, [
+    beginGenerate,
+    effectiveGenerationMode,
+    entitlementSnapshot,
+    selectedTargets.length,
+  ]);
+
+  React.useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      SUBSCRIPTION_ENTITLEMENT_UPDATED_EVENT,
+      (snapshot: EntitlementSnapshot) => {
+        setEntitlementSnapshot(snapshot);
+        if (!pendingPremiumRetryRef.current) return;
+        if (snapshot.planType !== 'premium' && snapshot.planType !== 'trial')
+          return;
+
+        pendingPremiumRetryRef.current = false;
+        tabSwipeContext?.goToTab(1, { animation: 'fade', durationMs: 280 });
+        setTimeout(() => {
+          void beginGenerate();
+        }, 360);
+      }
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [beginGenerate, tabSwipeContext]);
 
   const handleTourGeneratePress = React.useCallback(() => {
     if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
-      appTour.nextStep();
+      shouldPromptTourSaveOnScrollRef.current = true;
+      appTour.resetTourState();
       requestAnimationFrame(() => {
         void handleGenerate();
       });
@@ -722,23 +1918,79 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     void handleGenerate();
   }, [appTour, handleGenerate]);
 
-  const handleOpenPremiumUpsell = React.useCallback((_featureLabel: string) => {
-    openMembershipPaywall();
-  }, [openMembershipPaywall]);
+  const handleCreateCardScroll = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      currentScrollYRef.current = event.nativeEvent.contentOffset.y;
+      if (!shouldPromptTourSaveOnScrollRef.current) return;
+      if (completedCards.length === 0) return;
 
-  const updateCardField = React.useCallback((word: string, patch: Partial<CompletedCard>) => {
-    setCompletedCards((prev) => prev.map((card) => (card.word === word ? { ...card, ...patch } : card)));
-    setActivePreviewCard((prev) => (prev?.word === word ? { ...prev, ...patch } : prev));
-  }, []);
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceFromBottom > 180) return;
 
-  const updateCardAlbums = React.useCallback((word: string, updater: (albumIds: string[]) => string[]) => {
-    const apply = (card: CompletedCard): CompletedCard => ({
-      ...card,
-      selectedAlbumIds: updater(card.selectedAlbumIds || []),
-    });
-    setCompletedCards((prev) => prev.map((card) => (card.word === word ? apply(card) : card)));
-    setActivePreviewCard((prev) => (prev?.word === word ? apply(prev) : prev));
-  }, []);
+      shouldPromptTourSaveOnScrollRef.current = false;
+      appTour.goToStep('STEP_7_SAVE_SAMPLE');
+    },
+    [appTour, completedCards.length]
+  );
+
+  const handleOpenPremiumUpsell = React.useCallback(
+    (_featureLabel: string) => {
+      openMembershipPaywall();
+    },
+    [openMembershipPaywall]
+  );
+
+  const updateCardField = React.useCallback(
+    (word: string, patch: Partial<CompletedCard>) => {
+      setCompletedCards((prev) =>
+        prev.map((card) => (card.word === word ? { ...card, ...patch } : card))
+      );
+      setActivePreviewCard((prev) =>
+        prev?.word === word ? { ...prev, ...patch } : prev
+      );
+    },
+    []
+  );
+
+  const applyTypoDecision = React.useCallback(
+    (card: CompletedCard, accepted: boolean, overrideText = '') => {
+      const suggestion = normalizeDisplayWord(
+        overrideText || card.typoSuggestion || ''
+      );
+      if (!suggestion) return;
+      void Haptics.selectionAsync();
+      updateCardField(card.word, {
+        displayWord: accepted ? suggestion : card.word,
+        targetPhrase: accepted ? undefined : card.targetPhrase,
+        typoDecision: accepted ? 'accepted' : 'rejected',
+      });
+      setTypoOverrideInputs((prev) => {
+        const next = { ...prev };
+        delete next[card.word];
+        return next;
+      });
+    },
+    [updateCardField]
+  );
+
+  const updateCardAlbums = React.useCallback(
+    (word: string, updater: (albumIds: string[]) => string[]) => {
+      const apply = (card: CompletedCard): CompletedCard => ({
+        ...card,
+        selectedAlbumIds: updater(card.selectedAlbumIds || []),
+      });
+      setCompletedCards((prev) =>
+        prev.map((card) => (card.word === word ? apply(card) : card))
+      );
+      setActivePreviewCard((prev) =>
+        prev?.word === word ? apply(prev) : prev
+      );
+    },
+    []
+  );
 
   const toggleDraftFavorite = React.useCallback(
     (word: string) => {
@@ -755,7 +2007,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     (albumId: string) => {
       if (!albumTargetWord) return;
       updateCardAlbums(albumTargetWord, (albumIds) =>
-        albumIds.includes(albumId) ? albumIds.filter((id) => id !== albumId) : Array.from(new Set([...albumIds, albumId]))
+        albumIds.includes(albumId)
+          ? albumIds.filter((id) => id !== albumId)
+          : Array.from(new Set([...albumIds, albumId]))
       );
     },
     [albumTargetWord, updateCardAlbums]
@@ -767,10 +2021,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, []);
 
   const openCreateAlbumModal = React.useCallback(() => {
-    setShowAlbumSheet(false);
-    requestAnimationFrame(() => {
-      setIsCreateAlbumModalVisible(true);
-    });
+    setIsCreateAlbumModalVisible(true);
   }, []);
 
   const createAlbum = React.useCallback(async () => {
@@ -784,40 +2035,65 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     };
 
     try {
-      await saveDeckAlbumPreferences(nextPrefs);
+      await saveDeckAlbumPreferences(nextPrefs, cachedItem.userId);
       setAlbumPrefs(nextPrefs);
       if (albumTargetWord) {
-        updateCardAlbums(albumTargetWord, (albumIds) => Array.from(new Set([...albumIds, newAlbum.id])));
+        updateCardAlbums(albumTargetWord, (albumIds) =>
+          Array.from(new Set([...albumIds, newAlbum.id]))
+        );
       }
       setIsCreateAlbumModalVisible(false);
       setNewAlbumName('');
-      setShowAlbumSheet(true);
     } catch (error) {
       console.error('[CreateCard] create album failed:', error);
-      Alert.alert('建立失敗', '建立資料夾時發生問題，請再試一次。');
+      Alert.alert(
+        tUI(uiLanguage, 'create.createAlbumFailedTitle'),
+        tUI(uiLanguage, 'create.createAlbumFailedBody')
+      );
     }
-  }, [albumPrefs, albumTargetWord, newAlbumName, updateCardAlbums]);
+  }, [albumPrefs, albumTargetWord, newAlbumName, updateCardAlbums, uiLanguage]);
 
   const openDraftPronunciationModal = React.useCallback(() => {
-    Alert.alert('Pronunciation Coach', 'Save this card first, then you can practice pronunciation from the card detail screen.');
-  }, []);
+    Alert.alert(
+      tUI(uiLanguage, 'create.pronunciationCoachTitle'),
+      tUI(uiLanguage, 'create.pronunciationSaveFirstBody')
+    );
+  }, [uiLanguage]);
 
-  const playDraftPreviewWord = React.useCallback((word: string) => {
-    const text = word.trim();
-    if (!text) {
-      Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
-      return;
-    }
+  const playDraftPreviewWord = React.useCallback(
+    (word: string) => {
+      const text = word.trim();
+      if (!text) {
+        Alert.alert(
+          tUI(uiLanguage, 'create.noSpeakableContentTitle'),
+          tUI(uiLanguage, 'create.noSpeakableContentBody')
+        );
+        return;
+      }
 
-    void Haptics.selectionAsync();
-    void speakEnglishNaturally(text, {
-      onDownloadStart: () => setPreviewWordAudioLoading(text),
-      onDownloadEnd: () => setPreviewWordAudioLoading((current) => (current === text ? null : current)),
-      onDone: () => setPreviewWordAudioLoading((current) => (current === text ? null : current)),
-      onStopped: () => setPreviewWordAudioLoading((current) => (current === text ? null : current)),
-      onError: () => setPreviewWordAudioLoading((current) => (current === text ? null : current)),
-    });
-  }, []);
+      void Haptics.selectionAsync();
+      void speakEnglishNaturally(text, {
+        onDownloadStart: () => setPreviewWordAudioLoading(text),
+        onDownloadEnd: () =>
+          setPreviewWordAudioLoading((current) =>
+            current === text ? null : current
+          ),
+        onDone: () =>
+          setPreviewWordAudioLoading((current) =>
+            current === text ? null : current
+          ),
+        onStopped: () =>
+          setPreviewWordAudioLoading((current) =>
+            current === text ? null : current
+          ),
+        onError: () =>
+          setPreviewWordAudioLoading((current) =>
+            current === text ? null : current
+          ),
+      });
+    },
+    [uiLanguage]
+  );
 
   const updateNote = (word: string, note: string) => {
     updateCardField(word, { note });
@@ -827,56 +2103,71 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     setShowCollocations((prev) => ({ ...prev, [word]: !prev[word] }));
   };
 
-  const toggleAddToDeck = (word: string) => {
-    setCompletedCards((prev) =>
-      prev.map((card) => (card.word === word ? { ...card, addedToDeck: !card.addedToDeck } : card))
-    );
-  };
-
-  const handleSave = async () => {
-    if (cardsToSave.length === 0) {
-      Alert.alert('尚未選擇', '請先勾選至少一張要加入 Deck 的卡片。');
-      return;
-    }
-
+  const persistCardDraftsOptimistically = async (
+    cardsToPersist: CompletedCard[]
+  ) => {
+    if (cardsToPersist.length === 0) return;
     setSaving(true);
+    const analyticsSourceType = originalImageUri ? 'image' : 'text';
+    analytics.track('card_creation_started', {
+      source_type: analyticsSourceType,
+      selected_card_count: cardsToPersist.length,
+    });
     try {
+      const activeUserId = await assertRecordOwnedByCurrentUser(
+        cachedItem.userId,
+        '這筆 Cache 資料'
+      );
       const imageSourceForUpload =
-        originalImageUri ||
-        cachedItem.imageStoragePath ||
-        '';
+        originalImageUri || cachedItem.imageStoragePath || '';
 
       const cardsCollection = database.get<Card>('cards');
       const createdCardIds: string[] = [];
       const stickyDraftsToPersist: Array<{ cardId: string; note: string }> = [];
       await database.write(async () => {
-        for (const cardDraft of cardsToSave) {
+        for (const cardDraft of cardsToPersist) {
           const created = await cardsCollection.create((card) => {
-            const sourceSentence = (cardDraft.sourceSentence || pickSentenceContainingWord(sourceText, cardDraft.word)).trim();
-            card.userId = cachedItem.userId;
+            assignCloudCardId(card);
+            const sourceSentence = (
+              cardDraft.sourceSentence ||
+              pickSentenceContainingWord(sourceText, cardDraft.word)
+            ).trim();
+            card.userId = activeUserId;
             card.cachedItemId = cachedItem.id;
             card.targetWord = cardDraft.displayWord;
             card.targetPhrase = cardDraft.targetPhrase || undefined;
             card.originalSentence = sourceSentence || sourceText;
-            card.definition = cardDraft.definition.trim() || `${cardDraft.displayWord}（待補充定義）`;
+            card.definition =
+              cardDraft.definition.trim() ||
+              `${cardDraft.displayWord} (${tUI(uiLanguage, 'create.definitionFallback')})`;
             card.partOfSpeech = cardDraft.partOfSpeech.trim() || undefined;
             card.contextualExplanation = cardDraft.cultural.trim() || undefined;
-            card.frequentCollocations = cardDraft.collocationsText.trim() || undefined;
-            card.phoneticTranscription = cardDraft.phoneticTranscription || undefined;
+            card.frequentCollocations =
+              cardDraft.collocationsText.trim() || undefined;
+            card.semanticRelations =
+              cardDraft.semanticRelationsText.trim() || undefined;
+            card.phoneticTranscription =
+              cardDraft.phoneticTranscription || undefined;
             const selectedAlbumIds = cardDraft.selectedAlbumIds || [];
-            const albumTags = selectedAlbumIds.map((id) => `${ALBUM_TAG_PREFIX}${id}`);
+            const albumTags = selectedAlbumIds.map(
+              (id) => `${ALBUM_TAG_PREFIX}${id}`
+            );
             const categoryTags = selectedAlbumIds
               .map((id) => albumIdToCategoryTag[id])
               .filter((tag): tag is string => Boolean(tag));
             const tags = Array.from(
-              new Set([
-                cachedItem.sourceApp,
-                'create-flow',
-                cardDraft.aiBreakdownMode ? `ai_mode:${cardDraft.aiBreakdownMode}` : null,
-                ...(cardDraft.tags || []),
-                ...albumTags,
-                ...categoryTags,
-              ].filter(Boolean) as string[])
+              new Set(
+                [
+                  cachedItem.sourceApp,
+                  'create-flow',
+                  cardDraft.aiBreakdownMode
+                    ? `ai_mode:${cardDraft.aiBreakdownMode}`
+                    : null,
+                  ...(cardDraft.tags || []),
+                  ...albumTags,
+                  ...categoryTags,
+                ].filter(Boolean) as string[]
+              )
             );
             card.tags = tags.length > 0 ? tags : undefined;
             card.sourceApp = cachedItem.sourceApp;
@@ -902,246 +2193,532 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       });
 
       if (stickyDraftsToPersist.length > 0) {
-        const stickyNotesMap = await loadCardStickyNotes();
+        const stickyNotesMap = await loadCardStickyNotes(activeUserId);
         stickyDraftsToPersist.forEach((draft) => {
           stickyNotesMap[draft.cardId] = draft.note;
         });
-        await saveCardStickyNotes(stickyNotesMap);
+        await saveCardStickyNotes(stickyNotesMap, activeUserId);
       }
+
+      queueSavedCardsForCloudPersistence({
+        userId: activeUserId,
+        cardIds: createdCardIds,
+      });
+
       const localImageSource = originalImageUri || imageSourceForUpload;
       if (localImageSource) {
-        await Promise.all(
+        const durableUploads = await Promise.all(
           createdCardIds.map(async (id) => {
             try {
-              const localUri = await persistLocalCardImage(id, localImageSource);
+              const localUri = await persistLocalCardImage(
+                id,
+                localImageSource
+              );
               if (!localUri) {
                 console.warn('[CreateCard] local card image persist skipped', {
                   cardId: id,
                   imageSourceForUpload: localImageSource,
                 });
               }
+              return localUri ? { cardId: id, localUri } : null;
             } catch (localPersistError) {
               console.warn('[CreateCard] local card image persist failed', {
                 cardId: id,
-                error: localPersistError instanceof Error ? localPersistError.message : localPersistError,
+                error:
+                  localPersistError instanceof Error
+                    ? localPersistError.message
+                    : localPersistError,
               });
+              return null;
             }
           })
         );
+        await queueCardImageUploads({
+          userId: activeUserId,
+          uploads: durableUploads.filter(
+            (item): item is { cardId: string; localUri: string } =>
+              item !== null
+          ),
+        });
       }
 
-      if (appTour.step === 'STEP_7_SAVE_SAMPLE' && createdCardIds.length > 0) {
+      void ReminderNotificationService.evaluateAndSchedule({
+        allowSoftPrompt: false,
+      }).catch((error) => {
+        console.warn('[Reminders] schedule after card save failed:', error);
+      });
+
+      analytics.track('card_creation_succeeded', {
+        source_type: analyticsSourceType,
+        card_count: createdCardIds.length,
+        is_tutorial: isDefaultExperienceTutorial,
+      });
+
+      if (isDefaultExperienceTutorial && createdCardIds.length > 0) {
+        await markDefaultExperienceQuizHintPending(activeUserId);
+      } else if (
+        appTour.step === 'STEP_7_SAVE_SAMPLE' &&
+        createdCardIds.length > 0
+      ) {
+        appTour.setSampleCardId(createdCardIds[0]);
         appTour.nextStep();
-        tabSwipeContext?.goToTab(0, { animation: 'slide', durationMs: 620 });
-      } else {
-        goToCacheHome();
-      }
-
-      if (imageSourceForUpload) {
-        setTimeout(() => {
-          void (async () => {
-            try {
-              const uploadedImageUrl = await uploadCardImageToSupabase({
-                imageUri: imageSourceForUpload,
-                cachedItemId: cachedItem.id,
-              });
-              if (!uploadedImageUrl) return;
-              await database.write(async () => {
-                await Promise.all(
-                  createdCardIds.map(async (id) => {
-                    const row = await database.get<Card>('cards').find(id);
-                    await row.update((card) => {
-                      card.imageUrl = uploadedImageUrl;
-                    });
-                  })
-                );
-                await cachedItem.update((item) => {
-                  item.imageStoragePath = uploadedImageUrl;
-                });
-              });
-              console.log('[CreateCard] background image upload succeeded:', {
-                cachedItemId: cachedItem.id,
-                uploadedImageUrl,
-                cardCount: createdCardIds.length,
-              });
-            } catch (backgroundUploadError) {
-              console.warn('[CreateCard] background image upload failed:', backgroundUploadError);
-            }
-          })();
-        }, 0);
       }
     } catch (error) {
       console.error('[CreateCard] save failed:', error);
-      const message = error instanceof Error ? error.message : '儲存卡片失敗，請稍後再試。';
-      Alert.alert('錯誤', message);
+      analytics.track('card_creation_failed', {
+        source_type: analyticsSourceType,
+        reason: isPremiumFeatureError(error) ? 'premium_required' : 'save_failed',
+      });
+      const message =
+        error instanceof Error
+          ? error.message
+          : tUI(uiLanguage, 'create.saveErrorBody');
+      Alert.alert(tUI(uiLanguage, 'create.saveErrorTitle'), message);
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: palette.containerBg }]} edges={['top']}>
-      <KeyboardAvoidingView style={[styles.container, { backgroundColor: palette.screenBg }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {!shouldHideSourcePanels && originalImageUri ? (
-          <View
+  React.useEffect(() => {
+    if (saving) return;
+    const cardsToPersist = claimUnsavedCards(
+      completedCards.filter((card) => card.addedToDeck),
+      optimisticSaveClaimsRef.current
+    );
+    if (cardsToPersist.length === 0) return;
+    void persistCardDraftsOptimistically(cardsToPersist);
+  }, [completedCards, saving]);
+
+  const handleDone = React.useCallback(() => {
+    goToCacheHome();
+    if (
+      isDefaultExperienceTutorial ||
+      appTour.step === 'STEP_7_SAVE_SAMPLE'
+    ) {
+      setTimeout(() => {
+        tabSwipeContext?.goToTab(0, { animation: 'slide', durationMs: 620 });
+      }, 80);
+    }
+  }, [
+    appTour.step,
+    goToCacheHome,
+    isDefaultExperienceTutorial,
+    tabSwipeContext,
+  ]);
+
+  const renderTypoSuggestion = React.useCallback(
+    (card: CompletedCard | null) => {
+      if (!card?.typoSuggestion || card.typoDecision) return null;
+      const overrideValue = typoOverrideInputs[card.word] || '';
+      const trimmedOverride = normalizeDisplayWord(overrideValue);
+      return (
+        <View style={styles.typoSuggestionInline}>
+          <Text
             style={[
-              styles.block,
-              {
-                backgroundColor: palette.containerBg,
-                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-                shadowOpacity: isLight ? 0.06 : 0.16,
-              },
+              styles.typoSuggestionPrompt,
+              { color: palette.secondaryText },
             ]}
           >
-            <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Original Image</Text>
-            <Image
-              source={{ uri: originalImageUri }}
-              style={[styles.originalImage, { backgroundColor: palette.modalOptionBg }]}
-              resizeMode="contain"
-            />
-            {isOcrRunning ? <Text style={[styles.ocrStatus, { color: MODAL_CTA_COLOR }]}>OCR 辨識中...</Text> : null}
-            {ocrError ? <Text style={[styles.ocrErrorText, { color: palette.destructiveBg }]}>{ocrError}</Text> : null}
-          </View>
-        ) : null}
-
-        {!shouldHideSourcePanels ? (
-        <View
-          style={[
-            styles.block,
-            {
-              backgroundColor: palette.containerBg,
-              borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-              shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-              shadowOpacity: isLight ? 0.06 : 0.16,
-            },
-          ]}
-        >
-          <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Original Context</Text>
-          <View style={styles.wordsWrap}>
-            {sourceTokens.map((token, idx) => {
-              const clean = normalizeSelectableTerm(token);
-              const isSelected = selectedWords.includes(clean);
-              const isTourSampleToken =
-                Boolean(normalizedTourSampleTarget) && clean === normalizedTourSampleTarget;
-              const tokenPressable = (
-                <Pressable
-                  key={`${token}-${idx}`}
-                  style={({ pressed }) => [
-                    styles.tokenBtn,
-                    {
-                      backgroundColor: isSelected ? MODAL_CTA_COLOR : palette.modalOptionBg,
-                      borderColor: isSelected ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
-                    },
-                    appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken ? styles.tokenBtnTourActive : null,
-                    pressed ? styles.pressableChipPressed : null,
-                  ]}
-                  onPress={() => {
-                    if (appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken) {
-                      handleTourWordPress();
-                      return;
-                    }
-                    toggleWord(token);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.tokenText,
-                      { color: isSelected ? TEXT_ON_CTA : palette.textOnContainer },
-                      isSelected && styles.tokenTextSelected,
-                    ]}
-                  >
-                    {token}
-                  </Text>
-                </Pressable>
-              );
-              if (appTour.step === 'STEP_5_SELECT_TARGET' && isTourSampleToken) {
-                return (
-                  <TutorialSpotlight
-                    key={`tour-${token}-${idx}`}
-                    active
-                    tooltip="Choose “wing”."
-                    onSpotlightPress={handleTourWordPress}
-                  >
-                    {tokenPressable}
-                  </TutorialSpotlight>
-                );
+            {tUI(uiLanguage, 'create.didYouMean')}?
+          </Text>
+          <View style={styles.typoSuggestionChoices}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${tUI(uiLanguage, 'create.didYouMeanYes')}: ${card.typoSuggestion}`}
+              hitSlop={4}
+              style={({ pressed }) => [
+                styles.typoSuggestionChoice,
+                pressed ? styles.typoSuggestionChoicePressed : null,
+              ]}
+              onPress={() => applyTypoDecision(card, true)}
+            >
+              <Text
+                style={[
+                  styles.typoSuggestionRecommendedText,
+                  { color: MODAL_CTA_COLOR },
+                ]}
+              >
+                {card.typoSuggestion}
+              </Text>
+            </Pressable>
+            <Text
+              style={[
+                styles.typoSuggestionSeparator,
+                { color: palette.secondaryText },
+              ]}
+            >
+              ·
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={4}
+              style={({ pressed }) => [
+                styles.typoSuggestionChoice,
+                pressed ? styles.typoSuggestionChoicePressed : null,
+              ]}
+              onPress={() => applyTypoDecision(card, false)}
+            >
+              <Text
+                style={[
+                  styles.typoSuggestionChoiceText,
+                  { color: palette.textOnContainer },
+                ]}
+              >
+                {tUI(uiLanguage, 'create.didYouMeanNo')}
+              </Text>
+            </Pressable>
+            <Text
+              style={[
+                styles.typoSuggestionSeparator,
+                { color: palette.secondaryText },
+              ]}
+            >
+              ·
+            </Text>
+            <TextInput
+              value={overrideValue}
+              onChangeText={(text) =>
+                setTypoOverrideInputs((prev) => ({
+                  ...prev,
+                  [card.word]: text,
+                }))
               }
-              return tokenPressable;
-            })}
-          </View>
-        </View>
-        ) : null}
-
-        {!shouldHideSourcePanels && selectedWords.length > 0 ? (
-          <View
-            style={[
-              styles.block,
-              {
-                backgroundColor: palette.containerBg,
-                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-                shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-                shadowOpacity: isLight ? 0.06 : 0.16,
-              },
-            ]}
-          >
-            <Text style={[styles.blockTitle, { color: palette.secondaryText }]}>Keywords</Text>
-            <View style={styles.wordsWrap}>
-              {selectedWords.map((word) => {
-                const isGenerated = generatedWords.has(word);
-                return (
-                  <Pressable
-                    key={word}
-                    style={({ pressed }) => [
-                      styles.keywordBtn,
-                      {
-                        backgroundColor: isGenerated ? '#10B981' : MODAL_CTA_COLOR,
-                        borderColor: isGenerated ? 'rgba(16,185,129,0.72)' : MODAL_CTA_COLOR_BORDER,
-                      },
-                      pressed ? styles.pressableChipPressed : null,
-                    ]}
-                    onPress={() => toggleWord(word)}
-                  >
-                    <Text style={styles.keywordText}>{word}{isGenerated ? ' ✓' : ''}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {hasNewWords && completedCards.length > 0 ? (
-              <View style={styles.generateInlineWrap}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.generateInlineBtn,
-                    { backgroundColor: UPLOAD_CACHE_CTA_COLOR, borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER },
-                    pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
+              placeholder={tUI(
+                uiLanguage,
+                'create.didYouMeanCustomPlaceholder'
+              )}
+              placeholderTextColor={palette.secondaryText}
+              accessibilityLabel={tUI(
+                uiLanguage,
+                'create.didYouMeanCustomPlaceholder'
+              )}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              style={[
+                styles.typoSuggestionInlineInput,
+                {
+                  color: palette.textOnContainer,
+                  borderBottomColor: trimmedOverride
+                    ? MODAL_CTA_COLOR
+                    : palette.borderSubtle,
+                },
+              ]}
+              onSubmitEditing={() => {
+                if (trimmedOverride)
+                  applyTypoDecision(card, true, trimmedOverride);
+              }}
+            />
+            {trimmedOverride ? (
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={6}
+                style={({ pressed }) => [
+                  styles.typoSuggestionUseInline,
+                  pressed ? styles.typoSuggestionChoicePressed : null,
+                ]}
+                onPress={() => applyTypoDecision(card, true, trimmedOverride)}
+              >
+                <Text
+                  style={[
+                    styles.typoSuggestionUseInlineText,
+                    { color: MODAL_CTA_COLOR },
                   ]}
-                  disabled={isGenerateDisabled}
-                  onPress={() => void handleGenerate()}
                 >
-                  <Text style={[styles.generateInlineText, { color: TEXT_ON_CTA }]}>
-                    + Create {newSelectedWords.length} New Card{newSelectedWords.length > 1 ? 's' : ''}
-                  </Text>
-                </Pressable>
-              </View>
+                  {tUI(uiLanguage, 'create.didYouMeanUseCustom')}
+                </Text>
+              </Pressable>
             ) : null}
           </View>
-        ) : null}
+        </View>
+      );
+    },
+    [
+      applyTypoDecision,
+      palette.borderSubtle,
+      palette.secondaryText,
+      palette.textOnContainer,
+      typoOverrideInputs,
+      uiLanguage,
+    ]
+  );
 
-        {!hasStarted && completedCards.length === 0 ? (
-          <View>
-            {effectiveGenerationMode !== 'manual' ? (
+  return (
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: palette.containerBg }]}
+      edges={['top']}
+    >
+      <KeyboardAvoidingView
+        style={[styles.container, { backgroundColor: palette.screenBg }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.scrollContent,
+            isPreviewSceneActive && scrollViewportHeight > 0
+              ? { paddingBottom: scrollViewportHeight }
+              : null,
+          ]}
+          onLayout={handleScrollLayout}
+          onContentSizeChange={(_width, height) => {
+            scrollContentHeightRef.current = height;
+          }}
+          onScroll={handleCreateCardScroll}
+          onScrollBeginDrag={cancelPendingPreviewScroll}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+        >
+          {!shouldHideSourcePanels && originalImageUri ? (
+            <View
+              style={[
+                styles.block,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
+                  shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                  shadowOpacity: isLight ? 0.06 : 0.16,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.blockTitle, { color: palette.secondaryText }]}
+              >
+                {tUI(uiLanguage, 'create.originalImage')}
+              </Text>
+              <Image
+                source={{ uri: originalImageUri }}
+                style={[
+                  styles.originalImage as ImageStyle,
+                  { backgroundColor: palette.modalOptionBg },
+                ]}
+                resizeMode="contain"
+              />
+              {isOcrRunning ? (
+                <Text style={[styles.ocrStatus, { color: MODAL_CTA_COLOR }]}>
+                  {tUI(uiLanguage, 'create.ocrRunning')}
+                </Text>
+              ) : null}
+              {ocrError ? (
+                <Text
+                  style={[
+                    styles.ocrErrorText,
+                    { color: palette.destructiveBg },
+                  ]}
+                >
+                  {ocrError}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {!shouldHideSourcePanels ? (
+            <View
+              style={[
+                styles.block,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
+                  shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                  shadowOpacity: isLight ? 0.06 : 0.16,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.blockTitle, { color: palette.secondaryText }]}
+              >
+                {tUI(uiLanguage, 'create.originalContext')}
+              </Text>
+              {sourceTokens.length > 0 ? (
+                <Text
+                  style={[
+                    styles.helperMetaText,
+                    styles.ocrEditHint,
+                    { color: palette.secondaryText },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'create.editOcrTokenHint')}
+                </Text>
+              ) : null}
+              {sourceTokens.length === 0 ? (
+                <Text
+                  style={[
+                    styles.helperMetaText,
+                    { color: palette.secondaryText },
+                  ]}
+                >
+                  {isOcrRunning
+                    ? tUI(uiLanguage, 'create.ocrRunning')
+                    : tUI(uiLanguage, 'create.ocrNoText')}
+                </Text>
+              ) : (
+                <View style={styles.wordsWrap}>
+                  {sourceTokens.map((token, idx) => {
+                    const selectedTarget = selectedTargets.find(
+                      (target) =>
+                        idx >= target.startIndex && idx <= target.endIndex
+                    );
+                    const isSelected = Boolean(selectedTarget);
+                    const isGroupStart = selectedTarget?.startIndex === idx;
+                    const isGroupEnd = selectedTarget?.endIndex === idx;
+                    return (
+                      <View
+                        key={`${token}-${idx}`}
+                        style={styles.tutorialTokenWrap}
+                      >
+                        {isDefaultExperienceTutorial &&
+                        !selectedTokenIndices.includes(
+                          defaultExperienceTargetIndex
+                        ) &&
+                        idx === defaultExperienceTargetIndex ? (
+                          <MovingTutorialArrow
+                            direction="down"
+                            color={MODAL_CTA_COLOR}
+                            size={27}
+                            style={styles.tokenTutorialArrow}
+                          />
+                        ) : null}
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.tokenBtn,
+                            {
+                              backgroundColor: isSelected
+                                ? MODAL_CTA_COLOR
+                                : palette.modalOptionBg,
+                              borderColor: isSelected
+                                ? MODAL_CTA_COLOR_BORDER
+                                : palette.modalOptionBorder,
+                              borderTopLeftRadius:
+                                isSelected && !isGroupStart ? 4 : 8,
+                              borderBottomLeftRadius:
+                                isSelected && !isGroupStart ? 4 : 8,
+                              borderTopRightRadius:
+                                isSelected && !isGroupEnd ? 4 : 8,
+                              borderBottomRightRadius:
+                                isSelected && !isGroupEnd ? 4 : 8,
+                            },
+                            pressed ? styles.pressableChipPressed : null,
+                          ]}
+                          onPress={() => toggleSourceToken(idx)}
+                          onLongPress={() => editSourceToken(token, idx)}
+                          delayLongPress={220}
+                        >
+                          <Text
+                            style={[
+                              styles.tokenText,
+                              {
+                                color: isSelected
+                                  ? TEXT_ON_CTA
+                                  : palette.textOnContainer,
+                              },
+                              isSelected && styles.tokenTextSelected,
+                            ]}
+                          >
+                            {token}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {!shouldHideSourcePanels && selectedTargets.length > 0 ? (
+            <View
+              style={[
+                styles.block,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
+                  shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                  shadowOpacity: isLight ? 0.06 : 0.16,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.blockTitle, { color: palette.secondaryText }]}
+              >
+                {tUI(uiLanguage, 'create.keywords')}
+              </Text>
+              <View style={styles.wordsWrap}>
+                {selectedTargets.map((target) => {
+                  const isGenerated = generatedTargetIds.has(target.id);
+                  return (
+                    <Pressable
+                      key={target.id}
+                      style={({ pressed }) => [
+                        styles.keywordBtn,
+                        {
+                          backgroundColor: isGenerated
+                            ? '#10B981'
+                            : MODAL_CTA_COLOR,
+                          borderColor: isGenerated
+                            ? 'rgba(16,185,129,0.72)'
+                            : MODAL_CTA_COLOR_BORDER,
+                        },
+                        pressed ? styles.pressableChipPressed : null,
+                      ]}
+                      onPress={() => removeSelectedTarget(target.id)}
+                    >
+                      <Text style={styles.keywordText}>
+                        {target.text}
+                        {isGenerated ? ' ✓' : ''}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {hasNewWords && completedCards.length > 0 ? (
+                <View style={styles.generateInlineWrap}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.generateInlineBtn,
+                      {
+                        backgroundColor: UPLOAD_CACHE_CTA_COLOR,
+                        borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
+                      },
+                      pressed && !isGenerateDisabled
+                        ? styles.pressablePrimaryPressed
+                        : null,
+                    ]}
+                    disabled={isGenerateDisabled}
+                    onPress={() => void handleGenerate()}
+                  >
+                    <Text
+                      style={[
+                        styles.generateInlineText,
+                        { color: TEXT_ON_CTA },
+                      ]}
+                    >
+                      + {tUI(uiLanguage, 'create.addNewCards')} (
+                      {newSelectedTargets.length})
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {!hasStarted && completedCards.length === 0 ? (
+            <View>
               <View
                 style={[
                   styles.aiModeDropdownWrap,
                   {
                     backgroundColor: palette.containerBg,
-                    borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                    borderColor: isLight
+                      ? palette.borderSubtle
+                      : CONTAINER_NEON_OUTLINE,
                     shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
                     shadowOpacity: isLight ? 0.05 : 0.14,
                   },
@@ -1149,277 +2726,593 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               >
                 <Pressable
                   style={styles.aiModeDropdownTrigger}
-                  onPress={() => setIsAIModeDropdownOpen((prev) => !prev)}
+                  onPress={() => {
+                    setIsAlbumDestinationDropdownOpen(false);
+                    setIsAIModeDropdownOpen((prev) => !prev);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: isAIModeDropdownOpen }}
                 >
                   <View style={styles.aiModeDropdownCopy}>
-                    <Text style={[styles.aiModeDropdownTitle, { color: palette.secondaryText }]}>
-                      AI depth
-                    </Text>
-                    <Text style={[styles.aiModeDropdownValue, { color: palette.textOnContainer }]}>
-                      {getAIBreakdownModeLabel(aiBreakdownMode)}
+                    <Text
+                      style={[
+                        styles.aiModeDropdownTitle,
+                        { color: palette.secondaryText },
+                      ]}
+                    >
+                      {tUI(uiLanguage, 'create.aiDepth')}
                     </Text>
                     <Text
-                      style={[styles.aiModeDropdownDescription, { color: palette.secondaryText }]}
-                      numberOfLines={1}
+                      style={[
+                        styles.aiModeDropdownValue,
+                        { color: palette.textOnContainer },
+                      ]}
                     >
-                      {selectedAIBreakdownOption.description}
+                      {getAIModeLabel(aiBreakdownMode, uiLanguage)}
                     </Text>
                   </View>
-                  <Text
+                  <Reanimated.Text
                     style={[
                       styles.aiModeDropdownChevron,
-                      {
-                        color: MODAL_CTA_COLOR,
-                        transform: [{ rotate: isAIModeDropdownOpen ? '180deg' : '0deg' }],
-                      },
+                      { color: MODAL_CTA_COLOR },
+                      aiModeDropdownChevronStyle,
                     ]}
                   >
                     ⌄
-                  </Text>
+                  </Reanimated.Text>
                 </Pressable>
-                {isAIModeDropdownOpen ? (
-                  <View
+                <Reanimated.View
+                  style={[
+                    styles.aiModeDropdownCollapsible,
+                    aiModeDropdownAnimatedStyle,
+                  ]}
+                  pointerEvents={isAIModeDropdownOpen ? 'auto' : 'none'}
+                >
+                  <Reanimated.View
                     style={[
-                      styles.aiModeDropdownList,
-                      {
-                        backgroundColor: palette.modalOptionBg,
-                        borderColor: palette.modalOptionBorder,
-                      },
+                      styles.aiModeDropdownCollapsibleContent,
+                      aiModeDropdownContentAnimatedStyle,
                     ]}
+                    onLayout={handleAIModeDropdownContentLayout}
                   >
-                    {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
-                      const isActive = option.value === aiBreakdownMode;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          style={[
-                            styles.aiModeDropdownOption,
-                            isActive
-                              ? {
-                                  backgroundColor: isLight ? 'rgba(78,175,244,0.14)' : 'rgba(78,175,244,0.18)',
-                                  borderColor: MODAL_CTA_COLOR_BORDER,
-                                }
-                              : { borderColor: 'transparent' },
-                          ]}
-                          onPress={() => void handleSelectAIBreakdownMode(option.value)}
-                        >
-                          <View
+                    <View
+                      style={[
+                        styles.aiModeDropdownList,
+                        {
+                          backgroundColor: palette.modalOptionBg,
+                          borderColor: palette.modalOptionBorder,
+                        },
+                      ]}
+                    >
+                      {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
+                        const isActive = option.value === aiBreakdownMode;
+                        return (
+                          <Pressable
+                            key={option.value}
                             style={[
-                              styles.aiModeDropdownIconFrame,
-                              {
-                                backgroundColor: isActive
-                                  ? isLight
-                                    ? 'rgba(78,175,244,0.18)'
-                                    : 'rgba(78,175,244,0.22)'
-                                  : palette.containerBg,
-                                borderColor: isActive ? MODAL_CTA_COLOR_BORDER : palette.modalOptionBorder,
-                              },
+                              styles.aiModeDropdownOption,
+                              isActive
+                                ? {
+                                    backgroundColor: isLight
+                                      ? 'rgba(78,175,244,0.14)'
+                                      : 'rgba(78,175,244,0.18)',
+                                    borderColor: MODAL_CTA_COLOR_BORDER,
+                                  }
+                                : { borderColor: 'transparent' },
                             ]}
+                            onPress={() =>
+                              void handleSelectAIBreakdownMode(option.value)
+                            }
+                            accessibilityRole="radio"
+                            accessibilityState={{ checked: isActive }}
                           >
-                            <Image
-                              source={AI_MODE_ICON_BY_VALUE[option.value]}
-                              style={styles.aiModeDropdownIcon}
-                              resizeMode="contain"
-                            />
-                          </View>
-                          <View style={styles.aiModeDropdownOptionCopy}>
-                            <Text
-                              style={[
-                                styles.aiModeDropdownOptionLabel,
-                                { color: isActive ? MODAL_CTA_COLOR : palette.textOnContainer },
-                              ]}
-                            >
-                              {option.label}
-                            </Text>
-                            <Text
-                              style={[styles.aiModeDropdownOptionDescription, { color: palette.secondaryText }]}
-                              numberOfLines={1}
-                            >
-                              {option.description}
-                            </Text>
-                          </View>
-                          {isActive ? (
                             <View
                               style={[
-                                styles.aiModeDropdownActiveDot,
-                                { backgroundColor: MODAL_CTA_COLOR },
+                                styles.aiModeDropdownIconFrame,
+                                {
+                                  backgroundColor: isActive
+                                    ? isLight
+                                      ? 'rgba(78,175,244,0.18)'
+                                      : 'rgba(78,175,244,0.22)'
+                                    : palette.containerBg,
+                                  borderColor: isActive
+                                    ? MODAL_CTA_COLOR_BORDER
+                                    : palette.modalOptionBorder,
+                                },
                               ]}
-                            />
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
+                            >
+                              <Image
+                                source={AI_MODE_ICON_BY_VALUE[option.value]}
+                                style={styles.aiModeDropdownIcon as ImageStyle}
+                                resizeMode="contain"
+                              />
+                            </View>
+                            <View style={styles.aiModeDropdownOptionCopy}>
+                              <Text
+                                style={[
+                                  styles.aiModeDropdownOptionLabel,
+                                  {
+                                    color: isActive
+                                      ? MODAL_CTA_COLOR
+                                      : palette.textOnContainer,
+                                  },
+                                ]}
+                              >
+                                {getAIModeLabel(option.value, uiLanguage)}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.aiModeDropdownOptionDescription,
+                                  { color: palette.secondaryText },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {getAIModeDescription(option.value, uiLanguage)}
+                              </Text>
+                            </View>
+                            {isActive ? (
+                              <View
+                                style={[
+                                  styles.aiModeDropdownActiveDot,
+                                  { backgroundColor: MODAL_CTA_COLOR },
+                                ]}
+                              />
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </Reanimated.View>
+                </Reanimated.View>
               </View>
-            ) : null}
-            {selectedWords.length > 0 ? (
-              <View style={styles.selectedSummary}>
-                <Text style={[styles.selectedSummaryText, { color: MODAL_CTA_COLOR }]}>
-                  {effectiveGenerationMode === 'manual' ? '✍️' : '✨'} {selectedWords.length} word{selectedWords.length > 1 ? 's' : ''} selected
-                </Text>
-              </View>
-            ) : null}
-            <TutorialSpotlight
-              active={appTour.step === 'STEP_6_GENERATE_SAMPLE'}
-              tooltip="Generate card."
-              onSpotlightPress={handleTourGeneratePress}
-            >
-              <Pressable
-                onPress={handleTourGeneratePress}
-                disabled={isGenerateDisabled}
-                style={({ pressed }) => [
-                  styles.generateButton,
-                  { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
-                  isGenerateDisabled && styles.generateButtonDisabled,
-                  pressed && !isGenerateDisabled ? styles.pressablePrimaryPressed : null,
+              <View
+                style={[
+                  styles.aiModeDropdownWrap,
+                  {
+                    backgroundColor: palette.containerBg,
+                    borderColor: isLight
+                      ? palette.borderSubtle
+                      : CONTAINER_NEON_OUTLINE,
+                    shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                    shadowOpacity: isLight ? 0.05 : 0.14,
+                  },
                 ]}
               >
-                <Text style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}>
-                  {effectiveGenerationMode === 'manual' ? 'Create' : 'Generate'} {selectedWords.length > 0 ? `${selectedWords.length} Card${selectedWords.length > 1 ? 's' : ''}` : 'Cards'}
-                </Text>
-              </Pressable>
-            </TutorialSpotlight>
-          </View>
-        ) : null}
-
-        {isPreviewSceneActive ? (
-          <View
-            style={styles.previewSceneWrap}
-            onLayout={(event) => {
-              previewSceneYRef.current = event.nativeEvent.layout.y;
-            }}
-          >
-            <CreateCardPreviewScene
-              processingWord={generatingCards[0]?.word || activePreviewCard?.displayWord || selectedWords[0] || 'Generating'}
-              card={activePreviewCard}
-              palette={palette}
-              isLight={isLight}
-              hasImage={Boolean(originalImageUri)}
-              imageUri={originalImageUri || null}
-              statusText={GHOST_CARD_STATUS_TEXT[ghostStatusIndex]}
-              revealState={previewRevealState}
-              phase={previewPhase}
-              isFavorite={(activePreviewCard?.selectedAlbumIds || []).includes(FAVORITES_ALBUM_ID)}
-              isBookmarked={(activePreviewCard?.selectedAlbumIds || []).some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID)}
-              isWordAudioLoading={activePreviewCard ? previewWordAudioLoading === activePreviewCard.displayWord : false}
-              onPlayWord={activePreviewCard ? () => playDraftPreviewWord(activePreviewCard.displayWord) : undefined}
-              onOpenPronunciationModal={activePreviewCard ? openDraftPronunciationModal : undefined}
-              onToggleFavorite={activePreviewCard ? () => toggleDraftFavorite(activePreviewCard.word) : undefined}
-              onOpenAlbumSheet={activePreviewCard ? () => openDraftAlbumSheet(activePreviewCard.word) : undefined}
-            />
-          </View>
-        ) : null}
-
-        {previewStackCards.length > 0 ? (
-          <View style={styles.previewStackWrap}>
-            {previewStackCards.map((card, index) => (
-              <CreateCardPreviewScene
-                key={`${card.word}-${card.sourceSentence}-${index}`}
-                processingWord={card.displayWord}
-                card={card}
-                palette={palette}
-                isLight={isLight}
-                hasImage={Boolean(originalImageUri)}
-                imageUri={originalImageUri || null}
-                statusText=""
-                revealState={COMPLETE_PREVIEW_REVEAL}
-                phase="complete"
-                isFavorite={(card.selectedAlbumIds || []).includes(FAVORITES_ALBUM_ID)}
-                isBookmarked={(card.selectedAlbumIds || []).some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID)}
-                isWordAudioLoading={previewWordAudioLoading === card.displayWord}
-                onPlayWord={() => playDraftPreviewWord(card.displayWord)}
-                onOpenPronunciationModal={openDraftPronunciationModal}
-                onToggleFavorite={() => toggleDraftFavorite(card.word)}
-                onOpenAlbumSheet={() => openDraftAlbumSheet(card.word)}
-              />
-            ))}
-          </View>
-        ) : null}
-
-        {generationFailure ? (
-          <View
-            style={[
-              styles.generationFailPanel,
-              {
-                backgroundColor: palette.containerBg,
-                borderColor: isLight ? palette.borderSubtle : 'rgba(255,107,107,0.34)',
-                shadowColor: isLight ? '#000000' : '#FF6B6B',
-                shadowOpacity: isLight ? 0.06 : 0.14,
-              },
-            ]}
-          >
-            <Text style={styles.generationFailIcon}>!</Text>
-            <Text style={[styles.generationFailTitle, { color: palette.textOnContainer }]}>
-              Could not create “{generationFailure.word}”
-            </Text>
-            <Text style={[styles.generationFailBody, { color: palette.secondaryText }]}>
-              {generationFailure.message}
-            </Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.generationFailRetry,
-                { backgroundColor: UPLOAD_CACHE_CTA_COLOR, borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER },
-                pressed ? styles.pressablePrimaryPressed : null,
-              ]}
-              onPress={() => void handleGenerate()}
-            >
-              <Text style={[styles.generationFailRetryText, { color: TEXT_ON_CTA }]}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {!hasStarted && completedCards.length > 0 ? (
-          <View style={styles.completedWrap}>
-            <View style={styles.saveWrap}>
+                <Pressable
+                  style={styles.aiModeDropdownTrigger}
+                  onPress={() => {
+                    setIsAIModeDropdownOpen(false);
+                    setIsAlbumDestinationDropdownOpen((prev) => !prev);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    expanded: isAlbumDestinationDropdownOpen,
+                  }}
+                >
+                  <View style={styles.aiModeDropdownCopy}>
+                    <Text
+                      style={[
+                        styles.aiModeDropdownValue,
+                        { color: palette.textOnContainer },
+                      ]}
+                    >
+                      {batchAlbumSummary}
+                    </Text>
+                  </View>
+                  <Reanimated.Text
+                    style={[
+                      styles.aiModeDropdownChevron,
+                      { color: MODAL_CTA_COLOR },
+                      albumDestinationDropdownChevronStyle,
+                    ]}
+                  >
+                    ⌄
+                  </Reanimated.Text>
+                </Pressable>
+                <Reanimated.View
+                  style={[
+                    styles.aiModeDropdownCollapsible,
+                    albumDestinationDropdownAnimatedStyle,
+                  ]}
+                  pointerEvents={
+                    isAlbumDestinationDropdownOpen ? 'auto' : 'none'
+                  }
+                >
+                  <Reanimated.View
+                    style={[
+                      styles.aiModeDropdownCollapsibleContent,
+                      albumDestinationDropdownContentAnimatedStyle,
+                    ]}
+                    onLayout={handleAlbumDestinationDropdownContentLayout}
+                  >
+                    <View
+                      style={[
+                        styles.aiModeDropdownList,
+                        {
+                          backgroundColor: palette.modalOptionBg,
+                          borderColor: palette.modalOptionBorder,
+                        },
+                      ]}
+                    >
+                      {allAlbums.length === 0 ? (
+                        <Text
+                          style={[
+                            styles.albumDestinationEmpty,
+                            { color: palette.secondaryText },
+                          ]}
+                        >
+                          {tUI(uiLanguage, 'create.noAlbumsAvailable')}
+                        </Text>
+                      ) : (
+                        allAlbums.map((album) => {
+                          const isActive = selectedBatchAlbumIds.includes(
+                            album.id
+                          );
+                          return (
+                            <Pressable
+                              key={album.id}
+                              style={[
+                                styles.aiModeDropdownOption,
+                                isActive
+                                  ? {
+                                      backgroundColor: isLight
+                                        ? 'rgba(78,175,244,0.14)'
+                                        : 'rgba(78,175,244,0.18)',
+                                      borderColor: MODAL_CTA_COLOR_BORDER,
+                                    }
+                                  : { borderColor: 'transparent' },
+                              ]}
+                              onPress={() => toggleBatchAlbum(album.id)}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: isActive }}
+                            >
+                              <View
+                                style={[
+                                  styles.aiModeDropdownIconFrame,
+                                  {
+                                    backgroundColor: isActive
+                                      ? isLight
+                                        ? 'rgba(78,175,244,0.18)'
+                                        : 'rgba(78,175,244,0.22)'
+                                      : palette.containerBg,
+                                    borderColor: isActive
+                                      ? MODAL_CTA_COLOR_BORDER
+                                      : palette.modalOptionBorder,
+                                  },
+                                ]}
+                              >
+                                {album.coverImageUri ? (
+                                  <Image
+                                    source={{ uri: album.coverImageUri }}
+                                    style={styles.albumDestinationCover}
+                                    resizeMode="cover"
+                                  />
+                                ) : (
+                                  <Text style={styles.albumDestinationEmoji}>
+                                    {album.emoji || '📁'}
+                                  </Text>
+                                )}
+                              </View>
+                              <View style={styles.aiModeDropdownOptionCopy}>
+                                <Text
+                                  style={[
+                                    styles.aiModeDropdownOptionLabel,
+                                    {
+                                      color: isActive
+                                        ? MODAL_CTA_COLOR
+                                        : palette.textOnContainer,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {getDeckAlbumDisplayName(album, uiLanguage)}
+                                </Text>
+                              </View>
+                              {isActive ? (
+                                <View
+                                  style={[
+                                    styles.aiModeDropdownActiveDot,
+                                    { backgroundColor: MODAL_CTA_COLOR },
+                                  ]}
+                                />
+                              ) : null}
+                            </Pressable>
+                          );
+                        })
+                      )}
+                    </View>
+                  </Reanimated.View>
+                </Reanimated.View>
+              </View>
+              {selectedTargets.length > 0 ? (
+                <View style={styles.selectedSummary}>
+                  <Text
+                    style={[
+                      styles.selectedSummaryText,
+                      { color: MODAL_CTA_COLOR },
+                    ]}
+                  >
+                    ✨ {selectedTargets.length}{' '}
+                    {tUI(
+                      uiLanguage,
+                      selectedTargets.length > 1
+                        ? 'create.cards'
+                        : 'create.card'
+                    )}
+                  </Text>
+                </View>
+              ) : null}
               <TutorialSpotlight
-                active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
-                tooltip="Save card."
-                onSpotlightPress={() => void handleSave()}
+                active={appTour.step === 'STEP_6_GENERATE_SAMPLE'}
+                tooltip={tUI(uiLanguage, 'create.tourGenerateCard')}
+                onSpotlightPress={handleTourGeneratePress}
               >
                 <Pressable
-                  onPress={() => void handleSave()}
-                  disabled={cardsToSave.length === 0 || saving}
+                  onPress={handleTourGeneratePress}
+                  disabled={isGenerateDisabled}
                   style={({ pressed }) => [
-                    styles.saveButton,
-                    { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
-                    (cardsToSave.length === 0 || saving) && styles.saveButtonDisabled,
-                    pressed && cardsToSave.length > 0 && !saving ? styles.pressablePrimaryPressed : null,
+                    styles.generateButton,
+                    {
+                      backgroundColor: MODAL_CTA_COLOR,
+                      borderColor: MODAL_CTA_COLOR_BORDER,
+                    },
+                    isGenerateDisabled && styles.generateButtonDisabled,
+                    pressed && !isGenerateDisabled
+                      ? styles.pressablePrimaryPressed
+                      : null,
                   ]}
                 >
-                  <Text style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}>
-                    {saving ? 'Saving...' : 'Save'}
+                  {isDefaultExperienceTutorial &&
+                  selectedTokenIndices.includes(defaultExperienceTargetIndex) &&
+                  !hasStarted ? (
+                    <MovingTutorialArrow
+                      direction="down"
+                      color={MODAL_CTA_COLOR}
+                      size={29}
+                      style={styles.primaryTutorialArrow}
+                    />
+                  ) : null}
+                  <Text
+                    style={[styles.generateButtonText, { color: TEXT_ON_CTA }]}
+                  >
+                    {tUI(uiLanguage, 'create.generate')}{' '}
+                    {selectedTargets.length > 0
+                      ? `${selectedTargets.length} ${selectedTargets.length > 1 ? tUI(uiLanguage, 'create.cards') : tUI(uiLanguage, 'create.card')}`
+                      : tUI(uiLanguage, 'create.cards')}
                   </Text>
                 </Pressable>
               </TutorialSpotlight>
             </View>
-          </View>
-        ) : null}
-      </ScrollView>
+          ) : null}
 
-      <CardAlbumSheetModalUI
-        visible={showAlbumSheet}
-        displayWord={albumTargetCard?.displayWord || ''}
-        partOfSpeech={albumTargetCard?.partOfSpeech || 'unknown'}
-        selectedAlbums={albumTargetCard?.selectedAlbumIds || []}
-        allAlbums={allAlbums}
-        onClose={() => setShowAlbumSheet(false)}
-        onDone={() => setShowAlbumSheet(false)}
-        onOpenCreateAlbum={openCreateAlbumModal}
-        onToggleAlbum={toggleDraftAlbum}
-      />
+          {previewStackCards.length > 0 ? (
+            <View style={styles.previewStackWrap}>
+              {previewStackCards.map((card, index) => (
+                <Reanimated.View
+                  key={`${card.word}-${card.sourceSentence}-${index}`}
+                  entering={
+                    hasStarted && !reduceMotion
+                      ? STACK_CARD_ENTERING
+                      : undefined
+                  }
+                  layout={
+                    hasStarted && !reduceMotion ? STACK_CARD_LAYOUT : undefined
+                  }
+                  style={styles.previewStackItem}
+                >
+                  <CreateCardPreviewScene
+                    processingWord={card.displayWord}
+                    card={card}
+                    palette={palette}
+                    isLight={isLight}
+                    hasImage={Boolean(originalImageUri)}
+                    imageUri={originalImageUri || null}
+                    statusText=""
+                    revealState={COMPLETE_PREVIEW_REVEAL}
+                    phase="complete"
+                    uiLanguage={uiLanguage}
+                    isFavorite={(card.selectedAlbumIds || []).includes(
+                      FAVORITES_ALBUM_ID
+                    )}
+                    isBookmarked={(card.selectedAlbumIds || []).some(
+                      (id) =>
+                        id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID
+                    )}
+                    isWordAudioLoading={
+                      previewWordAudioLoading === card.displayWord
+                    }
+                    headerAccessory={renderTypoSuggestion(card)}
+                    onPlayWord={() => playDraftPreviewWord(card.displayWord)}
+                    onOpenPronunciationModal={openDraftPronunciationModal}
+                    onToggleFavorite={() => toggleDraftFavorite(card.word)}
+                    onOpenAlbumSheet={() => openDraftAlbumSheet(card.word)}
+                  />
+                </Reanimated.View>
+              ))}
+            </View>
+          ) : null}
 
-      <CreateAlbumModalUI
-        visible={isCreateAlbumModalVisible}
-        albumName={newAlbumName}
-        onChangeAlbumName={setNewAlbumName}
-        onCancel={() => {
-          setIsCreateAlbumModalVisible(false);
-          setNewAlbumName('');
-          if (albumTargetWord) setShowAlbumSheet(true);
-        }}
-        onConfirm={() => void createAlbum()}
-      />
+          {isPreviewSceneActive ? (
+            <View
+              style={styles.previewSceneWrap}
+              onLayout={handleActivePreviewLayout}
+            >
+              <CreateCardPreviewScene
+                processingWord={
+                  generatingCards[0]?.word ||
+                  previewDisplayCard?.displayWord ||
+                  selectedTargets[0]?.text ||
+                  'Generating'
+                }
+                card={previewDisplayCard}
+                palette={palette}
+                isLight={isLight}
+                hasImage={Boolean(originalImageUri)}
+                imageUri={originalImageUri || null}
+                statusText={
+                  streamStatusText ||
+                  tUI(
+                    uiLanguage,
+                    GHOST_CARD_STATUS_KEYS[ghostStatusIndex] ||
+                      'create.ghostStatusExtracting'
+                  )
+                }
+                revealState={
+                  isPartialPreviewActive
+                    ? COMPLETE_PREVIEW_REVEAL
+                    : previewRevealState
+                }
+                phase={isPartialPreviewActive ? 'complete' : previewPhase}
+                uiLanguage={uiLanguage}
+                isFavorite={(
+                  previewDisplayCard?.selectedAlbumIds || []
+                ).includes(FAVORITES_ALBUM_ID)}
+                isBookmarked={(previewDisplayCard?.selectedAlbumIds || []).some(
+                  (id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID
+                )}
+                isWordAudioLoading={
+                  previewDisplayCard
+                    ? previewWordAudioLoading === previewDisplayCard.displayWord
+                    : false
+                }
+                streamingText={isBufferedStreamPreview}
+                headerAccessory={renderTypoSuggestion(previewDisplayCard)}
+                onPlayWord={
+                  activePreviewCard
+                    ? () => playDraftPreviewWord(activePreviewCard.displayWord)
+                    : undefined
+                }
+                onOpenPronunciationModal={
+                  activePreviewCard ? openDraftPronunciationModal : undefined
+                }
+                onToggleFavorite={
+                  activePreviewCard
+                    ? () => toggleDraftFavorite(activePreviewCard.word)
+                    : undefined
+                }
+                onOpenAlbumSheet={
+                  activePreviewCard
+                    ? () => openDraftAlbumSheet(activePreviewCard.word)
+                    : undefined
+                }
+              />
+            </View>
+          ) : null}
+
+          {generationFailure ? (
+            <View
+              style={[
+                styles.generationFailPanel,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : 'rgba(255,107,107,0.34)',
+                  shadowColor: isLight ? '#000000' : '#FF6B6B',
+                  shadowOpacity: isLight ? 0.06 : 0.14,
+                },
+              ]}
+            >
+              <Text style={styles.generationFailIcon}>!</Text>
+              <Text
+                style={[
+                  styles.generationFailTitle,
+                  { color: palette.textOnContainer },
+                ]}
+              >
+                {tUI(uiLanguage, 'create.generateFailedTitle')} “
+                {generationFailure.word}”
+              </Text>
+              <Text
+                style={[
+                  styles.generationFailBody,
+                  { color: palette.secondaryText },
+                ]}
+              >
+                {generationFailure.message}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.generationFailRetry,
+                  {
+                    backgroundColor: UPLOAD_CACHE_CTA_COLOR,
+                    borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
+                  },
+                  pressed ? styles.pressablePrimaryPressed : null,
+                ]}
+                onPress={() => void handleGenerate()}
+              >
+                <Text
+                  style={[
+                    styles.generationFailRetryText,
+                    { color: TEXT_ON_CTA },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'create.retry')}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {!hasStarted && completedCards.length > 0 ? (
+            <View
+              style={styles.completedWrap}
+              onLayout={handleCompletedActionsLayout}
+            >
+              <View style={styles.saveWrap}>
+                <TutorialSpotlight
+                  active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
+                  tooltip={tUI(uiLanguage, 'create.tourSave')}
+                  onSpotlightPress={handleDone}
+                >
+                  <Pressable
+                    onPress={handleDone}
+                    style={({ pressed }) => [
+                      styles.saveButton,
+                      {
+                        backgroundColor: MODAL_CTA_COLOR,
+                        borderColor: MODAL_CTA_COLOR_BORDER,
+                      },
+                      pressed ? styles.pressablePrimaryPressed : null,
+                    ]}
+                  >
+                    {isDefaultExperienceTutorial ? (
+                      <MovingTutorialArrow
+                        direction="down"
+                        color={MODAL_CTA_COLOR}
+                        size={29}
+                        style={styles.primaryTutorialArrow}
+                      />
+                    ) : null}
+                    <Text
+                      style={[styles.saveButtonText, { color: TEXT_ON_CTA }]}
+                    >
+                      {tUI(uiLanguage, 'common.done')}
+                    </Text>
+                  </Pressable>
+                </TutorialSpotlight>
+              </View>
+            </View>
+          ) : null}
+        </ScrollView>
+
+        <CardAlbumSheetModalUI
+          visible={showAlbumSheet}
+          selectedAlbums={albumTargetCard?.selectedAlbumIds || []}
+          allAlbums={allAlbums}
+          uiLanguage={uiLanguage}
+          onDone={() => setShowAlbumSheet(false)}
+          onOpenCreateAlbum={openCreateAlbumModal}
+          onToggleAlbum={toggleDraftAlbum}
+          createAlbumVisible={isCreateAlbumModalVisible}
+          createAlbumName={newAlbumName}
+          onChangeCreateAlbumName={setNewAlbumName}
+          onCancelCreateAlbum={() => {
+            setIsCreateAlbumModalVisible(false);
+            setNewAlbumName('');
+          }}
+          onConfirmCreateAlbum={() => void createAlbum()}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1508,6 +3401,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  tutorialTokenWrap: {
+    position: 'relative',
+  },
+  tokenTutorialArrow: {
+    position: 'absolute',
+    top: -60,
+    left: 0,
+    right: 0,
   },
   tokenBtn: {
     paddingHorizontal: 9,
@@ -1618,11 +3520,16 @@ const styles = StyleSheet.create({
     fontSize: 23,
     fontWeight: '800',
   },
+  aiModeDropdownCollapsible: {
+    overflow: 'hidden',
+  },
+  aiModeDropdownCollapsibleContent: {
+    paddingTop: 8,
+  },
   aiModeDropdownList: {
     gap: 6,
     borderRadius: 16,
     borderWidth: 1,
-    marginTop: 8,
     padding: 5,
   },
   aiModeDropdownOption: {
@@ -1667,6 +3574,21 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 4,
   },
+  albumDestinationEmoji: {
+    fontSize: 20,
+  },
+  albumDestinationCover: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  albumDestinationEmpty: {
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   selectedSummary: {
     marginBottom: 8,
     paddingHorizontal: 4,
@@ -1683,6 +3605,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 14,
   },
+  primaryTutorialArrow: {
+    position: 'absolute',
+    top: -64,
+    left: 0,
+    right: 0,
+  },
   generateButtonDisabled: {
     opacity: 0.5,
   },
@@ -1694,8 +3622,71 @@ const styles = StyleSheet.create({
   previewSceneWrap: {
     gap: 14,
   },
+  typoSuggestionInline: {
+    marginTop: 4,
+    marginBottom: 12,
+    gap: 3,
+  },
+  typoSuggestionPrompt: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  typoSuggestionChoices: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    columnGap: 7,
+    rowGap: 2,
+  },
+  typoSuggestionChoice: {
+    minHeight: 34,
+    justifyContent: 'center',
+  },
+  typoSuggestionChoicePressed: {
+    opacity: 0.55,
+  },
+  typoSuggestionRecommendedText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
+  },
+  typoSuggestionChoiceText: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  typoSuggestionSeparator: {
+    fontSize: 14,
+    lineHeight: 20,
+    opacity: 0.72,
+  },
+  typoSuggestionInlineInput: {
+    minWidth: 86,
+    maxWidth: 150,
+    minHeight: 34,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  typoSuggestionUseInline: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  typoSuggestionUseInlineText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
   previewStackWrap: {
     gap: 16,
+  },
+  previewStackItem: {
+    width: '100%',
   },
   generationFailPanel: {
     borderRadius: 22,
@@ -1978,6 +3969,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     fontWeight: '500',
+  },
+  ocrEditHint: {
+    marginTop: 0,
+    marginBottom: 10,
   },
   lockedAiPanel: {
     marginTop: 10,

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert } from 'react-native';
+import { traceFirstRun } from '../../../services/logging/firstRunTraceRuntime';
+import { Alert, DeviceEventEmitter, Linking } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
@@ -8,13 +9,20 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
+import {
+  hasSeenTourLocally,
+  markTourSeenLocally,
+} from '../../../features/tour/tourSeen';
+import { VIDEO_TOUR_ENABLED } from '../../../features/tour/tourMode';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import DeckMainScreenUI from '../../../components/UI/DeckScreenUI/DeckMainScreenUI';
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
+import TourCompletionGreetingUI from '../../../components/UI/DeckScreenUI/TourCompletionGreetingUI';
 import AlbumActionMenuOverlayUI from '../../../components/UI/DeckScreenUI/AlbumActionMenuOverlayUI';
 import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
 import ImageCropperModal from '../../../components/ImageCropperModal';
@@ -23,13 +31,19 @@ import {
   buildDeckAlbums,
   ALL_CARDS_ALBUM_ID,
   createCustomAlbum,
+  getDeckAlbumDisplayName,
   loadDeckAlbumPreferences,
   saveDeckAlbumPreferences,
+  subscribeDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { primeAlbumPreload } from '../../../features/deck/albumPreloadCache';
 import { supabase } from '@services/supabase/client';
-import { loadQuizReviewedCardIds, loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
+import {
+  QUIZ_REVIEWED_CARD_EVENT,
+  loadQuizReviewedCardIds,
+  loadSeenCardIds,
+} from '../../../features/deck/cardDetailSeen';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
@@ -38,6 +52,7 @@ import {
 } from '../../../features/deck/reviewPreferences';
 import {
   DEFAULT_USER_SETTINGS,
+  getInitialUserSettings,
   isMainScreenEmptyAlbumSlot,
   loadUserSettings,
   subscribeUserSettings,
@@ -45,6 +60,21 @@ import {
   type UILanguage,
 } from '@services/settings/userSettings';
 import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
+import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
+import { tUI } from '../../../i18n/uiLanguage';
+import {
+  DEFAULT_EXPERIENCE_CARD_SENTENCE,
+  DEFAULT_EXPERIENCE_TARGET_WORD,
+  DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT,
+  DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT,
+  isDefaultExperienceQuizHintPending,
+  localizeDefaultExperienceSavedCard,
+} from '../../../features/cache/defaultExperienceCard';
+import {
+  enableScreenshotDemoMode,
+  hydrateScreenshotDemoMode,
+  isScreenshotDemoModeEnabled,
+} from '../../../features/dev/screenshotDemoMode';
 
 type Props = {
   navigation: any;
@@ -53,12 +83,39 @@ type Props = {
 };
 
 const ALBUM_COVER_DIR = `${FileSystem.documentDirectory || ''}album-covers/`;
+const LOCAL_CARD_QUERY_TIMEOUT_MS = 8000;
+const CARD_IMAGE_RESOLVE_BATCH_SIZE = 12;
+
+function withLocalCardQueryTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('Local card query timed out')),
+      LOCAL_CARD_QUERY_TIMEOUT_MS
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function hasQuizUsableCard(card: Card): boolean {
+  if (!isEnglishLearningCard(card)) return false;
+  return Boolean(
+    (card.targetPhrase || '').trim() ||
+    (card.targetWord || '').trim() ||
+    (card.definition || '').trim() ||
+    (card.contextualExplanation || '').trim()
+  );
+}
 
 async function persistAlbumCoverImage(sourceUri: string): Promise<string> {
   if (!ALBUM_COVER_DIR) return sourceUri;
   const dirInfo = await FileSystem.getInfoAsync(ALBUM_COVER_DIR);
   if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(ALBUM_COVER_DIR, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(ALBUM_COVER_DIR, {
+      intermediates: true,
+    });
   }
   const targetUri = `${ALBUM_COVER_DIR}album-cover-${Date.now()}-${Math.random()
     .toString(36)
@@ -67,67 +124,139 @@ async function persistAlbumCoverImage(sourceUri: string): Promise<string> {
   return targetUri;
 }
 
-export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFab }: Props) {
+export default function DeckMainFlow({
+  navigation,
+  onPressAvatar,
+  onPressCacheFab,
+}: Props) {
+  const [showDefaultExperienceQuizHint, setShowDefaultExperienceQuizHint] =
+    React.useState(false);
+  const initialSettings = getInitialUserSettings();
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const [allCards, setAllCards] = React.useState<Card[]>([]);
-  const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
+  const [cardsHydrated, setCardsHydrated] = React.useState(false);
+  const [cardImageMap, setCardImageMap] = React.useState<
+    Record<string, string>
+  >({});
   const [imageReloadSeed, setImageReloadSeed] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortOrder, setSortOrder] = React.useState<'desc' | 'asc'>('desc');
   const [isCreateModalVisible, setIsCreateModalVisible] = React.useState(false);
   const [newAlbumName, setNewAlbumName] = React.useState('');
   const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
-  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
-  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
-  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
-  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
+  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<
+    Record<string, string>
+  >({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [isAlbumPrefsHydrated, setIsAlbumPrefsHydrated] = React.useState(false);
   const [settingsVisible, setSettingsVisible] = React.useState(false);
-  const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(null);
+  const [tourCompletionGreetingVisible, setTourCompletionGreetingVisible] =
+    React.useState(false);
+  const [tourCompletionGreetingPending, setTourCompletionGreetingPending] =
+    React.useState(false);
+  const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(
+    null
+  );
   const [settingsName, setSettingsName] = React.useState('');
   const [settingsEmoji, setSettingsEmoji] = React.useState('📁');
   const [settingsColor, setSettingsColor] = React.useState('#1E293B');
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
-  const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] = React.useState<string | null>(null);
+  const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] =
+    React.useState<string | null>(null);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
-  const [activeLayout, setActiveLayout] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [activeLayout, setActiveLayout] = React.useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(new Set());
-  const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<Set<string>>(new Set());
-  const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] = React.useState(false);
-  const [todayReviewQuestionCount, setTodayReviewQuestionCount] = React.useState(
-    DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
-  );
+  const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<
+    Set<string>
+  >(new Set());
+  const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] =
+    React.useState(false);
+  const [todayReviewQuestionCount, setTodayReviewQuestionCount] =
+    React.useState(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
   const [todayNewWordsOnly, setTodayNewWordsOnly] = React.useState(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false
   );
-  const [todayReviewQuestionTypes, setTodayReviewQuestionTypes] = React.useState<ReviewQuestionType[]>(
-    DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
+  const [todayReviewQuestionTypes, setTodayReviewQuestionTypes] =
+    React.useState<ReviewQuestionType[]>(
+      DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
+    );
+  const [todayReviewSourceAlbumIds, setTodayReviewSourceAlbumIds] =
+    React.useState<string[]>(
+      DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedSourceAlbumIds
+    );
+  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<number>(
+    initialSettings.wordPopSlideMs
   );
-  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<number>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
-  const [mainScreenAlbumGridCount, setMainScreenAlbumGridCount] = React.useState<MainScreenAlbumGridCount>(
-    DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount
+  const [mainScreenAlbumGridCount, setMainScreenAlbumGridCount] =
+    React.useState<MainScreenAlbumGridCount>(
+      initialSettings.mainScreenAlbumGridCount
+    );
+  const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] =
+    React.useState(initialSettings.mainScreenWordPopEnabled);
+  const [mainScreenWordPopAlbumId, setMainScreenWordPopAlbumId] =
+    React.useState<string | null>(initialSettings.mainScreenWordPopAlbumId);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    initialSettings.uiLanguage
   );
-  const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
-    DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
-  );
-  const [mainScreenWordPopAlbumId, setMainScreenWordPopAlbumId] = React.useState<string | null>(
-    DEFAULT_USER_SETTINGS.mainScreenWordPopAlbumId
-  );
-  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(DEFAULT_USER_SETTINGS.uiLanguage);
-  const [mainScreenAlbumOrder, setMainScreenAlbumOrder] = React.useState<string[]>(
-    DEFAULT_USER_SETTINGS.mainScreenAlbumOrder
-  );
+  const [mainScreenAlbumOrder, setMainScreenAlbumOrder] = React.useState<
+    string[]
+  >(initialSettings.mainScreenAlbumOrder);
   const isMenuVisible = useSharedValue(false);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
-  const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const appTour = useAppTour();
   const didCheckTourRef = React.useRef(false);
   const didCompleteTourRef = React.useRef(false);
   const didShowTourCompletionGreetingRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
+  const didOpenTourQuizRef = React.useRef(false);
+  const openedTourCardIdRef = React.useRef<string | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        const userId = await getCurrentSessionUserId();
+        if (!userId) return;
+        const pending = await isDefaultExperienceQuizHintPending(userId);
+        if (!cancelled) setShowDefaultExperienceQuizHint(pending);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  React.useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT,
+      (pending: boolean) => setShowDefaultExperienceQuizHint(Boolean(pending))
+    );
+    return () => subscription.remove();
+  }, []);
+
+  const hideDefaultExperienceQuizHint = React.useCallback(() => {
+    if (!showDefaultExperienceQuizHint) return;
+    setShowDefaultExperienceQuizHint(false);
+  }, [showDefaultExperienceQuizHint]);
 
   const filterPills = ['群組', '隱私', '已封存'];
 
@@ -135,8 +264,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     if (didCompleteTourRef.current) return;
     didCompleteTourRef.current = true;
     try {
-      const userId = await getCurrentAuthUserId();
+      const userId = await getCurrentSessionUserId();
       if (!userId) return;
+      await markTourSeenLocally(userId);
       const { error } = await supabase
         .from('profiles')
         .update({ has_seen_tour: true, updated_at: new Date().toISOString() })
@@ -148,25 +278,106 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     }
   }, []);
 
-  const completeTour = React.useCallback(() => {
-    appTour.completeTour();
+  const showTourCompletionGreeting = React.useCallback(() => {
     if (!didShowTourCompletionGreetingRef.current) {
       didShowTourCompletionGreetingRef.current = true;
-      Alert.alert('Tour complete', "You're all set. Let's start learning!");
+      traceFirstRun('greeting', 'shown');
+      setTourCompletionGreetingVisible(true);
     }
+  }, []);
+
+  const completeTour = React.useCallback(() => {
+    traceFirstRun('tutorial', 'completed');
+    traceFirstRun('greeting', 'scheduled');
+    setTourCompletionGreetingPending(true);
+    appTour.completeTour();
     void markTourSeen();
   }, [appTour, markTourSeen]);
 
+  React.useEffect(() => {
+    if (!tourCompletionGreetingPending || settingsVisible) return;
+    const timer = setTimeout(() => {
+      setTourCompletionGreetingPending(false);
+      showTourCompletionGreeting();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [
+    settingsVisible,
+    showTourCompletionGreeting,
+    tourCompletionGreetingPending,
+  ]);
+
+  const schedulePostTutorialReminder = React.useCallback(() => {
+    setTimeout(() => {
+      void ReminderNotificationService.evaluateAndSchedule({
+        allowSoftPrompt: true,
+        markAppActive: true,
+      }).catch((error) => {
+        console.warn('[Reminders] post-tutorial prompt failed:', error);
+      });
+    }, 350);
+  }, []);
+
+  const handleGreetingShare = React.useCallback(() => {
+    traceFirstRun('greeting', 'share_sheet_selected');
+    setTourCompletionGreetingVisible(false);
+    schedulePostTutorialReminder();
+  }, [schedulePostTutorialReminder]);
+
+  const handleGreetingUpload = React.useCallback(() => {
+    traceFirstRun('greeting', 'upload_selected');
+    setTourCompletionGreetingVisible(false);
+    schedulePostTutorialReminder();
+    tabSwipeContext?.goToTab(1, {
+      animation: 'slide',
+      durationMs: 420,
+    });
+    setTimeout(() => {
+      tabSwipeContext?.triggerCacheAddAction();
+    }, 500);
+  }, [schedulePostTutorialReminder, tabSwipeContext]);
+
   const tourSampleCard = React.useMemo(() => {
+    if (appTour.sampleCardId) {
+      const exactCard = allCards.find(
+        (card) => card.id === appTour.sampleCardId
+      );
+      if (exactCard) return exactCard;
+    }
     const normalizedTarget = TOUR_TARGET_WORD.toLowerCase();
     return (
       allCards.find((card) => {
         const targetWord = (card.targetWord || '').trim().toLowerCase();
         const targetPhrase = (card.targetPhrase || '').trim().toLowerCase();
         return targetWord === normalizedTarget || targetPhrase === 'wing it';
-      }) || allCards[0] || null
+      }) ||
+      allCards[0] ||
+      null
     );
-  }, [allCards]);
+  }, [allCards, appTour.sampleCardId]);
+
+  React.useEffect(() => {
+    if (appTour.step !== 'STEP_8_FLICK_CARD') return;
+    if (!appTour.sampleCardId || tourSampleCard?.id !== appTour.sampleCardId)
+      return;
+    if (openedTourCardIdRef.current === tourSampleCard.id) return;
+
+    openedTourCardIdRef.current = tourSampleCard.id;
+    const scopedCardIds = allCards.map((card) => card.id);
+    navigation.navigate('CardDetail', {
+      cardId: tourSampleCard.id,
+      cardIds: scopedCardIds.length > 0 ? scopedCardIds : [tourSampleCard.id],
+      albumName: tUI(uiLanguage, 'deck.albumAllCards'),
+      headerTitle: tUI(uiLanguage, 'deck.albumAllCards'),
+    });
+  }, [
+    allCards,
+    appTour.sampleCardId,
+    appTour.step,
+    navigation,
+    tourSampleCard,
+    uiLanguage,
+  ]);
 
   React.useEffect(() => {
     if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
@@ -174,48 +385,45 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   }, [appTour.step, tabSwipeContext]);
 
   const handleTourTargetPress = React.useCallback(() => {
-    if (appTour.step === 'STEP_1_SAMPLE') {
-      if (!tourSampleCard) return;
-      appTour.nextStep();
-      const scopedCardIds = allCards.map((card) => card.id);
-      navigation.navigate('CardDetail', {
-        cardId: tourSampleCard.id,
-        cardIds: scopedCardIds.length > 0 ? scopedCardIds : [tourSampleCard.id],
-        albumName: 'All cards',
-        headerTitle: 'All cards',
-      });
-      return;
-    }
-
     if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
-      appTour.nextStep();
+      didOpenTourQuizRef.current = true;
+      pressTodayReviewRef.current();
+      appTour.resetTourState();
       return;
     }
 
     if (appTour.step === 'STEP_11_CREATE_ALBUM') {
       setNewAlbumName((prev) => (prev.trim() ? prev : 'My Nuances'));
-      setIsCreateModalVisible(true);
-      appTour.nextStep();
+      appTour.resetTourState();
+      setTimeout(() => {
+        setIsCreateModalVisible(true);
+        setTimeout(() => {
+          appTour.goToStep('STEP_12_CONFIRM_ALBUM');
+        }, 420);
+      }, 420);
       return;
     }
     appTour.nextStep();
-  }, [allCards, appTour, navigation, tourSampleCard]);
+  }, [allCards, appTour, navigation, tourSampleCard, uiLanguage]);
 
-  const applyMainScreenSettings = React.useCallback((settings: {
-    uiLanguage: UILanguage;
-    wordPopSlideMs: number;
-    mainScreenAlbumGridCount: MainScreenAlbumGridCount;
-    mainScreenWordPopEnabled: boolean;
-    mainScreenWordPopAlbumId: string | null;
-    mainScreenAlbumOrder: string[];
-  }) => {
-    setUiLanguage(settings.uiLanguage);
-    setWordPopSlideMs(settings.wordPopSlideMs);
-    setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
-    setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
-    setMainScreenWordPopAlbumId(settings.mainScreenWordPopAlbumId);
-    setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
-  }, []);
+  const applyMainScreenSettings = React.useCallback(
+    (settings: {
+      uiLanguage: UILanguage;
+      wordPopSlideMs: number;
+      mainScreenAlbumGridCount: MainScreenAlbumGridCount;
+      mainScreenWordPopEnabled: boolean;
+      mainScreenWordPopAlbumId: string | null;
+      mainScreenAlbumOrder: string[];
+    }) => {
+      setUiLanguage(settings.uiLanguage);
+      setWordPopSlideMs(settings.wordPopSlideMs);
+      setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
+      setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
+      setMainScreenWordPopAlbumId(settings.mainScreenWordPopAlbumId);
+      setMainScreenAlbumOrder(settings.mainScreenAlbumOrder);
+    },
+    []
+  );
 
   const toDayKey = React.useCallback((input: Date | string) => {
     const date = new Date(input);
@@ -243,22 +451,46 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     void hydrateAlbumPrefs();
   }, [hydrateAlbumPrefs]);
 
+  React.useEffect(
+    () =>
+      subscribeDeckAlbumPreferences((prefs) => {
+        setCustomAlbums(prefs.customAlbums);
+        setAlbumNameOverrides(prefs.albumNameOverrides);
+        setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
+        setAlbumColorOverrides(prefs.albumColorOverrides);
+        setAlbumCoverOverrides(prefs.albumCoverOverrides);
+        setDeletedAlbumIds(prefs.deletedAlbumIds);
+      }),
+    []
+  );
+
   React.useEffect(() => {
+    if (VIDEO_TOUR_ENABLED) return;
     if (didCheckTourRef.current) return;
     didCheckTourRef.current = true;
     let cancelled = false;
 
     const checkTourStatus = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId || cancelled) return;
+        const localSeen = await hasSeenTourLocally(userId);
+        if (localSeen || cancelled) return;
         const { data, error } = await supabase
           .from('profiles')
           .select('onboarding_completed, has_seen_tour')
           .eq('id', userId)
           .maybeSingle();
         if (error) throw error;
-        if (!cancelled && data?.onboarding_completed === true && data?.has_seen_tour !== true) {
+        if (data?.has_seen_tour === true) {
+          await markTourSeenLocally(userId);
+          return;
+        }
+        if (
+          !cancelled &&
+          data?.onboarding_completed === true &&
+          data?.has_seen_tour !== true
+        ) {
           appTour.startTour();
         }
       } catch (error) {
@@ -316,23 +548,34 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
     const load = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
-          if (!cancelled) setAllCards([]);
+          if (!cancelled) {
+            setAllCards([]);
+            setCardsHydrated(true);
+          }
           return;
         }
         const queryCards = database
           .get<Card>('cards')
-          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
-        const data = await queryCards.fetch();
+          .query(
+            Q.where('user_id', userId),
+            Q.where('deleted_at', null),
+            Q.sortBy('created_at', Q.desc)
+          );
+        const data = await withLocalCardQueryTimeout(queryCards.fetch());
         if (cancelled) return;
         setAllCards(data);
+        setCardsHydrated(true);
         sub = queryCards.observe().subscribe((nextData) => {
           setAllCards(nextData);
         });
       } catch (error) {
         console.error('[Deck] load cards failed:', error);
-        if (!cancelled) setAllCards([]);
+        if (!cancelled) {
+          setAllCards([]);
+          setCardsHydrated(true);
+        }
       }
     };
 
@@ -347,7 +590,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     let cancelled = false;
     const removeMockVisualCards = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId || cancelled) return;
 
         const mockQuery = database
@@ -400,6 +643,25 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     }, [])
   );
 
+  React.useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      QUIZ_REVIEWED_CARD_EVENT,
+      (cardId: unknown) => {
+        if (typeof cardId !== 'string' || !cardId.trim()) return;
+        setQuizReviewedCardIds((prev) => {
+          if (prev.has(cardId)) return prev;
+          const next = new Set(prev);
+          next.add(cardId);
+          return next;
+        });
+      }
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
@@ -427,6 +689,20 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           const settings = await loadUserSettings();
           if (active) {
             applyMainScreenSettings(settings);
+          }
+          const userId = await getCurrentSessionUserId();
+          if (userId) {
+            try {
+              await localizeDefaultExperienceSavedCard(
+                userId,
+                settings.uiLanguage
+              );
+            } catch (error) {
+              console.warn(
+                '[DeckMain] localize default experience card failed:',
+                error
+              );
+            }
           }
         } catch (error) {
           console.warn('[DeckMain] load main screen settings failed:', error);
@@ -460,13 +736,26 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
             setTodayReviewQuestionCount(prefs.questionCount);
             setTodayNewWordsOnly(prefs.todayNewWordsOnly ?? false);
             setTodayReviewQuestionTypes(prefs.selectedQuestionTypes);
+            setTodayReviewSourceAlbumIds(prefs.selectedSourceAlbumIds);
           }
         } catch (error) {
-          console.warn('[DeckMain] load today review preferences failed:', error);
+          console.warn(
+            '[DeckMain] load today review preferences failed:',
+            error
+          );
           if (active) {
-            setTodayReviewQuestionCount(DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount);
-            setTodayNewWordsOnly(DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false);
-            setTodayReviewQuestionTypes(DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes);
+            setTodayReviewQuestionCount(
+              DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
+            );
+            setTodayNewWordsOnly(
+              DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false
+            );
+            setTodayReviewQuestionTypes(
+              DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
+            );
+            setTodayReviewSourceAlbumIds(
+              DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedSourceAlbumIds
+            );
           }
         }
       };
@@ -478,9 +767,12 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   );
 
   React.useEffect(() => {
-    const timer = setInterval(() => {
-      setImageReloadSeed((prev) => prev + 1);
-    }, 25 * 60 * 1000);
+    const timer = setInterval(
+      () => {
+        setImageReloadSeed((prev) => prev + 1);
+      },
+      25 * 60 * 1000
+    );
 
     return () => clearInterval(timer);
   }, []);
@@ -490,23 +782,41 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
     const loadCardImages = async () => {
       const nextMap: Record<string, string> = {};
-      await Promise.all(
-        allCards.map(async (card) => {
-          const uri = await resolveCardImageUri({
-            cardId: card.id,
-            remoteUri: card.imageUrl,
-          });
-          if (card.imageUrl && !uri) {
-            console.warn('[DeckMain] card image resolve failed', {
-              cardId: card.id,
-              imageUrl: card.imageUrl,
-            });
-          }
-          if (uri) {
-            nextMap[card.id] = uri;
-          }
-        })
-      );
+      for (
+        let start = 0;
+        start < allCards.length;
+        start += CARD_IMAGE_RESOLVE_BATCH_SIZE
+      ) {
+        if (cancelled) return;
+        const batch = allCards.slice(
+          start,
+          start + CARD_IMAGE_RESOLVE_BATCH_SIZE
+        );
+        await Promise.all(
+          batch.map(async (card) => {
+            try {
+              const uri = await resolveCardImageUri({
+                cardId: card.id,
+                remoteUri: card.imageUrl,
+              });
+              if (card.imageUrl && !uri) {
+                console.warn('[DeckMain] card image resolve failed', {
+                  cardId: card.id,
+                  imageUrl: card.imageUrl,
+                });
+              }
+              if (uri) {
+                nextMap[card.id] = uri;
+              }
+            } catch (error) {
+              console.warn('[DeckMain] card image resolve crashed', {
+                cardId: card.id,
+                error,
+              });
+            }
+          })
+        );
+      }
       console.log('[DeckMain] card image map size:', {
         allCards: allCards.length,
         mapped: Object.keys(nextMap).length,
@@ -534,7 +844,28 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         albumCoverOverrides,
         deletedAlbumIds,
       }),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
+    [
+      allCards,
+      cardImageMap,
+      customAlbums,
+      albumNameOverrides,
+      albumEmojiOverrides,
+      albumColorOverrides,
+      albumCoverOverrides,
+      deletedAlbumIds,
+    ]
+  );
+
+  const todayReviewSourceAlbums = React.useMemo(
+    () =>
+      mergedAlbums.map((album) => ({
+        id: album.id,
+        label: getDeckAlbumDisplayName(album, uiLanguage),
+        emoji: album.emoji,
+        color: album.color,
+        coverImageUri: album.coverImageUri,
+      })),
+    [mergedAlbums, uiLanguage]
   );
 
   const processedAlbums = React.useMemo(() => {
@@ -543,7 +874,9 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
     if (keyword) {
       result = result.filter((album) => {
-        const inName = album.name.toLowerCase().includes(keyword);
+        const inName = getDeckAlbumDisplayName(album, uiLanguage)
+          .toLowerCase()
+          .includes(keyword);
         const inCards = album.latestCards.some(
           (card) =>
             card.previewText?.toLowerCase().includes(keyword) ||
@@ -551,6 +884,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         );
         return inName || inCards;
       });
+      return result;
     }
 
     const orderIndex = new Map(
@@ -558,20 +892,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         .filter((slot) => !isMainScreenEmptyAlbumSlot(slot))
         .map((albumId, index) => [albumId, index])
     );
-    const sortedAlbums = [...result].sort((a, b) => {
-      const aOrder = orderIndex.get(a.id);
-      const bOrder = orderIndex.get(b.id);
-      if (aOrder != null && bOrder != null) return aOrder - bOrder;
-      if (aOrder != null) return -1;
-      if (bOrder != null) return 1;
-      const aLatest = a.latestCards[0]?.createdAtMs ?? 0;
-      const bLatest = b.latestCards[0]?.createdAtMs ?? 0;
-      return sortOrder === 'desc' ? bLatest - aLatest : aLatest - bLatest;
-    });
 
-    if (keyword || mainScreenAlbumOrder.length === 0) return sortedAlbums;
+    if (mainScreenAlbumOrder.length === 0) return result;
 
-    const albumById = new Map(sortedAlbums.map((album) => [album.id, album]));
+    const albumById = new Map(result.map((album) => [album.id, album]));
     const usedAlbumIds = new Set<string>();
     const laidOutAlbums: Array<DeckAlbum | null> = [];
 
@@ -586,26 +910,36 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       laidOutAlbums.push(album);
     });
 
-    sortedAlbums.forEach((album) => {
+    result.forEach((album) => {
       if (!usedAlbumIds.has(album.id)) {
         laidOutAlbums.push(album);
       }
     });
 
-    while (laidOutAlbums.length > 0 && laidOutAlbums[laidOutAlbums.length - 1] == null) {
+    while (
+      laidOutAlbums.length > 0 &&
+      laidOutAlbums[laidOutAlbums.length - 1] == null
+    ) {
       laidOutAlbums.pop();
     }
 
-    return laidOutAlbums.length > 0 ? laidOutAlbums : sortedAlbums;
-  }, [mainScreenAlbumOrder, mergedAlbums, searchQuery, sortOrder]);
+    return laidOutAlbums.length > 0 ? laidOutAlbums : result;
+  }, [mainScreenAlbumOrder, mergedAlbums, searchQuery, uiLanguage]);
 
   const wordPopAlbum = React.useMemo(() => {
-    if (!mainScreenWordPopAlbumId) return mergedAlbums.find((album) => album.id === ALL_CARDS_ALBUM_ID) ?? null;
-    return mergedAlbums.find((album) => album.id === mainScreenWordPopAlbumId) ?? null;
+    if (!mainScreenWordPopAlbumId)
+      return (
+        mergedAlbums.find((album) => album.id === ALL_CARDS_ALBUM_ID) ?? null
+      );
+    return (
+      mergedAlbums.find((album) => album.id === mainScreenWordPopAlbumId) ??
+      null
+    );
   }, [mainScreenWordPopAlbumId, mergedAlbums]);
 
   const wordPopScopedCards = React.useMemo(() => {
-    if (!wordPopAlbum || wordPopAlbum.id === ALL_CARDS_ALBUM_ID) return allCards;
+    if (!wordPopAlbum || wordPopAlbum.id === ALL_CARDS_ALBUM_ID)
+      return allCards;
     const allowedIds = new Set(wordPopAlbum.cardIds);
     return allCards.filter((card) => allowedIds.has(card.id));
   }, [allCards, wordPopAlbum]);
@@ -617,7 +951,13 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
 
   const slideshowItems = React.useMemo(() => {
     const seen = new Set<string>();
-    const list: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }> = [];
+    const list: Array<{
+      cardId: string;
+      text: string;
+      translation?: string;
+      sentence?: string;
+      imageUri?: string;
+    }> = [];
 
     wordPopScopedCards.forEach((card) => {
       const phrase = (card.targetPhrase || '').trim();
@@ -630,7 +970,11 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       list.push({
         cardId: card.id,
         text: candidate,
-        translation: (card.definition || card.contextualExplanation || '').trim(),
+        translation: (
+          card.definition ||
+          card.contextualExplanation ||
+          ''
+        ).trim(),
         sentence: (card.originalSentence || '').trim(),
         imageUri: cardImageMap[card.id],
       });
@@ -643,13 +987,15 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     const keyword = searchQuery.trim().toLowerCase();
     if (!keyword) return [];
     const seen = new Set<string>();
-    const list: Array<{ cardId: string; text: string; translation?: string }> = [];
+    const list: Array<{ cardId: string; text: string; translation?: string }> =
+      [];
     allCards.forEach((card) => {
       const phrase = (card.targetPhrase || '').trim();
       const word = (card.targetWord || '').trim();
       const candidate = phrase || word;
       if (!candidate) return;
-      const haystack = `${candidate} ${card.definition || ''} ${card.originalSentence || ''}`.toLowerCase();
+      const haystack =
+        `${candidate} ${card.definition || ''} ${card.originalSentence || ''}`.toLowerCase();
       if (!haystack.includes(keyword)) return;
       const dedupeKey = `${card.id}:${candidate.toLowerCase()}`;
       if (seen.has(dedupeKey)) return;
@@ -666,60 +1012,268 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const todayCardIds = React.useMemo(() => {
     const todayKey = toDayKey(new Date());
     return allCards
-      .filter((card) => !!card.createdAt && toDayKey(card.createdAt) === todayKey)
+      .filter(
+        (card) => !!card.createdAt && toDayKey(card.createdAt) === todayKey
+      )
       .map((card) => card.id);
   }, [allCards, toDayKey]);
 
-  const todayUnreviewedCount = React.useMemo(
-    () => todayCardIds.filter((id) => !quizReviewedCardIds.has(id)).length,
+  const todayUnreviewedCardIds = React.useMemo(
+    () => todayCardIds.filter((id) => !quizReviewedCardIds.has(id)),
     [todayCardIds, quizReviewedCardIds]
+  );
+  const todayUnreviewedCount = todayUnreviewedCardIds.length;
+
+  React.useEffect(() => {
+    void ReminderNotificationService.evaluateAndSchedule({
+      allowSoftPrompt: false,
+    }).catch((error) => {
+      console.warn(
+        '[Reminders] schedule after today review change failed:',
+        error
+      );
+    });
+  }, [todayCardIds.length, todayUnreviewedCount]);
+
+  const quizUsableCards = React.useMemo(
+    () => allCards.filter(hasQuizUsableCard),
+    [allCards]
+  );
+
+  const todayUnreviewedQuizUsableCardIds = React.useMemo(() => {
+    const usableIds = new Set(quizUsableCards.map((card) => card.id));
+    return todayUnreviewedCardIds.filter((id) => usableIds.has(id));
+  }, [quizUsableCards, todayUnreviewedCardIds]);
+  const todayQuizUsableCardIds = React.useMemo(() => {
+    const usableIds = new Set(quizUsableCards.map((card) => card.id));
+    return todayCardIds.filter((id) => usableIds.has(id));
+  }, [quizUsableCards, todayCardIds]);
+
+  const todayReviewSourceCardIdSet = React.useMemo(() => {
+    const selectedIds = todayReviewSourceAlbumIds.length
+      ? todayReviewSourceAlbumIds
+      : [ALL_CARDS_ALBUM_ID];
+    const selectedAlbums = mergedAlbums.filter((album) =>
+      selectedIds.includes(album.id)
+    );
+
+    if (
+      selectedIds.includes(ALL_CARDS_ALBUM_ID) ||
+      selectedAlbums.length === 0
+    ) {
+      return new Set(quizUsableCards.map((card) => card.id));
+    }
+
+    return new Set(selectedAlbums.flatMap((album) => album.cardIds));
+  }, [mergedAlbums, quizUsableCards, todayReviewSourceAlbumIds]);
+
+  const sourceQuizUsableCards = React.useMemo(
+    () =>
+      quizUsableCards.filter((card) => todayReviewSourceCardIdSet.has(card.id)),
+    [quizUsableCards, todayReviewSourceCardIdSet]
+  );
+  const sourceTodayQuizUsableCardIds = React.useMemo(
+    () =>
+      todayQuizUsableCardIds.filter((id) => todayReviewSourceCardIdSet.has(id)),
+    [todayQuizUsableCardIds, todayReviewSourceCardIdSet]
+  );
+  const sourceTodayUnreviewedQuizUsableCardIds = React.useMemo(
+    () =>
+      todayUnreviewedQuizUsableCardIds.filter((id) =>
+        todayReviewSourceCardIdSet.has(id)
+      ),
+    [todayUnreviewedQuizUsableCardIds, todayReviewSourceCardIdSet]
   );
 
   const handlePressTodayReview = React.useCallback(() => {
-    if (allCards.length === 0) {
-      Alert.alert('還沒有單字', '先新增幾張卡片，再開始 Quick quiz。');
+    if (__DEV__ && isScreenshotDemoModeEnabled()) {
+      hideDefaultExperienceQuizHint();
+      navigation.navigate('CardReview', {
+        albumId: 'default-experience-demo',
+        albumName: tUI(uiLanguage, 'deck.allCardsReview'),
+        cardIds: [],
+        questionCount: 3,
+        selectedQuestionTypes: [
+          'word_to_translation',
+          'sentence_to_translation',
+          'pronunciation',
+        ],
+        themeColor: '#2D9E66',
+        isScreenshotDemoQuiz: true,
+      });
       return;
     }
 
-    const hasPendingTodayReview = todayUnreviewedCount > 0;
-    const shouldUseTodayCards = hasPendingTodayReview || (todayNewWordsOnly && todayCardIds.length > 0);
+    const isDefaultExperienceTutorial = showDefaultExperienceQuizHint;
+    hideDefaultExperienceQuizHint();
+    if (!cardsHydrated) {
+      navigation.navigate('CardReview', {
+        albumId: 'all-cards',
+        albumName: tUI(uiLanguage, 'deck.allCardsReview'),
+        cardIds: [],
+        questionCount: todayReviewQuestionCount,
+        selectedQuestionTypes: todayReviewQuestionTypes,
+        themeColor: '#2D9E66',
+        isDefaultExperienceTutorial,
+      });
+      return;
+    }
+
+    if (sourceQuizUsableCards.length === 0) {
+      Alert.alert(
+        tUI(uiLanguage, 'deck.alertNoWordsTitle'),
+        tUI(uiLanguage, 'deck.alertNoWordsBody')
+      );
+      return;
+    }
+
+    const shouldUseTodayCards =
+      todayNewWordsOnly && sourceTodayQuizUsableCardIds.length > 0;
+    const tutorialCard = isDefaultExperienceTutorial
+      ? sourceQuizUsableCards.find(
+          (card) =>
+            (card.originalSentence || '').trim() ===
+              DEFAULT_EXPERIENCE_CARD_SENTENCE &&
+            (card.targetWord || '').trim().toLowerCase() ===
+              DEFAULT_EXPERIENCE_TARGET_WORD
+        )
+      : null;
 
     navigation.navigate('CardReview', {
       albumId: shouldUseTodayCards ? 'today-added' : 'all-cards',
-      albumName: shouldUseTodayCards ? 'Today Review' : 'All cards',
-      cardIds: shouldUseTodayCards ? todayCardIds : undefined,
-      questionCount: todayReviewQuestionCount,
-      selectedQuestionTypes: todayReviewQuestionTypes,
+      albumName: shouldUseTodayCards
+        ? tUI(uiLanguage, 'deck.todayReview')
+        : tUI(uiLanguage, 'deck.allCardsReview'),
+      cardIds: tutorialCard
+        ? [tutorialCard.id]
+        : shouldUseTodayCards
+          ? sourceTodayQuizUsableCardIds
+          : sourceQuizUsableCards.map((card) => card.id),
+      questionCount: isDefaultExperienceTutorial ? 3 : todayReviewQuestionCount,
+      selectedQuestionTypes: isDefaultExperienceTutorial
+        ? ['word_to_translation', 'sentence_to_translation', 'pronunciation']
+        : todayReviewQuestionTypes,
       themeColor: '#2D9E66',
+      isDefaultExperienceTutorial,
     });
   }, [
-    allCards.length,
+    cardsHydrated,
+    hideDefaultExperienceQuizHint,
     navigation,
-    todayCardIds,
+    showDefaultExperienceQuizHint,
+    sourceQuizUsableCards,
+    sourceTodayQuizUsableCardIds,
     todayNewWordsOnly,
     todayReviewQuestionCount,
     todayReviewQuestionTypes,
-    todayUnreviewedCount,
+    uiLanguage,
   ]);
 
   React.useEffect(() => {
     pressTodayReviewRef.current = handlePressTodayReview;
   }, [handlePressTodayReview]);
 
-  const handleChangeTodayReviewQuestionCount = React.useCallback((nextCount: number) => {
-    setTodayReviewQuestionCount(nextCount);
-    void saveAlbumReviewPreferences('today-added', { questionCount: nextCount });
+  React.useEffect(() => {
+    if (!__DEV__) return undefined;
+
+    const openDemoQuiz = (url: string) => {
+      if (!url.includes('://dev/demo-quiz')) return;
+      void enableScreenshotDemoMode().finally(() => {
+        hideDefaultExperienceQuizHint();
+        navigation.navigate('CardReview', {
+          albumId: 'default-experience-demo',
+          albumName: tUI(uiLanguage, 'deck.allCardsReview'),
+          cardIds: [],
+          questionCount: 3,
+          selectedQuestionTypes: [
+            'word_to_translation',
+            'sentence_to_translation',
+            'pronunciation',
+          ],
+          themeColor: '#2D9E66',
+          isScreenshotDemoQuiz: true,
+        });
+      });
+    };
+
+    const subscription = Linking.addEventListener('url', ({ url }) =>
+      openDemoQuiz(url)
+    );
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) openDemoQuiz(url);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [hideDefaultExperienceQuizHint, navigation, uiLanguage]);
+
+  React.useEffect(() => {
+    if (!__DEV__) return;
+    void hydrateScreenshotDemoMode();
   }, []);
 
-  const handleChangeTodayNewWordsOnly = React.useCallback((enabled: boolean) => {
-    setTodayNewWordsOnly(enabled);
-    void saveAlbumReviewPreferences('today-added', { todayNewWordsOnly: enabled });
-  }, []);
+  React.useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT,
+      completeTour
+    );
+    return () => subscription.remove();
+  }, [completeTour]);
 
-  const handleChangeTodayReviewQuestionTypes = React.useCallback((nextTypes: ReviewQuestionType[]) => {
-    setTodayReviewQuestionTypes(nextTypes);
-    void saveAlbumReviewPreferences('today-added', { selectedQuestionTypes: nextTypes });
-  }, []);
+  React.useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (!didOpenTourQuizRef.current) return;
+      didOpenTourQuizRef.current = false;
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const handleChangeTodayReviewQuestionCount = React.useCallback(
+    (nextCount: number) => {
+      setTodayReviewQuestionCount(nextCount);
+      void saveAlbumReviewPreferences('today-added', {
+        questionCount: nextCount,
+      });
+    },
+    []
+  );
+
+  const handleChangeTodayNewWordsOnly = React.useCallback(
+    (enabled: boolean) => {
+      setTodayNewWordsOnly(enabled);
+      void saveAlbumReviewPreferences('today-added', {
+        todayNewWordsOnly: enabled,
+      });
+    },
+    []
+  );
+
+  const handleChangeTodayReviewQuestionTypes = React.useCallback(
+    (nextTypes: ReviewQuestionType[]) => {
+      setTodayReviewQuestionTypes(nextTypes);
+      void saveAlbumReviewPreferences('today-added', {
+        selectedQuestionTypes: nextTypes,
+      });
+    },
+    []
+  );
+
+  const handleChangeTodayReviewSourceAlbumIds = React.useCallback(
+    (nextIds: string[]) => {
+      const normalizedIds =
+        nextIds.length > 0
+          ? Array.from(new Set(nextIds))
+          : [ALL_CARDS_ALBUM_ID];
+      setTodayReviewSourceAlbumIds(normalizedIds);
+      void saveAlbumReviewPreferences('today-added', {
+        selectedSourceAlbumIds: normalizedIds,
+      });
+    },
+    []
+  );
 
   const handleAlbumPress = React.useCallback(
     (album: DeckAlbum) => {
@@ -728,11 +1282,14 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         album.id === ALL_CARDS_ALBUM_ID || album.id === 'all-cards'
           ? allCards
           : allCards.filter((card) => albumCardIdSet.has(card.id));
-      const optimisticImageMap = optimisticCards.reduce<Record<string, string>>((next, card) => {
-        const uri = cardImageMap[card.id];
-        if (uri) next[card.id] = uri;
-        return next;
-      }, {});
+      const optimisticImageMap = optimisticCards.reduce<Record<string, string>>(
+        (next, card) => {
+          const uri = cardImageMap[card.id];
+          if (uri) next[card.id] = uri;
+          return next;
+        },
+        {}
+      );
 
       primeAlbumPreload(album.id, {
         cards: optimisticCards,
@@ -744,31 +1301,53 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     [allCards, cardImageMap, navigation, seenCardIds]
   );
 
-  const openAlbumSettings = React.useCallback((album: DeckAlbum) => {
-    setSettingsAlbum(album);
-    setSettingsName(album.name);
-    setSettingsEmoji(album.emoji || '📁');
-    setSettingsColor(album.color || '#1E293B');
-    setSettingsCoverImageUri(albumCoverOverrides[album.id] || album.coverImageUri || '');
-    setSettingsVisible(true);
-  }, [albumCoverOverrides]);
+  const openAlbumSettings = React.useCallback(
+    (album: DeckAlbum) => {
+      setSettingsAlbum(album);
+      setSettingsName(getDeckAlbumDisplayName(album, uiLanguage));
+      setSettingsEmoji(album.emoji || '📁');
+      setSettingsColor(album.color || '#1E293B');
+      setSettingsCoverImageUri(
+        albumCoverOverrides[album.id] || album.coverImageUri || ''
+      );
+      setSettingsVisible(true);
+    },
+    [albumCoverOverrides, uiLanguage]
+  );
 
   const handleAddAlbum = React.useCallback(() => {
-    const trimmedName = newAlbumName.trim() || (appTour.step === 'STEP_12_CONFIRM_ALBUM' ? 'My Nuances' : '');
+    const trimmedName =
+      newAlbumName.trim() ||
+      (appTour.step === 'STEP_12_CONFIRM_ALBUM'
+        ? tUI(uiLanguage, 'deck.albumMyNuances')
+        : '');
     if (!trimmedName) return;
 
     const newAlbum = createCustomAlbum(trimmedName);
+    const isTourConfirmation = appTour.step === 'STEP_12_CONFIRM_ALBUM';
 
-    setCustomAlbums((prev) => [newAlbum, ...prev]);
-    setIsCreateModalVisible(false);
-    setNewAlbumName('');
-    if (appTour.step === 'STEP_12_CONFIRM_ALBUM') {
-      requestAnimationFrame(() => {
-        openAlbumSettings(newAlbum);
-        appTour.nextStep();
-      });
+    const finishAlbumCreation = () => {
+      setCustomAlbums((prev) => [newAlbum, ...prev]);
+      setIsCreateModalVisible(false);
+      setNewAlbumName('');
+    };
+
+    if (isTourConfirmation) {
+      appTour.resetTourState();
+      setTimeout(() => {
+        finishAlbumCreation();
+        setTimeout(() => {
+          openAlbumSettings(newAlbum);
+          setTimeout(() => {
+            appTour.goToStep('STEP_13_ALBUM_SETTINGS');
+          }, 420);
+        }, 520);
+      }, 420);
+      return;
     }
-  }, [appTour, newAlbumName, openAlbumSettings]);
+
+    finishAlbumCreation();
+  }, [appTour, newAlbumName, openAlbumSettings, uiLanguage]);
 
   const handleChangeSettingsEmoji = React.useCallback((emoji: string) => {
     setSettingsEmoji(emoji);
@@ -786,56 +1365,89 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
     }
   }, []);
 
-  const applyAlbumSettings = React.useCallback((nextCoverImageUri?: string) => {
-    if (!settingsAlbum) return;
+  const applyAlbumSettings = React.useCallback(
+    (nextCoverImageUri?: string) => {
+      if (!settingsAlbum) return;
 
-    const nextName = settingsName.trim();
-    if (!nextName) {
-      Alert.alert('名稱不可為空', '請輸入相簿名稱。');
-      return false;
-    }
+      const nextName = settingsName.trim();
+      if (!nextName) {
+        Alert.alert(
+          tUI(uiLanguage, 'deck.alertAlbumNameEmptyTitle'),
+          tUI(uiLanguage, 'deck.alertAlbumNameEmptyBody')
+        );
+        return false;
+      }
 
-    const effectiveCoverImageUri = nextCoverImageUri ?? settingsCoverImageUri;
-    const writeCoverOverride = (albumId: string, uri: string) => {
-      setAlbumCoverOverrides((prev) => {
-        const next = { ...prev };
-        if (uri) {
-          next[albumId] = uri;
-        } else {
-          delete next[albumId];
-        }
-        return next;
-      });
-    };
+      const effectiveCoverImageUri = nextCoverImageUri ?? settingsCoverImageUri;
+      const writeCoverOverride = (albumId: string, uri: string) => {
+        setAlbumCoverOverrides((prev) => {
+          const next = { ...prev };
+          if (uri) {
+            next[albumId] = uri;
+          } else {
+            delete next[albumId];
+          }
+          return next;
+        });
+      };
 
-    const isCustomAlbum = customAlbums.some((it) => it.id === settingsAlbum.id);
-    if (isCustomAlbum) {
-      setCustomAlbums((prev) =>
-        prev.map((it) =>
-          it.id === settingsAlbum.id
-            ? {
-                ...it,
-                name: nextName,
-                emoji: settingsEmoji,
-                color: settingsColor,
-                coverImageUri: effectiveCoverImageUri || undefined,
-              }
-            : it
-        )
+      const isCustomAlbum = customAlbums.some(
+        (it) => it.id === settingsAlbum.id
       );
-      writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
-    } else {
-      setAlbumNameOverrides((prev) => ({ ...prev, [settingsAlbum.id]: nextName }));
-      setAlbumEmojiOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsEmoji }));
-      setAlbumColorOverrides((prev) => ({ ...prev, [settingsAlbum.id]: settingsColor }));
-      writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
-    }
+      if (isCustomAlbum) {
+        setCustomAlbums((prev) =>
+          prev.map((it) =>
+            it.id === settingsAlbum.id
+              ? {
+                  ...it,
+                  name: nextName,
+                  emoji: settingsEmoji,
+                  color: settingsColor,
+                  coverImageUri: effectiveCoverImageUri || undefined,
+                }
+              : it
+          )
+        );
+        writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
+      } else {
+        setAlbumNameOverrides((prev) => {
+          const next = { ...prev };
+          const unchangedSystemName =
+            !settingsAlbum.isNameCustomized &&
+            nextName === getDeckAlbumDisplayName(settingsAlbum, uiLanguage);
+          if (unchangedSystemName) {
+            delete next[settingsAlbum.id];
+          } else {
+            next[settingsAlbum.id] = nextName;
+          }
+          return next;
+        });
+        setAlbumEmojiOverrides((prev) => ({
+          ...prev,
+          [settingsAlbum.id]: settingsEmoji,
+        }));
+        setAlbumColorOverrides((prev) => ({
+          ...prev,
+          [settingsAlbum.id]: settingsColor,
+        }));
+        writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
+      }
 
-    setSettingsCoverImageUri(effectiveCoverImageUri);
-    setSettingsVisible(false);
-    setSettingsAlbum(null);
-    return true;
-  }, [customAlbums, settingsAlbum, settingsName, settingsEmoji, settingsColor, settingsCoverImageUri]);
+      setSettingsCoverImageUri(effectiveCoverImageUri);
+      setSettingsVisible(false);
+      setSettingsAlbum(null);
+      return true;
+    },
+    [
+      customAlbums,
+      settingsAlbum,
+      settingsName,
+      settingsEmoji,
+      settingsColor,
+      settingsCoverImageUri,
+      uiLanguage,
+    ]
+  );
 
   const handleSaveAlbumSettings = React.useCallback(() => {
     const saved = applyAlbumSettings();
@@ -847,9 +1459,13 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const handlePickAlbumCoverImage = React.useCallback(async () => {
     if (!settingsAlbum) return;
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('需要相簿權限', '請先允許存取相簿，才能選擇封面圖片。');
+        Alert.alert(
+          tUI(uiLanguage, 'deck.alertPhotoPermissionTitle'),
+          tUI(uiLanguage, 'deck.alertPhotoPermissionBody')
+        );
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -873,32 +1489,51 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       setPendingAlbumCoverCropUri(normalizedImage.uri);
     } catch (error) {
       console.error('[DeckMain] pick album cover failed:', error);
-      Alert.alert('選擇失敗', '無法選擇封面圖片，請稍後再試。');
+      Alert.alert(
+        tUI(uiLanguage, 'deck.alertPickCoverFailedTitle'),
+        tUI(uiLanguage, 'deck.alertPickCoverFailedBody')
+      );
     }
-  }, [settingsAlbum]);
+  }, [settingsAlbum, uiLanguage]);
 
-  const handleDeleteAlbum = React.useCallback((album: DeckAlbum) => {
-    if (album.isDefault) {
-      Alert.alert('無法刪除', '預設資料夾不能刪除。');
-      return;
-    }
+  const handleDeleteAlbum = React.useCallback(
+    (album: DeckAlbum) => {
+      if (album.isDefault) {
+        Alert.alert(
+          tUI(uiLanguage, 'deck.alertCannotDeleteTitle'),
+          tUI(uiLanguage, 'deck.alertCannotDeleteBody')
+        );
+        return;
+      }
 
-    Alert.alert('刪除相簿', `確定要刪除「${album.name}」嗎？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '刪除',
-        style: 'destructive',
-        onPress: () => {
-          const isCustomAlbum = customAlbums.some((it) => it.id === album.id);
-          if (isCustomAlbum) {
-            setCustomAlbums((prev) => prev.filter((it) => it.id !== album.id));
-          } else {
-            setDeletedAlbumIds((prev) => (prev.includes(album.id) ? prev : [...prev, album.id]));
-          }
-        },
-      },
-    ]);
-  }, [customAlbums]);
+      Alert.alert(
+        tUI(uiLanguage, 'deck.alertDeleteAlbumTitle'),
+        `${tUI(uiLanguage, 'deck.alertDeleteAlbumBody')}\n${getDeckAlbumDisplayName(album, uiLanguage)}`,
+        [
+          { text: tUI(uiLanguage, 'deck.alertCancel'), style: 'cancel' },
+          {
+            text: tUI(uiLanguage, 'deck.alertDelete'),
+            style: 'destructive',
+            onPress: () => {
+              const isCustomAlbum = customAlbums.some(
+                (it) => it.id === album.id
+              );
+              if (isCustomAlbum) {
+                setCustomAlbums((prev) =>
+                  prev.filter((it) => it.id !== album.id)
+                );
+              } else {
+                setDeletedAlbumIds((prev) =>
+                  prev.includes(album.id) ? prev : [...prev, album.id]
+                );
+              }
+            },
+          },
+        ]
+      );
+    },
+    [customAlbums, uiLanguage]
+  );
 
   const handleActionEnd = React.useCallback(
     (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
@@ -914,7 +1549,10 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   );
 
   const handleMenuStart = React.useCallback(
-    (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => {
+    (
+      album: DeckAlbum,
+      layout: { x: number; y: number; width: number; height: number }
+    ) => {
       setActiveAlbum(album);
       setActiveLayout(layout);
     },
@@ -948,13 +1586,23 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
   const handlePressWordPopItem = React.useCallback(
     (item: { cardId: string; text: string; imageUri?: string }) => {
       if (!item?.cardId) return;
-      const scopedCardIds = wordPopScopedCardIds.length > 0 ? wordPopScopedCardIds : allCards.map((card) => card.id);
+      const scopedCardIds =
+        wordPopScopedCardIds.length > 0
+          ? wordPopScopedCardIds
+          : allCards.map((card) => card.id);
       if (scopedCardIds.length === 0) {
-        Alert.alert('目前沒有可開啟的卡片', '請先新增或同步卡片後再試。');
+        Alert.alert(
+          tUI(uiLanguage, 'deck.alertNoCardsTitle'),
+          tUI(uiLanguage, 'deck.alertNoCardsBody')
+        );
         return;
       }
-      const targetCardId = scopedCardIds.includes(item.cardId) ? item.cardId : scopedCardIds[0];
-      const headerTitle = wordPopAlbum?.name || 'All cards';
+      const targetCardId = scopedCardIds.includes(item.cardId)
+        ? item.cardId
+        : scopedCardIds[0];
+      const headerTitle = wordPopAlbum
+        ? getDeckAlbumDisplayName(wordPopAlbum, uiLanguage)
+        : tUI(uiLanguage, 'deck.albumAllCards');
       navigation.navigate('CardDetail', {
         cardId: targetCardId,
         cardIds: scopedCardIds,
@@ -962,7 +1610,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         headerTitle,
       });
     },
-    [allCards, navigation, wordPopAlbum, wordPopScopedCardIds]
+    [allCards, navigation, uiLanguage, wordPopAlbum, wordPopScopedCardIds]
   );
 
   const handlePressSearchResult = React.useCallback(
@@ -970,22 +1618,28 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
       if (!item?.cardId) return;
       const scopedCardIds = allCards.map((card) => card.id);
       if (scopedCardIds.length === 0) return;
-      const targetCardId = scopedCardIds.includes(item.cardId) ? item.cardId : scopedCardIds[0];
+      const targetCardId = scopedCardIds.includes(item.cardId)
+        ? item.cardId
+        : scopedCardIds[0];
       navigation.navigate('CardDetail', {
         cardId: targetCardId,
         cardIds: scopedCardIds,
-        albumName: 'All cards',
-        headerTitle: 'All cards',
+        albumName: tUI(uiLanguage, 'deck.albumAllCards'),
+        headerTitle: tUI(uiLanguage, 'deck.albumAllCards'),
       });
       setSearchQuery('');
     },
-    [allCards, navigation]
+    [allCards, navigation, uiLanguage]
   );
 
   return (
     <>
       <DeckMainScreenUI
-        heroStatusText={allCards.length > 0 ? "Cache isn't empty" : 'Cache is empty'}
+        heroStatusText={
+          allCards.length > 0
+            ? tUI(uiLanguage, 'deck.cacheNotEmpty')
+            : tUI(uiLanguage, 'deck.cacheEmpty')
+        }
         uiLanguage={uiLanguage}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -994,15 +1648,20 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         onPressCacheFab={handleCacheFabPress}
         onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
         sortOrder={sortOrder}
-        onToggleSort={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+        onToggleSort={() =>
+          setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
+        }
         filterPills={filterPills}
-        todayReviewTotalCount={todayCardIds.length}
-        todayReviewPendingCount={todayUnreviewedCount}
+        todayReviewTotalCount={sourceTodayQuizUsableCardIds.length}
+        todayReviewPendingCount={
+          todayNewWordsOnly ? sourceTodayUnreviewedQuizUsableCardIds.length : 0
+        }
         todayNewWordsOnly={todayNewWordsOnly}
         onPressTodayReview={handlePressTodayReview}
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
+        showQuickQuizTutorialArrow={showDefaultExperienceQuizHint}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}
@@ -1027,18 +1686,23 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         questionCount={todayReviewQuestionCount}
         todayNewWordsOnly={todayNewWordsOnly}
         selectedQuestionTypes={todayReviewQuestionTypes}
+        sourceAlbums={todayReviewSourceAlbums}
+        selectedSourceAlbumIds={todayReviewSourceAlbumIds}
+        uiLanguage={uiLanguage}
         onChangeTodayNewWordsOnly={handleChangeTodayNewWordsOnly}
         onClose={() => setShowTodayReviewTuningModal(false)}
         onChangeQuestionCount={handleChangeTodayReviewQuestionCount}
         onChangeSelectedQuestionTypes={handleChangeTodayReviewQuestionTypes}
+        onChangeSelectedSourceAlbumIds={handleChangeTodayReviewSourceAlbumIds}
       />
 
       <CreateAlbumModalUI
         visible={isCreateModalVisible}
         albumName={newAlbumName}
+        uiLanguage={uiLanguage}
         onChangeAlbumName={setNewAlbumName}
         tourConfirmActive={appTour.step === 'STEP_12_CONFIRM_ALBUM'}
-        tourConfirmTooltip="Create it."
+        tourConfirmTooltip={tUI(uiLanguage, 'deck.tourConfirmAlbum')}
         onCancel={() => {
           setIsCreateModalVisible(false);
           setNewAlbumName('');
@@ -1053,13 +1717,14 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         settingsColor={settingsColor}
         hasCoverImage={Boolean(settingsCoverImageUri)}
         coverImageUri={settingsCoverImageUri || undefined}
+        uiLanguage={uiLanguage}
         onSelectCoverTab={handleSelectCoverTab}
         onChangeName={setSettingsName}
         onChangeEmoji={handleChangeSettingsEmoji}
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
         tourSaveActive={appTour.step === 'STEP_13_ALBUM_SETTINGS'}
-        tourSaveTooltip="Album settings live here. Save to finish."
+        tourSaveTooltip={tUI(uiLanguage, 'deck.tourSaveSettings')}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
@@ -1076,6 +1741,7 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
           cropShape="album"
           fixedCropSize={260}
           modalAnimationType="slide"
+          uiLanguage={uiLanguage}
           onCancel={() => {
             setPendingAlbumCoverCropUri(null);
           }}
@@ -1094,12 +1760,35 @@ export default function DeckMainFlow({ navigation, onPressAvatar, onPressCacheFa
         />
       </AlbumSettingsModalUI>
 
+      <TourCompletionGreetingUI
+        visible={tourCompletionGreetingVisible}
+        title={tUI(uiLanguage, 'deck.tourCompleteTitle')}
+        body={tUI(uiLanguage, 'deck.tourCompleteBody')}
+        shareLabel={
+          uiLanguage === 'zh-TW'
+            ? '我會用分享選單'
+            : uiLanguage === 'zh-CN'
+              ? '我会用分享菜单'
+              : 'I’ll use Share'
+        }
+        uploadLabel={
+          uiLanguage === 'zh-TW'
+            ? '立即上傳'
+            : uiLanguage === 'zh-CN'
+              ? '立即上传'
+              : 'Upload now'
+        }
+        onShare={handleGreetingShare}
+        onUpload={handleGreetingUpload}
+      />
+
       <AlbumActionMenuOverlayUI
         isMenuVisible={isMenuVisible}
         startX={startX}
         startY={startY}
         hoveredAction={hoveredAction}
         activeAlbum={activeAlbum}
+        uiLanguage={uiLanguage}
         activeLayout={activeLayout}
       />
     </>

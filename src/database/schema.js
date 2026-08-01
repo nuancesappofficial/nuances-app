@@ -1,11 +1,11 @@
 // WatermelonDB Schema
 // ⚠️ 重要：每次修改此文件時，必須增加 version 號！
-// Version: 5 - cards 新增 image_url，Deck/Profile 直接使用後端圖片
+// Version: 6 - cards 新增 semantic_relations
 
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export default appSchema({
-  version: 5,
+  version: 6,
   tables: [
     // ============================================
     // PROFILES TABLE
@@ -68,6 +68,7 @@ export default appSchema({
         { name: 'part_of_speech', type: 'string', isOptional: true },
         { name: 'contextual_explanation', type: 'string', isOptional: true },
         { name: 'frequent_collocations', type: 'string', isOptional: true },
+        { name: 'semantic_relations', type: 'string', isOptional: true },
         { name: 'phonetic_transcription', type: 'string', isOptional: true },
         { name: 'reference_audio_url', type: 'string', isOptional: true },
         { name: 'difficulty_level', type: 'number', isOptional: true },

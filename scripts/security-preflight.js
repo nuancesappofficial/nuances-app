@@ -33,6 +33,16 @@ function gitLsFiles() {
   }
 }
 
+function readSupabaseMigrations() {
+  const migrationsDir = path.join(ROOT, 'supabase/migrations');
+  if (!fs.existsSync(migrationsDir)) return '';
+  return fs.readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql'))
+    .sort()
+    .map((file) => readFile(`supabase/migrations/${file}`))
+    .join('\n');
+}
+
 function getFirstEnvValue(name) {
   for (const file of ['.env.local', '.env', '.env.example']) {
     const content = readFile(file);
@@ -118,13 +128,16 @@ function checkExpoPublicUsage() {
 }
 
 function checkRlsPolicies() {
-  const migrations = gitLsFiles()
-    .filter((file) => file.startsWith('supabase/migrations/') && file.endsWith('.sql'))
-    .map(readFile)
-    .join('\n');
+  const migrations = readSupabaseMigrations();
   const tables = ['profiles', 'cached_items', 'cards', 'review_history', 'sync_metadata', 'subscriptions', 'app_version_policy'];
   const missing = tables.filter((table) => {
     const rls = new RegExp(`alter table public\\.${table} enable row level security`, 'i').test(migrations);
+    if (table === 'cached_items') {
+      const revoked =
+        /revoke all privileges on table public\.cached_items from anon/i.test(migrations) &&
+        /revoke all privileges on table public\.cached_items from authenticated/i.test(migrations);
+      return !(rls && revoked);
+    }
     const policy = new RegExp(`policy [\\s\\S]{0,160}public\\.${table}`, 'i').test(migrations) ||
       new RegExp(`on public\\.${table}`, 'i').test(migrations);
     return !(rls && policy);
@@ -132,15 +145,14 @@ function checkRlsPolicies() {
   add(
     missing.length === 0 ? 'pass' : 'fail',
     'Supabase RLS policy coverage',
-    missing.length === 0 ? 'Required tables have RLS and policies in migrations.' : `Missing RLS/policies: ${missing.join(', ')}`
+    missing.length === 0
+      ? 'Required remote tables have RLS policies; local-only cached_items is revoked from client roles.'
+      : `Missing RLS/policies or local-only revocation: ${missing.join(', ')}`
   );
 }
 
 function checkStoragePolicies() {
-  const migrations = gitLsFiles()
-    .filter((file) => file.startsWith('supabase/migrations/') && file.endsWith('.sql'))
-    .map(readFile)
-    .join('\n');
+  const migrations = readSupabaseMigrations();
   const hasCachedImagesOwnerPolicies =
     /bucket_id = 'cached-images'/.test(migrations) &&
     /storage\.foldername\(name\)\)\[1\] = auth\.uid\(\)::text/.test(migrations) &&
@@ -154,6 +166,294 @@ function checkStoragePolicies() {
     hasCachedImagesOwnerPolicies && hasAudioPublicPolicy
       ? 'cached-images is user-owned; audio_cache public-read assumption is explicit.'
       : 'Storage policies are missing expected cached-images/audio_cache protections.'
+  );
+}
+
+function checkCrossUserAccessPolicies() {
+  const migrations = readSupabaseMigrations();
+
+  const tableRequirements = [
+    ['profiles own profile', /on public\.profiles for select using \(auth\.uid\(\) = id\)/i],
+    ['profiles own insert', /on public\.profiles for insert with check \(auth\.uid\(\) = id\)/i],
+    ['profiles own update', /on public\.profiles for update using \(auth\.uid\(\) = id\)/i],
+    ['cached_items client read/write revoked', /revoke all privileges on table public\.cached_items from anon[\s\S]*revoke all privileges on table public\.cached_items from authenticated/i],
+    ['cards own rows', /on public\.cards for select using \(auth\.uid\(\) = user_id\)/i],
+    ['cards own insert', /on public\.cards for insert with check \(auth\.uid\(\) = user_id\)/i],
+    ['cards own update', /on public\.cards for update using \(auth\.uid\(\) = user_id\)/i],
+    ['cards own delete', /on public\.cards for delete using \(auth\.uid\(\) = user_id\)/i],
+    ['review_history own rows', /on public\.review_history for select using \(auth\.uid\(\) = user_id\)/i],
+    ['review_history own insert', /on public\.review_history for insert with check \(auth\.uid\(\) = user_id\)/i],
+    ['sync_metadata own rows', /on public\.sync_metadata for all using \(auth\.uid\(\) = user_id\) with check \(auth\.uid\(\) = user_id\)/i],
+    ['subscriptions own read', /on public\.subscriptions\s+for select[\s\S]{0,120}using \(auth\.uid\(\) = user_id\)/i],
+  ];
+  const storageRequirements = [
+    ['cached-images own read', /on storage\.objects for select[\s\S]{0,220}bucket_id = 'cached-images'[\s\S]{0,220}\(storage\.foldername\(name\)\)\[1\] = auth\.uid\(\)::text/i],
+    ['cached-images own upload', /on storage\.objects for insert[\s\S]{0,220}bucket_id = 'cached-images'[\s\S]{0,220}\(storage\.foldername\(name\)\)\[1\] = auth\.uid\(\)::text/i],
+    ['cached-images own update', /on storage\.objects for update[\s\S]{0,260}bucket_id = 'cached-images'[\s\S]{0,260}\(storage\.foldername\(name\)\)\[1\] = auth\.uid\(\)::text/i],
+    ['cached-images own delete', /on storage\.objects for delete[\s\S]{0,220}bucket_id = 'cached-images'[\s\S]{0,220}\(storage\.foldername\(name\)\)\[1\] = auth\.uid\(\)::text/i],
+  ];
+
+  const missing = [...tableRequirements, ...storageRequirements]
+    .filter(([, regex]) => !regex.test(migrations))
+    .map(([label]) => label);
+
+  add(
+    missing.length === 0 ? 'pass' : 'fail',
+    'Cross-user access-control policy coverage',
+    missing.length === 0
+      ? 'RLS/storage policies restrict user-owned rows and cached image paths to auth.uid().'
+      : `Missing expected ownership checks: ${summarizeFiles(missing, 8)}`
+  );
+}
+
+function checkLocalOnlyCacheBoundary() {
+  const syncSource = readFile('src/services/sync/index.ts');
+  const shareExtensionHook = readFile('src/hooks/useShareExtension.ts');
+  const migrations = readSupabaseMigrations();
+  const requirements = [
+    [
+      'sync does not query cached_items',
+      !/\.from\(['"]cached_items['"]\)/.test(syncSource),
+    ],
+    [
+      'sync does not push cached_items',
+      !/pushTableChanges\(['"]cached_items['"]/.test(syncSource),
+    ],
+    [
+      'pulled cards discard cached_item_id',
+      /function transformCards[\s\S]*cached_item_id:\s*null/.test(syncSource),
+    ],
+    [
+      'pushed cards discard cached_item_id',
+      /case ['"]cards['"]:[\s\S]*cached_item_id:\s*null/.test(syncSource),
+    ],
+    [
+      'client roles are revoked from cached_items',
+      /revoke all privileges on table public\.cached_items from anon/i.test(migrations) &&
+        /revoke all privileges on table public\.cached_items from authenticated/i.test(migrations),
+    ],
+    [
+      'remote card cache references are cleared',
+      /new\.cached_item_id := null/i.test(migrations),
+    ],
+    [
+      'share extension ingest does not trigger cloud sync',
+      !shareExtensionHook.includes('syncWithRetry') &&
+        !shareExtensionHook.includes("from '../services/sync'"),
+    ],
+  ];
+  const missing = requirements.filter(([, ok]) => !ok).map(([label]) => label);
+
+  add(
+    missing.length === 0 ? 'pass' : 'fail',
+    'Local-only cache sync boundary',
+    missing.length === 0
+      ? 'cached_items cannot be pulled/pushed by the app or client roles, and card sync drops cache references.'
+      : `Missing cache isolation controls: ${missing.join(', ')}`
+  );
+}
+
+function checkAccountIsolationBoundary() {
+  const appSource = readFile('App.tsx');
+  const localScope = readFile('src/services/auth/localDataScope.ts');
+  const databaseSchema = readFile('src/database/schema.js');
+  const syncSource = readFile('src/services/sync/index.ts');
+  const deckMainFlow = readFile('src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx');
+  const cacheListDataSource = readFile(
+    'src/screens/flow/CacheScreenFlow/hooks/useCacheListDataSource.ts'
+  );
+  const settingsSource = readFile('src/services/settings/userSettings.ts');
+  const imageStore = readFile('src/services/media/localCardImageStore.ts');
+  const shareExtension = readFile('src/services/shareExtension/shareExtensionService.ts');
+  const sharedDefaults = readFile('src/native/SharedDefaultsModule.ts');
+  const nativeShareExtension = readFile('ios/NuancesShareExtension/ShareViewController.swift');
+  const createCardFlow = readFile('src/screens/flow/CacheScreenFlow/CreateCardFlow.tsx');
+  const addCacheItemFlow = readFile('src/screens/flow/CacheScreenFlow/AddCacheItemFlow.tsx');
+  const cardDetailFlow = readFile('src/screens/flow/DeckScreenFlow/CardDetailFlow.tsx');
+  const userIdentity = readFile('src/services/auth/userIdentity.ts');
+  const cardCloudPersistence = readFile('src/services/cards/cardCloudPersistence.ts');
+  const legacyCardUpgrade = readFile('src/services/cards/legacyCardIdUpgrade.ts');
+  const cardImageQueue = readFile('src/services/cards/cardImageCloudQueue.ts');
+  const accountDeletion = readFile('src/services/account/AccountDeletionService.ts');
+  const migrations = readSupabaseMigrations();
+  const requirements = [
+    [
+      'all Watermelon user tables are scoped',
+      ['cards', 'cached_items', 'review_history', 'profiles', 'sync_metadata', 'user_settings']
+        .every((table) => {
+          const tableStart = databaseSchema.indexOf(`name: '${table}'`);
+          if (tableStart < 0) return false;
+          return databaseSchema
+            .slice(tableStart, tableStart + 800)
+            .includes("name: 'user_id'");
+        }) &&
+        deckMainFlow.includes("Q.where('user_id', userId)") &&
+        cacheListDataSource.includes("Q.where('user_id', userId)"),
+    ],
+    [
+      'auth suspension preserves local rows',
+      !appSource.includes('clearAllLocalUserScopedData') &&
+        !localScope.includes('prepareDestroyPermanently'),
+    ],
+    [
+      'scope transitions wait for active sync',
+      localScope.includes('await waitForSyncIdle(') &&
+        syncSource.includes('export async function waitForSyncIdle'),
+    ],
+    [
+      'full sync actually resets the Watermelon cursor',
+      syncSource.includes("removeLocal('__watermelon_last_pulled_at')") &&
+        syncSource.includes("removeLocal('__watermelon_last_pulled_schema_version')") &&
+        localScope.includes("CURRENT_SYNC_SCOPE_VERSION = '4'"),
+    ],
+    [
+      'sync verifies authenticated user',
+      syncSource.includes('const verifiedUserId = await getAuthenticatedUserId()') &&
+        syncSource.includes('assertSessionUser(userId)') &&
+        syncSource.includes('assertChangesBelongToUser') &&
+        syncSource.includes('assertPulledRowsBelongToUser'),
+    ],
+    [
+      'sync uses server time and paginates cloud rows',
+      syncSource.includes("supabase.rpc('sync_server_timestamp_ms')") &&
+        syncSource.includes('.range(from, from + PULL_PAGE_SIZE - 1)') &&
+        migrations.includes('function public.sync_server_timestamp_ms()'),
+    ],
+    [
+      'auth transitions reject stale work',
+      appSource.includes('authTransitionIdRef') &&
+        appSource.includes('isStaleTransition()'),
+    ],
+    [
+      'settings use account-specific storage',
+      settingsSource.includes('`${SETTINGS_STORAGE_KEY}:${scopeId}`') &&
+        settingsSource.includes('isCurrentSettingsScope'),
+    ],
+    [
+      'local card images use account-specific storage',
+      imageStore.includes('`${LOCAL_CARD_IMAGE_MAP_KEY}:${userId}`') &&
+        imageStore.includes('card-images/${userId}/'),
+    ],
+    [
+      'share ingest revalidates account ownership',
+      shareExtension.includes('assertActiveAccount(userId)') &&
+        shareExtension.includes('${SHARED_IMAGES_SUBDIR}/${userId}/') &&
+        shareExtension.includes('`${SHARE_INGEST_EVENTS_KEY}:${userId') &&
+        shareExtension.includes('snapshot?.ownerUserId !== userId') &&
+        sharedDefaults.includes('setAppGroupActiveUserId') &&
+        nativeShareExtension.includes('"owner_user_id": ownerUserID'),
+    ],
+    [
+      'account deletion removes scoped artifacts',
+      accountDeletion.includes('`user_app_settings_v1:${userId}`') &&
+        accountDeletion.includes('`local_card_image_map_v1:${userId}`'),
+    ],
+    [
+      'saved cards use stable cloud IDs and remote confirmation',
+      createCardFlow.includes('assignCloudCardId(card)') &&
+      createCardFlow.includes('queueSavedCardsForCloudPersistence') &&
+        cardCloudPersistence.includes('Crypto.randomUUID()') &&
+        cardCloudPersistence.includes('flushMutationBatch(') &&
+        cardCloudPersistence.includes('markCardSyncDirty(userId)') &&
+        cardCloudPersistence.includes(".select('id, user_id')") &&
+        cardCloudPersistence.includes('queueDeletedCardForCloudPersistence') &&
+        cardCloudPersistence.includes(".select('id, user_id, deleted_at')"),
+    ],
+    [
+      'card sync triggers are coalesced and foreground-throttled',
+      syncSource.includes('mutationVersionByUser') &&
+        syncSource.includes('onlyIfDirtyAfterCurrent') &&
+        syncSource.includes('export async function syncIfNeeded') &&
+        appSource.includes("reason === 'foreground'") &&
+        cardCloudPersistence.includes('CARD_MUTATION_DEBOUNCE_MS'),
+    ],
+    [
+      'card image uploads sync once per batch',
+      cardImageQueue.includes('jobsNeedingSync') &&
+        cardImageQueue.includes(".in('id', jobsNeedingSync.map") &&
+        !cardImageQueue.includes('async function processJob('),
+    ],
+    [
+      'stale route records are revalidated before read/write',
+      userIdentity.includes('assertRecordOwnedByCurrentUser') &&
+        createCardFlow.includes('assertRecordOwnedByCurrentUser(') &&
+        addCacheItemFlow.includes('assertRecordOwnedByCurrentUser(') &&
+        cardDetailFlow.includes('cachedItem.userId === activeOwnerId'),
+    ],
+    [
+      'startup backup is independent of subscription bootstrap',
+      appSource.includes("triggerBackgroundCardSync('startup')") &&
+        appSource.includes("triggerBackgroundCardSync('auth')") &&
+        appSource.includes('function triggerBackgroundAccountRefresh(') &&
+        appSource.includes('void SubscriptionService.syncEntitlements(userId)'),
+    ],
+    [
+      'legacy cards are upgraded before sync',
+      syncSource.includes('await upgradeLegacyCardIdsForUser(userId)') &&
+        legacyCardUpgrade.includes(".eq('user_id', userId)") &&
+        legacyCardUpgrade.includes('assertActiveAccount(normalizedUserId)') &&
+        legacyCardUpgrade.includes('prepareDestroyPermanently()'),
+    ],
+    [
+      'card images use a durable owner-scoped upload queue',
+      createCardFlow.includes('queueCardImageUploads') &&
+        appSource.includes('processPendingCardImageUploads') &&
+        cardImageQueue.includes('`${QUEUE_KEY_PREFIX}:${userId}`') &&
+        cardImageQueue.includes(".select('id, user_id, image_url')") &&
+        cardImageQueue.includes('assertActiveAccount(job.userId)'),
+    ],
+    [
+      'remote card owner is immutable and auth-bound',
+      migrations.includes('create or replace function public.enforce_remote_card_owner()') &&
+        migrations.includes("raise exception 'card owner is immutable'") &&
+        /create policy "Users can update their own cards"[\s\S]*using \(auth\.uid\(\) = user_id\)[\s\S]*with check \(auth\.uid\(\) = user_id\)/i.test(migrations),
+    ],
+  ];
+  const missing = requirements.filter(([, ok]) => !ok).map(([label]) => label);
+
+  add(
+    missing.length === 0 ? 'pass' : 'fail',
+    'Local account-isolation boundary',
+    missing.length === 0
+      ? 'Database, sync, auth transitions, settings, and local card images are isolated by account.'
+      : `Missing account-isolation controls: ${missing.join(', ')}`
+  );
+}
+
+function checkRemoteAuthCallBoundary() {
+  const tracked = gitLsFiles();
+  const sourceFiles = tracked.filter((file) => /\.(ts|tsx)$/.test(file));
+  const directRemoteAuthAllowed = new Set([
+    'src/services/supabase/client.ts',
+    'src/services/auth/userIdentity.ts',
+    'src/services/sync/index.ts',
+    'src/services/ai/edgeAiClient.ts',
+    'src/services/tts/cloudSpeech.ts',
+    'src/services/pronunciation/cloudCoach.ts',
+  ]);
+  const violations = [];
+
+  for (const file of sourceFiles) {
+    const content = readFile(file);
+    if (
+      !directRemoteAuthAllowed.has(file) &&
+      (
+        /supabase\.auth\.getUser\s*\(/.test(content) ||
+        /\bgetCurrentUser\s*\(/.test(content) ||
+        /\bgetCurrentAuthUserId\s*\(/.test(content) ||
+        /\bgetVerifiedAuthUserId\s*\(/.test(content)
+      )
+    ) {
+      violations.push(file);
+    }
+  }
+
+  add(
+    violations.length === 0 ? 'pass' : 'fail',
+    'Remote auth call timing boundary',
+    violations.length === 0
+      ? 'UI and local-data paths use persisted session identity; remote getUser checks are limited to network-required services.'
+      : `Remote auth verification found outside approved network services: ${summarizeFiles(violations)}`
   );
 }
 
@@ -227,6 +527,14 @@ function checkInputAndOutputHandling() {
     aiProxy.includes('extractFirstJsonObject') &&
     aiProxy.includes('sanitizeText(parsed') &&
     !aiProxy.includes('rawContentPreview');
+  const lexicalDefinitionScopeOk =
+    aiProxy.includes('getLexicalDefinitionScopeInstruction') &&
+    aiProxy.includes('Treat definition exactly like the translation entry in a bilingual dictionary') &&
+    aiProxy.includes('one best conventional equivalent') &&
+    aiProxy.includes('It must remain true across ordinary uses of that sense') &&
+    aiProxy.includes('relationship assumption') &&
+    aiProxy.includes('into culturalBackground') &&
+    !aiProxy.includes('lead someone on');
 
   add(
     inputOk ? 'pass' : 'fail',
@@ -237,6 +545,87 @@ function checkInputAndOutputHandling() {
     outputOk ? 'pass' : 'fail',
     'AI output handling',
     outputOk ? 'AI output is parsed/sanitized and raw content previews are not logged.' : 'AI output handling or raw logging needs review.'
+  );
+  add(
+    lexicalDefinitionScopeOk ? 'pass' : 'fail',
+    'AI lexical definition scope',
+    lexicalDefinitionScopeOk
+      ? 'Card definitions preserve lexical core meaning and keep source-only implications in contextual fields.'
+      : 'AI card prompts are missing lexical-core versus source-context separation.'
+  );
+}
+
+function checkCacheShareSafety() {
+  const nativeShare = readFile('ios/NuancesShareExtension/ShareViewController.swift');
+  const pluginShare = readFile('plugins/ShareViewController.swift');
+  const nativeDefaults = readFile('ios/Nuances/SharedDefaultsModule.swift');
+  const nativeBridge = readFile('ios/Nuances/SharedDefaultsModuleBridge.m');
+  const sharedDefaults = readFile('src/native/SharedDefaultsModule.ts');
+  const shareService = readFile('src/services/shareExtension/shareExtensionService.ts');
+  const cacheScreen = readFile('src/screens/flow/CacheScreenFlow/index.tsx');
+  const ocrBackfill = readFile('src/screens/flow/CacheScreenFlow/hooks/useCacheOcrBackfill.ts');
+
+  const parityOk = nativeShare === pluginShare && nativeShare.includes('alreadyQueued');
+  const atomicClearOk =
+    nativeDefaults.includes('clearSharedContentIfTimestampMatches') &&
+    nativeBridge.includes('clearSharedContentIfTimestampMatches') &&
+    sharedDefaults.includes('return false;');
+  const boundsOk =
+    sharedDefaults.includes('MAX_SHARED_QUEUE_ITEMS = 50') &&
+    sharedDefaults.includes('MAX_IMAGES_PER_SHARED_ITEM = 10') &&
+    shareService.includes('getValidatedSharedImagePath') &&
+    shareService.includes('getRemainingCacheCapacity');
+  const renderingOk =
+    cacheScreen.includes('MAX_RENDERED_CACHE_CARDS = 8') &&
+    ocrBackfill.includes('MAX_OCR_ITEMS_PER_PASS = 3');
+
+  const failures = [];
+  if (!parityOk) failures.push('Share plugin/native parity or queue dedupe');
+  if (!atomicClearOk) failures.push('timestamp-safe queue clear');
+  if (!boundsOk) failures.push('queue/path/cache bounds');
+  if (!renderingOk) failures.push('render/OCR workload bounds');
+  add(
+    failures.length === 0 ? 'pass' : 'fail',
+    'Cache/share ingestion safety',
+    failures.length === 0
+      ? 'Share replay is idempotent, queue clearing is timestamp-safe, and cache rendering/OCR workloads are bounded.'
+      : `Missing controls: ${failures.join(', ')}.`
+  );
+}
+
+function checkAndroidShareAndOCRSafety() {
+  const appConfig = readFile('app.json');
+  const sharePlugin = readFile('plugins/withAndroidShareIntent.js');
+  const shareNative = readFile('modules/android-share-intent/android/src/main/java/expo/modules/androidshareintent/AndroidShareIntentModule.kt');
+  const shareJs = readFile('modules/android-share-intent/src/index.ts');
+  const shareService = readFile('src/services/shareExtension/shareExtensionService.ts');
+  const ocrConfig = readFile('modules/vision-ocr/expo-module.config.json');
+  const ocrGradle = readFile('modules/vision-ocr/android/build.gradle');
+  const ocrNative = readFile('modules/vision-ocr/android/src/main/java/expo/modules/visionocr/NuancesVisionOCRModule.kt');
+
+  const filtersOk = appConfig.includes('./plugins/withAndroidShareIntent.js') &&
+    sharePlugin.includes('android.intent.action.SEND_MULTIPLE') &&
+    sharePlugin.includes('text/plain') && sharePlugin.includes('image/*') &&
+    !sharePlugin.includes("'*/*'") && !sharePlugin.includes('"*/*"');
+  const queueOk = shareNative.includes('MAX_QUEUE = 50') &&
+    shareNative.includes('MAX_IMAGES = 10') && shareNative.includes('MAX_TEXT = 2000') &&
+    shareNative.includes('stableId(') && shareNative.includes('copyImages(') &&
+    shareJs.includes('acknowledgeSharedPayloads') && shareService.includes('payload.ownerUserId !== userId') &&
+    shareService.includes("item.sourceApp = 'android_share_sheet'");
+  const ocrOk = ocrConfig.includes('"android"') &&
+    ocrGradle.includes('com.google.mlkit:text-recognition:16.0.1') &&
+    ocrNative.includes('TextRecognition.getClient') && ocrNative.includes('InputImage.fromFilePath');
+
+  const failures = [];
+  if (!filtersOk) failures.push('narrow SEND/SEND_MULTIPLE filters');
+  if (!queueOk) failures.push('bounded, owned, replay-safe local share queue');
+  if (!ocrOk) failures.push('bundled Android ML Kit OCR');
+  add(
+    failures.length === 0 ? 'pass' : 'fail',
+    'Android share and on-device OCR boundary',
+    failures.length === 0
+      ? 'Android shares are narrowly filtered, copied locally, account-bound and acknowledged by stable ID; OCR uses bundled ML Kit.'
+      : `Missing controls: ${failures.join(', ')}.`
   );
 }
 
@@ -371,10 +760,16 @@ checkSecrets();
 checkExpoPublicUsage();
 checkRlsPolicies();
 checkStoragePolicies();
+checkCrossUserAccessPolicies();
+checkLocalOnlyCacheBoundary();
+checkAccountIsolationBoundary();
+checkRemoteAuthCallBoundary();
 checkEdgeAuthBoundaries();
 checkDeleteAccountBoundary();
 checkEntitlementSpoofingBoundary();
 checkInputAndOutputHandling();
+checkCacheShareSafety();
+checkAndroidShareAndOCRSafety();
 checkLocalStorageAndLogging();
 checkDevBypass();
 runNpmAudit();

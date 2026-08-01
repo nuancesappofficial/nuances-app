@@ -1,10 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 
 const LOCAL_CARD_IMAGE_MAP_KEY = 'local_card_image_map_v1';
-const LOCAL_CARD_IMAGE_DIR = `${FileSystemLegacy.documentDirectory || ''}card-images/`;
 
-let cacheMap: Record<string, string> | null = null;
+const cacheMaps = new Map<string, Record<string, string>>();
+
+type ImageScope = {
+  userId: string;
+  storageKey: string;
+  directory: string;
+};
+
+async function getImageScope(): Promise<ImageScope | null> {
+  const userId = await getCurrentSessionUserId();
+  if (!userId) return null;
+  return {
+    userId,
+    storageKey: `${LOCAL_CARD_IMAGE_MAP_KEY}:${userId}`,
+    directory: `${FileSystemLegacy.documentDirectory || ''}card-images/${userId}/`,
+  };
+}
 
 function toFileUri(input: string): string {
   if (!input) return input;
@@ -20,32 +36,36 @@ function getExt(uri: string): string {
   return ext;
 }
 
-async function loadMap(): Promise<Record<string, string>> {
-  if (cacheMap) return cacheMap;
+async function loadMap(scope: ImageScope): Promise<Record<string, string>> {
+  const cached = cacheMaps.get(scope.userId);
+  if (cached) return cached;
   try {
-    const raw = await AsyncStorage.getItem(LOCAL_CARD_IMAGE_MAP_KEY);
+    const raw = await AsyncStorage.getItem(scope.storageKey);
     if (!raw) {
-      cacheMap = {};
-      return cacheMap;
+      const emptyMap = {};
+      cacheMaps.set(scope.userId, emptyMap);
+      return emptyMap;
     }
     const parsed = JSON.parse(raw) as Record<string, string>;
-    cacheMap = parsed && typeof parsed === 'object' ? parsed : {};
-    return cacheMap;
+    const nextMap = parsed && typeof parsed === 'object' ? parsed : {};
+    cacheMaps.set(scope.userId, nextMap);
+    return nextMap;
   } catch {
-    cacheMap = {};
-    return cacheMap;
+    const emptyMap = {};
+    cacheMaps.set(scope.userId, emptyMap);
+    return emptyMap;
   }
 }
 
-async function saveMap(nextMap: Record<string, string>): Promise<void> {
-  cacheMap = nextMap;
-  await AsyncStorage.setItem(LOCAL_CARD_IMAGE_MAP_KEY, JSON.stringify(nextMap));
+async function saveMap(scope: ImageScope, nextMap: Record<string, string>): Promise<void> {
+  cacheMaps.set(scope.userId, nextMap);
+  await AsyncStorage.setItem(scope.storageKey, JSON.stringify(nextMap));
 }
 
-async function ensureLocalDir(): Promise<void> {
-  const dirInfo = await FileSystemLegacy.getInfoAsync(LOCAL_CARD_IMAGE_DIR);
+async function ensureLocalDir(scope: ImageScope): Promise<void> {
+  const dirInfo = await FileSystemLegacy.getInfoAsync(scope.directory);
   if (!dirInfo.exists) {
-    await FileSystemLegacy.makeDirectoryAsync(LOCAL_CARD_IMAGE_DIR, { intermediates: true });
+    await FileSystemLegacy.makeDirectoryAsync(scope.directory, { intermediates: true });
   }
 }
 
@@ -54,14 +74,16 @@ export async function persistLocalCardImage(cardId: string, sourceUri?: string |
   const normalizedSource = (sourceUri || '').trim();
   if (!normalizedCardId || !normalizedSource) return null;
   if (/^https?:\/\//i.test(normalizedSource)) return null;
+  const scope = await getImageScope();
+  if (!scope) return null;
 
   const sourceFileUri = toFileUri(normalizedSource);
   const sourceInfo = await FileSystemLegacy.getInfoAsync(sourceFileUri);
   if (!sourceInfo.exists) return null;
 
-  await ensureLocalDir();
+  await ensureLocalDir(scope);
   const ext = getExt(sourceFileUri);
-  const targetUri = `${LOCAL_CARD_IMAGE_DIR}${normalizedCardId}.${ext}`;
+  const targetUri = `${scope.directory}${normalizedCardId}.${ext}`;
   await FileSystemLegacy.copyAsync({
     from: sourceFileUri,
     to: targetUri,
@@ -69,9 +91,9 @@ export async function persistLocalCardImage(cardId: string, sourceUri?: string |
   const targetInfo = await FileSystemLegacy.getInfoAsync(targetUri);
   if (!targetInfo.exists) return null;
 
-  const map = await loadMap();
+  const map = await loadMap(scope);
   const nextMap = { ...map, [normalizedCardId]: targetUri };
-  await saveMap(nextMap);
+  await saveMap(scope, nextMap);
   return targetUri;
 }
 
@@ -80,11 +102,13 @@ export async function persistRemoteCardImage(cardId: string, remoteUri?: string 
   const normalizedRemote = (remoteUri || '').trim();
   if (!normalizedCardId || !normalizedRemote) return null;
   if (!/^https?:\/\//i.test(normalizedRemote)) return null;
+  const scope = await getImageScope();
+  if (!scope) return null;
 
-  await ensureLocalDir();
+  await ensureLocalDir(scope);
   const clean = normalizedRemote.split('?')[0] || '';
   const ext = getExt(clean);
-  const targetUri = `${LOCAL_CARD_IMAGE_DIR}${normalizedCardId}.${ext}`;
+  const targetUri = `${scope.directory}${normalizedCardId}.${ext}`;
   try {
     await FileSystemLegacy.downloadAsync(normalizedRemote, targetUri);
   } catch {
@@ -93,16 +117,18 @@ export async function persistRemoteCardImage(cardId: string, remoteUri?: string 
 
   const targetInfo = await FileSystemLegacy.getInfoAsync(targetUri);
   if (!targetInfo.exists) return null;
-  const map = await loadMap();
+  const map = await loadMap(scope);
   const nextMap = { ...map, [normalizedCardId]: targetUri };
-  await saveMap(nextMap);
+  await saveMap(scope, nextMap);
   return targetUri;
 }
 
 export async function getLocalCardImageUri(cardId?: string | null): Promise<string | null> {
   const normalizedCardId = (cardId || '').trim();
   if (!normalizedCardId) return null;
-  const map = await loadMap();
+  const scope = await getImageScope();
+  if (!scope) return null;
+  const map = await loadMap(scope);
   const uri = (map[normalizedCardId] || '').trim();
   if (!uri) return null;
 
@@ -111,7 +137,7 @@ export async function getLocalCardImageUri(cardId?: string | null): Promise<stri
   if (!info.exists) {
     const nextMap = { ...map };
     delete nextMap[normalizedCardId];
-    await saveMap(nextMap);
+    await saveMap(scope, nextMap);
     return null;
   }
   return fileUri;

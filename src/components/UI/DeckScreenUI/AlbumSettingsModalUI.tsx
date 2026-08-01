@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   MODAL_CTA_COLOR,
   MODAL_CTA_COLOR_BORDER,
@@ -21,6 +22,7 @@ import {
   TEXT_ON_CTA,
   resolveThemeColors,
 } from '../../../theme/colors';
+import type { UILanguage } from '@services/settings/userSettings';
 
 type Props = {
   visible: boolean;
@@ -29,6 +31,7 @@ type Props = {
   settingsColor: string;
   hasCoverImage: boolean;
   coverImageUri?: string;
+  uiLanguage: UILanguage;
   onSelectCoverTab: (tab: 'classic' | 'image') => void;
   onChangeName: (name: string) => void;
   onChangeEmoji: (emoji: string) => void;
@@ -68,6 +71,7 @@ export default function AlbumSettingsModalUI({
   settingsColor,
   hasCoverImage,
   coverImageUri,
+  uiLanguage,
   onSelectCoverTab,
   onChangeName,
   onChangeEmoji,
@@ -77,13 +81,23 @@ export default function AlbumSettingsModalUI({
   onSave,
   onDidClose,
   tourSaveActive = false,
-  tourSaveTooltip = 'Save album settings.',
+  tourSaveTooltip = tUI(uiLanguage, 'deck.tourSaveSettings'),
   children,
 }: Props) {
   const colorScheme = useColorScheme();
   const { width: screenWidth } = useWindowDimensions();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const isLight = colorScheme === 'light';
+  const isDarkMode = colorScheme === 'dark';
+  const isLight = !isDarkMode;
+  const modalSurface = isDarkMode ? palette.modalBg : '#F3EFE9';
+  const optionSurface = isDarkMode ? palette.modalOptionBg : '#FFFFFF';
+  const optionBorder = isDarkMode ? palette.modalOptionBorder : '#E2DDD6';
+  const selectedSurface = isDarkMode
+    ? 'rgba(78,175,244,0.16)'
+    : '#EAF5FC';
+  const selectedBorder = isDarkMode
+    ? MODAL_CTA_COLOR_BORDER
+    : '#85C7EF';
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [coverTab, setCoverTab] = React.useState<'classic' | 'image'>(hasCoverImage ? 'image' : 'classic');
   const [tabContentWidth, setTabContentWidth] = React.useState(0);
@@ -172,40 +186,62 @@ export default function AlbumSettingsModalUI({
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
           <Pressable
-            style={[styles.sheet, { backgroundColor: palette.modalBg, borderColor: palette.modalOptionBorder }]}
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: modalSurface,
+                borderColor: optionBorder,
+              },
+            ]}
             onPress={() => undefined}
           >
-            <View style={[styles.handle, { backgroundColor: palette.secondaryText }]} />
-            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ALBUM SETTINGS</Text>
+            <View
+              style={[
+                styles.handle,
+                {
+                  backgroundColor: isDarkMode
+                    ? palette.secondaryText
+                    : '#9AA7B8',
+                },
+              ]}
+            />
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'create.albumSettingsTitle')}</Text>
 
             <View style={styles.settingsList}>
               <View style={styles.settingsRowBlock}>
-                <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Album name</Text>
+                <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumNameTitle')}</Text>
                 <TextInput
                   value={settingsName}
                   onChangeText={onChangeName}
                   style={[
                     styles.input,
                     {
-                      backgroundColor: palette.modalOptionBg,
-                      borderColor: palette.modalOptionBorder,
+                      backgroundColor: optionSurface,
+                      borderColor: optionBorder,
                       color: palette.textOnContainer,
                     },
                   ]}
-                  placeholder="Type album name"
+                  placeholder={tUI(uiLanguage, 'create.albumNamePlaceholder')}
                   placeholderTextColor={palette.secondaryText}
                 />
               </View>
 
-              <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+              <View
+                style={[
+                  styles.settingsDivider,
+                  { backgroundColor: optionBorder },
+                ]}
+              />
 
               <View style={styles.settingsRowBlock}>
                 <View
                   style={[
                     styles.tabShell,
                     {
-                      backgroundColor: isLight ? palette.containerBg : palette.modalOptionBg,
-                      borderColor: palette.modalOptionBorder,
+                      backgroundColor: isLight
+                        ? optionSurface
+                        : palette.modalOptionBg,
+                      borderColor: optionBorder,
                     },
                   ]}
                 >
@@ -232,7 +268,7 @@ export default function AlbumSettingsModalUI({
                             { color: active ? TEXT_ON_CTA : palette.textOnContainer },
                           ]}
                         >
-                          {tab === 'classic' ? 'Classic' : 'Image'}
+                          {tab === 'classic' ? tUI(uiLanguage, 'create.albumTabClassic') : tUI(uiLanguage, 'create.albumTabImage')}
                         </Text>
                       </Pressable>
                     );
@@ -240,7 +276,12 @@ export default function AlbumSettingsModalUI({
                 </View>
               </View>
 
-              <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+              <View
+                style={[
+                  styles.settingsDivider,
+                  { backgroundColor: optionBorder },
+                ]}
+              />
 
               <View
                 style={styles.tabContentViewport}
@@ -267,15 +308,24 @@ export default function AlbumSettingsModalUI({
                 >
                   <View style={[styles.tabPanel, { width: panelWidth }]}>
                     <View style={styles.settingsRowBlock}>
-                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Icon</Text>
+                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumIcon')}</Text>
                       <View style={styles.optionRow}>
                         {EMOJI_OPTIONS.map((emoji) => (
                           <Pressable
                             key={emoji}
                             style={({ pressed }) => [
                               styles.emojiOption,
-                              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
-                              settingsEmoji === emoji && styles.emojiOptionActive,
+                              {
+                                backgroundColor: optionSurface,
+                                borderColor: optionBorder,
+                              },
+                              settingsEmoji === emoji && [
+                                styles.emojiOptionActive,
+                                {
+                                  backgroundColor: selectedSurface,
+                                  borderColor: selectedBorder,
+                                },
+                              ],
                               pressed ? styles.pressableIconPressed : null,
                             ]}
                             onPress={() => onChangeEmoji(emoji)}
@@ -286,10 +336,15 @@ export default function AlbumSettingsModalUI({
                       </View>
                     </View>
 
-                    <View style={[styles.settingsDivider, { backgroundColor: palette.modalOptionBorder }]} />
+                    <View
+                      style={[
+                        styles.settingsDivider,
+                        { backgroundColor: optionBorder },
+                      ]}
+                    />
 
                     <View style={styles.settingsRowBlock}>
-                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>Cover color</Text>
+                      <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumCoverColor')}</Text>
                       <View style={styles.colorGrid}>
                         {COVER_COLOR_OPTIONS.map((option) => {
                           const active = settingsColor === option.value;
@@ -321,7 +376,10 @@ export default function AlbumSettingsModalUI({
                     <Pressable
                       style={({ pressed }) => [
                         styles.coverUploadTile,
-                        { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                        {
+                          backgroundColor: optionSurface,
+                          borderColor: optionBorder,
+                        },
                         pressed ? styles.coverUploadTilePressed : null,
                       ]}
                       onPress={onPickCoverImage}
@@ -362,25 +420,27 @@ export default function AlbumSettingsModalUI({
               <Pressable
                 style={({ pressed }) => [
                   styles.cancelButton,
-                  { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+                  {
+                    backgroundColor: optionSurface,
+                    borderColor: optionBorder,
+                  },
                   pressed ? styles.pressablePrimaryPressed : null,
                 ]}
                 onPress={onCancel}
               >
-                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
+                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumCancel')}</Text>
               </Pressable>
               <TutorialSpotlight
                 active={tourSaveActive}
                 tooltip={tourSaveTooltip}
                 onSpotlightPress={onSave}
-                showSkip={false}
                 style={styles.tourButtonWrapper}
               >
                 <Pressable
                   style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
                   onPress={onSave}
                 >
-                  <Text style={styles.saveText}>Save</Text>
+                  <Text style={styles.saveText}>{tUI(uiLanguage, 'create.albumSave')}</Text>
                 </Pressable>
               </TutorialSpotlight>
             </View>

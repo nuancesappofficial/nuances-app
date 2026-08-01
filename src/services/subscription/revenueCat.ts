@@ -1,12 +1,15 @@
 import Purchases, {
+  INTRO_ELIGIBILITY_STATUS,
   LOG_LEVEL,
   type CustomerInfo,
   type PurchasesOfferings,
   type PurchasesPackage,
 } from 'react-native-purchases';
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
+import type { PlanType } from '@services/settings/userSettings';
 
 const REVENUECAT_APPLE_API_KEY = (process.env.EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY || '').trim();
+const REVENUECAT_GOOGLE_API_KEY = (process.env.EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY || '').trim();
 const REVENUECAT_ENTITLEMENT_ID = (process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID || 'premium').trim();
 const REVENUECAT_PACKAGE_ID = (process.env.EXPO_PUBLIC_REVENUECAT_PACKAGE_ID || '').trim();
 const REVENUECAT_USER_DEFAULTS_SUITE = (
@@ -17,6 +20,19 @@ let configuredAppUserId: string | null = null;
 let didWarnMissingNativeModule = false;
 let didWarnInvalidApiKey = false;
 let didLogRevenueCatPublicConfig = false;
+let configurationPromise: Promise<boolean> | null = null;
+
+function getRevenueCatApiKey(): string {
+  if (Platform.OS === 'ios') return REVENUECAT_APPLE_API_KEY;
+  if (Platform.OS === 'android') return REVENUECAT_GOOGLE_API_KEY;
+  return '';
+}
+
+function getRevenueCatKeyEnvironmentName(): string {
+  return Platform.OS === 'android'
+    ? 'EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY'
+    : 'EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY';
+}
 
 export type RevenueCatOfferingSummary = {
   priceLabel: string | null;
@@ -32,7 +48,12 @@ export type RevenueCatPackageSummary = {
   title: string;
   description: string;
   priceLabel: string;
+  currencyCode: string | null;
   subscriptionPeriod: string | null;
+  hasFreeTrialOffer: boolean;
+  isFreeTrialEligible: boolean;
+  freeTrialPeriodUnit: string | null;
+  freeTrialPeriodCount: number | null;
 };
 
 function isRevenueCatNativeModuleUnavailableError(error: unknown): boolean {
@@ -66,7 +87,7 @@ function warnRevenueCatInvalidApiKey(context: string, error?: unknown) {
   if (didWarnInvalidApiKey) return;
   didWarnInvalidApiKey = true;
   console.warn(
-    `[RevenueCat] ${context}: invalid public API key. Falling back to local free/trial entitlement until EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY is corrected.`,
+    `[RevenueCat] ${context}: invalid public API key. Premium remains unavailable until ${getRevenueCatKeyEnvironmentName()} is corrected.`,
     error || ''
   );
 }
@@ -77,14 +98,26 @@ function getActiveEntitlement(info: CustomerInfo | null | undefined) {
   return active[REVENUECAT_ENTITLEMENT_ID] || null;
 }
 
+function getEntitlementPeriodType(info: CustomerInfo | null | undefined): string {
+  const entitlement = getActiveEntitlement(info) as Record<string, unknown> | null;
+  return String(
+    entitlement?.periodType ??
+    entitlement?.period_type ??
+    entitlement?.storePeriodType ??
+    entitlement?.store_period_type ??
+    ''
+  ).trim().toLowerCase();
+}
+
 function normalizeExpiration(value: string | null | undefined): string | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
-async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
-  if (!REVENUECAT_APPLE_API_KEY) return false;
+async function performEnsureConfigured(appUserId?: string | null): Promise<boolean> {
+  const apiKey = getRevenueCatApiKey();
+  if (!apiKey) return false;
   if (!isRevenueCatNativeAvailable()) {
     warnRevenueCatNativeUnavailable('ensureConfigured');
     return false;
@@ -94,9 +127,10 @@ async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
     if (__DEV__ && !didLogRevenueCatPublicConfig) {
       didLogRevenueCatPublicConfig = true;
       console.log('[RevenueCat] public SDK config', {
-        keyPrefix: REVENUECAT_APPLE_API_KEY.slice(0, 5),
-        keySuffix: REVENUECAT_APPLE_API_KEY.slice(-4),
-        keyLength: REVENUECAT_APPLE_API_KEY.length,
+        platform: Platform.OS,
+        keyPrefix: apiKey.slice(0, 5),
+        keySuffix: apiKey.slice(-4),
+        keyLength: apiKey.length,
         entitlementId: REVENUECAT_ENTITLEMENT_ID,
         packageId: REVENUECAT_PACKAGE_ID || '(current offering)',
       });
@@ -104,9 +138,10 @@ async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
     const isConfigured = await Purchases.isConfigured();
     if (!isConfigured) {
       Purchases.configure({
-        apiKey: REVENUECAT_APPLE_API_KEY,
+        apiKey,
         appUserID: appUserId || undefined,
-        userDefaultsSuiteName: REVENUECAT_USER_DEFAULTS_SUITE || undefined,
+        userDefaultsSuiteName:
+          Platform.OS === 'ios' ? REVENUECAT_USER_DEFAULTS_SUITE || undefined : undefined,
       });
       await Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.INFO);
       configuredAppUserId = appUserId || null;
@@ -129,6 +164,24 @@ async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
       return false;
     }
     throw error;
+  }
+}
+
+async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
+  if (configurationPromise) {
+    const configured = await configurationPromise;
+    if (!configured) return false;
+    if (!appUserId || configuredAppUserId === appUserId) return true;
+  }
+
+  const work = performEnsureConfigured(appUserId);
+  configurationPromise = work;
+  try {
+    return await work;
+  } finally {
+    if (configurationPromise === work) {
+      configurationPromise = null;
+    }
   }
 }
 
@@ -160,10 +213,19 @@ function getPackageByIdentifierFromOfferings(
   return current.availablePackages[0] || null;
 }
 
-function summarizePackage(item: PurchasesPackage): RevenueCatPackageSummary {
+function summarizePackage(
+  item: PurchasesPackage,
+  freeTrialEligibility: Record<string, boolean> = {}
+): RevenueCatPackageSummary {
   const product = item.product as PurchasesPackage['product'] & {
     subscriptionPeriod?: string | null;
   };
+  const hasFreeTrialOffer = product.introPrice?.price === 0;
+  const freeTrialPeriodCount =
+    hasFreeTrialOffer && product.introPrice
+      ? product.introPrice.periodNumberOfUnits *
+        Math.max(1, product.introPrice.cycles)
+      : null;
   return {
     identifier: item.identifier,
     packageType: String(item.packageType || ''),
@@ -171,12 +233,21 @@ function summarizePackage(item: PurchasesPackage): RevenueCatPackageSummary {
     title: product.title || item.identifier,
     description: product.description || '',
     priceLabel: product.priceString || '',
+    currencyCode: product.currencyCode || null,
     subscriptionPeriod: product.subscriptionPeriod || null,
+    hasFreeTrialOffer,
+    isFreeTrialEligible:
+      hasFreeTrialOffer && freeTrialEligibility[product.identifier] === true,
+    freeTrialPeriodUnit:
+      hasFreeTrialOffer && product.introPrice
+        ? product.introPrice.periodUnit
+        : null,
+    freeTrialPeriodCount,
   };
 }
 
 export function isRevenueCatConfigured(): boolean {
-  return Boolean(REVENUECAT_APPLE_API_KEY);
+  return Boolean(getRevenueCatApiKey());
 }
 
 export function getRevenueCatEntitlementId(): string {
@@ -184,10 +255,17 @@ export function getRevenueCatEntitlementId(): string {
 }
 
 export function hasRevenueCatPremium(info: CustomerInfo | null | undefined): boolean {
+  if (!getRevenueCatApiKey()) return false;
   const entitlement = getActiveEntitlement(info);
   if (!entitlement) return false;
   const expiresAt = entitlement.expirationDate ? Date.parse(entitlement.expirationDate) : Number.POSITIVE_INFINITY;
   return !Number.isFinite(expiresAt) || expiresAt > Date.now();
+}
+
+export function getRevenueCatPlanType(info: CustomerInfo | null | undefined): PlanType {
+  if (!hasRevenueCatPremium(info)) return 'free';
+  const periodType = getEntitlementPeriodType(info);
+  return periodType.includes('trial') || periodType.includes('intro') ? 'trial' : 'premium';
 }
 
 export function getRevenueCatExpiration(info: CustomerInfo | null | undefined): string | null {
@@ -227,7 +305,33 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
   try {
     const offerings = await Purchases.getOfferings();
     const chosen = await getCurrentPackageFromOfferings(offerings);
-    const packages = offerings.current?.availablePackages.map(summarizePackage) || [];
+    const availablePackages = offerings.current?.availablePackages || [];
+    const freeTrialProductIds = availablePackages
+      .filter((item) => item.product.introPrice?.price === 0)
+      .map((item) => item.product.identifier);
+    let freeTrialEligibility: Record<string, boolean> = {};
+
+    if (Platform.OS === 'ios' && freeTrialProductIds.length > 0) {
+      try {
+        const eligibility =
+          await Purchases.checkTrialOrIntroductoryPriceEligibility(
+            freeTrialProductIds
+          );
+        freeTrialEligibility = Object.fromEntries(
+          freeTrialProductIds.map((productId) => [
+            productId,
+            eligibility[productId]?.status ===
+              INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE,
+          ])
+        );
+      } catch (error) {
+        console.warn('[RevenueCat] trial eligibility check failed:', error);
+      }
+    }
+
+    const packages = availablePackages.map((item) =>
+      summarizePackage(item, freeTrialEligibility)
+    );
     return {
       priceLabel: chosen?.product.priceString || null,
       packageId: chosen?.identifier || null,
@@ -263,7 +367,7 @@ export async function purchaseRevenueCatPremium(
   }
   const ready = await ensureConfigured(appUserId);
   if (!ready) {
-    throw new Error('RevenueCat 尚未設定，請先填入 EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY。');
+    throw new Error(`RevenueCat 尚未設定，請先填入 ${getRevenueCatKeyEnvironmentName()}。`);
   }
 
   const offerings = await Purchases.getOfferings();
@@ -282,7 +386,7 @@ export async function restoreRevenueCatPurchases(appUserId?: string | null): Pro
   }
   const ready = await ensureConfigured(appUserId);
   if (!ready) {
-    throw new Error('RevenueCat 尚未設定，請先填入 EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY。');
+    throw new Error(`RevenueCat 尚未設定，請先填入 ${getRevenueCatKeyEnvironmentName()}。`);
   }
   return Purchases.restorePurchases();
 }

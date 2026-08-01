@@ -29,6 +29,7 @@ module.exports = {
       },
     ],
     ['@babel/plugin-proposal-decorators', { legacy: true }],
+    './plugins/disableReactNativeFontScaling.js',
     'react-native-worklets/plugin',
   ],
 };

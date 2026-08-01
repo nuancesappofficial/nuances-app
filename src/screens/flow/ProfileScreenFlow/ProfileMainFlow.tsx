@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,29 +14,31 @@ import ProfileMainScreenUI, {
 } from '../../../components/UI/ProfileScreenUI/ProfileMainScreenUI';
 import {
   DEFAULT_USER_SETTINGS,
-  getPrimaryAIReplyLanguageForLearningLanguages,
+  getInitialUserSettings,
   loadUserSettings,
-  resolveTTSVoiceForLanguage,
   saveUserSettings,
-  type AIReplyLanguage,
   type EntitlementMode,
-  type MainScreenAlbumGridCount,
-  type TTSVoice,
+  type ThemeMode,
   type UILanguage,
   type WordPopSlideMs,
-  withUpdatedTTSVoiceOnlyForLanguage,
 } from '@services/settings/userSettings';
-import { supabase } from '@services/supabase/client';
 import SubscriptionService from '@services/subscription/SubscriptionService';
-import { DEFAULT_STICKER_FONT_KEY, type StickerFontKey } from '../../../theme/stickerFonts';
+import {
+  DEFAULT_STICKER_FONT_KEY,
+  type StickerFontKey,
+} from '../../../theme/stickerFonts';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { deleteCurrentAccount } from '@services/account/AccountDeletionService';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { tUI } from '../../../i18n/uiLanguage';
+import { SUPPORT_EMAIL } from '../../../constants/legalLinks';
 
 type Props = {
   navigation: any;
   overlayMode?: boolean;
   onRequestClose?: () => void;
+  onReplayVideoTutorial?: () => void;
 };
 
 function getDateKey(input: Date | string): string {
@@ -133,7 +135,10 @@ function shiftMonth(base: Date, offset: number): Date {
 }
 
 function getMonthDiff(from: Date, to: Date): number {
-  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+  return (
+    (to.getFullYear() - from.getFullYear()) * 12 +
+    (to.getMonth() - from.getMonth())
+  );
 }
 
 function buildHeatMapMonthOffsets(
@@ -203,24 +208,32 @@ function collectHeatMapPrimaryCardIds(
   return [...required];
 }
 
-function findCurrentMonthIndex(months: HeatMapMonth[], currentDate: Date): number {
+function findCurrentMonthIndex(
+  months: HeatMapMonth[],
+  currentDate: Date
+): number {
   if (months.length <= 1) return 0;
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const index = months.findIndex(
-    (item) => item.monthDate.getFullYear() === year && item.monthDate.getMonth() === month
+    (item) =>
+      item.monthDate.getFullYear() === year &&
+      item.monthDate.getMonth() === month
   );
   return index >= 0 ? index : 0;
 }
 
-function getProfileTitle(profile: Profile | null): string {
+function getProfileTitle(
+  profile: Profile | null,
+  uiLanguage: UILanguage
+): string {
   const displayName = profile?.displayName?.trim();
   if (displayName) return displayName;
 
   const email = profile?.email?.trim();
   if (email) return email.split('@')[0] || email;
 
-  return 'Profile';
+  return tUI(uiLanguage, 'profile.defaultTitle');
 }
 
 function getSinceSourceDate(profile: Profile | null, cards: Card[]): Date {
@@ -231,8 +244,14 @@ function getSinceSourceDate(profile: Profile | null, cards: Card[]): Date {
   return new Date();
 }
 
-export default function ProfileMainFlow({ navigation, overlayMode = false, onRequestClose }: Props) {
+export default function ProfileMainFlow({
+  navigation,
+  overlayMode = false,
+  onRequestClose,
+  onReplayVideoTutorial,
+}: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const initialSettings = getInitialUserSettings();
 
   React.useEffect(() => {
     return () => {
@@ -241,24 +260,34 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
   }, [tabSwipeContext]);
   const [cards, setCards] = React.useState<Card[]>([]);
   const [profile, setProfile] = React.useState<Profile | null>(null);
-  const [cardImageMap, setCardImageMap] = React.useState<Record<string, string | undefined>>({});
+  const [cardImageMap, setCardImageMap] = React.useState<
+    Record<string, string | undefined>
+  >({});
   const [currentDate, setCurrentDate] = React.useState(() => new Date());
-  const [entitlementMode, setEntitlementMode] = React.useState<EntitlementMode>('free');
-  const [aiReplyLanguage, setAiReplyLanguage] = React.useState<AIReplyLanguage>(
-    DEFAULT_USER_SETTINGS.aiReplyLanguage
+  const [entitlementMode, setEntitlementMode] =
+    React.useState<EntitlementMode>('free');
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    initialSettings.uiLanguage
   );
-  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(DEFAULT_USER_SETTINGS.uiLanguage);
-  const [ttsVoice, setTtsVoice] = React.useState<TTSVoice>(DEFAULT_USER_SETTINGS.ttsVoice);
-  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(DEFAULT_USER_SETTINGS.wordPopSlideMs);
-  const [stickerFontKey, setStickerFontKey] = React.useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
-  const [mainScreenAlbumGridCount, setMainScreenAlbumGridCount] =
-    React.useState<MainScreenAlbumGridCount>(DEFAULT_USER_SETTINGS.mainScreenAlbumGridCount);
-  const [mainScreenWordPopEnabled, setMainScreenWordPopEnabled] = React.useState(
-    DEFAULT_USER_SETTINGS.mainScreenWordPopEnabled
+  const [wordPopSlideMs, setWordPopSlideMs] = React.useState<WordPopSlideMs>(
+    initialSettings.wordPopSlideMs
+  );
+  const [stickerFontKey, setStickerFontKey] = React.useState<StickerFontKey>(
+    DEFAULT_STICKER_FONT_KEY
+  );
+  const [stickerFontScalePercent, setStickerFontScalePercent] = React.useState(
+    initialSettings.stickerFontScalePercent
+  );
+  const [themeMode, setThemeMode] = React.useState<ThemeMode>(
+    initialSettings.themeMode
   );
   const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
-  const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<string | null>(null);
-  const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<string | null>(null);
+  const [selectedProfilePhotoUri, setSelectedProfilePhotoUri] = React.useState<
+    string | null
+  >(null);
+  const [pendingProfilePhotoUri, setPendingProfilePhotoUri] = React.useState<
+    string | null
+  >(null);
   const [pendingProfilePhotoSize, setPendingProfilePhotoSize] = React.useState<{
     width: number;
     height: number;
@@ -278,9 +307,12 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       0,
       1
     );
-    const timeout = setTimeout(() => {
-      setCurrentDate(new Date());
-    }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
+    const timeout = setTimeout(
+      () => {
+        setCurrentDate(new Date());
+      },
+      Math.max(1000, nextMidnight.getTime() - now.getTime())
+    );
 
     return () => clearTimeout(timeout);
   }, [currentDate]);
@@ -291,16 +323,18 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
 
     const load = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user?.id) {
+        const userId = await getCurrentSessionUserId();
+        if (!userId) {
           if (!cancelled) setCards([]);
           return;
         }
         const queryCards = database
           .get<Card>('cards')
-          .query(Q.where('user_id', user.id), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+          .query(
+            Q.where('user_id', userId),
+            Q.where('deleted_at', null),
+            Q.sortBy('created_at', Q.desc)
+          );
         const data = await queryCards.fetch();
         if (cancelled) return;
         setCards(data);
@@ -316,24 +350,39 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       cancelled = true;
       sub?.unsubscribe();
     };
-  }, []);
+  }, [uiLanguage]);
 
   React.useEffect(() => {
-    const queryProfiles = database.get<Profile>('profiles').query(Q.sortBy('created_at', Q.asc));
+    let cancelled = false;
+    let sub: { unsubscribe: () => void } | null = null;
 
     const load = async () => {
       try {
+        const userId = await getCurrentSessionUserId();
+        if (!userId || cancelled) {
+          setProfile(null);
+          return;
+        }
+        const queryProfiles = database
+          .get<Profile>('profiles')
+          .query(Q.where('user_id', userId), Q.sortBy('created_at', Q.asc));
         const data = await queryProfiles.fetch();
+        if (cancelled) return;
         setProfile(data[0] ?? null);
+        sub = queryProfiles
+          .observe()
+          .subscribe((nextData) => setProfile(nextData[0] ?? null));
       } catch (error) {
         console.error('[Profiles] load profile failed:', error);
-        setProfile(null);
+        if (!cancelled) setProfile(null);
       }
     };
 
     void load();
-    const sub = queryProfiles.observe().subscribe((data) => setProfile(data[0] ?? null));
-    return () => sub.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub?.unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -368,17 +417,10 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       const settings = await loadUserSettings();
       setEntitlementMode(settings.planType);
       setUiLanguage(settings.uiLanguage);
-      setAiReplyLanguage(settings.aiReplyLanguage);
-      setTtsVoice(
-        resolveTTSVoiceForLanguage(
-          settings,
-          getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages)
-        )
-      );
       setWordPopSlideMs(settings.wordPopSlideMs);
       setStickerFontKey(settings.stickerFontKey);
-      setMainScreenAlbumGridCount(settings.mainScreenAlbumGridCount);
-      setMainScreenWordPopEnabled(settings.mainScreenWordPopEnabled);
+      setStickerFontScalePercent(settings.stickerFontScalePercent);
+      setThemeMode(settings.themeMode);
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -394,35 +436,58 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     }, [refreshAppSettings])
   );
 
-  const handleDevSetMembership = React.useCallback(async (mode: 'free' | 'trial' | 'premium') => {
-    if (!__DEV__ || !SubscriptionService.isDevBypassEnabled()) return;
-    try {
-      const settings = await loadUserSettings();
-      const now = new Date();
-      const trialStartedAt = mode === 'trial' ? now.toISOString() : settings.trialStartedAt;
-      const trialEndsAt =
-        mode === 'trial'
-          ? new Date(now.getTime() + SubscriptionService.TRIAL_DURATION_MS).toISOString()
-          : settings.trialEndsAt;
-      await saveUserSettings({
-        ...settings,
-        entitlementMode: mode,
-        planType: mode,
-        trialStartedAt,
-        trialEndsAt,
-        subscriptionExpiresAt:
+  const handleDevSetMembership = React.useCallback(
+    async (mode: 'free' | 'trial' | 'premium') => {
+      if (!__DEV__ || !SubscriptionService.isDevBypassEnabled()) return;
+      try {
+        const settings = await loadUserSettings();
+        const now = new Date();
+        const trialStartedAt =
+          mode === 'trial' ? now.toISOString() : settings.trialStartedAt;
+        const trialEndsAt =
+          mode === 'trial'
+            ? new Date(
+                now.getTime() + SubscriptionService.TRIAL_DURATION_MS
+              ).toISOString()
+            : settings.trialEndsAt;
+        await saveUserSettings({
+          ...settings,
+          entitlementMode: mode,
+          planType: mode,
+          trialStartedAt,
+          trialEndsAt,
+          subscriptionExpiresAt:
+            mode === 'premium'
+              ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+              : null,
+          lastEntitlementSyncAt: now.toISOString(),
+        });
+        setEntitlementMode(mode);
+        const planLabel =
           mode === 'premium'
-            ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            : null,
-        lastEntitlementSyncAt: now.toISOString(),
-      });
-      setEntitlementMode(mode);
-      Alert.alert('Dev override updated', `Current plan is now ${mode}.`);
-    } catch (error) {
-      console.error('[Profiles] dev entitlement override failed:', error);
-      Alert.alert('Dev override failed', error instanceof Error ? error.message : 'Please try again.');
-    }
-  }, []);
+            ? tUI(uiLanguage, 'common.premium')
+            : mode === 'trial'
+              ? tUI(uiLanguage, 'common.trial')
+              : tUI(uiLanguage, 'common.free');
+        Alert.alert(
+          tUI(uiLanguage, 'profile.devOverrideUpdatedTitle'),
+          tUI(uiLanguage, 'profile.devOverrideUpdatedBody').replace(
+            '{plan}',
+            planLabel
+          )
+        );
+      } catch (error) {
+        console.error('[Profiles] dev entitlement override failed:', error);
+        Alert.alert(
+          tUI(uiLanguage, 'profile.devOverrideFailedTitle'),
+          error instanceof Error
+            ? error.message
+            : tUI(uiLanguage, 'profile.devOverrideFailedBody')
+        );
+      }
+    },
+    []
+  );
 
   const performAccountDeletion = React.useCallback(async () => {
     if (isDeletingAccount) return;
@@ -431,86 +496,76 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
       await deleteCurrentAccount();
     } catch (error) {
       console.error('[Profiles] delete account failed:', error);
-      Alert.alert('Failed to delete account. Please try again or contact support.');
+      Alert.alert(
+        tUI(uiLanguage, 'profile.deleteAccountFailedTitle'),
+        tUI(uiLanguage, 'profile.deleteAccountFailedBody')
+      );
       setIsDeletingAccount(false);
     }
-  }, [isDeletingAccount]);
+  }, [isDeletingAccount, uiLanguage]);
 
   const handleDeleteAccount = React.useCallback(() => {
     if (isDeletingAccount) return;
     Alert.alert(
-      'Delete Account',
-      'Are you sure you want to permanently delete your account? All your vocabulary cards, settings, and personal data will be erased. This action cannot be undone.',
+      tUI(uiLanguage, 'profile.deleteAccountConfirmTitle'),
+      tUI(uiLanguage, 'profile.deleteAccountConfirmBody'),
       [
-        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: tUI(uiLanguage, 'profile.deleteAccountConfirmCancel'),
+          style: 'cancel',
+        },
+        {
+          text: tUI(uiLanguage, 'profile.deleteAccountConfirmDelete'),
           style: 'destructive',
           onPress: () => void performAccountDeletion(),
         },
       ]
     );
-  }, [isDeletingAccount, performAccountDeletion]);
+  }, [isDeletingAccount, performAccountDeletion, uiLanguage]);
 
-  const handleChangeAIReplyLanguage = React.useCallback(async (language: AIReplyLanguage) => {
-    try {
-      const settings = await loadUserSettings();
-      if (settings.aiReplyLanguage === language) return;
-      await saveUserSettings({ ...settings, aiReplyLanguage: language });
-      setAiReplyLanguage(language);
-    } catch (error) {
-      console.error('[Profiles] update AI reply language failed:', error);
-      Alert.alert('更新失敗', '無法儲存 AI 回覆語言，請稍後再試。');
-    }
-  }, []);
+  const handleChangeWordPopSlideMs = React.useCallback(
+    async (value: WordPopSlideMs) => {
+      try {
+        const settings = await loadUserSettings();
+        if (settings.wordPopSlideMs === value) return;
+        await saveUserSettings({
+          ...settings,
+          wordPopSlideMs: value,
+        });
+        setWordPopSlideMs(value);
+      } catch (error) {
+        console.error(
+          '[Profiles] update word pop slide interval failed:',
+          error
+        );
+        Alert.alert('更新失敗', '無法儲存 Word Pop 輪播速度，請稍後再試。');
+      }
+    },
+    []
+  );
 
-  const handleChangeTTSVoice = React.useCallback(async (voice: TTSVoice) => {
-    try {
-      const settings = await loadUserSettings();
-      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
-      const currentVoice = resolveTTSVoiceForLanguage(settings, targetTTSLanguage);
-      if (currentVoice === voice) return;
-      await saveUserSettings(withUpdatedTTSVoiceOnlyForLanguage(settings, targetTTSLanguage, voice));
-      setTtsVoice(voice);
-    } catch (error) {
-      console.error('[Profiles] update TTS voice failed:', error);
-      Alert.alert('更新失敗', '無法儲存語音設定，請稍後再試。');
-    }
-  }, []);
-
-  const handleChangeWordPopSlideMs = React.useCallback(async (value: WordPopSlideMs) => {
-    try {
-      const settings = await loadUserSettings();
-      if (settings.wordPopSlideMs === value) return;
-      await saveUserSettings({
-        ...settings,
-        wordPopSlideMs: value,
-      });
-      setWordPopSlideMs(value);
-    } catch (error) {
-      console.error('[Profiles] update word pop slide interval failed:', error);
-      Alert.alert('更新失敗', '無法儲存 Word Pop 輪播速度，請稍後再試。');
-    }
-  }, []);
-
-  const handleChangeStickerFontKey = React.useCallback(async (fontKey: StickerFontKey) => {
-    try {
-      const settings = await loadUserSettings();
-      if (settings.stickerFontKey === fontKey) return;
-      await saveUserSettings({
-        ...settings,
-        stickerFontKey: fontKey,
-      });
-      setStickerFontKey(fontKey);
-    } catch (error) {
-      console.error('[Profiles] update sticker font failed:', error);
-      Alert.alert('更新失敗', '無法儲存貼紙字體，請稍後再試。');
-    }
-  }, []);
+  const handleChangeStickerFontKey = React.useCallback(
+    async (fontKey: StickerFontKey) => {
+      try {
+        const settings = await loadUserSettings();
+        if (settings.stickerFontKey === fontKey) return;
+        await saveUserSettings({
+          ...settings,
+          stickerFontKey: fontKey,
+        });
+        setStickerFontKey(fontKey);
+      } catch (error) {
+        console.error('[Profiles] update sticker font failed:', error);
+        Alert.alert('更新失敗', '無法儲存貼紙字體，請稍後再試。');
+      }
+    },
+    []
+  );
 
   const handleChangeProfilePhoto = React.useCallback(async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert('需要相簿權限', '請先允許存取相簿，才能上傳頭像。');
         return;
@@ -554,7 +609,27 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
     () => formatSinceDate(getSinceSourceDate(profile, cards)),
     [cards, profile]
   );
-  const title = React.useMemo(() => getProfileTitle(profile), [profile]);
+  const title = React.useMemo(
+    () => getProfileTitle(profile, uiLanguage),
+    [profile, uiLanguage]
+  );
+
+  const handleReportFeedback = React.useCallback(async () => {
+    const subject = encodeURIComponent(
+      tUI(uiLanguage, 'profile.feedbackEmailSubject')
+    );
+    const body = encodeURIComponent(
+      tUI(uiLanguage, 'profile.feedbackEmailBody')
+    );
+    try {
+      await Linking.openURL(
+        `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`
+      );
+    } catch (error) {
+      console.warn('[Profiles] failed to open feedback email:', error);
+      Alert.alert(tUI(uiLanguage, 'common.unableToOpenLink'));
+    }
+  }, [uiLanguage]);
 
   return (
     <>
@@ -567,20 +642,23 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         heatMapMonths={heatMapMonths}
         initialMonthIndex={initialMonthIndex}
         entitlementMode={entitlementMode}
-        mainScreenAlbumGridCount={mainScreenAlbumGridCount}
-        mainScreenWordPopEnabled={mainScreenWordPopEnabled}
         isDeletingAccount={isDeletingAccount}
         uiLanguage={uiLanguage}
-        aiReplyLanguage={aiReplyLanguage}
-        ttsVoice={ttsVoice}
+        themeMode={themeMode}
         stickerFontKey={stickerFontKey}
+        stickerFontScalePercent={stickerFontScalePercent}
         onPressUploadProfilePic={handleChangeProfilePhoto}
-        onOpenMembershipModal={() => navigation.navigate('ProfileSettingOptions', { kind: 'membership' })}
+        onOpenMembershipModal={() =>
+          navigation.navigate('ProfileSettingOptions', {
+            kind: 'membership',
+            source: 'settings',
+          })
+        }
         devBypassEnabled={SubscriptionService.isDevBypassEnabled()}
         onDevSetMembership={handleDevSetMembership}
-        onChangeAIReplyLanguage={handleChangeAIReplyLanguage}
-        onChangeTTSVoice={handleChangeTTSVoice}
+        onReportFeedback={() => void handleReportFeedback()}
         onDeleteAccount={handleDeleteAccount}
+        onReplayVideoTutorial={onReplayVideoTutorial || (() => {})}
         onOpenSettingsOption={(kind) => {
           navigation.navigate('ProfileSettingOptions', { kind });
         }}
@@ -593,7 +671,12 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
             navigation.goBack();
           }
         }}
-        onPressMenu={() => Alert.alert('Profile', '更多選單功能之後可以接進來。')}
+        onPressMenu={() =>
+          Alert.alert(
+            tUI(uiLanguage, 'profile.menuTitle'),
+            tUI(uiLanguage, 'profile.menuBody')
+          )
+        }
         onPressDay={(day) => {
           if (!day.cards.length) return;
           navigation.navigate('CardDetail', {
@@ -610,6 +693,7 @@ export default function ProfileMainFlow({ navigation, overlayMode = false, onReq
         initialImageSize={pendingProfilePhotoSize}
         cropShape="circle"
         fixedCropSize={300}
+        uiLanguage={uiLanguage}
         onCancel={() => {
           setPendingProfilePhotoUri(null);
           setPendingProfilePhotoSize(null);

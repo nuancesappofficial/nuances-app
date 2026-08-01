@@ -8,6 +8,8 @@ type SpeakOptions = {
   locale?: string;
   voice?: string;
   rate?: string;
+  ipaPhoneme?: string;
+  demoExperience?: boolean;
   onDownloadStart?: () => void;
   onDownloadEnd?: () => void;
   onDone?: () => void;
@@ -18,8 +20,6 @@ type SpeakOptions = {
 const TTS_EDGE_FUNCTION_NAME = process.env.EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME || 'tts-proxy';
 const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
-const DEV_DEFAULT_PLAN = (process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN || '').trim();
 const MAX_LOADED_LOCAL_SOUNDS = 24;
 
 type CloudSound = Awaited<ReturnType<typeof Audio.Sound.createAsync>>['sound'];
@@ -41,6 +41,64 @@ async function getAuthHeader(): Promise<{ Authorization: string } | null> {
   const accessToken = session?.access_token?.trim();
   if (!accessToken) return null;
   return { Authorization: `Bearer ${accessToken}` };
+}
+
+async function readTtsErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    const message =
+      typeof payload.message === 'string' && payload.message.trim()
+        ? payload.message.trim()
+        : '';
+    const error =
+      typeof payload.error === 'string' && payload.error.trim()
+        ? payload.error.trim()
+        : '';
+    const reason =
+      typeof payload.reason === 'string' && payload.reason.trim()
+        ? payload.reason.trim()
+        : '';
+    return [message || error, reason].filter(Boolean).join(' ');
+  } catch {
+    try {
+      return (await response.text()).trim();
+    } catch {
+      return '';
+    }
+  }
+}
+
+function formatTtsErrorMessage(status: number, detail: string): string {
+  const lower = detail.toLowerCase();
+  if (
+    status === 429 &&
+    (lower.includes('daily_quota_exceeded') ||
+      lower.includes('daily quota exceeded') ||
+      lower.includes("you've reached today's"))
+  ) {
+    return "You've used today's natural voice limit. You can still create cards and study; new voice generation resets tomorrow.";
+  }
+  if (
+    status === 429 &&
+    (lower.includes('tts_week_quota_exceeded') ||
+      lower.includes('tts_month_quota_exceeded') ||
+      lower.includes('natural voice fair-use limit') ||
+      lower.includes('subscription period'))
+  ) {
+    return "You've used this subscription period's natural voice fair-use limit. Cached voices still play; new voice generation resets next period.";
+  }
+  if (
+    status === 429 ||
+    lower.includes('rate_limit_exceeded') ||
+    lower.includes('rate limit exceeded') ||
+    lower.includes('too quickly')
+  ) {
+    return 'Voice requests are coming too quickly. Please wait a moment and try again.';
+  }
+  if (status === 403 || lower.includes('premium')) {
+    return 'Voice playback requires an active trial or Premium subscription.';
+  }
+  return detail || 'Unable to generate voice playback right now. Please try again.';
 }
 
 async function stopActiveCloudPlayback(): Promise<void> {
@@ -99,12 +157,16 @@ function hashText(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function generateLocalFilename(text: string, locale: string, voice: string, rate: string): string {
+function generateLocalFilename(text: string, locale: string, voice: string, rate: string, ipaPhoneme?: string): string {
   const normalizedText = normalizeCachePart(text) || 'tts';
   const normalizedVoice = normalizeCachePart(voice || 'default');
   const normalizedLocale = normalizeCachePart(locale || 'default');
   const normalizedRate = normalizeCachePart(rate || 'default');
-  const hash = hashText(`${text}|${locale}|${voice}|${rate}`);
+  const normalizedIpa = normalizeCachePart(ipaPhoneme || 'plain');
+  const hash = hashText(`${text}|${locale}|${voice}|${rate}|${ipaPhoneme || ''}`);
+  if (ipaPhoneme) {
+    return `ipa_${normalizedIpa}_${normalizedLocale}_${normalizedVoice}_${normalizedRate}_${hash}.mp3`;
+  }
   return `${normalizedText}_${normalizedLocale}_${normalizedVoice}_${normalizedRate}_${hash}.mp3`;
 }
 
@@ -236,8 +298,9 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
     const locale = options?.locale || 'en-US';
     const voice = options?.voice || '';
     const rate = options?.rate || '0%';
+    const ipaPhoneme = (options?.ipaPhoneme || '').trim();
     const startedAt = Date.now();
-    const localFile = getLocalAudioFile(generateLocalFilename(input, locale, voice, rate));
+    const localFile = getLocalAudioFile(generateLocalFilename(input, locale, voice, rate, ipaPhoneme || undefined));
     const localUri = localFile?.uri || '';
     let playbackUri = '';
     let sourceLabel: 'LOCAL CACHE' | 'STORAGE CACHE' | 'AZURE API' | 'REMOTE FALLBACK' = 'AZURE API';
@@ -265,15 +328,6 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
         return false;
       }
       const entitlement = await SubscriptionService.getEntitlementSnapshot(user.id);
-      if (!entitlement.canUseCloudTTS) {
-        Alert.alert(
-          '升級解鎖高品質發音',
-          '雲端語音與快取下載需要有效試用或 Premium。'
-        );
-        options?.onError?.();
-        return false;
-      }
-
       options?.onDownloadStart?.();
       didShowDownloadState = true;
 
@@ -298,7 +352,7 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
           'Content-Type': 'application/json',
           apikey: SUPABASE_ANON_KEY,
           Authorization: auth.Authorization,
-          ...(__DEV__ && DEV_BYPASS_ENABLED && DEV_DEFAULT_PLAN === 'premium'
+          ...(SubscriptionService.isPremiumBypassEnabled()
             ? { 'x-nuances-dev-plan': 'premium' }
             : {}),
         },
@@ -307,15 +361,20 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
           locale,
           voice: options?.voice,
           rate,
+          ipaPhoneme: ipaPhoneme || undefined,
+          demoExperience: options?.demoExperience === true,
         }),
       });
 
       if (!response.ok) {
+        const detail = await readTtsErrorMessage(response);
+        const message = formatTtsErrorMessage(response.status, detail);
         console.warn('[TTS] request failed', {
-          text: input,
           status: response.status,
+          reason: detail || undefined,
           elapsedMs: Date.now() - startedAt,
         });
+        Alert.alert('Voice playback unavailable', message);
         options?.onDownloadEnd?.();
         options?.onError?.();
         return false;
@@ -332,7 +391,6 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
 
       if (!audioUrl) {
         console.warn('[TTS] missing audioUrl', {
-          text: input,
           source: sourceLabel,
           elapsedMs: Date.now() - startedAt,
         });
@@ -350,7 +408,6 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
           localAudioFileCache.add(playbackUri);
         } catch (downloadError) {
           console.warn('[TTS] local download failed, playing remote audio', {
-            text: input,
             error: downloadError instanceof Error ? downloadError.message : String(downloadError),
           });
           playbackUri = audioUrl;

@@ -55,6 +55,7 @@ type PronunciationAssessRequest = {
   referenceText: string;
   audioBase64: string;
   locale?: string;
+  demoExperience?: boolean;
 };
 
 type PronunciationAssessResponse = {
@@ -103,7 +104,16 @@ const MAX_AUDIO_BASE64_CHARS = 3_500_000;
 const MIN_AUDIO_BASE64_CHARS = 8_000;
 const MIN_AUDIO_BYTES = 6_000;
 const COACHING_SUGGESTION_THRESHOLD = 90;
-const VOWELS = new Set(['a', 'e', 'i', 'o', 'u', 'y']);
+
+export function detectPronunciationLocale(text: string | undefined | null): string {
+  const value = (text || '').trim();
+  if (!value) return 'en-US';
+  if (/[\u3040-\u30ff]/u.test(value)) return 'ja-JP';
+  if (/[\uac00-\ud7af]/u.test(value)) return 'ko-KR';
+  if (/[\u3400-\u9fff]/u.test(value)) return 'zh-TW';
+  if (/[ñáéíóúü¿¡]/iu.test(value)) return 'es-ES';
+  return 'en-US';
+}
 
 function estimateBytesFromBase64(base64: string): number {
   const normalized = base64.trim();
@@ -252,152 +262,11 @@ function normalizeLetterSegments(
     .filter((item): item is CloudLetterSegmentFeedback => Boolean(item));
 }
 
-function sanitizeWordToken(input: string): string {
-  return input.replace(/[^A-Za-z]/g, '');
-}
-
-function splitIntoVisualSegments(word: string): string[] {
-  const clean = sanitizeWordToken(word);
-  if (!clean) return [];
-  if (clean.length <= 3) return [clean];
-
-  const targetSegments = clean.length >= 9 ? 4 : clean.length >= 6 ? 3 : 2;
-  const transitions: number[] = [];
-  for (let i = 1; i < clean.length; i += 1) {
-    const prev = clean[i - 1].toLowerCase();
-    const curr = clean[i].toLowerCase();
-    if (VOWELS.has(prev) !== VOWELS.has(curr)) {
-      transitions.push(i);
-    }
-  }
-
-  const breakpoints: number[] = [];
-  if (transitions.length >= targetSegments - 1) {
-    for (let i = 1; i < targetSegments; i += 1) {
-      const pick = Math.floor((i * transitions.length) / targetSegments);
-      const point = transitions[Math.min(transitions.length - 1, pick)];
-      if (!breakpoints.includes(point)) breakpoints.push(point);
-    }
-  }
-  if (breakpoints.length === 0) {
-    for (let i = 1; i < targetSegments; i += 1) {
-      breakpoints.push(Math.floor((i * clean.length) / targetSegments));
-    }
-  }
-
-  breakpoints.sort((a, b) => a - b);
-  const segments: string[] = [];
-  let cursor = 0;
-  for (const point of breakpoints) {
-    if (point > cursor) segments.push(clean.slice(cursor, point));
-    cursor = point;
-  }
-  if (cursor < clean.length) segments.push(clean.slice(cursor));
-
-  if (segments.length >= 2) {
-    const last = segments[segments.length - 1];
-    const prev = segments[segments.length - 2];
-    if (last.length === 1 && prev.length >= 2) {
-      segments[segments.length - 2] = `${prev}${last}`;
-      segments.pop();
-    }
-  }
-  return segments.filter(Boolean);
-}
-
-function fallbackSuggestion(segment: string): string {
-  const lower = segment.toLowerCase();
-  if (/[aeiouy]{2,}/.test(lower)) {
-    return `${segment}：母音太短，嘴角拉開並把母音拉長。`;
-  }
-  if (/[ptk]$/.test(lower)) {
-    return `${segment}：尾音收太快，子音釋放要更清楚。`;
-  }
-  if (lower.includes('r')) {
-    return `${segment}：R 音舌頭後縮並懸空，不要碰上顎。`;
-  }
-  return `${segment}：放慢重讀，先求清晰再追求速度。`;
-}
-
-function deriveFallbackSegments(
-  referenceText: string,
-  overallScore: number,
-  words: CloudWordFeedback[],
-  phonemes: CloudPhonemeFeedback[],
-  segments: CloudLetterSegmentFeedback[]
-): {
-  words: CloudWordFeedback[];
-  phonemes: CloudPhonemeFeedback[];
-  segments: CloudLetterSegmentFeedback[];
-  usedFallback: boolean;
-} {
-  if (phonemes.length > 0 || segments.length > 0) {
-    return { words, phonemes, segments, usedFallback: false };
-  }
-
-  const tokens = referenceText
-    .split(/\s+/)
-    .map((token) => sanitizeWordToken(token))
-    .filter(Boolean)
-    .slice(0, 3);
-  if (tokens.length === 0) {
-    return { words, phonemes, segments, usedFallback: false };
-  }
-
-  const nextWords = [...words];
-  const nextPhonemes = [...phonemes];
-  const nextSegments = [...segments];
-
-  for (const token of tokens) {
-    const segmentList = splitIntoVisualSegments(token);
-    if (segmentList.length === 0) continue;
-
-    const existingWord = nextWords.find((item) => item.word.toLowerCase() === token.toLowerCase());
-    const baseScore = existingWord?.accuracy ?? overallScore;
-    if (!existingWord) {
-      nextWords.push({
-        word: token,
-        accuracy: baseScore,
-        level: toWordLevel(baseScore),
-      });
-    }
-
-    segmentList.forEach((segment, index) => {
-      const variance = index % 2 === 0 ? -(3 + index) : (2 + index);
-      const segmentScore = clampScore(baseScore + variance);
-      const suggestion = fallbackSuggestion(segment);
-      nextSegments.push({
-        text: token,
-        letters: segment,
-        phoneme: segment.toLowerCase(),
-        spokenPhoneme: null,
-        accuracy: segmentScore,
-        level: toWordLevel(segmentScore),
-        suggestion,
-      });
-      nextPhonemes.push({
-        phoneme: segment.toLowerCase(),
-        letters: segment,
-        spokenPhoneme: null,
-        accuracy: segmentScore,
-        level: toWordLevel(segmentScore),
-        suggestion,
-      });
-    });
-  }
-
-  return {
-    words: nextWords,
-    phonemes: nextPhonemes,
-    segments: nextSegments,
-    usedFallback: true,
-  };
-}
-
 export async function assessPronunciationCloud(params: {
   referenceText: string;
   audioUri: string;
   locale?: string;
+  demoExperience?: boolean;
 }): Promise<CloudPronunciationResult> {
   const {
     data: { user },
@@ -433,7 +302,8 @@ export async function assessPronunciationCloud(params: {
   const requestPayload = {
     referenceText,
     audioBase64,
-    locale: params.locale || 'en-US',
+    locale: params.locale || detectPronunciationLocale(referenceText),
+    demoExperience: params.demoExperience === true,
   };
   const requestPromise = callAIAction<
     PronunciationAssessRequest,
@@ -452,16 +322,9 @@ export async function assessPronunciationCloud(params: {
   const normalizedWordFeedback = normalizeWordFeedback(result?.wordFeedback);
   const normalizedPhonemeFeedback = normalizePhonemeFeedback(result?.phonemeFeedback);
   const normalizedLetterSegments = normalizeLetterSegments(result?.letterSegments);
-  const fallback = deriveFallbackSegments(
-    referenceText,
-    score,
-    normalizedWordFeedback,
-    normalizedPhonemeFeedback,
-    normalizedLetterSegments
-  );
-  const wordFeedback = fallback.words;
-  const phonemeFeedback = fallback.phonemes;
-  const letterSegments = fallback.segments;
+  const wordFeedback = normalizedWordFeedback;
+  const phonemeFeedback = normalizedPhonemeFeedback;
+  const letterSegments = normalizedLetterSegments;
   const feedbackLines = buildFeedbackLines({
     score,
     accuracyScore,
@@ -481,10 +344,6 @@ export async function assessPronunciationCloud(params: {
       typeof result?.recognitionStatus === 'string' ? result.recognitionStatus : undefined,
     displayText: typeof result?.displayText === 'string' ? result.displayText : undefined,
   });
-  if (fallback.usedFallback) {
-    feedbackLines.push('未取得雲端音素細節，已啟用本地字內分塊分析。');
-  }
-
   const feedbackPayload: PronunciationFeedback = {
     accuracy_score: accuracyScore,
     fluency_score: fluencyScore,

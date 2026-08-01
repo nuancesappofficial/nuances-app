@@ -5,6 +5,8 @@ import {
   Easing,
   Image,
   InteractionManager,
+  Linking,
+  type GestureResponderEvent,
   PanResponder,
   Pressable,
   ScrollView,
@@ -16,26 +18,34 @@ import {
   useColorScheme,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
+import { analytics } from '@services/analytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
+import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../../components/UI/DeckScreenUI/deckTypes';
 import {
   buildDeckAlbums,
   createCustomAlbum,
+  getDeckAlbumDisplayName,
   loadDeckAlbumPreferences,
   saveDeckAlbumPreferences,
+  subscribeDeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import {
   DEFAULT_USER_SETTINGS,
+  getInitialUserSettings,
   createMainScreenEmptyAlbumSlot,
   getPrimaryAIReplyLanguageForLearningLanguages,
   isTTSVoiceCompatibleWithAIReplyLanguage,
@@ -46,6 +56,7 @@ import {
   saveUserSettings,
   type AIReplyLanguage,
   type TTSVoice,
+  type ThemeMode,
   type UILanguage,
   type UserAppSettings,
   withUpdatedTTSVoiceOnlyForLanguage,
@@ -60,7 +71,10 @@ import {
   UPLOAD_CACHE_CTA_COLOR_BORDER,
   resolveThemeColors,
 } from '../../../theme/colors';
-import { STICKER_FONT_OPTIONS, type StickerFontKey } from '../../../theme/stickerFonts';
+import {
+  STICKER_FONT_OPTIONS,
+  type StickerFontKey,
+} from '../../../theme/stickerFonts';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   getRevenueCatOfferingSummary,
@@ -69,10 +83,22 @@ import {
 } from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import { supabase } from '@services/supabase/client';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
-import type { MembershipReturnTarget } from '../../../contexts/TabSwipeContext';
+import type {
+  MembershipPaywallSource,
+  MembershipReturnTarget,
+} from '../../../contexts/TabSwipeContext';
+import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
 
-type SettingOptionKind = 'language' | 'voice' | 'font' | 'main' | 'membership';
+type SettingOptionKind =
+  | 'language'
+  | 'voice'
+  | 'theme'
+  | 'font'
+  | 'main'
+  | 'membership';
+
 type MembershipBillingPlan = string;
 
 type Props = {
@@ -81,44 +107,22 @@ type Props = {
     params?: {
       kind?: SettingOptionKind;
       returnTo?: MembershipReturnTarget;
+      source?: MembershipPaywallSource;
     };
   };
 };
 
-const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
-  { code: 'zh-TW', label: '繁中' },
-  { code: 'zh-CN', label: '简中' },
-  { code: 'en', label: 'EN' },
+const AI_REPLY_LANGUAGE_OPTIONS: Array<{
+  code: AIReplyLanguage;
+  label: string;
+}> = [
+  { code: 'en', label: 'English' },
+  { code: 'zh-TW', label: '繁體中文' },
+  { code: 'zh-CN', label: '简体中文' },
   { code: 'ja', label: '日本語' },
   { code: 'ko', label: '한국어' },
-  { code: 'es', label: 'ES' },
-  { code: 'fr', label: 'FR' },
-];
-
-const UI_LANGUAGE_OPTIONS: Array<{
-  code: UILanguage;
-  aiReplyLanguage: AIReplyLanguage;
-  labelKey: Parameters<typeof tUI>[1];
-  metaKey: Parameters<typeof tUI>[1];
-}> = [
-  {
-    code: 'en',
-    aiReplyLanguage: 'en',
-    labelKey: 'settings.language.english',
-    metaKey: 'settings.language.englishMeta',
-  },
-  {
-    code: 'zh-TW',
-    aiReplyLanguage: 'zh-TW',
-    labelKey: 'settings.language.chineseTraditional',
-    metaKey: 'settings.language.chineseTraditionalMeta',
-  },
-  {
-    code: 'zh-CN',
-    aiReplyLanguage: 'zh-CN',
-    labelKey: 'settings.language.chineseSimplified',
-    metaKey: 'settings.language.chineseSimplifiedMeta',
-  },
+  { code: 'es', label: 'Español' },
+  { code: 'fr', label: 'Français' },
 ];
 
 const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
@@ -136,12 +140,17 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
 const PREVIEW_GRID_COLUMNS = 3;
 const PREVIEW_GRID_GAP = 10;
 const PREVIEW_PAGE_GAP = 20;
+const STICKER_SCALE_MIN = 75;
+const STICKER_SCALE_MAX = 125;
+const STICKER_SCALE_STEP = 5;
 const MEMBERSHIP_APP_ICON = require('../../../../assets/app_icons/icon_cutout2.png');
 const MEMBERSHIP_SCREEN_BG = '#02213D';
 const MEMBERSHIP_HEADER_TEXT = '#FFFFFF';
 const MEMBERSHIP_PLAN_IDLE_BG = 'rgba(255,255,255,0.055)';
 const MEMBERSHIP_PLAN_ACTIVE_BG = 'rgba(78,175,244,0.14)';
 const MEMBERSHIP_PLAN_IDLE_BORDER = 'rgba(255,255,255,0.24)';
+const APPLE_SUBSCRIPTION_MANAGEMENT_URL =
+  'https://apps.apple.com/account/subscriptions';
 
 function areStringArraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -178,7 +187,9 @@ function normalizeMainScreenSlots(
     return isMainScreenEmptyAlbumSlot(slot) ? latest : index;
   }, -1);
   const desiredSlotCount =
-    Math.ceil(Math.max(slotsPerPage, lastAlbumIndex + 1, albums.length) / slotsPerPage) * slotsPerPage;
+    Math.ceil(
+      Math.max(slotsPerPage, lastAlbumIndex + 1, albums.length) / slotsPerPage
+    ) * slotsPerPage;
   const trimmedSlots = slots.slice(0, desiredSlotCount);
   while (trimmedSlots.length < desiredSlotCount) {
     trimmedSlots.push(createMainScreenEmptyAlbumSlot());
@@ -190,56 +201,207 @@ function normalizeMainScreenSlots(
 function getTitle(kind: SettingOptionKind, uiLanguage: UILanguage): string {
   if (kind === 'language') return tUI(uiLanguage, 'settings.title.language');
   if (kind === 'voice') return tUI(uiLanguage, 'settings.title.voice');
+  if (kind === 'theme') return tUI(uiLanguage, 'settings.title.appearance');
   if (kind === 'main') return tUI(uiLanguage, 'settings.title.mainScreen');
-  if (kind === 'membership') return tUI(uiLanguage, 'settings.title.membership');
+  if (kind === 'membership')
+    return tUI(uiLanguage, 'settings.title.membership');
   return tUI(uiLanguage, 'settings.title.font');
 }
 
-function resolveMembershipPeriodLabel(value?: string | null): 'Weekly' | 'Monthly' | 'Yearly' | null {
-  const normalized = (value || '').toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes('p1w') || normalized.includes('week')) return 'Weekly';
-  if (normalized.includes('p1m') || normalized.includes('month')) return 'Monthly';
-  if (normalized.includes('p1y') || normalized.includes('year') || normalized.includes('annual')) return 'Yearly';
-  return null;
-}
-
-function resolveMembershipPlanTitle(item: RevenueCatPackageSummary): string {
+function ThemeModePicker({
+  selectedMode,
+  uiLanguage,
+  textColor,
+  secondaryTextColor,
+  onSelect,
+}: {
+  selectedMode: ThemeMode;
+  uiLanguage: UILanguage;
+  textColor: string;
+  secondaryTextColor: string;
+  onSelect: (mode: ThemeMode) => void;
+}) {
   return (
-    resolveMembershipPeriodLabel(item.packageType) ||
-    resolveMembershipPeriodLabel(item.identifier) ||
-    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-    resolveMembershipPeriodLabel(item.title) ||
-    'Premium'
+    <View style={styles.themePicker}>
+      {(['system', 'light', 'dark'] as const).map((mode) => {
+        const selected = selectedMode === mode;
+        const label = tUI(
+          uiLanguage,
+          mode === 'system'
+            ? 'settings.theme.system'
+            : mode === 'light'
+              ? 'settings.theme.light'
+              : 'settings.theme.dark'
+        );
+        const renderPane = (appearance: 'light' | 'dark', half = false) => (
+          <View
+            style={[
+              half ? styles.themePreviewHalf : styles.themePreviewFull,
+              half
+                ? appearance === 'light'
+                  ? styles.themePreviewHalfLeft
+                  : styles.themePreviewHalfRight
+                : null,
+              {
+                backgroundColor: appearance === 'light' ? '#F5F1E9' : '#06152A',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.themePreviewSky,
+                {
+                  backgroundColor:
+                    appearance === 'light' ? '#78BDEA' : '#153E94',
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.themePreviewPanel,
+                {
+                  backgroundColor:
+                    appearance === 'light' ? '#FFFFFF' : '#060B19',
+                },
+              ]}
+            >
+              <View style={styles.themePreviewBlueLine} />
+              <View style={styles.themePreviewDots}>
+                <View
+                  style={[
+                    styles.themePreviewDot,
+                    { backgroundColor: '#FF6B60' },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.themePreviewDot,
+                    { backgroundColor: '#F3C629' },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.themePreviewDot,
+                    { backgroundColor: '#23C55E' },
+                  ]}
+                />
+              </View>
+            </View>
+          </View>
+        );
+
+        return (
+          <Pressable
+            key={mode}
+            accessibilityRole="radio"
+            accessibilityLabel={label}
+            accessibilityState={{ selected }}
+            onPress={() => onSelect(mode)}
+            style={({ pressed }) => [
+              styles.themeOption,
+              pressed ? styles.themeOptionPressed : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.themePreview,
+                selected
+                  ? styles.themePreviewSelected
+                  : styles.themePreviewIdle,
+              ]}
+            >
+              {mode === 'system' ? (
+                <>
+                  {renderPane('light', true)}
+                  {renderPane('dark', true)}
+                </>
+              ) : (
+                renderPane(mode)
+              )}
+            </View>
+            <Text
+              style={[
+                styles.themeOptionLabel,
+                { color: selected ? textColor : secondaryTextColor },
+              ]}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
-function resolveMembershipPlanMeta(item: RevenueCatPackageSummary): string {
-  const periodLabel =
-    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-    resolveMembershipPeriodLabel(item.packageType) ||
-    resolveMembershipPeriodLabel(item.identifier);
-  if (periodLabel) return `Billed ${periodLabel.toLowerCase()}`;
+function resolveMembershipPeriodLabel(
+  value?: string | null
+): 'weekly' | 'monthly' | 'yearly' | null {
+  const normalized = (value || '').toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes('p1w') || normalized.includes('week'))
+    return 'weekly';
+  if (normalized.includes('p1m') || normalized.includes('month'))
+    return 'monthly';
+  if (
+    normalized.includes('p1y') ||
+    normalized.includes('year') ||
+    normalized.includes('annual')
+  )
+    return 'yearly';
+  return null;
+}
 
-  const description = (item.description || '').trim();
-  if (/^p\\d+[dwmy]$/i.test(description)) return 'Auto-renews unless canceled';
-  return description || 'Auto-renews unless canceled';
+function resolveMembershipPlanPeriodLabel(
+  uiLanguage: UILanguage,
+  period: 'weekly' | 'monthly' | 'yearly'
+): string {
+  if (period === 'weekly')
+    return tUI(uiLanguage, 'settings.membership.plan.weekly');
+  if (period === 'monthly')
+    return tUI(uiLanguage, 'settings.membership.plan.monthly');
+  return tUI(uiLanguage, 'settings.membership.plan.yearly');
+}
+
+function resolveMembershipPlanTitle(
+  item: RevenueCatPackageSummary,
+  uiLanguage: UILanguage
+): string {
+  const period =
+    resolveMembershipPeriodLabel(item.packageType) ||
+    resolveMembershipPeriodLabel(item.identifier) ||
+    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+    resolveMembershipPeriodLabel(item.title);
+  return (
+    (period ? resolveMembershipPlanPeriodLabel(uiLanguage, period) : null) ||
+    tUI(uiLanguage, 'common.premium')
+  );
+}
+
+function resolveMembershipPriceLabel(
+  item: RevenueCatPackageSummary,
+  fallback: string | null,
+  uiLanguage: UILanguage
+): string {
+  const price =
+    item.priceLabel || fallback || tUI(uiLanguage, 'common.premium');
+  return formatMembershipPriceLabel(price, item.currencyCode);
 }
 
 function MembershipPlanOption({
   title,
   price,
-  perDay,
   selected,
   onPress,
 }: {
   title: string;
   price: string;
-  perDay: string;
   selected: boolean;
   onPress: () => void;
 }) {
-  const selectedProgress = React.useRef(new Animated.Value(selected ? 1 : 0)).current;
+  const selectedProgress = React.useRef(
+    new Animated.Value(selected ? 1 : 0)
+  ).current;
   const pressProgress = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -309,69 +471,134 @@ function MembershipPlanOption({
       onPressOut={() => animatePress(0)}
     >
       <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
-        <Animated.Text style={[styles.membershipPlanTitle, animatedTextStyle]} numberOfLines={1}>
+        <Animated.Text
+          style={[styles.membershipPlanTitle, animatedTextStyle]}
+          numberOfLines={1}
+        >
           {title}
         </Animated.Text>
         <Animated.Text
           style={[styles.membershipPlanPrice, animatedTextStyle]}
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.7}
+          minimumFontScale={0.72}
+          maxFontSizeMultiplier={1}
         >
           {price}
         </Animated.Text>
-        <Text style={styles.membershipPlanMeta} numberOfLines={2}>
-          {perDay}
-        </Text>
       </Animated.View>
     </Pressable>
   );
 }
 
-export default function ProfileSettingOptionsFlow({ navigation, route }: Props) {
-  const kind = route.params?.kind ?? 'language';
+export default function ProfileSettingOptionsFlow({
+  navigation,
+  route,
+}: Props) {
+  const requestedKind = route.params?.kind ?? 'language';
+  const kind = requestedKind === 'main' ? 'theme' : requestedKind;
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
+  const membershipSource = route.params?.source ?? 'settings';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const isLight = colorScheme === 'light';
   const membershipStageMinHeight = Math.max(728, windowHeight - 92);
-  const [settings, setSettings] = React.useState<UserAppSettings>(DEFAULT_USER_SETTINGS);
-  const [mainScreenAlbums, setMainScreenAlbums] = React.useState<DeckAlbum[]>([]);
+  const [settings, setSettings] = React.useState<UserAppSettings>(
+    getInitialUserSettings
+  );
+  const paywallViewTrackedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (kind !== 'membership' || paywallViewTrackedRef.current) return;
+    paywallViewTrackedRef.current = true;
+    analytics.track('paywall_viewed', {
+      source:
+        membershipSource === 'create_card' ||
+        membershipSource === 'review' ||
+        membershipSource === 'settings'
+          ? membershipSource
+          : 'unknown',
+    });
+  }, [kind, membershipSource]);
+  const [stickerScaleSliderWidth, setStickerScaleSliderWidth] =
+    React.useState(0);
+  const pendingStickerScaleRef = React.useRef(
+    DEFAULT_USER_SETTINGS.stickerFontScalePercent
+  );
+  const lastStickerScaleHapticRef = React.useRef(
+    DEFAULT_USER_SETTINGS.stickerFontScalePercent
+  );
+  const [mainScreenAlbums, setMainScreenAlbums] = React.useState<DeckAlbum[]>(
+    []
+  );
   const [previewGridWidth, setPreviewGridWidth] = React.useState(0);
-  const [draggingAlbumId, setDraggingAlbumId] = React.useState<string | null>(null);
+  const [draggingAlbumId, setDraggingAlbumId] = React.useState<string | null>(
+    null
+  );
   const [previewEditMode, setPreviewEditMode] = React.useState(false);
   const [draftAlbumSlots, setDraftAlbumSlots] = React.useState<string[]>([]);
-  const [createAlbumModalVisible, setCreateAlbumModalVisible] = React.useState(false);
+  const [createAlbumModalVisible, setCreateAlbumModalVisible] =
+    React.useState(false);
   const [newAlbumName, setNewAlbumName] = React.useState('');
-  const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<string | null>(null);
-  const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<string | null>(null);
-  const [membershipPackages, setMembershipPackages] = React.useState<RevenueCatPackageSummary[]>([]);
-  const [membershipPlan, setMembershipPlan] = React.useState<MembershipBillingPlan>('monthly');
+  const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<
+    string | null
+  >(null);
+  const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<
+    string | null
+  >(null);
+  const [membershipPackages, setMembershipPackages] = React.useState<
+    RevenueCatPackageSummary[]
+  >([]);
+  const [membershipPlan, setMembershipPlan] =
+    React.useState<MembershipBillingPlan>('monthly');
   const [savingMembership, setSavingMembership] = React.useState(false);
-  const [membershipStatus, setMembershipStatus] = React.useState<'trial' | 'free' | 'premium'>('free');
-  const [premiumTransitionVisible, setPremiumTransitionVisible] = React.useState(false);
-  const [premiumTransitionReady, setPremiumTransitionReady] = React.useState(false);
+  const [membershipStatus, setMembershipStatus] = React.useState<
+    'trial' | 'free' | 'premium'
+  >('free');
+  const [premiumTransitionVisible, setPremiumTransitionVisible] =
+    React.useState(false);
+  const [premiumTransitionReady, setPremiumTransitionReady] =
+    React.useState(false);
   const premiumGreetingShownRef = React.useRef(false);
   const dragTranslate = React.useRef(new Animated.ValueXY()).current;
-  const previewPositionValuesRef = React.useRef<Record<string, Animated.ValueXY>>({});
-  const previewPositionTargetsRef = React.useRef<Record<string, { x: number; y: number }>>({});
+  const previewPositionValuesRef = React.useRef<
+    Record<string, Animated.ValueXY>
+  >({});
+  const previewPositionTargetsRef = React.useRef<
+    Record<string, { x: number; y: number }>
+  >({});
   const previewWiggleValue = React.useRef(new Animated.Value(0)).current;
   const lastPreviewTargetIndexRef = React.useRef<number | null>(null);
   const draftAlbumSlotsRef = React.useRef<string[]>([]);
   const dragBasePositionRef = React.useRef({ x: 0, y: 0 });
-  const pendingDragAlbumRef = React.useRef<{ albumId: string; index: number } | null>(null);
+  const pendingDragAlbumRef = React.useRef<{
+    albumId: string;
+    index: number;
+  } | null>(null);
   const activeDragAlbumIdRef = React.useRef<string | null>(null);
   const previewPanActiveRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (kind !== 'membership') return;
+    if (!SubscriptionService.isPremiumBypassEnabled()) return;
+    console.log(
+      '[Membership] Premium bypass active; closing membership screen.'
+    );
+    navigation.goBack?.();
+  }, [kind, navigation]);
 
   React.useEffect(() => {
     if (
       kind !== 'language' &&
       kind !== 'voice' &&
+      kind !== 'theme' &&
       kind !== 'font' &&
-      kind !== 'main' &&
       kind !== 'membership'
     ) {
       navigation.goBack();
@@ -400,11 +627,10 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
         try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user?.id) {
-            const snapshot = await SubscriptionService.getEntitlementSnapshot(user.id);
+          const userId = await getCurrentSessionUserId();
+          if (userId) {
+            const snapshot =
+              await SubscriptionService.getEntitlementSnapshot(userId);
             if (!cancelled) setMembershipStatus(snapshot.planType);
           }
 
@@ -414,14 +640,19 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             return;
           }
 
-          const summary = await getRevenueCatOfferingSummary(user?.id ?? null);
+          const summary = await getRevenueCatOfferingSummary(userId);
           if (!cancelled) {
             setMembershipPriceLabel(summary.priceLabel);
             setMembershipPackages(summary.packages);
-            setMembershipPlan(summary.packageId || summary.packages[0]?.identifier || 'monthly');
+            setMembershipPlan(
+              summary.packageId || summary.packages[0]?.identifier || 'monthly'
+            );
           }
         } catch (error) {
-          console.error('[ProfileSettingOptions] load membership failed:', error);
+          console.error(
+            '[ProfileSettingOptions] load membership failed:',
+            error
+          );
         }
       })();
     });
@@ -432,29 +663,34 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   }, [kind]);
 
   React.useEffect(() => {
-    if (kind !== 'main') return;
+    if (kind !== 'theme') return;
     let cancelled = false;
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
         try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (!user?.id) {
+          const userId = await getCurrentSessionUserId();
+          if (!userId) {
             if (!cancelled) setMainScreenAlbums([]);
             return;
           }
           const [cards, prefs] = await Promise.all([
             database
               .get<Card>('cards')
-              .query(Q.where('user_id', user.id), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+              .query(
+                Q.where('user_id', userId),
+                Q.where('deleted_at', null),
+                Q.sortBy('created_at', Q.desc)
+              )
               .fetch(),
             loadDeckAlbumPreferences(),
           ]);
           if (cancelled) return;
           setMainScreenAlbums(buildDeckAlbums(cards, {}, prefs));
         } catch (error) {
-          console.error('[ProfileSettingOptions] load main screen albums failed:', error);
+          console.error(
+            '[ProfileSettingOptions] load main screen albums failed:',
+            error
+          );
           if (!cancelled) setMainScreenAlbums([]);
         }
       })();
@@ -465,23 +701,52 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     };
   }, [kind]);
 
-  const visibleTTSVoiceOptions = React.useMemo(
-    () => {
-      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
-      return TTS_VOICE_OPTIONS.filter((item) =>
-        isTTSVoiceCompatibleWithAIReplyLanguage(item.code, targetTTSLanguage)
-      );
-    },
-    [settings.learningLanguages]
+  React.useEffect(
+    () =>
+      subscribeDeckAlbumPreferences((prefs) => {
+        void (async () => {
+          const userId = await getCurrentSessionUserId();
+          if (!userId) return;
+          const cards = await database
+            .get<Card>('cards')
+            .query(
+              Q.where('user_id', userId),
+              Q.where('deleted_at', null),
+              Q.sortBy('created_at', Q.desc)
+            )
+            .fetch();
+          setMainScreenAlbums(buildDeckAlbums(cards, {}, prefs));
+        })();
+      }),
+    []
   );
 
+  const visibleTTSVoiceOptions = React.useMemo(() => {
+    const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(
+      settings.learningLanguages
+    );
+    return TTS_VOICE_OPTIONS.filter((item) =>
+      isTTSVoiceCompatibleWithAIReplyLanguage(item.code, targetTTSLanguage)
+    );
+  }, [settings.learningLanguages]);
+
   const persistSettings = React.useCallback(async (next: UserAppSettings) => {
-    await saveUserSettings(next);
     setSettings(next);
+    try {
+      await saveUserSettings(next);
+    } catch (error) {
+      // Keep controls responsive, but restore the durable value if the local
+      // AsyncStorage write genuinely fails.
+      const durableSettings = await loadUserSettings();
+      setSettings(durableSettings);
+      throw error;
+    }
   }, []);
 
   const orderedMainScreenAlbums = React.useMemo(() => {
-    const orderIndex = new Map(settings.mainScreenAlbumOrder.map((albumId, index) => [albumId, index]));
+    const orderIndex = new Map(
+      settings.mainScreenAlbumOrder.map((albumId, index) => [albumId, index])
+    );
     return [...mainScreenAlbums].sort((a, b) => {
       const aOrder = orderIndex.get(a.id);
       const bOrder = orderIndex.get(b.id);
@@ -500,7 +765,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   );
 
   React.useEffect(() => {
-    if (kind !== 'main') return;
+    if (kind !== 'theme') return;
     const nextSlots = normalizeMainScreenSlots(
       orderedMainScreenAlbums,
       settings.mainScreenAlbumOrder,
@@ -511,7 +776,12 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       draftAlbumSlotsRef.current = nextSlots;
       return nextSlots;
     });
-  }, [kind, orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+  }, [
+    kind,
+    orderedMainScreenAlbums,
+    settings.mainScreenAlbumGridCount,
+    settings.mainScreenAlbumOrder,
+  ]);
 
   React.useEffect(() => {
     draftAlbumSlotsRef.current = draftAlbumSlots;
@@ -552,18 +822,36 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     };
   }, [previewEditMode, previewWiggleValue]);
 
-  const handleSelectLanguage = React.useCallback(
-    async (language: UILanguage, aiReplyLanguage: AIReplyLanguage) => {
+  const handleSelectAIReplyLanguage = React.useCallback(
+    async (language: AIReplyLanguage) => {
       try {
-        const nextSettings = {
+        if (
+          settings.aiReplyLanguage === language &&
+          settings.uiLanguage === language
+        )
+          return;
+        await persistSettings({
           ...settings,
+          aiReplyLanguage: language,
           uiLanguage: language,
-          aiReplyLanguage,
-        };
-        await persistSettings(nextSettings);
+        });
+        const userId = await getCurrentSessionUserId();
+        if (userId) {
+          await localizeDefaultExperienceSavedCard(userId, language);
+        }
+        Alert.alert(
+          tUI(language, 'settings.language.restartTitle'),
+          tUI(language, 'settings.language.restartBody')
+        );
       } catch (error) {
-        console.error('[ProfileSettingOptions] update language failed:', error);
-        Alert.alert('更新失敗', '無法儲存語言設定，請稍後再試。');
+        console.error(
+          '[ProfileSettingOptions] update AI reply language failed:',
+          error
+        );
+        Alert.alert(
+          tUI(settings.uiLanguage, 'settings.language.updateFailedTitle'),
+          tUI(settings.uiLanguage, 'settings.language.updateFailedBody')
+        );
       }
     },
     [persistSettings, settings]
@@ -572,8 +860,14 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   const handleSelectVoice = React.useCallback(
     async (voice: TTSVoice) => {
       try {
-        const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
-        const nextSettings = withUpdatedTTSVoiceOnlyForLanguage(settings, targetTTSLanguage, voice);
+        const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(
+          settings.learningLanguages
+        );
+        const nextSettings = withUpdatedTTSVoiceOnlyForLanguage(
+          settings,
+          targetTTSLanguage,
+          voice
+        );
         await persistSettings(nextSettings);
       } catch (error) {
         console.error('[ProfileSettingOptions] update voice failed:', error);
@@ -589,12 +883,77 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         const nextSettings = { ...settings, stickerFontKey: fontKey };
         await persistSettings(nextSettings);
       } catch (error) {
-        console.error('[ProfileSettingOptions] update sticker font failed:', error);
+        console.error(
+          '[ProfileSettingOptions] update sticker font failed:',
+          error
+        );
         Alert.alert('更新失敗', '無法儲存貼紙字體，請稍後再試。');
       }
     },
     [persistSettings, settings]
   );
+
+  const handleSelectThemeMode = React.useCallback(
+    async (themeMode: ThemeMode) => {
+      if (settings.themeMode === themeMode) return;
+      void Haptics.selectionAsync();
+      try {
+        await persistSettings({ ...settings, themeMode });
+      } catch (error) {
+        console.error(
+          '[ProfileSettingOptions] update appearance failed:',
+          error
+        );
+        Alert.alert(
+          tUI(settings.uiLanguage, 'settings.theme.updateFailedTitle'),
+          tUI(settings.uiLanguage, 'settings.theme.updateFailedBody')
+        );
+      }
+    },
+    [persistSettings, settings]
+  );
+
+  const updateStickerScaleFromSlider = React.useCallback(
+    (event: GestureResponderEvent) => {
+      if (stickerScaleSliderWidth <= 0) return;
+      const x = Math.max(
+        0,
+        Math.min(stickerScaleSliderWidth, event.nativeEvent.locationX)
+      );
+      const raw =
+        STICKER_SCALE_MIN +
+        (x / stickerScaleSliderWidth) * (STICKER_SCALE_MAX - STICKER_SCALE_MIN);
+      const nextValue =
+        Math.round(raw / STICKER_SCALE_STEP) * STICKER_SCALE_STEP;
+      pendingStickerScaleRef.current = nextValue;
+      setSettings((current) =>
+        current.stickerFontScalePercent === nextValue
+          ? current
+          : { ...current, stickerFontScalePercent: nextValue }
+      );
+      if (lastStickerScaleHapticRef.current !== nextValue) {
+        lastStickerScaleHapticRef.current = nextValue;
+        void Haptics.selectionAsync();
+      }
+    },
+    [stickerScaleSliderWidth]
+  );
+
+  const commitStickerScale = React.useCallback(async () => {
+    const nextValue = pendingStickerScaleRef.current;
+    try {
+      const current = await loadUserSettings();
+      if (current.stickerFontScalePercent === nextValue) return;
+      await persistSettings({ ...current, stickerFontScalePercent: nextValue });
+    } catch (error) {
+      console.error(
+        '[ProfileSettingOptions] update sticker size failed:',
+        error
+      );
+      const current = await loadUserSettings();
+      setSettings(current);
+    }
+  }, [persistSettings]);
 
   const startPremiumSuccessTransition = React.useCallback(() => {
     premiumGreetingShownRef.current = false;
@@ -619,72 +978,135 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     if (premiumGreetingShownRef.current) return;
     premiumGreetingShownRef.current = true;
     setTimeout(() => {
-      Alert.alert('Welcome to Premium', 'Nuances Pro is ready. AI cards, voices, and coaching are unlocked.');
+      Alert.alert(
+        tUI(settings.uiLanguage, 'settings.membership.welcomeTitle'),
+        tUI(settings.uiLanguage, 'settings.membership.welcomeBody')
+      );
     }, 360);
-  }, [membershipReturnTo, navigation, tabSwipeContext]);
+  }, [membershipReturnTo, navigation, settings.uiLanguage, tabSwipeContext]);
 
   const handlePurchaseMembership = React.useCallback(async () => {
     if (savingMembership) return;
     setSavingMembership(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) {
-        Alert.alert('尚未登入', '請先登入，再升級到 Premium。');
+      const userId = await getCurrentSessionUserId();
+      if (!userId) {
+        Alert.alert(
+          tUI(settings.uiLanguage, 'settings.membership.notSignedInTitle'),
+          tUI(settings.uiLanguage, 'settings.membership.notSignedInBody')
+        );
         return;
       }
       const packageIdentifier =
-        membershipPackages.find((item) => item.identifier === membershipPlan)?.identifier || null;
-      const snapshot = await SubscriptionService.purchasePremium(user.id, packageIdentifier);
+        membershipPackages.find((item) => item.identifier === membershipPlan)
+          ?.identifier || null;
+      const snapshot = await SubscriptionService.purchasePremium(
+        userId,
+        packageIdentifier
+      );
       setMembershipStatus(snapshot.planType);
-      if (snapshot.planType === 'premium') {
+      if (
+        (snapshot.planType === 'premium' || snapshot.planType === 'trial') &&
+        snapshot.serverSynced !== false
+      ) {
+        analytics.track('subscription_started', { plan: snapshot.planType });
         startPremiumSuccessTransition();
         return;
       }
-      Alert.alert('升級完成', '付款流程已完成，但 Premium 狀態尚未同步。請稍後再試或恢復購買。');
+      analytics.track('subscription_failed', { reason: 'pending_sync' });
+      Alert.alert(
+        tUI(
+          settings.uiLanguage,
+          'settings.membership.purchasePendingSyncTitle'
+        ),
+        tUI(settings.uiLanguage, 'settings.membership.purchasePendingSyncBody')
+      );
     } catch (error) {
       console.error('[ProfileSettingOptions] purchase premium failed:', error);
-      Alert.alert('升級失敗', error instanceof Error ? error.message : '請稍後再試。');
+      analytics.track('subscription_failed', { reason: 'purchase_failed' });
+      Alert.alert(
+        tUI(settings.uiLanguage, 'settings.membership.purchaseFailedTitle'),
+        error instanceof Error
+          ? error.message
+          : tUI(settings.uiLanguage, 'settings.membership.purchaseFailedBody')
+      );
     } finally {
       setSavingMembership(false);
     }
-  }, [membershipPackages, membershipPlan, savingMembership, startPremiumSuccessTransition]);
+  }, [
+    membershipPackages,
+    membershipPlan,
+    savingMembership,
+    settings.uiLanguage,
+    startPremiumSuccessTransition,
+  ]);
 
   const handleRestoreMembership = React.useCallback(async () => {
     if (savingMembership) return;
     setSavingMembership(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) {
-        Alert.alert('尚未登入', '請先登入，再恢復購買。');
+      const userId = await getCurrentSessionUserId();
+      if (!userId) {
+        Alert.alert(
+          tUI(settings.uiLanguage, 'settings.membership.notSignedInTitle'),
+          tUI(settings.uiLanguage, 'settings.membership.notSignedInBody')
+        );
         return;
       }
-      const snapshot = await SubscriptionService.restorePurchases(user.id);
+      const snapshot = await SubscriptionService.restorePurchases(userId);
       setMembershipStatus(snapshot.planType);
-      if (snapshot.planType === 'premium') {
+      if (
+        (snapshot.planType === 'premium' || snapshot.planType === 'trial') &&
+        snapshot.serverSynced !== false
+      ) {
         startPremiumSuccessTransition();
         return;
       }
-      Alert.alert('恢復完成', '目前沒有可恢復的有效 Premium 訂閱。');
+      Alert.alert(
+        tUI(
+          settings.uiLanguage,
+          'settings.membership.restoreNoSubscriptionTitle'
+        ),
+        tUI(
+          settings.uiLanguage,
+          'settings.membership.restoreNoSubscriptionBody'
+        )
+      );
     } catch (error) {
       console.error('[ProfileSettingOptions] restore purchases failed:', error);
-      Alert.alert('恢復失敗', error instanceof Error ? error.message : '請稍後再試。');
+      Alert.alert(
+        tUI(settings.uiLanguage, 'settings.membership.restoreFailedTitle'),
+        error instanceof Error
+          ? error.message
+          : tUI(settings.uiLanguage, 'settings.membership.restoreFailedBody')
+      );
     } finally {
       setSavingMembership(false);
     }
-  }, [savingMembership, startPremiumSuccessTransition]);
+  }, [savingMembership, settings.uiLanguage, startPremiumSuccessTransition]);
+
+  const handleManageSubscription = React.useCallback(async () => {
+    try {
+      await Linking.openURL(APPLE_SUBSCRIPTION_MANAGEMENT_URL);
+    } catch (error) {
+      console.warn(
+        '[ProfileSettingOptions] open subscription management failed:',
+        error
+      );
+      Alert.alert(tUI(settings.uiLanguage, 'common.unableToOpenLink'));
+    }
+  }, [settings.uiLanguage]);
 
   const handleSelectMainScreenAlbumGridCount = React.useCallback(
     async (count: MainScreenAlbumGridCount) => {
       try {
-        if (settings.mainScreenWordPopEnabled && count === 9) return;
         if (settings.mainScreenAlbumGridCount === count) return;
         await persistSettings({ ...settings, mainScreenAlbumGridCount: count });
       } catch (error) {
-        console.error('[ProfileSettingOptions] update main screen grid failed:', error);
+        console.error(
+          '[ProfileSettingOptions] update main screen grid failed:',
+          error
+        );
         Alert.alert('更新失敗', '無法儲存主畫面格數，請稍後再試。');
       }
     },
@@ -697,11 +1119,12 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       await persistSettings({
         ...settings,
         mainScreenWordPopEnabled: nextWordPopEnabled,
-        mainScreenAlbumGridCount:
-          nextWordPopEnabled && settings.mainScreenAlbumGridCount === 9 ? 4 : settings.mainScreenAlbumGridCount,
       });
     } catch (error) {
-      console.error('[ProfileSettingOptions] update word pop visibility failed:', error);
+      console.error(
+        '[ProfileSettingOptions] update word pop visibility failed:',
+        error
+      );
       Alert.alert('更新失敗', '無法儲存 Word pop 顯示設定，請稍後再試。');
     }
   }, [persistSettings, settings]);
@@ -710,9 +1133,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     async (albumId: string | null) => {
       try {
         if (settings.mainScreenWordPopAlbumId === albumId) return;
-        await persistSettings({ ...settings, mainScreenWordPopAlbumId: albumId });
+        await persistSettings({
+          ...settings,
+          mainScreenWordPopAlbumId: albumId,
+        });
       } catch (error) {
-        console.error('[ProfileSettingOptions] update word pop album failed:', error);
+        console.error(
+          '[ProfileSettingOptions] update word pop album failed:',
+          error
+        );
         Alert.alert('更新失敗', '無法儲存 Word pop 相簿來源，請稍後再試。');
       }
     },
@@ -727,9 +1156,15 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
           nextOrder,
           settings.mainScreenAlbumGridCount
         );
-        await persistSettings({ ...settings, mainScreenAlbumOrder: normalizedOrder });
+        await persistSettings({
+          ...settings,
+          mainScreenAlbumOrder: normalizedOrder,
+        });
       } catch (error) {
-        console.error('[ProfileSettingOptions] update album order failed:', error);
+        console.error(
+          '[ProfileSettingOptions] update album order failed:',
+          error
+        );
         Alert.alert('更新失敗', '無法儲存相簿順序，請稍後再試。');
       }
     },
@@ -741,35 +1176,44 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       try {
         await persistSettings({ ...settings, mainScreenAlbumOrder: nextOrder });
       } catch (error) {
-        console.error('[ProfileSettingOptions] update raw album slots failed:', error);
+        console.error(
+          '[ProfileSettingOptions] update raw album slots failed:',
+          error
+        );
         Alert.alert('更新失敗', '無法儲存主畫面相簿位置，請稍後再試。');
       }
     },
     [persistSettings, settings]
   );
 
-  const moveDraftAlbumToPreviewIndex = React.useCallback((albumId: string, targetIndex: number) => {
-    setDraftAlbumSlots((prev) => {
-      const currentIndex = prev.indexOf(albumId);
-      if (currentIndex < 0) return prev;
-      const clampedTargetIndex = Math.max(0, Math.min(targetIndex, prev.length - 1));
-      if (currentIndex === clampedTargetIndex) return prev;
+  const moveDraftAlbumToPreviewIndex = React.useCallback(
+    (albumId: string, targetIndex: number) => {
+      setDraftAlbumSlots((prev) => {
+        const currentIndex = prev.indexOf(albumId);
+        if (currentIndex < 0) return prev;
+        const clampedTargetIndex = Math.max(
+          0,
+          Math.min(targetIndex, prev.length - 1)
+        );
+        if (currentIndex === clampedTargetIndex) return prev;
 
-      const nextSlots = [...prev];
-      const targetSlot = nextSlots[clampedTargetIndex];
-      if (isMainScreenEmptyAlbumSlot(targetSlot)) {
-        nextSlots[currentIndex] = targetSlot;
-        nextSlots[clampedTargetIndex] = albumId;
+        const nextSlots = [...prev];
+        const targetSlot = nextSlots[clampedTargetIndex];
+        if (isMainScreenEmptyAlbumSlot(targetSlot)) {
+          nextSlots[currentIndex] = targetSlot;
+          nextSlots[clampedTargetIndex] = albumId;
+          draftAlbumSlotsRef.current = nextSlots;
+          return nextSlots;
+        }
+
+        const [moved] = nextSlots.splice(currentIndex, 1);
+        nextSlots.splice(clampedTargetIndex, 0, moved);
         draftAlbumSlotsRef.current = nextSlots;
         return nextSlots;
-      }
-
-      const [moved] = nextSlots.splice(currentIndex, 1);
-      nextSlots.splice(clampedTargetIndex, 0, moved);
-      draftAlbumSlotsRef.current = nextSlots;
-      return nextSlots;
-    });
-  }, []);
+      });
+    },
+    []
+  );
 
   const ensurePreviewEditPage = React.useCallback(() => {
     if (!previewEditMode) {
@@ -793,23 +1237,38 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         ? baseSlots
         : [
             ...baseSlots,
-            ...Array.from({ length: settings.mainScreenAlbumGridCount }, () => createMainScreenEmptyAlbumSlot()),
+            ...Array.from({ length: settings.mainScreenAlbumGridCount }, () =>
+              createMainScreenEmptyAlbumSlot()
+            ),
           ];
       draftAlbumSlotsRef.current = nextSlots;
       return areStringArraysEqual(prev, nextSlots) ? prev : nextSlots;
     });
-  }, [orderedMainScreenAlbums, previewEditMode, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+  }, [
+    orderedMainScreenAlbums,
+    previewEditMode,
+    settings.mainScreenAlbumGridCount,
+    settings.mainScreenAlbumOrder,
+  ]);
 
   const finishPreviewEditMode = React.useCallback(() => {
     setPreviewEditMode(false);
     const normalizedSlots = normalizeMainScreenSlots(
       orderedMainScreenAlbums,
-      draftAlbumSlotsRef.current.length > 0 ? draftAlbumSlotsRef.current : settings.mainScreenAlbumOrder,
+      draftAlbumSlotsRef.current.length > 0
+        ? draftAlbumSlotsRef.current
+        : settings.mainScreenAlbumOrder,
       settings.mainScreenAlbumGridCount
     );
     draftAlbumSlotsRef.current = normalizedSlots;
-    setDraftAlbumSlots((prev) => (areStringArraysEqual(prev, normalizedSlots) ? prev : normalizedSlots));
-  }, [orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]);
+    setDraftAlbumSlots((prev) =>
+      areStringArraysEqual(prev, normalizedSlots) ? prev : normalizedSlots
+    );
+  }, [
+    orderedMainScreenAlbums,
+    settings.mainScreenAlbumGridCount,
+    settings.mainScreenAlbumOrder,
+  ]);
 
   const deletePreviewAlbum = React.useCallback(
     async (album: DeckAlbum) => {
@@ -826,17 +1285,25 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               settings.mainScreenAlbumOrder,
               settings.mainScreenAlbumGridCount
             );
-      const nextSlots = baseSlots.map((slot) => (slot === album.id ? createMainScreenEmptyAlbumSlot() : slot));
+      const nextSlots = baseSlots.map((slot) =>
+        slot === album.id ? createMainScreenEmptyAlbumSlot() : slot
+      );
       draftAlbumSlotsRef.current = nextSlots;
       setDraftAlbumSlots(nextSlots);
-      setMainScreenAlbums((prev) => prev.filter((item) => item.id !== album.id));
+      setMainScreenAlbums((prev) =>
+        prev.filter((item) => item.id !== album.id)
+      );
       await persistRawAlbumSlots(nextSlots);
 
       const prefs = await loadDeckAlbumPreferences();
-      const isCustomAlbum = prefs.customAlbums.some((item) => item.id === album.id);
+      const isCustomAlbum = prefs.customAlbums.some(
+        (item) => item.id === album.id
+      );
       await saveDeckAlbumPreferences({
         ...prefs,
-        customAlbums: isCustomAlbum ? prefs.customAlbums.filter((item) => item.id !== album.id) : prefs.customAlbums,
+        customAlbums: isCustomAlbum
+          ? prefs.customAlbums.filter((item) => item.id !== album.id)
+          : prefs.customAlbums,
         deletedAlbumIds:
           isCustomAlbum || prefs.deletedAlbumIds.includes(album.id)
             ? prefs.deletedAlbumIds
@@ -845,29 +1312,38 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setPreviewEditMode(false);
     },
-    [orderedMainScreenAlbums, persistRawAlbumSlots, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]
+    [
+      orderedMainScreenAlbums,
+      persistRawAlbumSlots,
+      settings.mainScreenAlbumGridCount,
+      settings.mainScreenAlbumOrder,
+    ]
   );
 
   const confirmDeletePreviewAlbum = React.useCallback(
     (album: DeckAlbum) => {
-      Alert.alert('刪除相簿', `確定要刪除「${album.name}」嗎？`, [
-        {
-          text: '取消',
-          style: 'cancel',
-          onPress: () => {
-            setPreviewEditMode(true);
+      Alert.alert(
+        tUI(settings.uiLanguage, 'deck.alertDeleteAlbumTitle'),
+        `${tUI(settings.uiLanguage, 'deck.alertDeleteAlbumBody')}\n${getDeckAlbumDisplayName(album, settings.uiLanguage)}`,
+        [
+          {
+            text: tUI(settings.uiLanguage, 'deck.alertCancel'),
+            style: 'cancel',
+            onPress: () => {
+              setPreviewEditMode(true);
+            },
           },
-        },
-        {
-          text: '刪除',
-          style: 'destructive',
-          onPress: () => {
-            void deletePreviewAlbum(album);
+          {
+            text: tUI(settings.uiLanguage, 'deck.alertDelete'),
+            style: 'destructive',
+            onPress: () => {
+              void deletePreviewAlbum(album);
+            },
           },
-        },
-      ]);
+        ]
+      );
     },
-    [deletePreviewAlbum]
+    [deletePreviewAlbum, settings.uiLanguage]
   );
 
   const openCreateAlbumAtSlot = React.useCallback((slotId: string) => {
@@ -917,7 +1393,10 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       cancelCreateAlbumAtSlot();
     } catch (error) {
-      console.error('[ProfileSettingOptions] create album from preview slot failed:', error);
+      console.error(
+        '[ProfileSettingOptions] create album from preview slot failed:',
+        error
+      );
       Alert.alert('建立失敗', '無法建立相簿，請稍後再試。');
     }
   }, [
@@ -932,29 +1411,35 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
   const rows = React.useMemo(() => {
     if (kind === 'language') {
-      return UI_LANGUAGE_OPTIONS.map((item) => ({
+      return AI_REPLY_LANGUAGE_OPTIONS.map((item) => ({
         key: item.code,
-        selected: item.code === settings.uiLanguage,
+        selected: item.code === settings.aiReplyLanguage,
         content: (
-          <View style={styles.optionTextStack}>
-            <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>
-              {tUI(settings.uiLanguage, item.labelKey)}
-            </Text>
-            <Text style={[styles.optionDescription, { color: palette.secondaryText }]}>
-              {tUI(settings.uiLanguage, item.metaKey)}
-            </Text>
-          </View>
+          <Text
+            style={[styles.settingLabel, { color: palette.textOnContainer }]}
+          >
+            {item.label}
+          </Text>
         ),
-        onPress: () => void handleSelectLanguage(item.code, item.aiReplyLanguage),
+        onPress: () => void handleSelectAIReplyLanguage(item.code),
       }));
     }
 
     if (kind === 'voice') {
-      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(settings.learningLanguages);
+      const targetTTSLanguage = getPrimaryAIReplyLanguageForLearningLanguages(
+        settings.learningLanguages
+      );
       return visibleTTSVoiceOptions.map((item) => ({
         key: item.code,
-        selected: item.code === resolveTTSVoiceForLanguage(settings, targetTTSLanguage),
-        content: <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{item.label}</Text>,
+        selected:
+          item.code === resolveTTSVoiceForLanguage(settings, targetTTSLanguage),
+        content: (
+          <Text
+            style={[styles.settingLabel, { color: palette.textOnContainer }]}
+          >
+            {item.label}
+          </Text>
+        ),
         onPress: () => void handleSelectVoice(item.code),
       }));
     }
@@ -971,7 +1456,7 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     return [];
   }, [
     handleSelectFont,
-    handleSelectLanguage,
+    handleSelectAIReplyLanguage,
     handleSelectVoice,
     kind,
     palette.secondaryText,
@@ -989,48 +1474,70 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             settings.mainScreenAlbumOrder,
             settings.mainScreenAlbumGridCount
           ),
-    [draftAlbumSlots, orderedMainScreenAlbums, settings.mainScreenAlbumGridCount, settings.mainScreenAlbumOrder]
+    [
+      draftAlbumSlots,
+      orderedMainScreenAlbums,
+      settings.mainScreenAlbumGridCount,
+      settings.mainScreenAlbumOrder,
+    ]
   );
   const previewGridSlotCount = previewSlots.length;
-  const previewPageCount = Math.max(1, Math.ceil(previewGridSlotCount / settings.mainScreenAlbumGridCount));
-  const previewGridColumns = settings.mainScreenAlbumGridCount === 4 ? 2 : PREVIEW_GRID_COLUMNS;
-  const previewRowsPerPage = Math.max(1, Math.ceil(settings.mainScreenAlbumGridCount / previewGridColumns));
+  const previewPageCount = Math.max(
+    1,
+    Math.ceil(previewGridSlotCount / settings.mainScreenAlbumGridCount)
+  );
+  const previewGridColumns = PREVIEW_GRID_COLUMNS;
+  const previewRowsPerPage = Math.max(
+    1,
+    Math.ceil(settings.mainScreenAlbumGridCount / previewGridColumns)
+  );
   const previewCellWidth =
     previewGridWidth > 0
-      ? (previewGridWidth - PREVIEW_GRID_GAP * (previewGridColumns - 1)) / previewGridColumns
+      ? (previewGridWidth - PREVIEW_GRID_GAP * (previewGridColumns - 1)) /
+        previewGridColumns
       : 0;
   const previewCellHeight = previewCellWidth > 0 ? previewCellWidth + 25 : 0;
   const previewPageHeight =
     previewCellHeight > 0
-      ? previewRowsPerPage * previewCellHeight + PREVIEW_GRID_GAP * Math.max(0, previewRowsPerPage - 1)
+      ? previewRowsPerPage * previewCellHeight +
+        PREVIEW_GRID_GAP * Math.max(0, previewRowsPerPage - 1)
       : 0;
   const previewCanvasHeight =
     previewPageHeight > 0
-      ? previewPageCount * previewPageHeight + PREVIEW_PAGE_GAP * Math.max(0, previewPageCount - 1)
+      ? previewPageCount * previewPageHeight +
+        PREVIEW_PAGE_GAP * Math.max(0, previewPageCount - 1)
       : 0;
   const mainScreenGridCountOptions = React.useMemo(
-    () =>
-      (settings.mainScreenWordPopEnabled ? [3, 4] : [3, 4, 9]) as MainScreenAlbumGridCount[],
-    [settings.mainScreenWordPopEnabled]
+    () => [3, 6] as MainScreenAlbumGridCount[],
+    []
   );
   const wordPopAlbumOptions = React.useMemo(
     () => [
-      { id: null, name: 'All cards', emoji: '📌', color: MODAL_CTA_COLOR },
+      {
+        id: null,
+        name: tUI(settings.uiLanguage, 'deck.albumAllCards'),
+        emoji: '📌',
+        color: MODAL_CTA_COLOR,
+        coverImageUri: undefined,
+      },
       ...mainScreenAlbums
         .filter((album) => album.id !== 'all')
         .map((album) => ({
           id: album.id,
-          name: album.name,
+          name: getDeckAlbumDisplayName(album, settings.uiLanguage),
           emoji: album.emoji,
           color: album.color,
+          coverImageUri: album.coverImageUri,
         })),
     ],
-    [mainScreenAlbums]
+    [mainScreenAlbums, settings.uiLanguage]
   );
   const effectiveWordPopAlbumId = React.useMemo(
     () =>
       settings.mainScreenWordPopAlbumId &&
-      wordPopAlbumOptions.some((album) => album.id === settings.mainScreenWordPopAlbumId)
+      wordPopAlbumOptions.some(
+        (album) => album.id === settings.mainScreenWordPopAlbumId
+      )
         ? settings.mainScreenWordPopAlbumId
         : null,
     [settings.mainScreenWordPopAlbumId, wordPopAlbumOptions]
@@ -1044,10 +1551,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       const col = indexInPage % previewGridColumns;
       return {
         x: col * (previewCellWidth + PREVIEW_GRID_GAP),
-        y: pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP) + row * (previewCellHeight + PREVIEW_GRID_GAP),
+        y:
+          pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP) +
+          row * (previewCellHeight + PREVIEW_GRID_GAP),
       };
     },
-    [previewCellHeight, previewCellWidth, previewGridColumns, previewPageHeight, settings.mainScreenAlbumGridCount]
+    [
+      previewCellHeight,
+      previewCellWidth,
+      previewGridColumns,
+      previewPageHeight,
+      settings.mainScreenAlbumGridCount,
+    ]
   );
 
   const beginPreviewAlbumDrag = React.useCallback(
@@ -1064,23 +1579,49 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
 
   const getPreviewTargetIndexFromGesture = React.useCallback(
     (gestureDx: number, gestureDy: number) => {
-      if (previewCellWidth <= 0 || previewCellHeight <= 0 || previewPageHeight <= 0) return null;
-      const centerX = dragBasePositionRef.current.x + gestureDx + previewCellWidth / 2;
-      const centerY = dragBasePositionRef.current.y + gestureDy + previewCellHeight / 2;
+      if (
+        previewCellWidth <= 0 ||
+        previewCellHeight <= 0 ||
+        previewPageHeight <= 0
+      )
+        return null;
+      const centerX =
+        dragBasePositionRef.current.x + gestureDx + previewCellWidth / 2;
+      const centerY =
+        dragBasePositionRef.current.y + gestureDy + previewCellHeight / 2;
       const pageBand = previewPageHeight + PREVIEW_PAGE_GAP;
-      const pageIndex = Math.max(0, Math.min(previewPageCount - 1, Math.floor(centerY / Math.max(1, pageBand))));
+      const pageIndex = Math.max(
+        0,
+        Math.min(
+          previewPageCount - 1,
+          Math.floor(centerY / Math.max(1, pageBand))
+        )
+      );
       const yInPage = centerY - pageIndex * pageBand;
       const row = Math.max(
         0,
-        Math.min(previewRowsPerPage - 1, Math.floor(yInPage / Math.max(1, previewCellHeight + PREVIEW_GRID_GAP)))
+        Math.min(
+          previewRowsPerPage - 1,
+          Math.floor(
+            yInPage / Math.max(1, previewCellHeight + PREVIEW_GRID_GAP)
+          )
+        )
       );
       const col = Math.max(
         0,
-        Math.min(previewGridColumns - 1, Math.floor(centerX / Math.max(1, previewCellWidth + PREVIEW_GRID_GAP)))
+        Math.min(
+          previewGridColumns - 1,
+          Math.floor(centerX / Math.max(1, previewCellWidth + PREVIEW_GRID_GAP))
+        )
       );
       return Math.max(
         0,
-        Math.min(previewSlots.length - 1, pageIndex * settings.mainScreenAlbumGridCount + row * previewGridColumns + col)
+        Math.min(
+          previewSlots.length - 1,
+          pageIndex * settings.mainScreenAlbumGridCount +
+            row * previewGridColumns +
+            col
+        )
       );
     },
     [
@@ -1099,14 +1640,18 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
     previewSlots.forEach((slot, index) => {
       const nextPosition = getPreviewSlotPosition(index);
       if (!previewPositionValuesRef.current[slot]) {
-        previewPositionValuesRef.current[slot] = new Animated.ValueXY(nextPosition);
+        previewPositionValuesRef.current[slot] = new Animated.ValueXY(
+          nextPosition
+        );
         previewPositionTargetsRef.current[slot] = nextPosition;
         return;
       }
       if (draggingAlbumId === slot) return;
       const currentTarget = previewPositionTargetsRef.current[slot];
       const alreadyAtTarget =
-        currentTarget && currentTarget.x === nextPosition.x && currentTarget.y === nextPosition.y;
+        currentTarget &&
+        currentTarget.x === nextPosition.x &&
+        currentTarget.y === nextPosition.y;
       if (alreadyAtTarget) return;
       previewPositionTargetsRef.current[slot] = nextPosition;
       if (!previewEditMode) {
@@ -1120,14 +1665,24 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         useNativeDriver: false,
       }).start();
     });
-  }, [draggingAlbumId, getPreviewSlotPosition, previewCellHeight, previewCellWidth, previewEditMode, previewSlots]);
+  }, [
+    draggingAlbumId,
+    getPreviewSlotPosition,
+    previewCellHeight,
+    previewCellWidth,
+    previewEditMode,
+    previewSlots,
+  ]);
 
   const endPreviewAlbumDrag = React.useCallback(
     (shouldPersist: boolean) => {
       const albumId = activeDragAlbumIdRef.current;
       if (albumId) {
         const releaseTargetIndex = draftAlbumSlotsRef.current.indexOf(albumId);
-        if (releaseTargetIndex >= 0 && previewPositionValuesRef.current[albumId]) {
+        if (
+          releaseTargetIndex >= 0 &&
+          previewPositionValuesRef.current[albumId]
+        ) {
           const releasePosition = getPreviewSlotPosition(releaseTargetIndex);
           previewPositionValuesRef.current[albumId].setValue(releasePosition);
           previewPositionTargetsRef.current[albumId] = releasePosition;
@@ -1170,7 +1725,10 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
           const albumId = activeDragAlbumIdRef.current;
           if (!albumId) return;
           dragTranslate.setValue({ x: gestureState.dx, y: gestureState.dy });
-          const targetIndex = getPreviewTargetIndexFromGesture(gestureState.dx, gestureState.dy);
+          const targetIndex = getPreviewTargetIndexFromGesture(
+            gestureState.dx,
+            gestureState.dy
+          );
           if (targetIndex == null) return;
           if (lastPreviewTargetIndexRef.current === targetIndex) return;
           lastPreviewTargetIndexRef.current = targetIndex;
@@ -1178,7 +1736,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
           moveDraftAlbumToPreviewIndex(albumId, targetIndex);
         },
         onPanResponderRelease: (_, gestureState) => {
-          endPreviewAlbumDrag(Math.abs(gestureState.dx) >= 2 || Math.abs(gestureState.dy) >= 2);
+          endPreviewAlbumDrag(
+            Math.abs(gestureState.dx) >= 2 || Math.abs(gestureState.dy) >= 2
+          );
         },
         onPanResponderTerminate: () => {
           endPreviewAlbumDrag(false);
@@ -1195,26 +1755,33 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
   );
 
   if (kind === 'membership') {
-    const featureItems = ['AI card generation', 'Premium voice cache', 'Pronunciation scoring'];
+    const featureItems = [
+      tUI(settings.uiLanguage, 'settings.membership.feature.aiCards'),
+      tUI(settings.uiLanguage, 'settings.membership.feature.voiceCache'),
+      tUI(settings.uiLanguage, 'settings.membership.feature.pronunciation'),
+    ];
     const planItems: Array<{
       key: MembershipBillingPlan;
       title: string;
       price: string;
-      perDay: string;
     }> =
       membershipPackages.length > 0
         ? membershipPackages.map((item) => ({
             key: item.identifier,
-            title: resolveMembershipPlanTitle(item),
-            price: item.priceLabel || membershipPriceLabel || 'Premium',
-            perDay: resolveMembershipPlanMeta(item),
+            title: resolveMembershipPlanTitle(item, settings.uiLanguage),
+            price: resolveMembershipPriceLabel(
+              item,
+              membershipPriceLabel,
+              settings.uiLanguage
+            ),
           }))
         : [
             {
               key: 'current',
-              title: 'Premium',
-              price: membershipPriceLabel || 'Premium',
-              perDay: 'Auto-renews unless canceled',
+              title: tUI(settings.uiLanguage, 'common.premium'),
+              price:
+                membershipPriceLabel ||
+                tUI(settings.uiLanguage, 'common.premium'),
             },
           ];
 
@@ -1223,19 +1790,44 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
             <Pressable
-              style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed ? styles.backButtonPressed : null,
+              ]}
               onPress={() => navigation.goBack()}
             >
-              <Ionicons name="chevron-back" size={20} color={MEMBERSHIP_HEADER_TEXT} />
-              <Text style={[styles.backText, { color: MEMBERSHIP_HEADER_TEXT }]}>Back</Text>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={MEMBERSHIP_HEADER_TEXT}
+              />
+              <Text
+                style={[styles.backText, { color: MEMBERSHIP_HEADER_TEXT }]}
+              >
+                {tUI(settings.uiLanguage, 'settings.membership.back')}
+              </Text>
             </Pressable>
-            <Text style={[styles.title, { color: MEMBERSHIP_HEADER_TEXT }]}>Membership</Text>
+            <Text style={[styles.title, { color: MEMBERSHIP_HEADER_TEXT }]}>
+              {tUI(settings.uiLanguage, 'settings.title.membership')}
+            </Text>
             <Pressable
-              style={({ pressed }) => [styles.membershipRestoreButton, pressed ? styles.pressed : null]}
+              style={({ pressed }) => [
+                styles.membershipRestoreButton,
+                pressed ? styles.pressed : null,
+              ]}
               onPress={() => void handleRestoreMembership()}
               disabled={savingMembership}
             >
-              <Text style={[styles.membershipRestoreText, { color: MEMBERSHIP_HEADER_TEXT }]}>Restore</Text>
+              <Text
+                style={[
+                  styles.membershipRestoreText,
+                  { color: MEMBERSHIP_HEADER_TEXT },
+                ]}
+              >
+                {savingMembership
+                  ? tUI(settings.uiLanguage, 'settings.membership.updating')
+                  : tUI(settings.uiLanguage, 'settings.membership.restore')}
+              </Text>
             </Pressable>
           </View>
 
@@ -1247,8 +1839,17 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             ]}
             showsVerticalScrollIndicator={false}
           >
-            <View style={[styles.membershipPremiumStage, { minHeight: membershipStageMinHeight }]}>
-              <Image source={MEMBERSHIP_APP_ICON} style={styles.membershipHeroIcon} resizeMode="contain" />
+            <View
+              style={[
+                styles.membershipPremiumStage,
+                { minHeight: membershipStageMinHeight },
+              ]}
+            >
+              <Image
+                source={MEMBERSHIP_APP_ICON}
+                style={styles.membershipHeroIcon}
+                resizeMode="contain"
+              />
               <LinearGradient
                 pointerEvents="none"
                 colors={[
@@ -1273,27 +1874,45 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               <View style={styles.membershipFeatureList}>
                 {featureItems.map((item) => (
                   <View key={item} style={styles.membershipFeatureRow}>
-                    <Ionicons name="checkmark" size={22} color={MODAL_CTA_COLOR} />
+                    <Ionicons
+                      name="checkmark"
+                      size={22}
+                      color={MODAL_CTA_COLOR}
+                    />
                     <Text style={styles.membershipFeatureText}>{item}</Text>
                   </View>
                 ))}
               </View>
+              <Text style={styles.membershipFairUseText}>
+                {tUI(settings.uiLanguage, 'settings.membership.fairUseSummary')}
+              </Text>
 
               <View style={styles.membershipPlanGrid}>
                 {planItems.map((plan, index) => {
-                  const hasSelectedPlan = planItems.some((item) => item.key === membershipPlan);
-                  const selected = membershipPlan === plan.key || (!hasSelectedPlan && index === 0);
+                  const hasSelectedPlan = planItems.some(
+                    (item) => item.key === membershipPlan
+                  );
+                  const selected =
+                    membershipPlan === plan.key ||
+                    (!hasSelectedPlan && index === 0);
                   return (
                     <MembershipPlanOption
                       key={plan.key}
                       title={plan.title}
                       price={plan.price}
-                      perDay={plan.perDay}
                       selected={selected}
                       onPress={() => setMembershipPlan(plan.key)}
                     />
                   );
                 })}
+              </View>
+              <View style={styles.membershipDisclosureBlock}>
+                <Text style={styles.membershipDisclosureText}>
+                  {tUI(
+                    settings.uiLanguage,
+                    'settings.membership.renewalDisclosure'
+                  )}
+                </Text>
               </View>
 
               <Pressable
@@ -1304,16 +1923,46 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 onPress={() => void handlePurchaseMembership()}
                 disabled={savingMembership}
               >
-                <Text style={styles.membershipSubscribeText}>
+                <Text
+                  style={styles.membershipSubscribeText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}
+                  maxFontSizeMultiplier={1}
+                >
                   {savingMembership
-                    ? 'Updating...'
-                    : membershipStatus === 'premium'
-                      ? 'Premium active'
-                      : 'Subscribe'}
+                    ? tUI(settings.uiLanguage, 'settings.membership.updating')
+                    : membershipStatus === 'premium' ||
+                        membershipStatus === 'trial'
+                      ? tUI(settings.uiLanguage, 'settings.membership.active')
+                      : tUI(
+                          settings.uiLanguage,
+                          'settings.membership.subscribe'
+                        )}
                 </Text>
-                <Ionicons name="chevron-forward" size={20} color={TEXT_ON_CTA} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={TEXT_ON_CTA}
+                />
               </Pressable>
-
+              {membershipStatus === 'premium' ||
+              membershipStatus === 'trial' ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.membershipManageButton,
+                    pressed ? styles.pressed : null,
+                  ]}
+                  onPress={() => void handleManageSubscription()}
+                >
+                  <Text style={styles.membershipManageText}>
+                    {tUI(
+                      settings.uiLanguage,
+                      'settings.membership.manageSubscription'
+                    )}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           </ScrollView>
 
@@ -1322,30 +1971,45 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
               styles.membershipFooterLinks,
               { bottom: Math.max(insets.bottom, 8) },
             ]}
+            uiLanguage={settings.uiLanguage}
           />
         </SafeAreaView>
         {premiumTransitionVisible ? (
           <View style={styles.premiumTransitionBlocker} pointerEvents="auto">
-            <AnimatedSplashV2 ready={premiumTransitionReady} onAnimationComplete={finishPremiumSuccessTransition} />
+            <AnimatedSplashV2
+              ready={premiumTransitionReady}
+              onAnimationComplete={finishPremiumSuccessTransition}
+            />
           </View>
         ) : null}
       </View>
     );
   }
 
-  if (kind === 'main') {
+  if (kind === 'theme') {
     return (
       <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
             <Pressable
-              style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed ? styles.backButtonPressed : null,
+              ]}
               onPress={() => navigation.goBack()}
             >
-              <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-              <Text style={[styles.backText, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'common.back')}</Text>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={palette.textOnBg}
+              />
+              <Text style={[styles.backText, { color: palette.textOnBg }]}>
+                {tUI(settings.uiLanguage, 'common.back')}
+              </Text>
             </Pressable>
-            <Text style={[styles.title, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'settings.title.mainScreen')}</Text>
+            <Text style={[styles.title, { color: palette.textOnBg }]}>
+              {tUI(settings.uiLanguage, 'settings.title.appearance')}
+            </Text>
             <View style={styles.headerSpacer} />
           </View>
 
@@ -1355,18 +2019,35 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
             scrollEnabled={!draggingAlbumId}
             showsVerticalScrollIndicator={false}
           >
+            <ThemeModePicker
+              selectedMode={settings.themeMode}
+              uiLanguage={settings.uiLanguage}
+              textColor={palette.textOnBg}
+              secondaryTextColor={palette.secondaryText}
+              onSelect={(mode) => void handleSelectThemeMode(mode)}
+            />
             <View
               style={[
                 styles.mainPreviewCard,
                 {
                   backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
                 },
               ]}
             >
               <View style={styles.mainSectionHeader}>
-                <Text style={[styles.mainInstructionText, { color: palette.textOnContainer }]}>
-                  Hold an album, then drag it to change places or move it to another page.
+                <Text
+                  style={[
+                    styles.mainInstructionText,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(
+                    settings.uiLanguage,
+                    'settings.main.albumReorderInstruction'
+                  )}
                 </Text>
                 {previewEditMode ? (
                   <Pressable
@@ -1377,42 +2058,63 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                     ]}
                     onPress={finishPreviewEditMode}
                   >
-                    <Text style={styles.previewDoneText}>Done</Text>
+                    <Text style={styles.previewDoneText}>
+                      {tUI(settings.uiLanguage, 'common.done')}
+                    </Text>
                   </Pressable>
                 ) : (
-                  <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>
-                    {settings.mainScreenAlbumGridCount} per page
+                  <Text
+                    style={[
+                      styles.mainSectionMeta,
+                      { color: palette.secondaryText },
+                    ]}
+                  >
+                    {settings.mainScreenAlbumGridCount}{' '}
+                    {tUI(settings.uiLanguage, 'settings.main.perPageSuffix')}
                   </Text>
                 )}
               </View>
               <Animated.View
-                style={[styles.previewGrid, previewCanvasHeight > 0 ? { height: previewCanvasHeight } : null]}
+                style={[
+                  styles.previewGrid,
+                  previewCanvasHeight > 0
+                    ? { height: previewCanvasHeight }
+                    : null,
+                ]}
                 onLayout={(event) => {
                   const width = Math.round(event.nativeEvent.layout.width);
-                  setPreviewGridWidth((prev) => (prev === width ? prev : width));
+                  setPreviewGridWidth((prev) =>
+                    prev === width ? prev : width
+                  );
                 }}
                 {...previewGridPanResponder.panHandlers}
               >
-                {Array.from({ length: previewPageCount }).map((_, pageIndex) => (
-                      <View
-                        key={`preview-page-bg-${pageIndex}`}
-                        pointerEvents="none"
-                        style={[
-                          styles.previewPageBackground,
-                          {
-                            top: pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP),
-                            height: previewPageHeight,
-                            borderColor: isLight ? 'rgba(148,163,184,0.2)' : 'rgba(78,175,244,0.14)',
-                          },
-                        ]}
-                      />
-                    ))}
+                {Array.from({ length: previewPageCount }).map(
+                  (_, pageIndex) => (
+                    <View
+                      key={`preview-page-bg-${pageIndex}`}
+                      pointerEvents="none"
+                      style={[
+                        styles.previewPageBackground,
+                        {
+                          top:
+                            pageIndex * (previewPageHeight + PREVIEW_PAGE_GAP),
+                          height: previewPageHeight,
+                          borderColor: isLight
+                            ? 'rgba(148,163,184,0.2)'
+                            : 'rgba(78,175,244,0.14)',
+                        },
+                      ]}
+                    />
+                  )
+                )}
 
                 {previewSlots.map((slot, index) => {
                   const slotPosition = getPreviewSlotPosition(index);
                   if (isMainScreenEmptyAlbumSlot(slot)) {
                     if (!previewPositionValuesRef.current[slot]) {
-                      previewPositionValuesRef.current[slot] = new Animated.ValueXY(slotPosition);
+                      previewPositionValuesRef.current[slot] =
+                        new Animated.ValueXY(slotPosition);
                     }
                     return (
                       <Animated.View
@@ -1420,7 +2122,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                         style={[
                           styles.previewAlbumCell,
                           styles.previewAbsoluteCell,
-                          previewCellWidth > 0 ? { width: previewCellWidth } : null,
+                          previewCellWidth > 0
+                            ? { width: previewCellWidth }
+                            : null,
                           previewPositionValuesRef.current[slot].getLayout(),
                         ]}
                       >
@@ -1434,15 +2138,34 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                               styles.previewAlbumFiller,
                               {
                                 backgroundColor: palette.modalOptionBg,
-                                borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                                borderColor: isLight
+                                  ? palette.borderSubtle
+                                  : CONTAINER_NEON_OUTLINE,
                               },
                             ]}
                           >
-                            <View style={[styles.previewFillerLine, styles.previewFillerLineOne]} />
-                            <View style={[styles.previewFillerLine, styles.previewFillerLineTwo]} />
-                            <View style={[styles.previewFillerLine, styles.previewFillerLineThree]} />
+                            <View
+                              style={[
+                                styles.previewFillerLine,
+                                styles.previewFillerLineOne,
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.previewFillerLine,
+                                styles.previewFillerLineTwo,
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.previewFillerLine,
+                                styles.previewFillerLineThree,
+                              ]}
+                            />
                             <View style={styles.previewFillerPlusCircle}>
-                              <Text style={styles.previewFillerPlusText}>+</Text>
+                              <Text style={styles.previewFillerPlusText}>
+                                +
+                              </Text>
                             </View>
                           </View>
                           <View style={styles.previewFillerLabelSpacer} />
@@ -1454,16 +2177,21 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                   const album = mainScreenAlbumById.get(slot);
                   if (!album) return null;
                   if (!previewPositionValuesRef.current[album.id]) {
-                    previewPositionValuesRef.current[album.id] = new Animated.ValueXY(slotPosition);
+                    previewPositionValuesRef.current[album.id] =
+                      new Animated.ValueXY(slotPosition);
                   }
                   const isDragging = draggingAlbumId === album.id;
                   const wiggleRotate = previewWiggleValue.interpolate({
                     inputRange: [-1, 0, 1],
-                    outputRange: index % 2 === 0 ? ['-1.4deg', '0deg', '1.4deg'] : ['1.2deg', '0deg', '-1.2deg'],
+                    outputRange:
+                      index % 2 === 0
+                        ? ['-1.4deg', '0deg', '1.4deg']
+                        : ['1.2deg', '0deg', '-1.2deg'],
                   });
                   const wiggleTranslateY = previewWiggleValue.interpolate({
                     inputRange: [-1, 0, 1],
-                    outputRange: index % 2 === 0 ? [-0.8, 0, 0.8] : [0.8, 0, -0.8],
+                    outputRange:
+                      index % 2 === 0 ? [-0.8, 0, 0.8] : [0.8, 0, -0.8],
                   });
                   return (
                     <Animated.View
@@ -1471,7 +2199,9 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                       style={[
                         styles.previewAlbumCell,
                         styles.previewAbsoluteCell,
-                        previewCellWidth > 0 ? { width: previewCellWidth } : null,
+                        previewCellWidth > 0
+                          ? { width: previewCellWidth }
+                          : null,
                         previewPositionValuesRef.current[album.id].getLayout(),
                         isDragging
                           ? {
@@ -1479,26 +2209,41 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                             }
                           : previewEditMode
                             ? {
-                                transform: [{ translateY: wiggleTranslateY }, { rotate: wiggleRotate }],
+                                transform: [
+                                  { translateY: wiggleTranslateY },
+                                  { rotate: wiggleRotate },
+                                ],
                               }
-                          : null,
+                            : null,
                       ]}
                     >
                       <Pressable
                         onPressIn={() => {
-                          pendingDragAlbumRef.current = { albumId: album.id, index };
+                          pendingDragAlbumRef.current = {
+                            albumId: album.id,
+                            index,
+                          };
                         }}
                         onPressOut={() => {
-                          if (activeDragAlbumIdRef.current === album.id && !previewPanActiveRef.current) {
+                          if (
+                            activeDragAlbumIdRef.current === album.id &&
+                            !previewPanActiveRef.current
+                          ) {
                             endPreviewAlbumDrag(false);
                             return;
                           }
-                          if (!activeDragAlbumIdRef.current && !previewPanActiveRef.current) {
+                          if (
+                            !activeDragAlbumIdRef.current &&
+                            !previewPanActiveRef.current
+                          ) {
                             pendingDragAlbumRef.current = null;
                           }
                         }}
                         onLongPress={() => {
-                          pendingDragAlbumRef.current = { albumId: album.id, index };
+                          pendingDragAlbumRef.current = {
+                            albumId: album.id,
+                            index,
+                          };
                           ensurePreviewEditPage();
                           beginPreviewAlbumDrag(album.id, index);
                         }}
@@ -1511,9 +2256,13 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                             style={({ pressed }) => [
                               styles.previewDeleteButton,
                               {
-                                backgroundColor: isLight ? 'rgba(148,163,184,0.78)' : 'rgba(71,85,105,0.86)',
+                                backgroundColor: isLight
+                                  ? 'rgba(148,163,184,0.78)'
+                                  : 'rgba(71,85,105,0.86)',
                               },
-                              pressed ? styles.previewDeleteButtonPressed : null,
+                              pressed
+                                ? styles.previewDeleteButtonPressed
+                                : null,
                             ]}
                             onPress={() => confirmDeletePreviewAlbum(album)}
                           >
@@ -1524,25 +2273,44 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                           style={[
                             styles.previewAlbumCover,
                             {
-                              backgroundColor: album.coverImageUri ? palette.modalOptionBg : album.color || palette.modalOptionBg,
-                              borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                              backgroundColor: album.coverImageUri
+                                ? palette.modalOptionBg
+                                : album.color || palette.modalOptionBg,
+                              borderColor: isLight
+                                ? palette.borderSubtle
+                                : CONTAINER_NEON_OUTLINE,
                             },
                           ]}
                         >
                           {album.coverImageUri ? (
-                            <Image source={{ uri: album.coverImageUri }} style={styles.previewAlbumImage} resizeMode="cover" />
+                            <Image
+                              source={{ uri: album.coverImageUri }}
+                              style={styles.previewAlbumImage}
+                              resizeMode="cover"
+                            />
                           ) : (
-                            <Text style={styles.previewAlbumEmoji}>{album.emoji || '📁'}</Text>
+                            <Text style={styles.previewAlbumEmoji}>
+                              {album.emoji || '📁'}
+                            </Text>
                           )}
                         </View>
-                        <Text style={[styles.previewAlbumName, { color: palette.textOnContainer }]} numberOfLines={1}>
-                          {album.name}
+                        <Text
+                          style={[
+                            styles.previewAlbumName,
+                            { color: palette.textOnContainer },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {getDeckAlbumDisplayName(album, settings.uiLanguage)}
                         </Text>
                       </Pressable>
                     </Animated.View>
                   );
                 })}
-                {draggingAlbumId && mainScreenAlbumById.get(draggingAlbumId) && previewCellWidth > 0 ? (() => {
+                {draggingAlbumId &&
+                mainScreenAlbumById.get(draggingAlbumId) &&
+                previewCellWidth > 0
+                  ? (() => {
                       const album = mainScreenAlbumById.get(draggingAlbumId);
                       if (!album) return null;
                       return (
@@ -1568,23 +2336,41 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                             style={[
                               styles.previewAlbumCover,
                               {
-                                backgroundColor: album.coverImageUri ? palette.modalOptionBg : album.color || palette.modalOptionBg,
+                                backgroundColor: album.coverImageUri
+                                  ? palette.modalOptionBg
+                                  : album.color || palette.modalOptionBg,
                                 borderColor: MODAL_CTA_COLOR,
                               },
                             ]}
                           >
                             {album.coverImageUri ? (
-                              <Image source={{ uri: album.coverImageUri }} style={styles.previewAlbumImage} resizeMode="cover" />
+                              <Image
+                                source={{ uri: album.coverImageUri }}
+                                style={styles.previewAlbumImage}
+                                resizeMode="cover"
+                              />
                             ) : (
-                              <Text style={styles.previewAlbumEmoji}>{album.emoji || '📁'}</Text>
+                              <Text style={styles.previewAlbumEmoji}>
+                                {album.emoji || '📁'}
+                              </Text>
                             )}
                           </View>
-                          <Text style={[styles.previewAlbumName, { color: palette.textOnContainer }]} numberOfLines={1}>
-                            {album.name}
+                          <Text
+                            style={[
+                              styles.previewAlbumName,
+                              { color: palette.textOnContainer },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {getDeckAlbumDisplayName(
+                              album,
+                              settings.uiLanguage
+                            )}
                           </Text>
                         </Animated.View>
                       );
-                    })() : null}
+                    })()
+                  : null}
               </Animated.View>
             </View>
             <View
@@ -1593,14 +2379,23 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 styles.mainSettingsCard,
                 {
                   backgroundColor: palette.containerBg,
-                  borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
                   shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
                   shadowOpacity: isLight ? 0.08 : 0.18,
                 },
               ]}
             >
               <View style={styles.mainBlock}>
-                <Text style={[styles.mainSectionTitle, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.albumsPerPage')}</Text>
+                <Text
+                  style={[
+                    styles.mainSectionTitle,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(settings.uiLanguage, 'settings.main.albumsPerPage')}
+                </Text>
                 <View style={styles.segmentRow}>
                   {mainScreenGridCountOptions.map((count) => {
                     const active = settings.mainScreenAlbumGridCount === count;
@@ -1610,14 +2405,31 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                         style={({ pressed }) => [
                           styles.segmentButton,
                           {
-                            backgroundColor: active ? '#4EAFF4' : palette.modalOptionBg,
-                            borderColor: active ? '#4EAFF4' : isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                            backgroundColor: active
+                              ? '#4EAFF4'
+                              : palette.modalOptionBg,
+                            borderColor: active
+                              ? '#4EAFF4'
+                              : isLight
+                                ? palette.borderSubtle
+                                : CONTAINER_NEON_OUTLINE,
                           },
                           pressed ? styles.pressed : null,
                         ]}
-                        onPress={() => void handleSelectMainScreenAlbumGridCount(count)}
+                        onPress={() =>
+                          void handleSelectMainScreenAlbumGridCount(count)
+                        }
                       >
-                        <Text style={[styles.segmentText, { color: active ? '#FFFFFF' : palette.textOnContainer }]}>
+                        <Text
+                          style={[
+                            styles.segmentText,
+                            {
+                              color: active
+                                ? '#FFFFFF'
+                                : palette.textOnContainer,
+                            },
+                          ]}
+                        >
                           {count}
                         </Text>
                       </Pressable>
@@ -1626,28 +2438,57 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 </View>
               </View>
 
-              <View style={[styles.divider, { backgroundColor: isLight ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.32)' }]} />
+              <View
+                style={[
+                  styles.divider,
+                  {
+                    backgroundColor: isLight
+                      ? 'rgba(148,163,184,0.22)'
+                      : 'rgba(148,163,184,0.32)',
+                  },
+                ]}
+              />
 
               <View style={styles.wordPopRow}>
-                <View>
-                  <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.wordPop')}</Text>
-                  <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>{tUI(settings.uiLanguage, 'settings.main.wordPopMeta')}</Text>
-                </View>
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(settings.uiLanguage, 'settings.main.wordPop')}
+                </Text>
                 <Switch
                   value={settings.mainScreenWordPopEnabled}
                   onValueChange={() => void handleToggleWordPop()}
-                  trackColor={{ false: palette.modalOptionBg, true: MODAL_CTA_COLOR }}
+                  trackColor={{
+                    false: palette.modalOptionBg,
+                    true: MODAL_CTA_COLOR,
+                  }}
                   thumbColor={TEXT_ON_CTA}
                   ios_backgroundColor={palette.modalOptionBg}
                 />
               </View>
 
-              <View style={[styles.divider, { backgroundColor: isLight ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.32)' }]} />
+              <View
+                style={[
+                  styles.divider,
+                  {
+                    backgroundColor: isLight
+                      ? 'rgba(148,163,184,0.22)'
+                      : 'rgba(148,163,184,0.32)',
+                  },
+                ]}
+              />
 
               <View style={styles.wordPopSourceBlock}>
-                <Text style={[styles.settingLabel, { color: palette.textOnContainer }]}>{tUI(settings.uiLanguage, 'settings.main.wordPopSource')}</Text>
-                <Text style={[styles.mainSectionMeta, { color: palette.secondaryText }]}>
-                  {tUI(settings.uiLanguage, 'settings.main.wordPopSourceMeta')}
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(settings.uiLanguage, 'settings.main.wordPopSource')}
                 </Text>
                 <ScrollView
                   horizontal
@@ -1665,18 +2506,50 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                         style={({ pressed }) => [
                           styles.wordPopAlbumPill,
                           {
-                            backgroundColor: active ? MODAL_CTA_COLOR : palette.modalOptionBg,
-                            borderColor: active ? MODAL_CTA_COLOR : isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
+                            backgroundColor: active
+                              ? MODAL_CTA_COLOR
+                              : palette.modalOptionBg,
+                            borderColor: active
+                              ? MODAL_CTA_COLOR
+                              : isLight
+                                ? palette.borderSubtle
+                                : CONTAINER_NEON_OUTLINE,
                           },
                           pressed ? styles.pressed : null,
                         ]}
                         onPress={() => void handleSelectWordPopAlbum(album.id)}
                       >
-                        <View style={[styles.wordPopAlbumIcon, { backgroundColor: active ? 'rgba(255,255,255,0.18)' : album.color }]}>
-                          <Text style={styles.wordPopAlbumEmoji}>{album.emoji}</Text>
+                        <View
+                          style={[
+                            styles.wordPopAlbumIcon,
+                            {
+                              backgroundColor: active
+                                ? 'rgba(255,255,255,0.18)'
+                                : album.color,
+                            },
+                          ]}
+                        >
+                          {album.coverImageUri ? (
+                            <Image
+                              source={{ uri: album.coverImageUri }}
+                              style={styles.wordPopAlbumCover}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <Text style={styles.wordPopAlbumEmoji}>
+                              {album.emoji}
+                            </Text>
+                          )}
                         </View>
                         <Text
-                          style={[styles.wordPopAlbumName, { color: active ? '#FFFFFF' : palette.textOnContainer }]}
+                          style={[
+                            styles.wordPopAlbumName,
+                            {
+                              color: active
+                                ? '#FFFFFF'
+                                : palette.textOnContainer,
+                            },
+                          ]}
                           numberOfLines={1}
                         >
                           {album.name}
@@ -1687,12 +2560,12 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
                 </ScrollView>
               </View>
             </View>
-
           </ScrollView>
         </SafeAreaView>
         <CreateAlbumModalUI
           visible={createAlbumModalVisible}
           albumName={newAlbumName}
+          uiLanguage={settings.uiLanguage}
           onChangeAlbumName={setNewAlbumName}
           onCancel={cancelCreateAlbumAtSlot}
           onConfirm={() => void confirmCreateAlbumAtSlot()}
@@ -1706,51 +2579,235 @@ export default function ProfileSettingOptionsFlow({ navigation, route }: Props) 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.header}>
           <Pressable
-            style={({ pressed }) => [styles.backButton, pressed ? styles.backButtonPressed : null]}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed ? styles.backButtonPressed : null,
+            ]}
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
-            <Text style={[styles.backText, { color: palette.textOnBg }]}>{tUI(settings.uiLanguage, 'common.back')}</Text>
+            <Text style={[styles.backText, { color: palette.textOnBg }]}>
+              {tUI(settings.uiLanguage, 'common.back')}
+            </Text>
           </Pressable>
-          <Text style={[styles.title, { color: palette.textOnBg }]}>{getTitle(kind, settings.uiLanguage)}</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>
+            {getTitle(kind, settings.uiLanguage)}
+          </Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: palette.containerBg,
-              borderColor: isLight ? palette.borderSubtle : CONTAINER_NEON_OUTLINE,
-              shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-              shadowOpacity: isLight ? 0.08 : 0.18,
-            },
-          ]}
-        >
-          {rows.map((row, index) => (
-            <React.Fragment key={row.key}>
-              <TouchableOpacity style={styles.row} activeOpacity={0.9} onPress={row.onPress}>
-                {row.content}
-                {row.selected ? (
-                  <Ionicons
-                    name="checkmark"
-                    size={20}
-                    color={palette.textOnContainer}
-                    style={styles.rowIcon}
-                  />
-                ) : null}
-              </TouchableOpacity>
-              {index < rows.length - 1 ? (
+        {kind === 'language' ? (
+          <ScrollView
+            style={styles.languageScroll}
+            contentContainerStyle={styles.languageScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.languageSectionHeader}>
+              <Text
+                style={[
+                  styles.languageSectionTitle,
+                  { color: palette.textOnBg },
+                ]}
+              >
+                {tUI(settings.uiLanguage, 'settings.language.replyTitle')}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.card,
+                styles.languageCard,
+                {
+                  backgroundColor: palette.containerBg,
+                  borderColor: isLight
+                    ? palette.borderSubtle
+                    : CONTAINER_NEON_OUTLINE,
+                  shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                  shadowOpacity: isLight ? 0.08 : 0.18,
+                },
+              ]}
+            >
+              {rows.map((row, index) => (
+                <React.Fragment key={row.key}>
+                  <TouchableOpacity
+                    style={styles.row}
+                    activeOpacity={0.9}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: row.selected }}
+                    onPress={row.onPress}
+                  >
+                    {row.content}
+                    {row.selected ? (
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={palette.textOnContainer}
+                        style={styles.rowIcon}
+                      />
+                    ) : null}
+                  </TouchableOpacity>
+                  {index < rows.length - 1 ? (
+                    <View
+                      style={[
+                        styles.divider,
+                        {
+                          backgroundColor: isLight
+                            ? 'rgba(148,163,184,0.22)'
+                            : 'rgba(148,163,184,0.32)',
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </React.Fragment>
+              ))}
+            </View>
+          </ScrollView>
+        ) : null}
+
+        {kind === 'font' ? (
+          <View
+            style={[
+              styles.fontScaleCard,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: isLight
+                  ? palette.borderSubtle
+                  : CONTAINER_NEON_OUTLINE,
+              },
+            ]}
+          >
+            <View style={styles.fontScaleHeader}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { color: palette.textOnContainer },
+                ]}
+              >
+                {tUI(settings.uiLanguage, 'settings.font.wordSize')}
+              </Text>
+              <Text style={[styles.fontScaleValue, { color: MODAL_CTA_COLOR }]}>
+                {settings.stickerFontScalePercent}%
+              </Text>
+            </View>
+            <View
+              style={styles.fontScaleTouchRail}
+              onLayout={(event) =>
+                setStickerScaleSliderWidth(event.nativeEvent.layout.width)
+              }
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={updateStickerScaleFromSlider}
+              onResponderMove={updateStickerScaleFromSlider}
+              onResponderRelease={() => void commitStickerScale()}
+              onResponderTerminate={() => void commitStickerScale()}
+              accessibilityRole="adjustable"
+              accessibilityLabel={tUI(
+                settings.uiLanguage,
+                'settings.font.wordSize'
+              )}
+              accessibilityValue={{
+                min: STICKER_SCALE_MIN,
+                max: STICKER_SCALE_MAX,
+                now: settings.stickerFontScalePercent,
+                text: `${settings.stickerFontScalePercent}%`,
+              }}
+            >
+              <View
+                style={[
+                  styles.fontScaleRail,
+                  { backgroundColor: palette.modalOptionBg },
+                ]}
+              >
                 <View
                   style={[
-                    styles.divider,
-                    { backgroundColor: isLight ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.32)' },
+                    styles.fontScaleFill,
+                    {
+                      width: `${((settings.stickerFontScalePercent - STICKER_SCALE_MIN) / (STICKER_SCALE_MAX - STICKER_SCALE_MIN)) * 100}%`,
+                      backgroundColor: MODAL_CTA_COLOR,
+                    },
                   ]}
                 />
-              ) : null}
-            </React.Fragment>
-          ))}
-        </View>
+              </View>
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.fontScaleThumb,
+                  {
+                    left: `${((settings.stickerFontScalePercent - STICKER_SCALE_MIN) / (STICKER_SCALE_MAX - STICKER_SCALE_MIN)) * 100}%`,
+                    backgroundColor: MODAL_CTA_COLOR,
+                  },
+                ]}
+              />
+            </View>
+            <View style={styles.fontScaleBounds}>
+              <Text
+                style={[
+                  styles.fontScaleBoundText,
+                  { color: palette.secondaryText },
+                ]}
+              >
+                {STICKER_SCALE_MIN}%
+              </Text>
+              <Text
+                style={[
+                  styles.fontScaleBoundText,
+                  { color: palette.secondaryText },
+                ]}
+              >
+                {STICKER_SCALE_MAX}%
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {kind !== 'language' ? (
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: isLight
+                  ? palette.borderSubtle
+                  : CONTAINER_NEON_OUTLINE,
+                shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
+                shadowOpacity: isLight ? 0.08 : 0.18,
+              },
+            ]}
+          >
+            {rows.map((row, index) => (
+              <React.Fragment key={row.key}>
+                <TouchableOpacity
+                  style={styles.row}
+                  activeOpacity={0.9}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: row.selected }}
+                  onPress={row.onPress}
+                >
+                  {row.content}
+                  {row.selected ? (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={palette.textOnContainer}
+                      style={styles.rowIcon}
+                    />
+                  ) : null}
+                </TouchableOpacity>
+                {index < rows.length - 1 ? (
+                  <View
+                    style={[
+                      styles.divider,
+                      {
+                        backgroundColor: isLight
+                          ? 'rgba(148,163,184,0.22)'
+                          : 'rgba(148,163,184,0.32)',
+                      },
+                    ]}
+                  />
+                ) : null}
+              </React.Fragment>
+            ))}
+          </View>
+        ) : null}
       </SafeAreaView>
     </View>
   );
@@ -1791,6 +2848,113 @@ const styles = StyleSheet.create({
   headerSpacer: {
     minWidth: 64,
   },
+  languageScroll: {
+    flex: 1,
+  },
+  languageScrollContent: {
+    paddingBottom: 40,
+  },
+  languageSectionHeader: {
+    marginTop: 20,
+    marginHorizontal: 20,
+    gap: 4,
+  },
+  languageSectionTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '800',
+  },
+  languageCard: {
+    marginTop: 10,
+  },
+  themePicker: {
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  themeOption: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 10,
+  },
+  themeOptionPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  themePreview: {
+    width: '100%',
+    aspectRatio: 1.34,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 3,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  themePreviewSelected: {
+    borderColor: MODAL_CTA_COLOR,
+  },
+  themePreviewIdle: {
+    borderColor: 'rgba(148,163,184,0.34)',
+  },
+  themePreviewFull: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  themePreviewHalf: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '50%',
+    overflow: 'hidden',
+  },
+  themePreviewHalfLeft: {
+    left: 0,
+  },
+  themePreviewHalfRight: {
+    right: 0,
+  },
+  themePreviewSky: {
+    height: '46%',
+    transform: [{ skewX: '-16deg' }, { scaleX: 1.25 }],
+  },
+  themePreviewPanel: {
+    position: 'absolute',
+    left: 7,
+    right: 7,
+    bottom: 6,
+    height: '52%',
+    borderRadius: 8,
+    padding: 6,
+    justifyContent: 'space-between',
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  themePreviewBlueLine: {
+    width: '70%',
+    height: 8,
+    borderRadius: 3,
+    backgroundColor: MODAL_CTA_COLOR,
+  },
+  themePreviewDots: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  themePreviewDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  themeOptionLabel: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
   card: {
     marginTop: 18,
     marginHorizontal: 16,
@@ -1800,6 +2964,61 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 14,
     elevation: 6,
+  },
+  fontScaleCard: {
+    marginTop: 18,
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 12,
+  },
+  fontScaleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  fontScaleValue: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  fontScaleTouchRail: {
+    height: 38,
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  fontScaleRail: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  fontScaleFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  fontScaleThumb: {
+    position: 'absolute',
+    top: 7,
+    width: 24,
+    height: 24,
+    marginLeft: -12,
+    borderRadius: 12,
+    borderWidth: 3,
+    borderColor: TEXT_ON_CTA,
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  fontScaleBounds: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  fontScaleBoundText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   row: {
     minHeight: 58,
@@ -1861,22 +3080,22 @@ const styles = StyleSheet.create({
   },
   membershipHeroIcon: {
     position: 'absolute',
-    top: 10,
+    top: 18,
     alignSelf: 'center',
-    width: 330,
-    height: 330,
-    opacity: 0.9,
+    width: 250,
+    height: 250,
+    opacity: 0.62,
   },
   membershipHeroMask: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: -28,
-    height: 620,
+    bottom: -20,
+    height: 600,
   },
   membershipHeadlineBlock: {
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
     paddingHorizontal: 18,
   },
   membershipBrandLine: {
@@ -1907,9 +3126,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   membershipFeatureList: {
-    gap: 11,
+    gap: 9,
     paddingHorizontal: 18,
-    marginBottom: 18,
+    marginBottom: 8,
   },
   membershipFeatureRow: {
     flexDirection: 'row',
@@ -1923,6 +3142,15 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: '800',
   },
+  membershipFairUseText: {
+    color: 'rgba(255,255,255,0.74)',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+    paddingHorizontal: 18,
+    marginBottom: 12,
+  },
   membershipPlanGrid: {
     flexDirection: 'row',
     gap: 8,
@@ -1933,31 +3161,42 @@ const styles = StyleSheet.create({
   },
   membershipPlanCard: {
     flex: 1,
-    minHeight: 112,
+    minHeight: 94,
     borderRadius: 18,
     borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
     overflow: 'hidden',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   membershipPlanTitle: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '900',
+    textAlign: 'center',
   },
   membershipPlanPrice: {
-    marginTop: 6,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '800',
+    alignSelf: 'stretch',
+    flexShrink: 1,
+    marginTop: 8,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '900',
+    textAlign: 'center',
+    paddingHorizontal: 1,
   },
-  membershipPlanMeta: {
-    marginTop: 7,
+  membershipDisclosureBlock: {
+    gap: 4,
+    paddingHorizontal: 10,
+    marginTop: 10,
+  },
+  membershipDisclosureText: {
     color: 'rgba(255,255,255,0.68)',
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: '700',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   membershipSubscribeButton: {
     marginTop: 14,
@@ -1981,6 +3220,21 @@ const styles = StyleSheet.create({
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
     letterSpacing: 0.2,
+  },
+  membershipManageButton: {
+    alignSelf: 'center',
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    marginTop: 6,
+    borderRadius: 999,
+  },
+  membershipManageText: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
   },
   membershipFooterLinks: {
     position: 'absolute',
@@ -2220,6 +3474,11 @@ const styles = StyleSheet.create({
   },
   wordPopAlbumEmoji: {
     fontSize: 17,
+  },
+  wordPopAlbumCover: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
   },
   wordPopAlbumName: {
     flexShrink: 1,

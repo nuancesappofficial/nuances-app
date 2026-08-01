@@ -16,72 +16,80 @@ class ShareViewController: UIViewController {
 
     private let uiLanguageKey = "nuances_ui_language"
     private let shareSecretaryPhrasesEN = [
-        "Copy that.",
-        "Got it.",
-        "Filed.",
-        "Noted.",
-        "Consider it saved.",
-        "On it.",
-        "Logged.",
-        "Captured.",
-        "Safely tucked away.",
-        "Saved for later.",
-        "Added.",
-        "Handled.",
-        "I caught it.",
-        "Stored.",
-        "Queued.",
-        "Done.",
-        "Received.",
-        "Neatly filed.",
-        "It is in the tray.",
-        "Your note is safe."
+        "Got it 🫡",
+        "No problem",
+        "Leave it to me",
+        "Catch you later",
+        "I’ve got this",
+        "I’ll take care of it",
+        "I’ll hold onto it",
+        "You keep going"
     ]
 
     private let shareSecretaryPhrasesZHTW = [
-        "收到。",
-        "遵命。",
-        "已記下。",
-        "幫你收好了。",
-        "已放進暫存。",
-        "我抓住了。",
-        "已歸檔。",
-        "處理好了。",
-        "晚點見。",
-        "安全收好。",
-        "已加入。",
-        "記起來了。",
-        "交給我。",
-        "妥了。",
-        "已排隊。",
-        "完成。",
-        "收到這張。",
-        "整齊收好。",
-        "放進盤裡了。",
-        "這張安全了。"
+        "收到🫡",
+        "沒問題",
+        "包在我身上",
+        "晚點見",
+        "交給我",
+        "我來處理",
+        "幫你收著",
+        "你先忙"
     ]
 
     private let shareSecretaryPhrasesZHCN = [
-        "收到。",
-        "遵命。",
-        "已记下。",
-        "帮你收好了。",
-        "已放进暂存。",
-        "我抓住了。",
-        "已归档。",
-        "处理好了。",
-        "晚点见。",
-        "安全收好。",
-        "已加入。",
-        "记起来了。",
-        "交给我。",
-        "妥了。",
-        "已排队。",
-        "完成。",
-        "收到这张。",
-        "整齐收好。",
-        "放进盘里了。",
-        "这张安全了。"
+        "收到🫡",
+        "没问题",
+        "包在我身上",
+        "晚点见",
+        "交给我",
+        "我来处理",
+        "帮你收着",
+        "你先忙"
+    ]
+
+    private let shareSecretaryPhrasesJA = [
+        "了解です🫡",
+        "大丈夫です",
+        "お任せください",
+        "またあとで",
+        "こちらで承ります",
+        "対応しておきます",
+        "お預かりします",
+        "先にどうぞ"
+    ]
+
+    private let shareSecretaryPhrasesKO = [
+        "알겠습니다🫡",
+        "문제없어요",
+        "저한테 맡기세요",
+        "이따 봐요",
+        "제가 맡을게요",
+        "제가 처리해 둘게요",
+        "잘 보관해 둘게요",
+        "하시던 일 계속하세요"
+    ]
+
+    private let shareSecretaryPhrasesES = [
+        "Recibido 🫡",
+        "Sin problema",
+        "Déjamelo a mí",
+        "Nos vemos luego",
+        "Yo me encargo",
+        "Me ocupo de ello",
+        "Te lo guardo",
+        "Tú sigue con lo tuyo"
+    ]
+
+    private let shareSecretaryPhrasesFR = [
+        "Bien reçu 🫡",
+        "Pas de souci",
+        "Laisse-moi faire",
+        "À plus tard",
+        "Je m’en charge",
+        "Je m’en occupe",
+        "Je te le garde",
+        "Continue, je m’en charge"
     ]
     
     override func viewDidLoad() {
@@ -91,6 +99,10 @@ class ShareViewController: UIViewController {
     }
     
     private func handleSharedContent() {
+        // The share sheet must never remain on screen indefinitely, even when
+        // an item provider or notification daemon fails to call back.
+        scheduleCloseFallback(after: 15.0)
+
         guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem],
               !extensionItems.isEmpty else {
             self.closeExtension(success: false)
@@ -180,11 +192,18 @@ class ShareViewController: UIViewController {
                 return
             }
 
-            for text in finalTexts {
-                self.saveTextToSharedStorage(text)
+            let savedCount = finalTexts.reduce(into: 0) { count, text in
+                if self.saveTextToSharedStorage(text) {
+                    count += 1
+                }
             }
-            NSLog("[NuancesShareExtension] saved text items: \(finalTexts.count)")
-            self.postNativeReceiptThenClose(success: true, acceptedCount: finalTexts.count)
+            guard savedCount > 0 else {
+                NSLog("[NuancesShareExtension] text was decoded but App Group storage was unavailable")
+                self.closeExtension(success: false)
+                return
+            }
+            NSLog("[NuancesShareExtension] saved text items: \(savedCount)")
+            self.postNativeReceiptThenClose(success: true, acceptedCount: savedCount)
         }
     }
     
@@ -204,7 +223,11 @@ class ShareViewController: UIViewController {
                 let finalImages = processedImagesQueue.sync { processedImages }
                 DispatchQueue.main.async {
                     if !finalImages.isEmpty {
-                        self.saveImagesToSharedStorage(finalImages)
+                        guard self.saveImagesToSharedStorage(finalImages) else {
+                            NSLog("[NuancesShareExtension] image was decoded but App Group storage was unavailable")
+                            self.closeExtension(success: false)
+                            return
+                        }
                         NSLog("[NuancesShareExtension] saved image items: \(finalImages.count), reason: \(reason)")
                         self.postNativeReceiptThenClose(success: true, acceptedCount: finalImages.count)
                     } else {
@@ -391,8 +414,9 @@ class ShareViewController: UIViewController {
     
     private let maxQueuedItems = 50
     
-    private func readExistingItems(_ userDefaults: UserDefaults) -> [[String: Any]] {
+    private func readExistingItems(_ userDefaults: UserDefaults, ownerUserID: String) -> [[String: Any]] {
         guard let existing = userDefaults.dictionary(forKey: "shared_content") else { return [] }
+        guard existing["owner_user_id"] as? String == ownerUserID else { return [] }
         if let items = existing["items"] as? [[String: Any]], !items.isEmpty { return items }
         if let type = existing["type"] as? String {
             if type == "text", let content = existing["content"] as? String {
@@ -405,32 +429,68 @@ class ShareViewController: UIViewController {
         return []
     }
     
-    private func writeItemsToSharedStorage(_ items: [[String: Any]]) {
-        guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
+    private func writeItemsToSharedStorage(_ items: [[String: Any]], ownerUserID: String) -> Bool {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            NSLog("[NuancesShareExtension] App Group UserDefaults is unavailable")
+            return false
+        }
+        guard userDefaults.string(forKey: "active_user_id") == ownerUserID else {
+            NSLog("[NuancesShareExtension] refusing to queue content after account owner changed")
+            return false
+        }
         let metadata: [String: Any] = [
             "items": items,
-            "timestamp": Date().timeIntervalSince1970
+            "timestamp": Date().timeIntervalSince1970,
+            "owner_user_id": ownerUserID
         ]
         userDefaults.set(metadata, forKey: "shared_content")
         userDefaults.synchronize()
+        return userDefaults.dictionary(forKey: "shared_content") != nil
     }
     
     // MARK: - 儲存文字到 UserDefaults（累加至既有隊列）
-    private func saveTextToSharedStorage(_ text: String) {
-        guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
-        var items = readExistingItems(userDefaults)
+    private func saveTextToSharedStorage(_ text: String) -> Bool {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            NSLog("[NuancesShareExtension] App Group UserDefaults is unavailable")
+            return false
+        }
+        guard let ownerUserID = userDefaults.string(forKey: "active_user_id"),
+              !ownerUserID.isEmpty else {
+            NSLog("[NuancesShareExtension] active_user_id is missing; open Nuances once before sharing")
+            return false
+        }
+        var items = readExistingItems(userDefaults, ownerUserID: ownerUserID)
+        let alreadyQueued = items.contains { item in
+            guard item["type"] as? String == "text",
+                  let existingText = item["content"] as? String else {
+                return false
+            }
+            return existingText == text
+        }
+        if alreadyQueued {
+            NSLog("[NuancesShareExtension] skipped duplicate text already in queue")
+            return true
+        }
         items.append(["type": "text", "content": text])
         let finalItems = Array(items.suffix(maxQueuedItems))
-        writeItemsToSharedStorage(finalItems)
+        return writeItemsToSharedStorage(finalItems, ownerUserID: ownerUserID)
     }
     
     // MARK: - 儲存圖片路徑到 UserDefaults（累加至既有隊列）
-    private func saveImagesToSharedStorage(_ imagePaths: [String]) {
-        guard let userDefaults = UserDefaults(suiteName: appGroupID) else { return }
-        var items = readExistingItems(userDefaults)
+    private func saveImagesToSharedStorage(_ imagePaths: [String]) -> Bool {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            NSLog("[NuancesShareExtension] App Group UserDefaults is unavailable")
+            return false
+        }
+        guard let ownerUserID = userDefaults.string(forKey: "active_user_id"),
+              !ownerUserID.isEmpty else {
+            NSLog("[NuancesShareExtension] active_user_id is missing; open Nuances once before sharing")
+            return false
+        }
+        var items = readExistingItems(userDefaults, ownerUserID: ownerUserID)
         items.append(["type": "image", "images": imagePaths])
         let finalItems = Array(items.suffix(maxQueuedItems))
-        writeItemsToSharedStorage(finalItems)
+        return writeItemsToSharedStorage(finalItems, ownerUserID: ownerUserID)
     }
     
     // MARK: - 關閉 Extension
@@ -452,6 +512,10 @@ class ShareViewController: UIViewController {
         let language = currentUILanguage()
         if language == "zh-TW" { return shareSecretaryPhrasesZHTW }
         if language == "zh-CN" { return shareSecretaryPhrasesZHCN }
+        if language == "ja" { return shareSecretaryPhrasesJA }
+        if language == "ko" { return shareSecretaryPhrasesKO }
+        if language == "es" { return shareSecretaryPhrasesES }
+        if language == "fr" { return shareSecretaryPhrasesFR }
         return shareSecretaryPhrasesEN
     }
 
@@ -469,12 +533,24 @@ class ShareViewController: UIViewController {
 
         let language = currentUILanguage()
         if language == "zh-TW" {
-            return "我收到你的 \(acceptedCount) 張筆記了。"
+            return "收到，\(acceptedCount) 張都幫你收好了。"
         }
         if language == "zh-CN" {
-            return "我收到你的 \(acceptedCount) 张笔记了。"
+            return "收到，\(acceptedCount) 张都帮你收好了。"
         }
-        return "I got your \(acceptedCount) notes."
+        if language == "ja" {
+            return "\(acceptedCount)件すべて受け取り、保存しました。"
+        }
+        if language == "ko" {
+            return "\(acceptedCount)개 모두 받아서 저장했어요."
+        }
+        if language == "es" {
+            return "Recibimos y guardamos los \(acceptedCount) elementos."
+        }
+        if language == "fr" {
+            return "Les \(acceptedCount) éléments ont bien été enregistrés."
+        }
+        return "Got all \(acceptedCount) notes — saved."
     }
 
     // MARK: - Native receipt notification
@@ -486,13 +562,19 @@ class ShareViewController: UIViewController {
                 return
             }
 
-            self.scheduleNativeReceiptNotification(message: self.countedShareSecretaryPhrase(acceptedCount: acceptedCount)) {
-                self.closeExtension(success: true)
-            }
+            // Notification delivery is best-effort. Never keep the share
+            // extension open while waiting for notification authorization or
+            // daemon callbacks.
+            self.scheduleNativeReceiptNotification(
+                message: self.countedShareSecretaryPhrase(acceptedCount: acceptedCount),
+                acceptedCount: acceptedCount,
+                completion: {}
+            )
+            self.closeExtension(success: true)
         }
     }
 
-    private func scheduleNativeReceiptNotification(message: String, completion: @escaping () -> Void) {
+    private func scheduleNativeReceiptNotification(message: String, acceptedCount: Int, completion: @escaping () -> Void) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             NSLog("[NuancesShareExtension] notification authorization status: \(settings.authorizationStatus.rawValue)")
@@ -501,6 +583,11 @@ class ShareViewController: UIViewController {
                 content.title = "Nuances"
                 content.body = message
                 content.sound = .default
+                content.userInfo = [
+                    "kind": "nuances-share-receipt",
+                    "cacheCount": acceptedCount,
+                    "target": "cache"
+                ]
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1.0, repeats: false)
                 let request = UNNotificationRequest(
                     identifier: "nuances-share-receipt-\(UUID().uuidString)",

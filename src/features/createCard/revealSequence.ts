@@ -9,6 +9,7 @@ export const EMPTY_PREVIEW_REVEAL: PreviewRevealState = {
   showFrontSentence: false,
   showFrontTranslation: false,
   showBackCollocation: false,
+  showBackSemanticRelations: false,
   showBackExample: false,
   showBackCultural: false,
   showBackNote: false,
@@ -20,6 +21,7 @@ export const COMPLETE_PREVIEW_REVEAL: PreviewRevealState = {
   showFrontSentence: true,
   showFrontTranslation: true,
   showBackCollocation: true,
+  showBackSemanticRelations: true,
   showBackExample: true,
   showBackCultural: true,
   showBackNote: true,
@@ -33,7 +35,7 @@ function collocationsFromText(raw: string): Array<{ phrase: string; example: str
   if (!raw.trim()) return [];
   const phrases = raw
     .split(/[\n,;]+/)
-    .map((item) => item.trim())
+    .map((item) => item.split(/\s+[—–-]\s+/)[0]?.trim() || item.trim())
     .filter(Boolean)
     .slice(0, 4);
   return phrases.map((phrase) => ({ phrase, example: `Example: ${phrase}` }));
@@ -84,7 +86,6 @@ type Params = {
   setActivePreviewCard: (card: CompletedCard) => void;
   setPreviewPhase: (phase: 'frontReveal' | 'backReveal' | 'complete') => void;
   setPreviewRevealState: (updater: PreviewRevealState | ((prev: PreviewRevealState) => PreviewRevealState)) => void;
-  scrollToPreviewFront: () => void;
 };
 
 export async function runCardRevealSequence(params: Params): Promise<void> {
@@ -95,13 +96,11 @@ export async function runCardRevealSequence(params: Params): Promise<void> {
     setActivePreviewCard,
     setPreviewPhase,
     setPreviewRevealState,
-    scrollToPreviewFront,
   } = params;
 
   setActivePreviewCard(card);
   setPreviewPhase('frontReveal');
   setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
-  scrollToPreviewFront();
   await wait(160);
   if (!isCurrentRun(runId)) return;
 
@@ -133,6 +132,10 @@ export async function runCardRevealSequence(params: Params): Promise<void> {
   void Haptics.selectionAsync();
   setPreviewRevealState((prev) => ({ ...prev, showBackCollocation: true }));
   await wait(getPreviewTypingDuration(`• ${collocationsFromText(card.collocationsText)[0]?.phrase || card.displayWord}`));
+  if (!isCurrentRun(runId)) return;
+
+  setPreviewRevealState((prev) => ({ ...prev, showBackSemanticRelations: true }));
+  await wait(getPreviewTypingDuration(card.semanticRelationsText));
   if (!isCurrentRun(runId)) return;
 
   setPreviewRevealState((prev) => ({ ...prev, showBackExample: true }));

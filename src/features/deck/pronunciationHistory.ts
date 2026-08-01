@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 
 export type StoredPronunciationResult = {
   score: number | null;
@@ -13,7 +13,7 @@ export type StoredPronunciationResult = {
 const PRONUNCIATION_HISTORY_KEY = 'card_pronunciation_history_v1';
 
 async function getPronunciationHistoryKey(): Promise<string> {
-  const userId = await getCurrentAuthUserId();
+  const userId = await getCurrentSessionUserId();
   return `${PRONUNCIATION_HISTORY_KEY}:${userId ?? 'guest'}`;
 }
 

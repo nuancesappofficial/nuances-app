@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import LightPressable from '../shared/LightPressable';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
+import MovingTutorialArrow from '../shared/MovingTutorialArrow';
 import type { AppTourStep } from '../../../contexts/AppTourContext';
 import type { DeckAlbum } from './deckTypes';
 import type { UILanguage } from '../../../services/settings/userSettings';
@@ -24,7 +25,6 @@ const DEFAULT_GRID_COLUMNS = 3;
 const GRID_GAP = 12;
 const GRID_HORIZONTAL_PADDING = 12;
 const ALBUM_GROUP_HORIZONTAL_MARGIN = 10;
-const TWO_BY_TWO_ALBUM_SCALE = 0.82;
 // 調整整個「相簿格子 + 分頁圓點」群組的垂直位移（負值往上、正值往下）
 const ALBUM_GROUP_OFFSET_Y = 0;
 const WORD_POP_MIN_HEIGHT = 220;
@@ -32,6 +32,7 @@ const WORD_POP_HERO_HEIGHT = 110;
 const WORD_POP_VERTICAL_PADDING = 14;
 const WORD_POP_TEXT_LINE_LIMIT = 2;
 const WORD_POP_SENTENCE_LINE_LIMIT = 4;
+const WORD_POP_DWELL_EXTENSION_MS = 800;
 const TAB_BAR_HEIGHT_ESTIMATE = 65;
 const TAB_BAR_BOTTOM_MARGIN_BUFFER = 8;
 const QUIZ_SAFE_BUFFER = 14;
@@ -55,6 +56,7 @@ type Props = {
   onPressTodayReviewTuning: () => void;
   tourStep?: AppTourStep;
   onTourTargetPress?: () => void;
+  showQuickQuizTutorialArrow?: boolean;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -91,6 +93,7 @@ export default function DeckMainScreenUI({
   onPressTodayReviewTuning,
   tourStep = 'IDLE',
   onTourTargetPress,
+  showQuickQuizTutorialArrow = false,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -121,21 +124,23 @@ export default function DeckMainScreenUI({
   const todayReviewPulse = React.useRef(new Animated.Value(0)).current;
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
-  const wordOpacity = React.useRef(new Animated.Value(1)).current;
+  const wordCarouselRef = React.useRef<FlatList<Props['slideshowItems'][number]> | null>(null);
+  const wordSlideDirectionRef = React.useRef<1 | -1>(1);
   const albumsPerPage =
-    albumGridCount === 3 || albumGridCount === 4 || albumGridCount === 9
+    albumGridCount === 3 || albumGridCount === 6
       ? albumGridCount
-      : 4;
-  const albumGridColumns = albumsPerPage === 4 ? 2 : DEFAULT_GRID_COLUMNS;
+      : 6;
+  const albumGridColumns = DEFAULT_GRID_COLUMNS;
   const albumRowCount = Math.max(1, Math.ceil(albumsPerPage / albumGridColumns));
   const albumPageWidth = Math.max(0, screenWidth - ALBUM_GROUP_HORIZONTAL_MARGIN * 2);
   const albumItemWidth = Math.max(
     0,
     (albumPageWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (albumGridColumns - 1)) / albumGridColumns
   );
-  const albumCellWidth = albumsPerPage === 4 ? albumItemWidth * TWO_BY_TWO_ALBUM_SCALE : albumItemWidth;
+  const albumCellWidth = albumItemWidth;
   const [currentPage, setCurrentPage] = React.useState(0);
   const maxSearchWidth = Math.max(200, screenWidth - 16 * 2);
+  const [wordSlideWidth, setWordSlideWidth] = React.useState(Math.max(1, screenWidth - 54));
   const compactLevel = React.useMemo(() => {
     if (screenHeight < 760) return 2;
     if (screenHeight < 860) return 1;
@@ -159,13 +164,7 @@ export default function DeckMainScreenUI({
   const wordPopTextLineLimit = compactLevel === 2 ? 1 : WORD_POP_TEXT_LINE_LIMIT;
   const wordPopSentenceLineLimit = compactLevel === 2 ? 2 : compactLevel === 1 ? 3 : WORD_POP_SENTENCE_LINE_LIMIT;
   const compactGridPaddingTop = compactLevel === 2 ? 8 : compactLevel === 1 ? 9 : 10;
-  const compactGridPaddingBottom = albumsPerPage === 4
-    ? compactLevel === 2
-      ? 18
-      : compactLevel === 1
-        ? 20
-        : 22
-    : compactLevel === 2
+  const compactGridPaddingBottom = compactLevel === 2
       ? 24
       : compactLevel === 1
         ? 28
@@ -245,28 +244,38 @@ export default function DeckMainScreenUI({
   React.useEffect(() => {
     const itemCount = slideshowItems.length;
     if (itemCount <= 1) return;
-    const timer = setInterval(() => {
-      Animated.timing(wordOpacity, {
-        toValue: 0,
-        duration: 170,
-        useNativeDriver: true,
-      }).start(() => {
-        setWordIndex((prev) => {
-          if (itemCount <= 1) return 0;
-          const safePrev = prev >= itemCount ? 0 : prev;
-          const randomOffset = 1 + Math.floor(Math.random() * (itemCount - 1));
-          return (safePrev + randomOffset) % itemCount;
-        });
-        Animated.timing(wordOpacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }).start();
-      });
-    }, wordPopSlideMs);
+    const timer = setTimeout(() => {
+      const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
+      let direction = wordSlideDirectionRef.current;
+      let nextIndex = safeCurrent + direction;
 
-    return () => clearInterval(timer);
-  }, [slideshowItems.length, wordOpacity, wordPopSlideMs]);
+      if (nextIndex >= itemCount) {
+        direction = -1;
+        nextIndex = Math.max(0, safeCurrent - 1);
+      } else if (nextIndex < 0) {
+        direction = 1;
+        nextIndex = Math.min(itemCount - 1, safeCurrent + 1);
+      }
+
+      wordSlideDirectionRef.current = direction;
+      wordCarouselRef.current?.scrollToOffset({
+        offset: nextIndex * wordSlideWidth,
+        animated: true,
+      });
+      setWordIndex(nextIndex);
+    }, wordPopSlideMs + WORD_POP_DWELL_EXTENSION_MS);
+
+    return () => clearTimeout(timer);
+  }, [slideshowItems.length, wordIndex, wordPopSlideMs, wordSlideWidth]);
+
+  React.useEffect(() => {
+    requestAnimationFrame(() => {
+      wordCarouselRef.current?.scrollToOffset({
+        offset: Math.min(wordIndex, Math.max(0, slideshowItems.length - 1)) * wordSlideWidth,
+        animated: false,
+      });
+    });
+  }, [slideshowItems.length, wordSlideWidth]);
 
   React.useEffect(() => {
     if (!isTodayReviewActive) {
@@ -334,8 +343,8 @@ export default function DeckMainScreenUI({
                     styles.albumRow,
                     {
                       gap: compactGridGap,
-                      justifyContent: albumsPerPage === 4 ? 'center' : 'flex-start',
-                      marginBottom: albumsPerPage === 4 ? Math.max(4, compactGridGap - 5) : compactGridGap,
+                      justifyContent: 'flex-start',
+                      marginBottom: compactGridGap,
                     },
                     rowIndex === albumRowCount - 1 ? styles.albumRowLast : null,
                   ]}
@@ -347,6 +356,7 @@ export default function DeckMainScreenUI({
                         {item ? (
                           <AlbumIconItemUI
                             item={item}
+                            uiLanguage={uiLanguage}
                             onPress={onPressAlbum}
                             isMenuVisible={isMenuVisible}
                             startX={startX}
@@ -414,6 +424,44 @@ export default function DeckMainScreenUI({
   }, [isSearchExpanded, onClearSearch]);
 
   const activeShowcaseItem = slideshowItems[wordIndex];
+  const renderWordShowcaseSlide = (
+    item: Props['slideshowItems'][number] | undefined,
+    key: string
+  ) => (
+    <View key={key} style={[styles.wordShowcaseContent, { width: wordSlideWidth }]}>
+      {item?.imageUri ? (
+        <View style={[styles.wordShowcaseHeroWrap, { height: wordPopHeroHeight }]}>
+          <Image source={{ uri: item.imageUri }} style={styles.wordShowcaseHeroImage} />
+        </View>
+      ) : (
+        <View style={[styles.wordShowcaseHeroFallback, { height: wordPopHeroHeight }]}>
+          <Text
+            style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
+            numberOfLines={wordPopSentenceLineLimit}
+          >
+            {item?.sentence || tUI(uiLanguage, 'deck.noOriginalSentence')}
+          </Text>
+        </View>
+      )}
+      <View style={styles.wordShowcaseTextBlock}>
+        <Text
+          style={[styles.wordShowcaseWord, { color: palette.textOnContainer }]}
+          numberOfLines={1}
+        >
+          {item?.text || tUI(uiLanguage, 'deck.emptyWordPopTitle')}
+        </Text>
+        <Text
+          style={[
+            styles.wordShowcaseTranslation,
+            { color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' },
+          ]}
+          numberOfLines={wordPopTextLineLimit}
+        >
+          {item?.translation || tUI(uiLanguage, 'deck.emptyWordPopSubtitle')}
+        </Text>
+      </View>
+    </View>
+  );
   const activeReviewShadowOpacity = todayReviewPulse.interpolate({
     inputRange: [0, 1],
     outputRange: [0.28, 0.55],
@@ -421,10 +469,6 @@ export default function DeckMainScreenUI({
   const activeReviewShadowRadius = todayReviewPulse.interpolate({
     inputRange: [0, 1],
     outputRange: [10, 22],
-  });
-  const activeReviewScale = todayReviewPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.018],
   });
   const activeReviewWhooshTranslateX = todayReviewWhoosh.interpolate({
     inputRange: [0, 1],
@@ -600,7 +644,7 @@ export default function DeckMainScreenUI({
                     ) : (
                       <View style={styles.searchResultEmpty}>
                         <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
-                          No matching words
+                          {tUI(uiLanguage, 'deck.searchNoMatches')}
                         </Text>
                       </View>
                     )}
@@ -612,9 +656,8 @@ export default function DeckMainScreenUI({
             {!isSearchExpanded ? (
               <TutorialSpotlight
                 active={tourStep === 'STEP_11_CREATE_ALBUM'}
-                tooltip="Create an album."
+                tooltip={tUI(uiLanguage, 'deck.tourCreateAlbum')}
                 onSpotlightPress={handleTourTargetPress}
-                showSkip={false}
               >
                 <Pressable
                   style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
@@ -659,52 +702,39 @@ export default function DeckMainScreenUI({
               onPressSlideshowItem(activeShowcaseItem);
             }}
           >
-            <View style={styles.wordShowcaseContent}>
-              {activeShowcaseItem?.imageUri ? (
-                <Animated.View style={[styles.wordShowcaseHeroWrap, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
-                  <Image source={{ uri: activeShowcaseItem.imageUri }} style={styles.wordShowcaseHeroImage} />
-                </Animated.View>
-              ) : (
-                <Animated.View style={[styles.wordShowcaseHeroFallback, { opacity: wordOpacity, height: wordPopHeroHeight }]}>
-                  <Text
-                    style={[styles.wordShowcaseSentence, { color: isLight ? '#334155' : 'rgba(234,243,255,0.84)' }]}
-                    numberOfLines={wordPopSentenceLineLimit}
-                  >
-                    {activeShowcaseItem?.sentence || tUI(uiLanguage, 'deck.noOriginalSentence')}
-                  </Text>
-                </Animated.View>
-              )}
-              <View style={styles.wordShowcaseTextBlock}>
-                <Animated.Text
-                  style={[
-                    styles.wordShowcaseWord,
-                    {
-                      opacity: wordOpacity,
-                      color: palette.textOnContainer,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {activeShowcaseItem?.text || tUI(uiLanguage, 'deck.emptyWordPopTitle')}
-                </Animated.Text>
-                <Animated.Text
-                  style={[styles.wordShowcaseTranslation, { opacity: wordOpacity, color: isLight ? '#64748B' : 'rgba(234,243,255,0.74)' }]}
-                  numberOfLines={wordPopTextLineLimit}
-                >
-                  {activeShowcaseItem?.translation || tUI(uiLanguage, 'deck.emptyWordPopSubtitle')}
-                </Animated.Text>
-              </View>
-            </View>
+            <FlatList
+              ref={wordCarouselRef}
+              data={slideshowItems}
+              horizontal
+              scrollEnabled={false}
+              showsHorizontalScrollIndicator={false}
+              bounces={false}
+              contentContainerStyle={styles.wordShowcaseTrack}
+              style={styles.wordShowcaseViewport}
+              keyExtractor={(item, index) => `${item.cardId}-${index}`}
+              renderItem={({ item, index }) =>
+                renderWordShowcaseSlide(item, `${item.cardId}-${index}`)
+              }
+              ListEmptyComponent={renderWordShowcaseSlide(undefined, 'empty')}
+              getItemLayout={(_, index) => ({
+                length: wordSlideWidth,
+                offset: wordSlideWidth * index,
+                index,
+              })}
+              initialNumToRender={3}
+              windowSize={5}
+              onLayout={(event) => {
+                const nextWidth = event.nativeEvent.layout.width;
+                if (nextWidth > 0 && Math.abs(nextWidth - wordSlideWidth) > 0.5) {
+                  setWordSlideWidth(nextWidth);
+                }
+              }}
+            />
           </LightPressable>
         </View>
       ) : null}
 
-      <TutorialSpotlight
-        active={tourStep === 'STEP_1_SAMPLE'}
-        tooltip="Your cards live here."
-        onSpotlightPress={handleTourTargetPress}
-      >
-        <View style={styles.albumGroupShadow}>
+      <View style={styles.albumGroupShadow}>
           <View
             style={[
               styles.albumGroup,
@@ -752,26 +782,34 @@ export default function DeckMainScreenUI({
               </View>
             ) : null}
           </View>
-        </View>
-      </TutorialSpotlight>
+      </View>
 
       <View style={[styles.todayReviewWrap, { marginBottom: quizBottomSafeSpacing }]}>
-        <Animated.View
-          style={
-            isTodayReviewActive
-              ? {
-                  transform: [{ scale: activeReviewScale }],
-                  shadowOpacity: activeReviewShadowOpacity,
-                  shadowRadius: activeReviewShadowRadius,
-                }
-              : undefined
-          }
-        >
-          {isTodayReviewActive ? (
+        <View style={styles.todayReviewInactiveRow}>
+          <Animated.View
+            style={[
+              styles.todayReviewQuickQuizShell,
+              isTodayReviewActive
+                ? {
+                    shadowOpacity: activeReviewShadowOpacity,
+                    shadowRadius: activeReviewShadowRadius,
+                  }
+                : null,
+            ]}
+          >
+            {showQuickQuizTutorialArrow ? (
+              <MovingTutorialArrow
+                direction="up"
+                color="#2D9E66"
+                size={30}
+                style={styles.quickQuizTutorialArrow}
+              />
+            ) : null}
+            {isTodayReviewActive ? (
             <TutorialSpotlight
               active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
-              style={styles.todayReviewButtonShell}
-              tooltip="Quiz “wing it”."
+              style={styles.todayReviewButtonFill}
+              tooltip={tUI(uiLanguage, 'deck.tourQuizWord')}
               onSpotlightPress={handleTourTargetPress}
             >
               <LightPressable
@@ -808,7 +846,9 @@ export default function DeckMainScreenUI({
                   ]}
                 />
                 <View style={styles.todayReviewHeaderRow}>
-                  <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'deck.newWords')}</Text>
+                  <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>
+                    {tUI(uiLanguage, 'deck.newWords')}
+                  </Text>
                   {newWordsLevel >= 2 ? (
                     <View style={[styles.todayReviewBadge, newWordsLevel >= 3 ? styles.todayReviewBadgeUrgent : null]}>
                       <Text
@@ -825,11 +865,10 @@ export default function DeckMainScreenUI({
               </LightPressable>
             </TutorialSpotlight>
           ) : (
-            <View style={styles.todayReviewInactiveRow}>
               <TutorialSpotlight
                 active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
-                style={styles.todayReviewQuickQuizShell}
-                tooltip="Quiz “wing it”."
+                style={styles.todayReviewButtonFill}
+                tooltip={tUI(uiLanguage, 'deck.tourQuizWord')}
                 onSpotlightPress={handleTourTargetPress}
               >
                 <LightPressable
@@ -845,27 +884,31 @@ export default function DeckMainScreenUI({
                   onPress={onPressTodayReview}
                 >
                   <View style={[styles.todayReviewHeaderRow, styles.todayReviewHeaderRowInactive]}>
-                    <Text style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'deck.quickQuiz')}</Text>
+                    <Text
+                      style={[styles.todayReviewLabel, styles.todayReviewLabelInactive, { color: palette.textOnContainer }]}
+                    >
+                      {tUI(uiLanguage, 'deck.quickQuiz')}
+                    </Text>
                     <Ionicons name="play" size={16} color={palette.textOnContainer} />
                   </View>
                 </LightPressable>
               </TutorialSpotlight>
-
-              <LightPressable
-                style={styles.todayReviewEqualizerShell}
-                contentStyle={[
-                  styles.todayReviewEqualizerButton,
-                  inactiveReviewCardTone,
-                ]}
-                pressedScale={0.988}
-                pressedOpacity={0.96}
-                onPress={onPressTodayReviewTuning}
-              >
-                <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
-              </LightPressable>
-            </View>
           )}
-        </Animated.View>
+          </Animated.View>
+
+          <LightPressable
+            style={styles.todayReviewEqualizerShell}
+            contentStyle={[
+              styles.todayReviewEqualizerButton,
+              inactiveReviewCardTone,
+            ]}
+            pressedScale={0.988}
+            pressedOpacity={0.96}
+            onPress={onPressTodayReviewTuning}
+          >
+            <Ionicons name="options-outline" size={22} color={palette.textOnContainer} />
+          </LightPressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -875,6 +918,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0F172A',
+  },
+  quickQuizTutorialArrow: {
+    position: 'absolute',
+    bottom: -40,
+    left: 0,
+    right: 0,
+    zIndex: 20,
   },
   topRightRow: {
     paddingHorizontal: 16,
@@ -1030,7 +1080,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
   },
   todayReviewCard: {
-    minHeight: 88,
+    minHeight: 74,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 16,
@@ -1055,6 +1105,7 @@ const styles = StyleSheet.create({
   },
   todayReviewQuickQuizShell: {
     flex: 1,
+    overflow: 'visible',
   },
   todayReviewEqualizerShell: {
     width: 74,
@@ -1108,7 +1159,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 0,
     gap: 10,
   },
   todayReviewHeaderRowInactive: {
@@ -1172,6 +1223,14 @@ const styles = StyleSheet.create({
   },
   wordShowcaseContent: {
     gap: 10,
+    flexShrink: 0,
+  },
+  wordShowcaseViewport: {
+    overflow: 'hidden',
+  },
+  wordShowcaseTrack: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   wordShowcaseHeroWrap: {
     width: '100%',

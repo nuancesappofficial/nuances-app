@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Alert,
   TouchableOpacity,
@@ -14,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { Q } from '@nozbe/watermelondb';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -33,8 +35,9 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
-import { pasteTextFromClipboard } from '@services/clipboard/clipboardService';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
+import { getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
@@ -50,7 +53,15 @@ import { useCacheSwipeActions } from './hooks/useCacheSwipeActions';
 import type { TodayUploadSticker } from './hooks/useCacheListDataSource';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { DEFAULT_STICKER_FONT_KEY, resolveStickerFont, type StickerFontKey } from '../../../theme/stickerFonts';
-import { loadUserSettings } from '@services/settings/userSettings';
+import {
+  DEFAULT_USER_SETTINGS,
+  getInitialUserSettings,
+  loadUserSettings,
+  subscribeUserSettings,
+  type UserAppSettings,
+  type UILanguage,
+} from '@services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   CONTAINER_NEON_OUTLINE,
   CONTAINER_NEON_GLOW,
@@ -62,6 +73,8 @@ import {
   resolveThemeColors,
 } from '../../../theme/colors';
 
+const MAX_RENDERED_CACHE_CARDS = 8;
+
 type Props = {
   navigation: any;
   onRequestClose?: () => void;
@@ -69,6 +82,11 @@ type Props = {
 };
 
 const TOUR_SAMPLE_SENTENCE = 'I had to wing it during the presentation.';
+const TOUR_SAMPLE_SENTENCES = [
+  TOUR_SAMPLE_SENTENCE,
+  'She had to wing it when the projector broke.',
+  'They asked him to wing it without any rehearsal.',
+];
 
 function toDayKey(input: Date | string): string {
   const date = new Date(input);
@@ -83,7 +101,13 @@ function normalizeStickerText(value: string): string {
 }
 const STICKER_WIDTH = 118;
 const STICKER_HEIGHT = 32;
-const STICKER_GRID_HEIGHT = 188;
+const EMPTY_UPLOAD_STICKER_WIDTH = 104;
+const EMPTY_UPLOAD_STICKER_HEIGHT = 84;
+const EMPTY_UPLOAD_STICKER_KEY = 'empty-upload';
+const EMPTY_UPLOAD_STICKER_IMAGE = require('../../../../assets/app_icons/icon_cutout2.png');
+const STICKER_GRID_MIN_HEIGHT = 188;
+const STICKER_GRID_MAX_HEIGHT = 320;
+const STICKER_MAX_VISIBLE_COUNT = 18;
 const STICKER_MIN_WIDTH = 36;
 const STICKER_MAX_WIDTH = 420;
 const STICKER_OUTLINE_SAFETY_PAD = 6;
@@ -94,6 +118,13 @@ const STICKER_VERTICAL_BLEED = 8;
 const STICKER_COL_CENTER_ANCHORS = [18, 50, 82];
 const STICKER_ROW_TOP_STEP = 34;
 const STICKER_VERTICAL_OFFSETS = [0, 8, 3, 12, 5, 15, 2, 10, 6, 14, 4, 11];
+
+function getStickerGridHeightForCount(count: number): number {
+  const visibleCount = Math.max(1, Math.min(count, STICKER_MAX_VISIBLE_COUNT));
+  const rows = Math.ceil(visibleCount / 3);
+  const extraRows = Math.max(0, rows - 2);
+  return Math.min(STICKER_GRID_MAX_HEIGHT, STICKER_GRID_MIN_HEIGHT + extraRows * 28);
+}
 
 function getStickerFontSize(textLength: number): number {
   return Math.max(16, 23 - Math.max(0, textLength - 8) * 0.55);
@@ -139,6 +170,10 @@ function getStickerBaseTop(index: number): number {
   return row * STICKER_ROW_TOP_STEP + STICKER_VERTICAL_OFFSETS[index % STICKER_VERTICAL_OFFSETS.length];
 }
 
+function isEmptyUploadSticker(item: TodayUploadSticker): boolean {
+  return item.key === EMPTY_UPLOAD_STICKER_KEY && !item.cardId;
+}
+
 function getStickerStartX(
   index: number,
   containerWidth: number,
@@ -158,30 +193,35 @@ function TiltSticker({
   baseLeftPct,
   baseTop,
   stickerWidth,
+  stickerHeight,
   posXList,
   posYList,
   onPress,
   disabled = false,
   obscured = false,
   stickerFontKey,
+  stickerFontScalePercent,
 }: {
   item: TodayUploadSticker;
   index: number;
   baseLeftPct: number;
   baseTop: number;
   stickerWidth: number;
+  stickerHeight: number;
   posXList: SharedValue<number[]>;
   posYList: SharedValue<number[]>;
   onPress?: () => void;
   disabled?: boolean;
   obscured?: boolean;
   stickerFontKey: StickerFontKey;
+  stickerFontScalePercent: number;
 }) {
   const stickerTiltDeg = ((index % 5) - 2) * 1.2;
   const stickerFont = resolveStickerFont(stickerFontKey);
   const labelText = normalizeStickerText(item.label);
+  const isEmptyUpload = isEmptyUploadSticker(item);
   const isLightMode = useColorScheme() !== 'dark';
-  const dynamicFontSize = getStickerFontSize(labelText.length);
+  const dynamicFontSize = getStickerFontSize(labelText.length) * (stickerFontScalePercent / 100);
   const dynamicLineHeight = Math.round(dynamicFontSize * 1.16);
   const svgHeight = Math.max(34, dynamicLineHeight + 10);
   const strokeWidth = Math.max(3.4, Math.min(5.2, dynamicFontSize * 0.22));
@@ -205,6 +245,7 @@ function TiltSticker({
         styles.stickerItem,
         {
           width: stickerWidth,
+          height: stickerHeight,
           left: `${baseLeftPct}%`,
           top: baseTop,
         },
@@ -212,29 +253,55 @@ function TiltSticker({
       ]}
     >
       <TouchableOpacity
-        style={styles.stickerPressArea}
+        style={[styles.stickerPressArea, { height: stickerHeight }]}
         activeOpacity={0.85}
         onPress={onPress}
         disabled={disabled}
+        accessible={isEmptyUpload}
+        accessibilityRole={isEmptyUpload ? 'image' : undefined}
+        accessibilityLabel={isEmptyUpload ? item.label : undefined}
       >
-        <View style={styles.stickerWordWrap} pointerEvents="none">
-          <Svg
-            width={svgRenderWidth}
-            height={svgHeight}
-            viewBox={`${-STICKER_SVG_BLEED} 0 ${svgRenderWidth} ${svgHeight}`}
-            style={[
-              styles.stickerWordSvg,
-              { marginHorizontal: -STICKER_SVG_BLEED },
-              obscured ? styles.stickerWordSvgObscured : null,
-            ]}
-          >
-            {isLightMode ? (
+        {isEmptyUpload ? (
+          <Image
+            source={EMPTY_UPLOAD_STICKER_IMAGE}
+            resizeMode="contain"
+            style={[styles.emptyUploadStickerImage, obscured ? styles.emptyUploadStickerImageObscured : null]}
+          />
+        ) : (
+          <View style={styles.stickerWordWrap} pointerEvents="none">
+            <Svg
+              width={svgRenderWidth}
+              height={svgHeight}
+              viewBox={`${-STICKER_SVG_BLEED} 0 ${svgRenderWidth} ${svgHeight}`}
+              style={[
+                styles.stickerWordSvg,
+                { marginHorizontal: -STICKER_SVG_BLEED },
+                obscured ? styles.stickerWordSvgObscured : null,
+              ]}
+            >
+              {isLightMode ? (
+                <SvgText
+                  x={textX + 1.2}
+                  y={textY + 2}
+                  fill="none"
+                  stroke="rgba(0, 0, 0, 0.28)"
+                  strokeWidth={strokeWidth + 2.2}
+                  strokeLinejoin="round"
+                  fontSize={dynamicFontSize}
+                  fontWeight="900"
+                  fontFamily={stickerFont.fontFamily}
+                  textAnchor="middle"
+                  letterSpacing={stickerFont.letterSpacing}
+                >
+                  {labelText}
+                </SvgText>
+              ) : null}
               <SvgText
-                x={textX + 1.2}
-                y={textY + 2}
+                x={textX}
+                y={textY}
                 fill="none"
-                stroke="rgba(0, 0, 0, 0.28)"
-                strokeWidth={strokeWidth + 2.2}
+                stroke="#FFFFFF"
+                strokeWidth={strokeWidth}
                 strokeLinejoin="round"
                 fontSize={dynamicFontSize}
                 fontWeight="900"
@@ -244,59 +311,50 @@ function TiltSticker({
               >
                 {labelText}
               </SvgText>
+              <SvgText
+                x={textX}
+                y={textY}
+                fill="#050505"
+                fontSize={dynamicFontSize}
+                fontWeight="900"
+                fontFamily={stickerFont.fontFamily}
+                textAnchor="middle"
+                letterSpacing={stickerFont.letterSpacing}
+              >
+                {labelText}
+              </SvgText>
+            </Svg>
+            {obscured ? (
+              <BlurView
+                pointerEvents="none"
+                style={styles.stickerWordBlurOverlay}
+                intensity={44}
+                tint={isLightMode ? 'light' : 'dark'}
+              />
             ) : null}
-            <SvgText
-              x={textX}
-              y={textY}
-              fill="none"
-              stroke="#FFFFFF"
-              strokeWidth={strokeWidth}
-              strokeLinejoin="round"
-              fontSize={dynamicFontSize}
-              fontWeight="900"
-              fontFamily={stickerFont.fontFamily}
-              textAnchor="middle"
-              letterSpacing={stickerFont.letterSpacing}
-            >
-              {labelText}
-            </SvgText>
-            <SvgText
-              x={textX}
-              y={textY}
-              fill="#050505"
-              fontSize={dynamicFontSize}
-              fontWeight="900"
-              fontFamily={stickerFont.fontFamily}
-              textAnchor="middle"
-              letterSpacing={stickerFont.letterSpacing}
-            >
-              {labelText}
-            </SvgText>
-          </Svg>
-          {obscured ? (
-            <BlurView
-              pointerEvents="none"
-              style={styles.stickerWordBlurOverlay}
-              intensity={44}
-              tint={isLightMode ? 'light' : 'dark'}
-            />
-          ) : null}
-        </View>
+          </View>
+        )}
       </TouchableOpacity>
     </Reanimated.View>
   );
 }
 function VocabStickerCloud({
   items,
+  emptyLabel,
   onPressSticker,
   stickerFontKey,
+  stickerFontScalePercent,
+  gridHeight,
   hapticsEnabled = true,
   disabled = false,
   obscured = false,
 }: {
   items: TodayUploadSticker[];
+  emptyLabel: string;
   onPressSticker?: (item: TodayUploadSticker) => void;
   stickerFontKey: StickerFontKey;
+  stickerFontScalePercent: number;
+  gridHeight: number;
   hapticsEnabled?: boolean;
   disabled?: boolean;
   obscured?: boolean;
@@ -311,18 +369,27 @@ function VocabStickerCloud({
       ? items
       : [
           {
-            key: 'empty-upload',
-            label: 'No uploads today',
+            key: EMPTY_UPLOAD_STICKER_KEY,
+            label: emptyLabel,
           },
         ];
-  const limitedStickers = stickers.slice(0, 12);
+  const limitedStickers = stickers.slice(0, STICKER_MAX_VISIBLE_COUNT);
   const containerWidth = Math.max(120, gridWidth || windowWidth - 32);
   const stickerWidths = useMemo(
     () =>
       limitedStickers.map((item) =>
-        Math.min(estimateStickerWidth(item.label), Math.max(STICKER_MIN_WIDTH, containerWidth - 4))
+        isEmptyUploadSticker(item)
+          ? Math.min(EMPTY_UPLOAD_STICKER_WIDTH, Math.max(STICKER_MIN_WIDTH, containerWidth - 4))
+          : Math.min(
+              estimateStickerWidth(item.label) * (stickerFontScalePercent / 100),
+              Math.max(STICKER_MIN_WIDTH, containerWidth - 4)
+            )
       ),
-    [containerWidth, limitedStickers]
+    [containerWidth, limitedStickers, stickerFontScalePercent]
+  );
+  const stickerHeights = useMemo(
+    () => limitedStickers.map((item) => (isEmptyUploadSticker(item) ? EMPTY_UPLOAD_STICKER_HEIGHT : STICKER_HEIGHT)),
+    [limitedStickers]
   );
 
   const posXList = useSharedValue<number[]>([]);
@@ -331,6 +398,8 @@ function VocabStickerCloud({
   const velYList = useSharedValue<number[]>([]);
   const borderContactList = useSharedValue<number[]>([]);
   const borderContactInitialized = useSharedValue(false);
+  const tiltPeakX = useSharedValue(0);
+  const tiltPeakY = useSharedValue(0);
   const hapticsEnabledShared = useSharedValue(hapticsEnabled);
   const lastBorderHapticAt = useRef(0);
   const hapticsEnabledRef = useRef(hapticsEnabled);
@@ -356,12 +425,16 @@ function VocabStickerCloud({
     velYList.value = Array.from({ length: count }, () => 0);
     borderContactList.value = Array.from({ length: count }, () => 0);
     borderContactInitialized.value = false;
+    tiltPeakX.value = 0;
+    tiltPeakY.value = 0;
   }, [
     borderContactInitialized,
     borderContactList,
     limitedStickers.length,
     posXList,
     posYList,
+    tiltPeakX,
+    tiltPeakY,
     velXList,
     velYList,
   ]);
@@ -371,6 +444,9 @@ function VocabStickerCloud({
   const COLLISION_BOUNCE = 0.62;
   const FRICTION = 0.93;
   const GRAVITY_MULTIPLIER = 420;
+  const TILT_AXIS_TARGET = 0.45;
+  const TILT_AXIS_MAX_GAIN = 1.8;
+  const TILT_AXIS_DECAY = 0.995;
   const BORDER_CONTACT_EPS = 0.5;
   const BORDER_RELEASE_DISTANCE = 9;
   const BORDER_LEFT = 1;
@@ -385,8 +461,20 @@ function VocabStickerCloud({
     const count = limitedStickers.length;
     if (count <= 0) return;
 
-    const gx = sensor.sensor.value?.x ?? 0;
-    const gy = sensor.sensor.value?.y ?? 0;
+    const rawGx = sensor.sensor.value?.x ?? 0;
+    const rawGy = sensor.sensor.value?.y ?? 0;
+    tiltPeakX.value = Math.max(Math.abs(rawGx), tiltPeakX.value * TILT_AXIS_DECAY);
+    tiltPeakY.value = Math.max(Math.abs(rawGy), tiltPeakY.value * TILT_AXIS_DECAY);
+    const gainX = Math.min(
+      TILT_AXIS_MAX_GAIN,
+      Math.max(1, TILT_AXIS_TARGET / Math.max(tiltPeakX.value, 0.001))
+    );
+    const gainY = Math.min(
+      TILT_AXIS_MAX_GAIN,
+      Math.max(1, TILT_AXIS_TARGET / Math.max(tiltPeakY.value, 0.001))
+    );
+    const gx = rawGx * gainX;
+    const gy = rawGy * gainY;
     const ax = gx * GRAVITY_MULTIPLIER;
     const ay = -gy * GRAVITY_MULTIPLIER;
 
@@ -402,12 +490,13 @@ function VocabStickerCloud({
 
     for (let i = 0; i < count; i += 1) {
       const currentWidth = stickerWidths[i] ?? STICKER_WIDTH;
+      const currentHeight = stickerHeights[i] ?? STICKER_HEIGHT;
       const startX = getStickerStartX(i, containerWidth, currentWidth, EDGE_INSET_X);
       const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
       const limitUp = -startY - STICKER_VERTICAL_BLEED;
-      const limitDown = STICKER_GRID_HEIGHT - STICKER_HEIGHT - startY - 2;
+      const limitDown = gridHeight - currentHeight - startY - 2;
 
       vx[i] += ax * dt;
       vy[i] += ay * dt;
@@ -445,19 +534,21 @@ function VocabStickerCloud({
     // 貼紙-貼紙碰撞：分離重疊並交換速度分量，避免互相穿透
     for (let i = 0; i < count; i += 1) {
       const aiWidth = stickerWidths[i] ?? STICKER_WIDTH;
+      const aiHeight = stickerHeights[i] ?? STICKER_HEIGHT;
       const aiStartX = getStickerStartX(i, containerWidth, aiWidth, EDGE_INSET_X);
       const aiBaseTop = getStickerBaseTop(i);
       const ax0 = aiStartX + (px[i] ?? 0);
       const ay0 = aiBaseTop + (py[i] ?? 0);
       for (let j = i + 1; j < count; j += 1) {
         const ajWidth = stickerWidths[j] ?? STICKER_WIDTH;
+        const ajHeight = stickerHeights[j] ?? STICKER_HEIGHT;
         const ajStartX = getStickerStartX(j, containerWidth, ajWidth, EDGE_INSET_X);
         const ajBaseTop = getStickerBaseTop(j);
         const bx0 = ajStartX + (px[j] ?? 0);
         const by0 = ajBaseTop + (py[j] ?? 0);
 
         const overlapX = Math.min(ax0 + aiWidth, bx0 + ajWidth) - Math.max(ax0, bx0);
-        const overlapY = Math.min(ay0 + STICKER_HEIGHT, by0 + STICKER_HEIGHT) - Math.max(ay0, by0);
+        const overlapY = Math.min(ay0 + aiHeight, by0 + ajHeight) - Math.max(ay0, by0);
         if (overlapX <= 0 || overlapY <= 0) continue;
 
         if (overlapX < overlapY) {
@@ -483,12 +574,13 @@ function VocabStickerCloud({
     // 碰撞後再次套用邊界夾制
     for (let i = 0; i < count; i += 1) {
       const currentWidth = stickerWidths[i] ?? STICKER_WIDTH;
+      const currentHeight = stickerHeights[i] ?? STICKER_HEIGHT;
       const startX = getStickerStartX(i, containerWidth, currentWidth, EDGE_INSET_X);
       const startY = getStickerBaseTop(i);
       const limitLeft = -startX + EDGE_INSET_X;
       const limitRight = containerWidth - currentWidth - startX - EDGE_INSET_X;
       const limitUp = -startY - STICKER_VERTICAL_BLEED;
-      const limitDown = STICKER_GRID_HEIGHT - STICKER_HEIGHT - startY - 2;
+      const limitDown = gridHeight - currentHeight - startY - 2;
 
       px[i] = Math.max(limitLeft, Math.min(limitRight, px[i] ?? 0));
       py[i] = Math.max(limitUp, Math.min(limitDown, py[i] ?? 0));
@@ -527,7 +619,7 @@ function VocabStickerCloud({
 
   return (
     <View
-      style={styles.stickerGrid}
+      style={[styles.stickerGrid, { height: gridHeight }]}
       onLayout={(event) => {
         const nextWidth = Math.round(event.nativeEvent.layout.width);
         setGridWidth((prev) => (prev === nextWidth ? prev : nextWidth));
@@ -535,6 +627,7 @@ function VocabStickerCloud({
     >
       {limitedStickers.map((item, index) => {
         const currentWidth = stickerWidths[index] ?? STICKER_WIDTH;
+        const currentHeight = stickerHeights[index] ?? STICKER_HEIGHT;
         const baseTop = getStickerBaseTop(index);
         const safeStartX = getStickerStartX(index, containerWidth, currentWidth, EDGE_INSET_X);
         const safeBaseLeftPct = (safeStartX / containerWidth) * 100;
@@ -546,9 +639,11 @@ function VocabStickerCloud({
             baseLeftPct={safeBaseLeftPct}
             baseTop={baseTop}
             stickerWidth={currentWidth}
+            stickerHeight={currentHeight}
             posXList={posXList}
             posYList={posYList}
             stickerFontKey={stickerFontKey}
+            stickerFontScalePercent={stickerFontScalePercent}
             onPress={() => onPressSticker?.(item)}
             disabled={disabled || !item.cardId}
             obscured={obscured}
@@ -642,6 +737,8 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addTab, setAddTab] = useState<'text' | 'image'>('text');
   const [manualText, setManualText] = useState('');
+  const [creatingText, setCreatingText] = useState(false);
+  const creatingTextRef = useRef(false);
   const [didPasteIntoTextBox, setDidPasteIntoTextBox] = useState(false);
   const [pasteEnabled, setPasteEnabled] = useState(false);
   const [pendingBatchEnterIds, setPendingBatchEnterIds] = useState<string[]>([]);
@@ -670,6 +767,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     showUploadCropper,
     pendingOriginalImageUri,
     pendingOriginalImageSize,
+    showConfirmTutorialArrow,
     suppressAddModalAnimation,
     quickCameraRef,
     quickCameraPermission,
@@ -694,6 +792,17 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   });
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
   const [stickerFontKey, setStickerFontKey] = useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
+  const [stickerFontScalePercent, setStickerFontScalePercent] = useState(
+    DEFAULT_USER_SETTINGS.stickerFontScalePercent
+  );
+  const [uiLanguage, setUiLanguage] = useState<UILanguage>(
+    () => getInitialUserSettings().uiLanguage
+  );
+  const applyCacheSettings = useCallback((settings: UserAppSettings) => {
+    setStickerFontKey(settings.stickerFontKey);
+    setStickerFontScalePercent(settings.stickerFontScalePercent);
+    setUiLanguage(settings.uiLanguage);
+  }, []);
   const previousCardCountRef = React.useRef<number | null>(null);
   const hasSeenCacheOnceRef = React.useRef(false);
   const lastSeenStackCardIdsRef = React.useRef<string[]>([]);
@@ -727,7 +836,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     const offFocus = navigation.addListener('focus', () => {
       setIsCacheFocused(true);
       void loadUserSettings()
-        .then((settings) => setStickerFontKey(settings.stickerFontKey))
+        .then(applyCacheSettings)
         .catch((error) => console.error('[CacheList] load sticker font failed:', error));
     });
     const offBlur = navigation.addListener('blur', () => {
@@ -737,13 +846,21 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       offFocus?.();
       offBlur?.();
     };
-  }, [navigation]);
+  }, [applyCacheSettings, navigation]);
 
   useEffect(() => {
     void loadUserSettings()
-      .then((settings) => setStickerFontKey(settings.stickerFontKey))
+      .then(applyCacheSettings)
       .catch((error) => console.error('[CacheList] load sticker font failed:', error));
-  }, []);
+  }, [applyCacheSettings]);
+
+  useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        applyCacheSettings(settings);
+      }),
+    [applyCacheSettings]
+  );
 
   const { cards: rawCards, todayStickerWords, todayUploadedCardIds, cacheItems } = useCacheListDataSource({
     getDetectedPreview,
@@ -753,10 +870,25 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     toDayKey,
     optimisticallyHiddenCacheIds,
   });
+  const todayUploadGridHeight = useMemo(
+    () => getStickerGridHeightForCount(todayStickerWords.length),
+    [todayStickerWords.length]
+  );
+  const todayUploadSectionOffset = useMemo(
+    () => -(todayUploadGridHeight / 2 + 24),
+    [todayUploadGridHeight]
+  );
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
     getDetectedPreview,
   });
+
+  useEffect(() => {
+    void ReminderNotificationService.evaluateAndSchedule({ allowSoftPrompt: false }).catch((error) => {
+      console.warn('[Reminders] schedule after cache change failed:', error);
+    });
+  }, [cacheItems.length]);
+
   const cards = useMemo(
     () =>
       rawCards.map((item) => ({
@@ -765,7 +897,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       })),
     [liveDetectedPreviewById, rawCards]
   );
-  const { deleteCacheItemPermanently } = useCacheItemCleanup({ cacheItems });
+  const { deleteCacheItemPermanently, deleteAllCacheItemsPermanently } =
+    useCacheItemCleanup({
+      cacheItems,
+      deletionLocked: appTour.isActive,
+    });
 
   useEffect(() => {
     if (optimisticallyHiddenCacheIds.size === 0) return;
@@ -786,14 +922,18 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
 
   const stackCards = useMemo(() => {
     const visibleIdSet = new Set(visibleCacheIds);
-    return cards.filter((item) => visibleIdSet.has(item.id)).map((item) => ({
-      id: item.id,
-      imageUri: item.imageUri,
-      text: item.text,
-      detectedPreview: item.detectedPreview,
-      sourceLabel: item.sourceLabel,
-      importedAtLabel: item.importedAtLabel,
-    }));
+    return cards
+      .filter((item) => visibleIdSet.has(item.id))
+      .slice(-MAX_RENDERED_CACHE_CARDS)
+      .map((item) => ({
+        id: item.id,
+        imageUri: item.imageUri,
+        text: item.text,
+        detectedPreview: item.detectedPreview,
+        sourceLabel: item.sourceLabel,
+        importedAtLabel: item.importedAtLabel,
+        isDefaultExperienceCard: item.isDefaultExperienceCard,
+      }));
   }, [cards, visibleCacheIds]);
   const isTodayUploadObscured = cards.length > 0;
 
@@ -868,10 +1008,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       navigation.navigate('CardDetail', {
         cardId: item.cardId,
         cardIds,
-        headerTitle: "Today's Uploads",
+        headerTitle: tUI(uiLanguage, 'cache.todayUploads'),
       });
     },
-    [navigation, todayUploadedCardIds]
+    [navigation, todayUploadedCardIds, uiLanguage]
   );
 
   useEffect(() => {
@@ -885,58 +1025,103 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
 
   const handleQuickAddText = React.useCallback(async () => {
     const trimmed = manualText.trim();
-    if (!trimmed) return;
+    if (!trimmed || creatingTextRef.current) return;
+    creatingTextRef.current = true;
+    setCreatingText(true);
     try {
-      if (appTour.step === 'STEP_4_ADD_SAMPLE_TEXT') {
-        const userId = await getCurrentAuthUserId();
-        if (!userId) {
-          Alert.alert('需要登入', '請先登入後再使用文字新增。');
-          return;
-        }
-        const collection = database.get<CachedItem>('cached_items');
-        let createdItem: CachedItem | null = null;
-        await database.write(async () => {
-          createdItem = await collection.create((item) => {
-            item.userId = userId;
-            item.type = 'text';
-            item.contentType = 'text';
-            item.contentText = trimmed;
-            item.sourceApp = 'manual';
-            item.aiAnalysisCompleted = false;
-            item.convertedToCard = false;
-            const expiresAt = new Date();
-            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-            item.expiresAt = expiresAt;
-          });
-        });
-        setManualText('');
-        setDidPasteIntoTextBox(false);
-        setShowAddModal(false);
-        if (createdItem) {
-          appTour.nextStep();
-        }
-        return;
-      }
-
-      await Clipboard.setStringAsync(trimmed);
-      const userId = await getCurrentAuthUserId();
+      const userId = await getCurrentSessionUserId();
       if (!userId) {
         Alert.alert('需要登入', '請先登入後再使用文字新增。');
         return;
       }
-      const result = await pasteTextFromClipboard(userId);
-      if (!result.success) {
-        Alert.alert('新增失敗', result.message || '無法新增文字快取。');
+      const collection = database.get<CachedItem>('cached_items');
+      if ((await getRemainingCacheCapacity(userId)) <= 0) {
+        Alert.alert('暫存區已滿', '請先處理或刪除部分暫存卡片後再新增。');
+        return;
+      }
+      const contentText = trimmed.slice(0, 2000);
+      let duplicateFound = false;
+      await database.write(async () => {
+        const duplicate = await collection
+          .query(
+            Q.where('user_id', userId),
+            Q.where('content_type', 'text'),
+            Q.where('content_text', contentText),
+            Q.where('deleted_at', null),
+            Q.take(1)
+          )
+          .fetch();
+        if (duplicate.length > 0) {
+          duplicateFound = true;
+          return;
+        }
+        await collection.create((item) => {
+          item.userId = userId;
+          item.type = 'text';
+          item.contentType = 'text';
+          item.contentText = contentText;
+          item.sourceApp = 'manual';
+          item.aiAnalysisCompleted = false;
+          item.convertedToCard = false;
+          const expiresAt = new Date();
+          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+          item.expiresAt = expiresAt;
+        });
+      });
+      if (duplicateFound) {
+        Alert.alert(
+          tUI(uiLanguage, 'cache.duplicateTitle'),
+          tUI(uiLanguage, 'cache.duplicateMessage')
+        );
         return;
       }
       setManualText('');
       setDidPasteIntoTextBox(false);
       setShowAddModal(false);
+      if (appTour.step === 'STEP_4_ADD_SAMPLE_TEXT') {
+        setTimeout(() => {
+          appTour.goToStep('STEP_5_PROCESS_CACHE_CARD');
+        }, 720);
+      }
     } catch (error) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
+    } finally {
+      creatingTextRef.current = false;
+      setCreatingText(false);
     }
-  }, [appTour, manualText]);
+  }, [appTour, manualText, uiLanguage]);
+
+  const handleDeleteAllCacheItems = React.useCallback(() => {
+    if (appTour.isActive) return;
+    if (cacheItems.length === 0) return;
+    Alert.alert(
+      tUI(uiLanguage, 'cache.deleteAllTitle'),
+      tUI(uiLanguage, 'cache.deleteAllMessage').replace('{count}', String(cacheItems.length)),
+      [
+        { text: tUI(uiLanguage, 'common.cancel'), style: 'cancel' },
+        {
+          text: tUI(uiLanguage, 'cache.deleteAllConfirm'),
+          style: 'destructive',
+          onPress: () => {
+            void deleteAllCacheItemsPermanently().then((success) => {
+              if (success) {
+                setVisibleCacheIds([]);
+                setEnteringCardIds([]);
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                return;
+              }
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              Alert.alert(
+                tUI(uiLanguage, 'cache.deleteAllFailedTitle'),
+                tUI(uiLanguage, 'cache.deleteAllFailedMessage')
+              );
+            });
+          },
+        },
+      ]
+    );
+  }, [appTour.isActive, cacheItems.length, deleteAllCacheItemsPermanently, uiLanguage]);
 
   const handleTourPasteSampleText = React.useCallback(async () => {
     try {
@@ -956,6 +1141,19 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       }
     }
   }, [appTour]);
+
+  const handleTourCopySampleText = React.useCallback(
+    async (sentence: string) => {
+      try {
+        await Clipboard.setStringAsync(sentence);
+        setPasteEnabled(true);
+        void Haptics.selectionAsync();
+      } catch (error) {
+        console.error('[AppTour] copy sample text failed:', error);
+      }
+    },
+    []
+  );
 
   const handlePasteFromNativeClipboard = React.useCallback(async () => {
     try {
@@ -1055,21 +1253,31 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     [addButtonScale]
   );
 
+  React.useEffect(() => {
+    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
+    setShowAddModal(false);
+  }, [appTour.step]);
+
   const handleCacheTourTargetPress = React.useCallback(() => {
     if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
-    void Clipboard.setStringAsync(TOUR_SAMPLE_SENTENCE);
-    appTour.nextStep();
+    // A React Native Modal cannot be presented while the global spotlight
+    // Modal is still on screen. Briefly suspend the tour, present the real
+    // input modal, then resume once its content can be measured.
+    appTour.resetTourState();
     setTimeout(() => {
       setAddTab('text');
       setManualText('');
       setDidPasteIntoTextBox(false);
       setShowAddModal(true);
-    }, 120);
+      requestAnimationFrame(() => {
+        appTour.goToStep('STEP_3_PASTE_SAMPLE_TEXT');
+      });
+    }, 420);
   }, [appTour]);
 
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
-      <View style={styles.vocabSection}>
+      <View style={[styles.vocabSection, { transform: [{ translateY: todayUploadSectionOffset }] }]}>
         <Text
           style={[
             styles.vocabTitleOutside,
@@ -1077,11 +1285,12 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             isTodayUploadObscured ? styles.vocabTitleObscured : null,
           ]}
         >
-          Today&apos;s Uploads
+          {tUI(uiLanguage, 'cache.todayUploads')}
         </Text>
         <View
           style={[
             styles.vocabContainer,
+            { height: todayUploadGridHeight },
             isLight
               ? {
                   backgroundColor: palette.containerBg,
@@ -1093,7 +1302,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         >
           <VocabStickerCloud
             items={todayStickerWords}
+            emptyLabel={tUI(uiLanguage, 'cache.noUploadsToday')}
             stickerFontKey={stickerFontKey}
+            stickerFontScalePercent={stickerFontScalePercent}
+            gridHeight={todayUploadGridHeight}
             onPressSticker={handlePressTodaySticker}
             hapticsEnabled={isCacheFocused && !isTodayUploadObscured}
             disabled={isTodayUploadObscured}
@@ -1114,15 +1326,18 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           onCardSwipeStart={handleCardSwipeStart}
           onCardSwipe={handleCardSwipe}
           onCardImageError={handleCardImageError}
+          onDeleteAll={handleDeleteAllCacheItems}
+          uiLanguage={uiLanguage}
+          deletionLocked={appTour.isActive}
           tourCreateActive={appTour.step === 'STEP_5_PROCESS_CACHE_CARD'}
-          tourCreateTooltip="Swipe right to create."
+          tourCreateTooltip={tUI(uiLanguage, 'cache.tourSwipeRight')}
         />
       </View>
 
       <TutorialSpotlight
         active={appTour.step === 'STEP_2_UPLOAD_SAMPLE'}
         style={[styles.uploadBarButtonWrap, { bottom: Math.max(insets.bottom, 8) + 60 }]}
-        tooltip="Tap Upload."
+        tooltip={tUI(uiLanguage, 'cache.tourUploadSentence')}
         onSpotlightPress={handleCacheTourTargetPress}
       >
         <Animated.View
@@ -1137,7 +1352,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             onPressOut={() => animateAddButtonPress(1)}
             onPress={openAddModal}
           >
-            <Text style={styles.uploadBarButtonLabel}>＋ Upload</Text>
+            <Text style={styles.uploadBarButtonLabel}>＋ {tUI(uiLanguage, 'cache.upload')}</Text>
           </TouchableOpacity>
         </Animated.View>
       </TutorialSpotlight>
@@ -1148,6 +1363,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         addTab={addTab}
         manualText={manualText}
         creatingImage={creatingImage}
+        creatingText={creatingText}
         pasteEnabled={pasteEnabled}
         onClose={() => setShowAddModal(false)}
         onDismiss={handleInputModalDismiss}
@@ -1160,11 +1376,14 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         onUploadImage={() => void handleUploadImageDirect()}
         onCaptureImage={handleCaptureImage}
         tourPasteTextActive={showAddModal && appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT'}
-        tourPasteTextTooltip="Paste sample."
+        tourPasteTextTooltip={tUI(uiLanguage, 'cache.tourCopySample')}
         onTourPasteTextPress={() => void handleTourPasteSampleText()}
+        tourSampleSentences={TOUR_SAMPLE_SENTENCES}
+        onTourCopySampleText={(sentence) => void handleTourCopySampleText(sentence)}
         tourAddTextActive={showAddModal && appTour.step === 'STEP_4_ADD_SAMPLE_TEXT'}
-        tourAddTextTooltip="Tap Add."
+        tourAddTextTooltip={tUI(uiLanguage, 'cache.tourAddText')}
         onTourAddTextPress={() => void handleQuickAddText()}
+        uiLanguage={uiLanguage}
       />
 
       <ImageCropperModal
@@ -1172,6 +1391,8 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         imageUri={pendingOriginalImageUri}
         initialImageSize={pendingOriginalImageSize}
         modalAnimationType="slide"
+        uiLanguage={uiLanguage}
+        showConfirmTutorialArrow={showConfirmTutorialArrow}
         onCancel={handleUploadCropCancel}
         onConfirm={handleUploadCropConfirm}
       />
@@ -1181,6 +1402,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         hasPermission={Boolean(quickCameraPermission?.granted)}
         cameraRef={quickCameraRef}
         facing={quickCameraFacing}
+        uiLanguage={uiLanguage}
         onClose={closeQuickCamera}
         onToggleFacing={toggleQuickCameraFacing}
         onCapture={() => void captureQuickPhoto()}
@@ -1266,6 +1488,13 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   stickerWordSvgObscured: {
+    opacity: 0.34,
+  },
+  emptyUploadStickerImage: {
+    width: EMPTY_UPLOAD_STICKER_WIDTH,
+    height: EMPTY_UPLOAD_STICKER_HEIGHT,
+  },
+  emptyUploadStickerImageObscured: {
     opacity: 0.34,
   },
   stickerWordBlurOverlay: {

@@ -192,24 +192,12 @@ CREATE POLICY "Users can update their own profile"
     ON public.profiles FOR UPDATE
     USING (auth.uid() = id);
 
--- Cached Items
+-- Cached Items are local-only. The legacy table remains solely so old database
+-- installs and service-role account cleanup can be migrated safely. Client
+-- roles intentionally receive no policy and therefore no row access.
 ALTER TABLE public.cached_items ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own cached items"
-    ON public.cached_items FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own cached items"
-    ON public.cached_items FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own cached items"
-    ON public.cached_items FOR UPDATE
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own cached items"
-    ON public.cached_items FOR DELETE
-    USING (auth.uid() = user_id);
+REVOKE ALL PRIVILEGES ON TABLE public.cached_items FROM anon;
+REVOKE ALL PRIVILEGES ON TABLE public.cached_items FROM authenticated;
 
 -- Cards
 ALTER TABLE public.cards ENABLE ROW LEVEL SECURITY;

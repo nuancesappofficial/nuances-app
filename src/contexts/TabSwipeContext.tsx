@@ -6,6 +6,11 @@ export type SwipeExclusionRange = {
 };
 
 export type MembershipReturnTarget = 'settings' | 'create-card';
+export type MembershipPaywallSource =
+  | 'settings'
+  | 'create_card'
+  | 'review'
+  | 'unknown';
 
 export type TabSwipeContextValue = {
   setCacheSwipeExclusionRange: (range: SwipeExclusionRange | null) => void;
@@ -13,7 +18,10 @@ export type TabSwipeContextValue = {
   setPaginationEnabled: (enabled: boolean) => void;
   setPagerScrollEnabled: (enabled: boolean) => void;
   goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => void;
-  openMembershipPaywall: (options?: { returnTo?: MembershipReturnTarget }) => void;
+  openMembershipPaywall: (options?: {
+    returnTo?: MembershipReturnTarget;
+    source?: MembershipPaywallSource;
+  }) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

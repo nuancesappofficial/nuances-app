@@ -1,10 +1,12 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@services/supabase/client';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { markTourSeenLocally } from '../features/tour/tourSeen';
 
 export type AppTourStep =
   | 'IDLE'
-  | 'STEP_1_SAMPLE'
   | 'STEP_2_UPLOAD_SAMPLE'
   | 'STEP_3_PASTE_SAMPLE_TEXT'
   | 'STEP_4_ADD_SAMPLE_TEXT'
@@ -13,7 +15,6 @@ export type AppTourStep =
   | 'STEP_6_GENERATE_SAMPLE'
   | 'STEP_7_SAVE_SAMPLE'
   | 'STEP_8_FLICK_CARD'
-  | 'STEP_8_ALBUM_SAMPLE'
   | 'STEP_9_COACH_SAMPLE'
   | 'STEP_10_QUIZ_SAMPLE'
   | 'STEP_11_CREATE_ALBUM'
@@ -24,21 +25,23 @@ export type AppTourStep =
 type AppTourContextValue = {
   step: AppTourStep;
   isActive: boolean;
+  sampleCardId: string | null;
   startTour: () => void;
   goToStep: (step: AppTourStep) => void;
   nextStep: () => void;
+  setSampleCardId: (cardId: string | null) => void;
   completeTour: () => void;
   skipTour: () => void;
   resetTourState: () => void;
 };
 
 const AppTourContext = React.createContext<AppTourContextValue | null>(null);
-const TOUR_STEP_GAP_MS = 420;
+const DEV_SKIP_TOUR_PATH = '://dev/skip-tour';
+const DEV_RESET_ONBOARDING_PATH = '://dev/reset-onboarding';
+const DEV_REPLAY_TOUR_PATH = '://dev/replay-tour';
 
 function getNextStep(step: AppTourStep): AppTourStep {
   switch (step) {
-    case 'STEP_1_SAMPLE':
-      return 'STEP_8_FLICK_CARD';
     case 'STEP_8_FLICK_CARD':
       return 'STEP_9_COACH_SAMPLE';
     case 'STEP_2_UPLOAD_SAMPLE':
@@ -54,9 +57,7 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_6_GENERATE_SAMPLE':
       return 'STEP_7_SAVE_SAMPLE';
     case 'STEP_7_SAVE_SAMPLE':
-      return 'STEP_1_SAMPLE';
-    case 'STEP_8_ALBUM_SAMPLE':
-      return 'STEP_9_COACH_SAMPLE';
+      return 'STEP_8_FLICK_CARD';
     case 'STEP_9_COACH_SAMPLE':
       return 'STEP_10_QUIZ_SAMPLE';
     case 'STEP_10_QUIZ_SAMPLE':
@@ -82,54 +83,35 @@ function triggerTourCompleteHaptic() {
 
 export function AppTourProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = React.useState<AppTourStep>('IDLE');
-  const pendingStepTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isRunning, setIsRunning] = React.useState(false);
+  const [sampleCardId, setSampleCardId] = React.useState<string | null>(null);
   const didMarkTourSeenRef = React.useRef(false);
 
-  const clearPendingStepTimer = React.useCallback(() => {
-    if (pendingStepTimerRef.current) {
-      clearTimeout(pendingStepTimerRef.current);
-      pendingStepTimerRef.current = null;
-    }
-  }, []);
-
-  React.useEffect(() => clearPendingStepTimer, [clearPendingStepTimer]);
-
-  const startTour = React.useCallback(() => {
-    clearPendingStepTimer();
-    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_2_UPLOAD_SAMPLE' : current));
-  }, [clearPendingStepTimer]);
-
   const nextStep = React.useCallback(() => {
-    triggerTourAdvanceHaptic();
-    clearPendingStepTimer();
     setStep((current) => {
       const next = getNextStep(current);
       if (next === current) return current;
-      pendingStepTimerRef.current = setTimeout(() => {
-        setStep(next);
-        pendingStepTimerRef.current = null;
-      }, TOUR_STEP_GAP_MS);
-      return 'IDLE';
+      triggerTourAdvanceHaptic();
+      return next;
     });
-  }, [clearPendingStepTimer]);
+  }, []);
 
   const goToStep = React.useCallback((nextStepValue: AppTourStep) => {
-    clearPendingStepTimer();
+    if (nextStepValue.startsWith('STEP_')) setIsRunning(true);
     setStep(nextStepValue);
-  }, [clearPendingStepTimer]);
+  }, []);
 
   const markTourSeen = React.useCallback(async () => {
     if (didMarkTourSeenRef.current) return;
     didMarkTourSeenRef.current = true;
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) return;
+      const userId = await getCurrentSessionUserId();
+      if (!userId) return;
+      await markTourSeenLocally(userId);
       const { error } = await supabase
         .from('profiles')
         .update({ has_seen_tour: true, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
+        .eq('id', userId);
       if (error) throw error;
     } catch (error) {
       didMarkTourSeenRef.current = false;
@@ -137,40 +119,92 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const startTour = React.useCallback(() => {
+    didMarkTourSeenRef.current = false;
+    setIsRunning(true);
+    void markTourSeen();
+    setSampleCardId(null);
+    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_2_UPLOAD_SAMPLE' : current));
+  }, [markTourSeen]);
+
   const completeTour = React.useCallback(() => {
     triggerTourCompleteHaptic();
-    clearPendingStepTimer();
+    setIsRunning(false);
     setStep('COMPLETED');
     void markTourSeen();
-  }, [clearPendingStepTimer, markTourSeen]);
+  }, [markTourSeen]);
 
   const skipTour = React.useCallback(() => {
     void Haptics.selectionAsync();
-    clearPendingStepTimer();
+    setIsRunning(false);
     setStep('COMPLETED');
     void markTourSeen();
-  }, [clearPendingStepTimer, markTourSeen]);
+  }, [markTourSeen]);
+
+  React.useEffect(() => {
+    if (!__DEV__) return undefined;
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      if (url.includes(DEV_RESET_ONBOARDING_PATH)) {
+        didMarkTourSeenRef.current = false;
+        setIsRunning(false);
+        setSampleCardId(null);
+        setStep('IDLE');
+        return;
+      }
+      if (url.includes(DEV_REPLAY_TOUR_PATH)) {
+        didMarkTourSeenRef.current = false;
+        setIsRunning(true);
+        setSampleCardId(null);
+        void markTourSeen();
+        setStep('STEP_2_UPLOAD_SAMPLE');
+        return;
+      }
+      if (url.includes(DEV_SKIP_TOUR_PATH)) {
+        skipTour();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [markTourSeen, skipTour]);
 
   const resetTourState = React.useCallback(() => {
-    clearPendingStepTimer();
     setStep('IDLE');
-  }, [clearPendingStepTimer]);
+  }, []);
 
   const value = React.useMemo<AppTourContextValue>(
     () => ({
       step,
-      isActive: step !== 'IDLE' && step !== 'COMPLETED',
+      isActive: isRunning,
+      sampleCardId,
       startTour,
       goToStep,
+      isRunning,
       nextStep,
+      setSampleCardId,
       completeTour,
       skipTour,
       resetTourState,
     }),
-    [completeTour, goToStep, nextStep, resetTourState, skipTour, startTour, step]
+    [
+      completeTour,
+      goToStep,
+      nextStep,
+      resetTourState,
+      sampleCardId,
+      skipTour,
+      startTour,
+      step,
+    ]
   );
 
-  return <AppTourContext.Provider value={value}>{children}</AppTourContext.Provider>;
+  return (
+    <AppTourContext.Provider value={value}>
+      {children}
+    </AppTourContext.Provider>
+  );
 }
 
 export function useAppTour() {

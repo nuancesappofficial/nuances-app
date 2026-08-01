@@ -16,15 +16,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { MODAL_CTA_COLOR, SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
+import {
+  MODAL_CTA_COLOR,
+  SCREEN_BG,
+  resolveThemeColors,
+} from '../../../theme/colors';
 import LightPressable from '../shared/LightPressable';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 
-type LearningStatus = { label: 'NEW' | 'LEARNING'; icon: string; bgColor: string };
+type LearningStatus = {
+  label: 'NEW' | 'LEARNING';
+  icon: string;
+  bgColor: string;
+};
 
 type Props = {
   screenOpacity: Animated.Value;
   themeColor: string;
   albumName: string;
+  uiLanguage: UILanguage;
   processedCards: Card[];
   learnedPercent: number;
   searchQuery: string;
@@ -48,6 +59,7 @@ export default function CardViewUI({
   screenOpacity,
   themeColor,
   albumName,
+  uiLanguage,
   processedCards,
   learnedPercent,
   searchQuery,
@@ -67,7 +79,10 @@ export default function CardViewUI({
   withHexAlpha,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const isLight = colorScheme === 'light';
   const headerIconColor = palette.textOnBg;
   const rowBg = palette.containerBg;
@@ -75,7 +90,9 @@ export default function CardViewUI({
   const rowText = palette.textOnContainer;
   const rowMuted = palette.secondaryText;
   const { width: screenWidth } = useWindowDimensions();
-  const searchExpandProgress = React.useRef(new Animated.Value(isSearchVisible ? 1 : 0)).current;
+  const searchExpandProgress = React.useRef(
+    new Animated.Value(isSearchVisible ? 1 : 0)
+  ).current;
   const maxSearchWidth = Math.max(220, screenWidth - 16 * 2);
   const searchAnimatedWidth = searchExpandProgress.interpolate({
     inputRange: [0, 1],
@@ -137,19 +154,27 @@ export default function CardViewUI({
     <View style={styles.headerWrap}>
       <View style={styles.topNavRow}>
         <Animated.View
-          style={[styles.backAnimatedWrap, { width: backWidth, opacity: backOpacity }]}
+          style={[
+            styles.backAnimatedWrap,
+            { width: backWidth, opacity: backOpacity },
+          ]}
           pointerEvents={isSearchVisible ? 'none' : 'auto'}
         >
           <Pressable
             onPress={onPressBack}
-            style={({ pressed }) => [styles.iconHitArea, pressed ? styles.iconButtonPressed : null]}
+            style={({ pressed }) => [
+              styles.iconHitArea,
+              pressed ? styles.iconButtonPressed : null,
+            ]}
           >
-                <Ionicons name="chevron-back" size={30} color={headerIconColor} />
+            <Ionicons name="chevron-back" size={30} color={headerIconColor} />
           </Pressable>
         </Animated.View>
 
         <View style={styles.topNavRightRow}>
-          <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
+          <Animated.View
+            style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}
+          >
             <Animated.View
               style={[
                 styles.searchShell,
@@ -170,12 +195,17 @@ export default function CardViewUI({
                 ]}
                 pointerEvents={isSearchVisible ? 'auto' : 'none'}
               >
-                <Ionicons name="search" size={20} color={palette.textOnBg} style={styles.searchLeadingIcon} />
+                <Ionicons
+                  name="search"
+                  size={20}
+                  color={palette.textOnBg}
+                  style={styles.searchLeadingIcon}
+                />
                 <TextInput
                   ref={searchInputRef}
                   value={searchQuery}
                   onChangeText={onChangeSearchQuery}
-                  placeholder="Search words"
+                  placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
                   placeholderTextColor={palette.secondaryText}
                   style={[styles.searchInput, { color: palette.textOnBg }]}
                   returnKeyType="search"
@@ -183,13 +213,24 @@ export default function CardViewUI({
               </Animated.View>
 
               <Pressable
-                style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.iconButtonPressed : null]}
+                style={({ pressed }) => [
+                  styles.searchToggleButton,
+                  pressed ? styles.iconButtonPressed : null,
+                ]}
                 onPress={onPressSearch}
               >
-                <Animated.View style={[styles.iconLayer, { opacity: searchIconOpacity }]}>
+                <Animated.View
+                  style={[styles.iconLayer, { opacity: searchIconOpacity }]}
+                >
                   <Ionicons name="search" size={30} color={headerIconColor} />
                 </Animated.View>
-                <Animated.View style={[styles.iconLayer, styles.iconLayerOverlay, { opacity: closeIconOpacity }]}>
+                <Animated.View
+                  style={[
+                    styles.iconLayer,
+                    styles.iconLayerOverlay,
+                    { opacity: closeIconOpacity },
+                  ]}
+                >
                   <Ionicons name="close" size={30} color={headerIconColor} />
                 </Animated.View>
               </Pressable>
@@ -198,22 +239,36 @@ export default function CardViewUI({
 
           {!isSearchVisible ? (
             <Pressable
-              style={({ pressed }) => [styles.rawIconButton, pressed ? styles.iconButtonPressed : null]}
+              style={({ pressed }) => [
+                styles.rawIconButton,
+                pressed ? styles.iconButtonPressed : null,
+              ]}
               onPress={onPressSort}
             >
-              <Ionicons name="swap-vertical" size={30} color={headerIconColor} />
+              <Ionicons
+                name="swap-vertical"
+                size={30}
+                color={headerIconColor}
+              />
             </Pressable>
           ) : null}
         </View>
       </View>
 
-      <Text style={[styles.titleText, { color: palette.textOnBg }]} numberOfLines={1}>
-        {albumName || 'Made for You'}
+      <Text
+        style={[styles.titleText, { color: palette.textOnBg }]}
+        numberOfLines={1}
+      >
+        {albumName || tUI(uiLanguage, 'deck.madeForYou')}
       </Text>
 
       <View style={styles.progressRow}>
-        <View style={[styles.progressDot, { backgroundColor: palette.textOnBg }]} />
-        <Text style={[styles.progressText, { color: palette.secondaryText }]}>{`${processedCards.length} words`}</Text>
+        <View
+          style={[styles.progressDot, { backgroundColor: palette.textOnBg }]}
+        />
+        <Text style={[styles.progressText, { color: palette.secondaryText }]}>
+          {processedCards.length} {tUI(uiLanguage, 'deck.words')}
+        </Text>
       </View>
 
       <View style={styles.actionButtonsRow}>
@@ -226,17 +281,26 @@ export default function CardViewUI({
           onPress={onPressPlay}
         >
           <Ionicons name="play" size={16} color={palette.screenBg} />
-          <Text style={[styles.actionButtonText, { color: palette.screenBg }]}>Play</Text>
+          <Text style={[styles.actionButtonText, { color: palette.screenBg }]}>
+            {tUI(uiLanguage, 'deck.play')}
+          </Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [
             styles.tuningButton,
-            { backgroundColor: palette.containerBg, borderColor: palette.borderSubtle },
+            {
+              backgroundColor: palette.containerBg,
+              borderColor: palette.borderSubtle,
+            },
             pressed ? styles.iconButtonPressed : null,
           ]}
           onPress={onPressReviewTuning}
         >
-          <Ionicons name="options-outline" size={18} color={palette.textOnContainer} />
+          <Ionicons
+            name="options-outline"
+            size={18}
+            color={palette.textOnContainer}
+          />
         </Pressable>
       </View>
     </View>
@@ -244,7 +308,10 @@ export default function CardViewUI({
 
   return (
     <Animated.View style={[styles.screenWrap, { opacity: screenOpacity }]}>
-      <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.screenBg }]}
+        edges={['top']}
+      >
         <View pointerEvents="none" style={styles.backgroundLayer}>
           <LinearGradient
             colors={[
@@ -261,7 +328,11 @@ export default function CardViewUI({
           <LinearGradient
             colors={
               isLight
-                ? ['rgba(241,235,227,0)', 'rgba(241,235,227,0.72)', palette.screenBg]
+                ? [
+                    'rgba(241,235,227,0)',
+                    'rgba(241,235,227,0.72)',
+                    palette.screenBg,
+                  ]
                 : ['rgba(15,23,42,0)', 'rgba(15,23,42,0.75)', palette.screenBg]
             }
             locations={[0, 0.56, 1]}
@@ -286,9 +357,12 @@ export default function CardViewUI({
             return (
               <LightPressable
                 style={styles.cardRowPressable}
-                contentStyle={[styles.cardRow, { backgroundColor: rowBg, borderColor: rowBorder }]}
-                pressedScale={0.96}
-                pressedOpacity={0.9}
+                contentStyle={[
+                  styles.cardRow,
+                  { backgroundColor: rowBg, borderColor: rowBorder },
+                ]}
+                pressedScale={0.99}
+                pressedOpacity={0.96}
                 onPress={() => onPressCard(item)}
               >
                 <View style={styles.thumbnailWrap}>
@@ -299,23 +373,44 @@ export default function CardViewUI({
                       resizeMode="cover"
                     />
                   ) : (
-                    <Text style={[styles.thumbnailFallbackText, { color: rowText }]} numberOfLines={1}>
+                    <Text
+                      style={[styles.thumbnailFallbackText, { color: rowText }]}
+                      numberOfLines={1}
+                    >
                       {getWordText(item).slice(0, 1)}
                     </Text>
                   )}
                 </View>
 
                 <View style={styles.cardMiddle}>
-                  <Text style={[styles.wordText, { color: rowText }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.wordText, { color: rowText }]}
+                    numberOfLines={1}
+                  >
                     {getWordText(item)}
                   </Text>
 
                   {status ? (
-                    <View style={[styles.statusBadge, { backgroundColor: status.bgColor }]}>
-                    <Text style={[styles.statusIcon, status.label === 'NEW' ? styles.statusTextNew : null]}>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        { backgroundColor: status.bgColor },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusIcon,
+                          status.label === 'NEW' ? styles.statusTextNew : null,
+                        ]}
+                      >
                         {status.icon}
                       </Text>
-                      <Text style={[styles.statusText, status.label === 'NEW' ? styles.statusTextNew : null]}>
+                      <Text
+                        style={[
+                          styles.statusText,
+                          status.label === 'NEW' ? styles.statusTextNew : null,
+                        ]}
+                      >
                         {status.label}
                       </Text>
                     </View>
@@ -334,7 +429,9 @@ export default function CardViewUI({
                       onPressMoreCard(item);
                     }}
                   >
-                    <Text style={[styles.moreIcon, { color: rowMuted }]}>⋯</Text>
+                    <Text style={[styles.moreIcon, { color: rowMuted }]}>
+                      ⋯
+                    </Text>
                   </Pressable>
                 </View>
               </LightPressable>
@@ -342,7 +439,11 @@ export default function CardViewUI({
           }}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Text style={[styles.emptyText, { color: palette.secondaryText }]}>No words yet</Text>
+              <Text
+                style={[styles.emptyText, { color: palette.secondaryText }]}
+              >
+                {tUI(uiLanguage, 'deck.alertNoWordsTitle')}
+              </Text>
             </View>
           }
         />

@@ -8,6 +8,7 @@ type AuthenticatedUserLike = {
 
 type RevenueCatEntitlementState = {
   isActive: boolean;
+  isTrial: boolean;
   productId: string | null;
   entitlementId: string;
   purchaseDate: string | null;
@@ -20,7 +21,6 @@ type RevenueCatEntitlementState = {
 const REVENUECAT_SECRET_KEY = (Deno.env.get('REVENUECAT_SECRET_KEY') ?? '').trim();
 const REVENUECAT_ENTITLEMENT_ID = (Deno.env.get('REVENUECAT_ENTITLEMENT_ID') ?? 'premium').trim();
 const REVENUECAT_API_BASE = (Deno.env.get('REVENUECAT_API_BASE') ?? 'https://api.revenuecat.com/v1').replace(/\/+$/, '');
-const TRIAL_DURATION_MS = Number(Deno.env.get('TRIAL_DURATION_MS') ?? String(7 * 24 * 60 * 60 * 1000));
 
 function parseIso(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -45,49 +45,6 @@ export function createServiceRoleClient() {
   });
 }
 
-export async function ensureServerTrialEnrollment(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  userId: string;
-}) {
-  const { supabase, userId } = params;
-  const { data: profile, error: selectError } = await supabase
-    .from('profiles')
-    .select('trial_started_at, trial_ends_at')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (selectError) {
-    throw selectError;
-  }
-
-  const existingTrialEndsAt = parseIso(profile?.trial_ends_at ?? null);
-  if (profile?.trial_started_at && existingTrialEndsAt) {
-    return {
-      trialStartedAt: parseIso(profile.trial_started_at),
-      trialEndsAt: existingTrialEndsAt,
-    };
-  }
-
-  const now = new Date();
-  const trialStartedAt = now.toISOString();
-  const trialEndsAt = new Date(now.getTime() + TRIAL_DURATION_MS).toISOString();
-
-  const { error: updateError } = await supabase
-    .from('profiles')
-    .update({
-      trial_started_at: trialStartedAt,
-      trial_ends_at: trialEndsAt,
-      updated_at: trialStartedAt,
-    })
-    .eq('id', userId);
-
-  if (updateError) {
-    throw updateError;
-  }
-
-  return { trialStartedAt, trialEndsAt };
-}
-
 async function fetchRevenueCatSubscriber(appUserId: string): Promise<any | null> {
   if (!REVENUECAT_SECRET_KEY || !appUserId) return null;
   const endpoint = `${REVENUECAT_API_BASE}/subscribers/${encodeURIComponent(appUserId)}`;
@@ -105,6 +62,21 @@ async function fetchRevenueCatSubscriber(appUserId: string): Promise<any | null>
   }
 
   return response.json();
+}
+
+function extractRevenueCatPeriodType(entitlement: any): string {
+  return String(
+    entitlement?.period_type ??
+    entitlement?.periodType ??
+    entitlement?.store_period_type ??
+    entitlement?.storePeriodType ??
+    ''
+  ).trim().toLowerCase();
+}
+
+function isRevenueCatTrialPeriod(entitlement: any): boolean {
+  const periodType = extractRevenueCatPeriodType(entitlement);
+  return periodType.includes('trial') || periodType.includes('intro');
 }
 
 function extractRevenueCatEntitlementState(payload: any): RevenueCatEntitlementState {
@@ -128,6 +100,7 @@ function extractRevenueCatEntitlementState(payload: any): RevenueCatEntitlementS
   if (productId && (!activeExpiresAt || isFutureIso(activeExpiresAt))) {
     return {
       isActive: true,
+      isTrial: isRevenueCatTrialPeriod(entitlement),
       productId,
       entitlementId: REVENUECAT_ENTITLEMENT_ID,
       purchaseDate: activePurchaseDate,
@@ -163,6 +136,7 @@ function extractRevenueCatEntitlementState(payload: any): RevenueCatEntitlementS
 
   return {
     isActive: false,
+    isTrial: false,
     productId: latest.productId,
     entitlementId: REVENUECAT_ENTITLEMENT_ID,
     purchaseDate: latest.purchaseDate,
@@ -208,6 +182,8 @@ export async function syncRevenueCatSubscriptionToSupabase(params: {
     .update({
       subscription_tier: entitlement.isActive ? 'pro' : 'free',
       subscription_expires_at: entitlement.expiresAt,
+      trial_started_at: null,
+      trial_ends_at: null,
       updated_at: nowIso,
     })
     .eq('id', userId);
@@ -224,33 +200,38 @@ export async function resolveServerEntitlement(params: {
 
   const { data: subscription, error } = await supabase
     .from('subscriptions')
-    .select('status, expires_at')
+    .select('status, expires_at, product_id, raw_event')
     .eq('user_id', userId)
     .eq('provider', 'revenuecat')
     .eq('entitlement_id', REVENUECAT_ENTITLEMENT_ID)
     .maybeSingle();
 
   if (error) {
-    console.warn('[entitlement] subscription lookup failed', { userId, error: error.message });
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('trial_ends_at')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (profileError) {
-    console.warn('[entitlement] trial lookup failed', { userId, error: profileError.message });
+    console.warn('[entitlement] subscription lookup failed', {
+      user: userId.slice(-8),
+      error: error.message,
+    });
   }
 
   const subscriptionExpiresAt = parseIso(subscription?.expires_at ?? null);
-  const trialEndsAt = parseIso(profile?.trial_ends_at ?? null);
   const hasPremium = subscription?.status === 'active' && (!subscriptionExpiresAt || isFutureIso(subscriptionExpiresAt));
-  const planType: PlanType = hasPremium ? 'premium' : isFutureIso(trialEndsAt) ? 'trial' : 'free';
+  const rawSubscriber = subscription?.raw_event ?? null;
+  const rawEntitlement = (rawSubscriber as any)?.entitlements?.[REVENUECAT_ENTITLEMENT_ID] ?? null;
+  const isTrial = hasPremium && isRevenueCatTrialPeriod(rawEntitlement);
+  const planType: PlanType = hasPremium ? (isTrial ? 'trial' : 'premium') : 'free';
+  const trialEndsAt = isTrial ? subscriptionExpiresAt : null;
+  const productId =
+    typeof subscription?.product_id === 'string' && subscription.product_id.trim()
+      ? subscription.product_id.trim()
+      : typeof rawEntitlement?.product_identifier === 'string'
+        ? rawEntitlement.product_identifier
+        : typeof rawEntitlement?.productIdentifier === 'string'
+          ? rawEntitlement.productIdentifier
+          : null;
 
   return {
     planType,
+    productId,
     trialEndsAt,
     subscriptionExpiresAt,
     canUseCloudAI: planType !== 'free',

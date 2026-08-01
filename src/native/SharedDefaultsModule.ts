@@ -1,4 +1,9 @@
 import { NativeModules, Platform } from 'react-native';
+import { AndroidShareIntent } from 'android-share-intent';
+
+const MAX_SHARED_QUEUE_ITEMS = 50;
+const MAX_IMAGES_PER_SHARED_ITEM = 10;
+const MAX_SHARED_TEXT_LENGTH = 2000;
 
 /** 單一項目：文字或圖片 */
 export interface SharedContentItem {
@@ -19,6 +24,7 @@ export interface SharedContentDict {
 export interface SharedContentQueueDict {
   items?: SharedContentItem[];
   timestamp?: number;
+  owner_user_id?: string;
 }
 
 export type SharedContentRaw = SharedContentDict | SharedContentQueueDict;
@@ -26,6 +32,7 @@ export type SharedContentRaw = SharedContentDict | SharedContentQueueDict;
 export interface SharedContentSnapshot {
   items: SharedContentItem[];
   timestamp: number;
+  ownerUserId: string | null;
 }
 
 function getSharedDefaultsModule():
@@ -34,6 +41,7 @@ function getSharedDefaultsModule():
       clearSharedContent: () => Promise<unknown>;
       clearSharedContentIfTimestampMatches?: (timestamp: number) => Promise<unknown>;
       setUILanguage?: (language: string) => Promise<unknown>;
+      setActiveUserId?: (userId: string | null) => Promise<unknown>;
     }
   | null {
   return (NativeModules.SharedDefaultsModule || null) as
@@ -42,6 +50,7 @@ function getSharedDefaultsModule():
         clearSharedContent: () => Promise<unknown>;
         clearSharedContentIfTimestampMatches?: (timestamp: number) => Promise<unknown>;
         setUILanguage?: (language: string) => Promise<unknown>;
+        setActiveUserId?: (userId: string | null) => Promise<unknown>;
       }
     | null;
 }
@@ -53,26 +62,38 @@ function normalizeSharedContent(raw: unknown): SharedContentSnapshot | null {
     typeof normalizedRaw.timestamp === 'number' && Number.isFinite(normalizedRaw.timestamp)
       ? normalizedRaw.timestamp
       : 0;
+  const ownerUserId =
+    typeof normalizedRaw.owner_user_id === 'string' && normalizedRaw.owner_user_id.trim()
+      ? normalizedRaw.owner_user_id.trim()
+      : null;
 
   if (Array.isArray(normalizedRaw.items) && normalizedRaw.items.length > 0) {
     const valid: SharedContentItem[] = [];
-    for (const item of normalizedRaw.items) {
+    for (const item of normalizedRaw.items.slice(0, MAX_SHARED_QUEUE_ITEMS)) {
       if (item && typeof item === 'object') {
         if (item.type === 'text' && typeof item.content === 'string') {
-          valid.push({ type: 'text', content: item.content });
+          const content = item.content.trim().slice(0, MAX_SHARED_TEXT_LENGTH);
+          if (content) valid.push({ type: 'text', content });
         } else if (item.type === 'image' && Array.isArray(item.images) && item.images.length > 0) {
-          valid.push({ type: 'image', images: item.images });
+          const images = (item.images as unknown[])
+            .filter((image: unknown): image is string => typeof image === 'string' && image.trim().length > 0)
+            .slice(0, MAX_IMAGES_PER_SHARED_ITEM);
+          if (images.length > 0) valid.push({ type: 'image', images });
         }
       }
     }
-    return valid.length > 0 ? { items: valid, timestamp } : null;
+    return valid.length > 0 ? { items: valid, timestamp, ownerUserId } : null;
   }
 
   if (normalizedRaw.type === 'text' && typeof normalizedRaw.content === 'string') {
-    return { items: [{ type: 'text', content: normalizedRaw.content }], timestamp };
+    const content = normalizedRaw.content.trim().slice(0, MAX_SHARED_TEXT_LENGTH);
+    return content ? { items: [{ type: 'text', content }], timestamp, ownerUserId } : null;
   }
   if (normalizedRaw.type === 'image' && Array.isArray(normalizedRaw.images) && normalizedRaw.images.length > 0) {
-    return { items: [{ type: 'image', images: normalizedRaw.images }], timestamp };
+    const images = normalizedRaw.images
+      .filter((image): image is string => typeof image === 'string' && image.trim().length > 0)
+      .slice(0, MAX_IMAGES_PER_SHARED_ITEM);
+    return images.length > 0 ? { items: [{ type: 'image', images }], timestamp, ownerUserId } : null;
   }
 
   return null;
@@ -112,8 +133,7 @@ export async function clearAppGroupSharedContentIfUnchanged(timestamp: number): 
   const sharedDefaultsModule = getSharedDefaultsModule();
   if (Platform.OS !== 'ios' || !sharedDefaultsModule) return false;
   if (!sharedDefaultsModule.clearSharedContentIfTimestampMatches) {
-    await clearAppGroupSharedContent();
-    return true;
+    return false;
   }
   try {
     return Boolean(await sharedDefaultsModule.clearSharedContentIfTimestampMatches(timestamp));
@@ -129,5 +149,19 @@ export async function setAppGroupUILanguage(language: string): Promise<void> {
     await sharedDefaultsModule.setUILanguage(language);
   } catch {
     // App Group sync is best-effort; never block settings persistence.
+  }
+}
+
+export async function setAppGroupActiveUserId(userId: string | null): Promise<void> {
+  if (Platform.OS === 'android') {
+    await AndroidShareIntent.setActiveUserId(userId).catch(() => undefined);
+    return;
+  }
+  const sharedDefaultsModule = getSharedDefaultsModule();
+  if (Platform.OS !== 'ios' || !sharedDefaultsModule?.setActiveUserId) return;
+  try {
+    await sharedDefaultsModule.setActiveUserId(userId);
+  } catch {
+    // Account isolation is also enforced again before database ingest.
   }
 }

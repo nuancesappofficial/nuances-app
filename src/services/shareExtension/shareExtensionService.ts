@@ -12,10 +12,15 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Paths } from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Q } from '@nozbe/watermelondb';
+import { Platform } from 'react-native';
+import { AndroidShareIntent, type AndroidSharedPayload } from 'android-share-intent';
 import { database } from '@database/index';
 import CachedItem from '@database/models/CachedItem';
-import { getCurrentCacheCardCount } from '@services/cache/cacheLimitService';
+import { getCurrentCacheCardCount, getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
 import type { PlanType } from '@services/settings/userSettings';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import {
   getAppGroupSharedContentSnapshot,
   clearAppGroupSharedContentIfUnchanged,
@@ -23,11 +28,23 @@ import {
 } from '../../native/SharedDefaultsModule';
 
 const MAX_TEXT_LENGTH = 2000;
+const MAX_IMAGES_PER_SHARED_ITEM = 10;
 const SHARED_IMAGES_SUBDIR = 'SharedImages';
 const SHARE_INGEST_EVENTS_KEY = 'share_extension_ingest_events';
 const MAX_SHARE_INGEST_EVENTS = 120;
 
 let currentIngestPromise: Promise<ShareContentProcessResult> | null = null;
+
+async function assertActiveAccount(expectedUserId: string): Promise<void> {
+  const currentUserId = await getCurrentSessionUserId();
+  if (currentUserId !== expectedUserId) {
+    throw new Error('Account changed during share ingest');
+  }
+}
+
+function getShareIngestEventsKey(userId?: string | null): string {
+  return `${SHARE_INGEST_EVENTS_KEY}:${userId ?? 'guest'}`;
+}
 
 export interface ShareContentProcessResult {
   addedCount: number;
@@ -52,7 +69,10 @@ async function appendShareIngestEvent(
   event: Omit<ShareIngestEvent, 'id' | 'timestamp'>
 ): Promise<void> {
   try {
-    const raw = await AsyncStorage.getItem(SHARE_INGEST_EVENTS_KEY);
+    const eventUserId =
+      typeof event.meta?.userId === 'string' ? event.meta.userId : null;
+    const storageKey = getShareIngestEventsKey(eventUserId);
+    const raw = await AsyncStorage.getItem(storageKey);
     const existing = raw ? (JSON.parse(raw) as ShareIngestEvent[]) : [];
     const next: ShareIngestEvent = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -60,7 +80,16 @@ async function appendShareIngestEvent(
       ...event,
     };
     const merged = [next, ...existing].slice(0, MAX_SHARE_INGEST_EVENTS);
-    await AsyncStorage.setItem(SHARE_INGEST_EVENTS_KEY, JSON.stringify(merged));
+    await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+    void logDiagnosticEvent({
+      severity: event.level,
+      category: 'share_extension',
+      event: `share_${event.stage}`,
+      message: event.message,
+      context: event.meta,
+      requestId: next.id,
+      userId: eventUserId,
+    });
   } catch {
     // Avoid breaking ingest flow when local event log write fails.
   }
@@ -68,7 +97,8 @@ async function appendShareIngestEvent(
 
 export async function getShareIngestEvents(): Promise<ShareIngestEvent[]> {
   try {
-    const raw = await AsyncStorage.getItem(SHARE_INGEST_EVENTS_KEY);
+    const userId = await getCurrentSessionUserId();
+    const raw = await AsyncStorage.getItem(getShareIngestEventsKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ShareIngestEvent[];
     return Array.isArray(parsed) ? parsed : [];
@@ -78,7 +108,8 @@ export async function getShareIngestEvents(): Promise<ShareIngestEvent[]> {
 }
 
 export async function clearShareIngestEvents(): Promise<void> {
-  await AsyncStorage.removeItem(SHARE_INGEST_EVENTS_KEY);
+  const userId = await getCurrentSessionUserId();
+  await AsyncStorage.removeItem(getShareIngestEventsKey(userId));
 }
 
 /**
@@ -111,11 +142,49 @@ function toFileUri(path: string): string {
   return `file://${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
 }
 
+function getValidatedSharedImagePath(path: unknown): string | null {
+  if (typeof path !== 'string') return null;
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  const localPath = trimmed.startsWith('file://') ? trimmed.slice('file://'.length) : trimmed;
+  if (!localPath.startsWith('/') || !localPath.includes('/Library/Caches/SharedMedia/')) return null;
+  const fileName = localPath.split('/').pop();
+  if (!fileName || !/^[A-Za-z0-9-]+\.(?:jpe?g|png|heic)$/i.test(fileName)) return null;
+  return localPath;
+}
+
+function getSafeErrorName(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : 'UnknownError';
+}
+
+async function cleanupSharedImagePaths(items: SharedContentItem[]): Promise<void> {
+  const paths = items
+    .flatMap((item) => (item.type === 'image' && Array.isArray(item.images) ? item.images : []))
+    .map(getValidatedSharedImagePath)
+    .filter((path): path is string => Boolean(path));
+  await Promise.all(
+    paths.map((path) => FileSystem.deleteAsync(toFileUri(path), { idempotent: true }).catch(() => undefined))
+  );
+}
+
 export interface SharedContent {
   type: 'text' | 'image';
   content?: string;
   images?: string[];
   timestamp: number;
+}
+
+export async function hasPendingSharedContent(): Promise<boolean> {
+  try {
+    if (Platform.OS === 'android') {
+      const payloads = await AndroidShareIntent.getPendingSharedPayloads();
+      return payloads.length > 0;
+    }
+    const snapshot = await getAppGroupSharedContentSnapshot();
+    return Boolean(snapshot?.items?.length);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -136,26 +205,43 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
 
   currentIngestPromise = (async () => {
     try {
-      await appendShareIngestEvent({
-        level: 'info',
-        stage: 'check_start',
-        message: 'Start checking App Group shared content',
-        meta: { userId },
-      });
+      if (Platform.OS === 'android') {
+        return await processAndroidSharedContent(userId);
+      }
       const snapshot = await getAppGroupSharedContentSnapshot();
       const items: SharedContentItem[] | null = snapshot?.items ?? null;
 
       if (!items || items.length === 0) {
-        await appendShareIngestEvent({
-          level: 'info',
-          stage: 'check_empty',
-          message: 'No pending shared content',
-          meta: { userId },
-        });
         return {
           addedCount: 0,
           blockedCount: 0,
           currentCacheCount: 0,
+          planType: 'premium',
+        };
+      }
+
+      await assertActiveAccount(userId);
+
+      if (snapshot?.ownerUserId !== userId) {
+        const cleared = await clearAppGroupSharedContentIfUnchanged(snapshot?.timestamp ?? 0);
+        if (cleared) {
+          await cleanupSharedImagePaths(items);
+        }
+        await appendShareIngestEvent({
+          level: 'warn',
+          stage: 'check_owner_mismatch',
+          message: 'Discarded shared content owned by another or unknown account',
+          meta: {
+            userId,
+            ownerUserId: snapshot?.ownerUserId ?? null,
+            itemCount: items.length,
+            cleared,
+          },
+        });
+        return {
+          addedCount: 0,
+          blockedCount: items.length,
+          currentCacheCount: await getCurrentCacheCardCount(userId).catch(() => 0),
           planType: 'premium',
         };
       }
@@ -168,20 +254,35 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
       });
 
       let totalCount = 0;
+      let blockedCount = 0;
+      let remainingCapacity = await getRemainingCacheCapacity(userId);
 
       for (const item of items) {
+        await assertActiveAccount(userId);
         if (item.type === 'text' && item.content) {
-          await saveTextToCache(userId, item.content);
-          totalCount += 1;
+          if (remainingCapacity <= 0) {
+            blockedCount += 1;
+            continue;
+          }
+          const created = await saveTextToCache(userId, item.content);
+          if (created) {
+            totalCount += 1;
+            remainingCapacity -= 1;
+          }
           await appendShareIngestEvent({
             level: 'info',
-            stage: 'ingest_text_ok',
-            message: 'Saved shared text item to cache',
+            stage: created ? 'ingest_text_ok' : 'ingest_text_duplicate',
+            message: created
+              ? 'Saved shared text item to cache'
+              : 'Skipped shared text already present in cache',
             meta: { userId, textLength: item.content.length },
           });
         } else if (item.type === 'image' && item.images && item.images.length > 0) {
-          await saveImagesToCache(userId, item.images);
-          totalCount += item.images.length;
+          const acceptedPaths = item.images.slice(0, remainingCapacity);
+          const createdCount = await saveImagesToCache(userId, acceptedPaths);
+          totalCount += createdCount;
+          remainingCapacity -= createdCount;
+          blockedCount += Math.max(0, item.images.length - acceptedPaths.length);
           await appendShareIngestEvent({
             level: 'info',
             stage: 'ingest_image_ok',
@@ -189,8 +290,8 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
             meta: {
               userId,
               imageCount: item.images.length,
-              acceptedImageCount: item.images.length,
-              blockedImageCount: 0,
+              acceptedImageCount: createdCount,
+              blockedImageCount: Math.max(0, item.images.length - createdCount),
             },
           });
         } else {
@@ -203,29 +304,32 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         }
       }
 
+      await assertActiveAccount(userId);
       const cleared = await clearAppGroupSharedContentIfUnchanged(snapshot?.timestamp ?? 0);
+      if (cleared) {
+        await cleanupSharedImagePaths(items);
+      }
       await appendShareIngestEvent({
         level: 'info',
         stage: 'check_complete',
         message: 'Finished processing shared content and cleared App Group queue',
-        meta: { userId, totalCount, blockedCount: 0, cleared },
+        meta: { userId, totalCount, blockedCount, cleared },
       });
       const currentCacheCount = await getCurrentCacheCardCount(userId).catch(() => totalCount);
       return {
         addedCount: totalCount,
-        blockedCount: 0,
+        blockedCount,
         currentCacheCount,
         planType: 'premium',
       };
     } catch (error) {
-      console.error('Error processing shared content:', error);
       await appendShareIngestEvent({
         level: 'error',
         stage: 'check_error',
         message: 'Processing shared content failed',
         meta: {
           userId,
-          error: error instanceof Error ? error.message : String(error),
+          errorName: getSafeErrorName(error),
         },
       });
       return {
@@ -244,45 +348,167 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
   }
 }
 
+async function processAndroidSharedContent(userId: string): Promise<ShareContentProcessResult> {
+  const payloads = (await AndroidShareIntent.getPendingSharedPayloads()).slice(0, 50);
+  if (payloads.length === 0) {
+    return {
+      addedCount: 0,
+      blockedCount: 0,
+      currentCacheCount: 0,
+      planType: 'premium',
+    };
+  }
+
+  await assertActiveAccount(userId);
+
+  let addedCount = 0;
+  let blockedCount = 0;
+  let remainingCapacity = await getRemainingCacheCapacity(userId);
+
+  for (const payload of payloads) {
+    await assertActiveAccount(userId);
+    if (!payload.id || payload.ownerUserId !== userId) {
+      blockedCount += 1;
+      if (payload.id) await AndroidShareIntent.rejectSharedPayloads([payload.id]);
+      continue;
+    }
+
+    let completed = false;
+    if (payload.type === 'text') {
+      const text = typeof payload.text === 'string' ? payload.text.trim().slice(0, MAX_TEXT_LENGTH) : '';
+      if (!text || remainingCapacity <= 0) {
+        blockedCount += 1;
+        completed = true;
+      } else {
+        const created = await saveTextToCache(userId, text, 'android_share_sheet');
+        if (created) { addedCount += 1; remainingCapacity -= 1; }
+        completed = true;
+      }
+    } else if (payload.type === 'image') {
+      const images = Array.isArray(payload.imageUris) ? payload.imageUris.slice(0, MAX_IMAGES_PER_SHARED_ITEM) : [];
+      const accepted = images.slice(0, Math.max(0, remainingCapacity));
+      const rejected = images.slice(accepted.length);
+      const created = await saveAndroidImagesToCache(userId, accepted);
+      addedCount += created;
+      remainingCapacity -= created;
+      blockedCount += rejected.length;
+      await Promise.all(rejected
+        .filter((uri) => isOwnedAndroidSharedImage(uri, userId))
+        .map((uri) => FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)));
+      completed = true;
+    }
+
+    if (completed) {
+      await assertActiveAccount(userId);
+      await AndroidShareIntent.acknowledgeSharedPayloads([payload.id]);
+    }
+  }
+
+  return {
+    addedCount,
+    blockedCount,
+    currentCacheCount: await getCurrentCacheCardCount(userId).catch(() => addedCount),
+    planType: 'premium',
+  };
+}
+
 /**
  * 儲存純文字到 Cache
  */
-async function saveTextToCache(userId: string, text: string): Promise<void> {
+async function saveTextToCache(
+  userId: string,
+  text: string,
+  sourceApp: 'share_sheet' | 'android_share_sheet' = 'share_sheet'
+): Promise<boolean> {
   try {
     // 套用字數限制
     const limitedText = text.length > MAX_TEXT_LENGTH 
       ? text.substring(0, MAX_TEXT_LENGTH) 
       : text;
 
+    await assertActiveAccount(userId);
+    let created = false;
     await database.write(async () => {
-      await database.get<CachedItem>('cached_items').create((item) => {
+      const collection = database.get<CachedItem>('cached_items');
+      const duplicate = await collection
+        .query(
+          Q.where('user_id', userId),
+          Q.where('content_type', 'text'),
+          Q.where('content_text', limitedText),
+          Q.where('deleted_at', null),
+          Q.take(1)
+        )
+        .fetch();
+      if (duplicate.length > 0) return;
+
+      await collection.create((item) => {
         item.userId = userId;
         item.type = 'text';
         item.contentType = 'text';
         item.contentText = limitedText;
-        item.sourceApp = 'share_sheet';
+        item.sourceApp = sourceApp;
         item.aiAnalysisCompleted = false;
         item.convertedToCard = false;
         const expiresAt = new Date();
         expiresAt.setMinutes(expiresAt.getMinutes() + 10);
         item.expiresAt = expiresAt;
       });
+      created = true;
     });
 
-    console.log('Text saved to cache successfully');
+    return created;
   } catch (error) {
-    console.error('Error saving text to cache:', error);
     await appendShareIngestEvent({
       level: 'error',
       stage: 'save_text_error',
       message: 'Failed to save shared text to cache',
       meta: {
         userId,
-        error: error instanceof Error ? error.message : String(error),
+        errorName: getSafeErrorName(error),
       },
     });
     throw error;
   }
+}
+
+function isOwnedAndroidSharedImage(uri: string, userId: string): boolean {
+  if (!uri.startsWith('file://')) return false;
+  const path = decodeURIComponent(uri.slice('file://'.length));
+  const safeUserId = userId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+  return path.includes(`/files/SharedImages/${safeUserId}/`) &&
+    /^[a-f0-9]{32}_\d+\.(?:jpe?g|png|webp)$/i.test(path.split('/').pop() ?? '');
+}
+
+async function saveAndroidImagesToCache(userId: string, imageUris: string[]): Promise<number> {
+  const validUris = imageUris.filter((uri) => typeof uri === 'string' && isOwnedAndroidSharedImage(uri, userId));
+  if (validUris.length === 0) return 0;
+  await assertActiveAccount(userId);
+  let createdCount = 0;
+  await database.write(async () => {
+    const collection = database.get<CachedItem>('cached_items');
+    const existing = await collection.query(
+      Q.where('user_id', userId), Q.where('content_type', 'image'), Q.where('deleted_at', null),
+      Q.or(Q.where('image_storage_path', Q.oneOf(validUris)), Q.where('media_uri', Q.oneOf(validUris)))
+    ).fetch();
+    const existingUris = new Set(existing.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean));
+    for (const mediaUri of validUris) {
+      if (existingUris.has(mediaUri)) continue;
+      await collection.create((item) => {
+        item.userId = userId;
+        item.type = 'image';
+        item.contentType = 'image';
+        item.mediaUri = mediaUri;
+        item.imageStoragePath = mediaUri;
+        item.contentText = undefined;
+        item.sourceApp = 'android_share_sheet';
+        item.aiAnalysisCompleted = false;
+        item.convertedToCard = false;
+        item.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      });
+      createdCount += 1;
+    }
+  });
+  return createdCount;
 }
 
 /**
@@ -291,11 +517,17 @@ async function saveTextToCache(userId: string, text: string): Promise<void> {
  * 來源：App Group 共享容器 (Swift 寫入)
  * 目標：App documentDirectory/SharedImages/
  */
-async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<void> {
+async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<number> {
   const appDocumentDir = getAppDocumentDirectory();
-  const dirPath = `${appDocumentDir}${SHARED_IMAGES_SUBDIR}/`;
+  const dirPath = `${appDocumentDir}${SHARED_IMAGES_SUBDIR}/${userId}/`;
+  const validatedPaths = imagePaths
+    .slice(0, MAX_IMAGES_PER_SHARED_ITEM)
+    .map(getValidatedSharedImagePath)
+    .filter((path): path is string => Boolean(path));
 
   try {
+    await assertActiveAccount(userId);
+    if (validatedPaths.length === 0) return 0;
     // 確保目標目錄存在（在迴圈外建立，避免重複檢查）
     const dirInfo = await FileSystem.getInfoAsync(dirPath);
     if (!dirInfo.exists) {
@@ -304,15 +536,11 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
 
     const copiedMediaUris: string[] = [];
 
-    for (const sharedPath of imagePaths) {
-      if (!sharedPath || typeof sharedPath !== 'string') {
-        console.warn('Skip invalid image path:', sharedPath);
-        continue;
-      }
-
+    for (const sharedPath of validatedPaths) {
       // 正規化來源路徑（Swift 可能回傳純 path 或 file:// URI）
       const fromUri = toFileUri(sharedPath);
-      const fileName = sharedPath.split('/').pop() || `${Date.now()}_${Math.random().toString(36).slice(2, 9)}.jpg`;
+      const fileName = sharedPath.split('/').pop();
+      if (!fileName) continue;
       const targetPath = `${dirPath}${fileName}`;
 
       // 複製檔案：從 App Group 容器到 App 的 document 目錄
@@ -331,13 +559,29 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
       const mediaUri = targetPath.startsWith('file://') ? targetPath : toFileUri(targetPath);
       copiedMediaUris.push(mediaUri);
 
-      console.log(`Image saved to cache: ${mediaUri}`);
     }
 
+    let createdCount = 0;
     if (copiedMediaUris.length > 0) {
+      await assertActiveAccount(userId);
       await database.write(async () => {
         const collection = database.get<CachedItem>('cached_items');
+        const existingItems = await collection
+          .query(
+            Q.where('user_id', userId),
+            Q.where('content_type', 'image'),
+            Q.where('deleted_at', null),
+            Q.or(
+              Q.where('image_storage_path', Q.oneOf(copiedMediaUris)),
+              Q.where('media_uri', Q.oneOf(copiedMediaUris))
+            )
+          )
+          .fetch();
+        const existingUris = new Set(
+          existingItems.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean)
+        );
         for (const mediaUri of copiedMediaUris) {
+          if (existingUris.has(mediaUri)) continue;
           await collection.create((item) => {
             item.userId = userId;
             item.type = 'image';
@@ -352,28 +596,21 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
             expiresAt.setMinutes(expiresAt.getMinutes() + 10);
             item.expiresAt = expiresAt;
           });
+          createdCount += 1;
         }
       });
     }
 
-    // 清理共享容器中的圖片（可選，失敗不影響主流程）
-    for (const sharedPath of imagePaths) {
-      try {
-        await FileSystem.deleteAsync(toFileUri(sharedPath), { idempotent: true });
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup shared image:', cleanupError);
-      }
-    }
+    return createdCount;
   } catch (error) {
-    console.error('Error saving images to cache:', error);
     await appendShareIngestEvent({
       level: 'error',
       stage: 'save_images_error',
       message: 'Failed to save shared images to cache',
       meta: {
         userId,
-        imageCount: imagePaths.length,
-        error: error instanceof Error ? error.message : String(error),
+        imageCount: validatedPaths.length,
+        errorName: getSafeErrorName(error),
       },
     });
     throw error;

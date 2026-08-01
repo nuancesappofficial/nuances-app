@@ -3,28 +3,51 @@ import {
   Animated,
   Easing,
   type GestureResponderEvent,
+  Image,
   type LayoutChangeEvent,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
   View,
   useColorScheme,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { tUI } from '../../../i18n/uiLanguage';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import { TEXT_ON_CTA, MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
-import type { ReviewQuestionType } from '../../../features/deck/reviewPreferences';
+import {
+  TEXT_ON_CTA,
+  MODAL_CTA_COLOR,
+  resolveThemeColors,
+} from '../../../theme/colors';
+import {
+  DEFAULT_REVIEW_QUESTION_TYPES,
+  REVIEW_QUESTION_TYPE_OPTIONS,
+  type ReviewQuestionType,
+} from '../../../features/deck/reviewPreferences';
+import type { UILanguage } from '../../../services/settings/userSettings';
 
 type Props = {
   visible: boolean;
   questionCount: number;
   todayNewWordsOnly?: boolean;
   selectedQuestionTypes: ReviewQuestionType[];
+  sourceAlbums?: Array<{
+    id: string;
+    label: string;
+    emoji?: string;
+    color?: string;
+    coverImageUri?: string;
+  }>;
+  selectedSourceAlbumIds?: string[];
+  uiLanguage: UILanguage;
   onClose: () => void;
   onChangeQuestionCount: (value: number) => void;
   onChangeTodayNewWordsOnly?: (value: boolean) => void;
   onChangeSelectedQuestionTypes: (value: ReviewQuestionType[]) => void;
+  onChangeSelectedSourceAlbumIds?: (value: string[]) => void;
 };
 
 const MODAL_ENTRY_TRANSLATE_Y = 420;
@@ -33,24 +56,91 @@ const MODAL_BACKDROP_DURATION_MS = 240;
 const MODAL_EXIT_DURATION_MS = 220;
 const MIN_QUESTION_COUNT = 1;
 const MAX_QUESTION_COUNT = 50;
+const QUESTION_TYPE_PRESENTATION: Record<
+  ReviewQuestionType,
+  {
+    icon: keyof typeof Ionicons.glyphMap;
+    labelKey:
+      | 'review.questionType.fillBlank'
+      | 'review.questionType.spelling'
+      | 'review.questionType.guessWord'
+      | 'review.questionType.guessMeaning'
+      | 'review.questionType.contextMeaning'
+      | 'review.questionType.partOfSpeech'
+      | 'review.questionType.pronunciation';
+  }
+> = {
+  fill_blank: {
+    icon: 'remove-circle-outline',
+    labelKey: 'review.questionType.fillBlank',
+  },
+  spelling: {
+    icon: 'keypad-outline',
+    labelKey: 'review.questionType.spelling',
+  },
+  translation_to_word: {
+    icon: 'language-outline',
+    labelKey: 'review.questionType.guessMeaning',
+  },
+  word_to_translation: {
+    icon: 'language-outline',
+    labelKey: 'review.questionType.guessMeaning',
+  },
+  sentence_to_translation: {
+    icon: 'language-outline',
+    labelKey: 'review.questionType.guessMeaning',
+  },
+  part_of_speech: {
+    icon: 'shapes-outline',
+    labelKey: 'review.questionType.partOfSpeech',
+  },
+  pronunciation: {
+    icon: 'mic-outline',
+    labelKey: 'review.questionType.pronunciation',
+  },
+};
 
 export default function ReviewTuningModalUI({
   visible,
   questionCount,
   todayNewWordsOnly = false,
+  selectedQuestionTypes,
+  sourceAlbums = [],
+  selectedSourceAlbumIds = [],
+  uiLanguage,
   onClose,
   onChangeQuestionCount,
   onChangeTodayNewWordsOnly,
+  onChangeSelectedQuestionTypes,
+  onChangeSelectedSourceAlbumIds,
 }: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const isDarkMode = colorScheme === 'dark';
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
+  const modalSurface = isDarkMode ? palette.modalBg : '#F3EFE9';
+  const optionSurface = isDarkMode ? palette.mutedSurface : '#FFFFFF';
+  const optionBorder = isDarkMode ? palette.modalOptionBorder : '#E2DDD6';
+  const selectedSurface = isDarkMode
+    ? 'rgba(78,175,244,0.16)'
+    : '#EAF5FC';
+  const selectedBorder = isDarkMode ? MODAL_CTA_COLOR : '#85C7EF';
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [sliderWidth, setSliderWidth] = React.useState(0);
-  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
+  const entranceY = React.useRef(
+    new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)
+  ).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const sliderProgress = React.useMemo(() => {
-    const clamped = Math.max(MIN_QUESTION_COUNT, Math.min(MAX_QUESTION_COUNT, questionCount));
-    return (clamped - MIN_QUESTION_COUNT) / (MAX_QUESTION_COUNT - MIN_QUESTION_COUNT);
+    const clamped = Math.max(
+      MIN_QUESTION_COUNT,
+      Math.min(MAX_QUESTION_COUNT, questionCount)
+    );
+    return (
+      (clamped - MIN_QUESTION_COUNT) / (MAX_QUESTION_COUNT - MIN_QUESTION_COUNT)
+    );
   }, [questionCount]);
 
   const decrement = React.useCallback(() => {
@@ -66,7 +156,10 @@ export default function ReviewTuningModalUI({
       if (sliderWidth <= 0) return;
       const x = Math.max(0, Math.min(sliderWidth, event.nativeEvent.locationX));
       const next =
-        MIN_QUESTION_COUNT + Math.round((x / sliderWidth) * (MAX_QUESTION_COUNT - MIN_QUESTION_COUNT));
+        MIN_QUESTION_COUNT +
+        Math.round(
+          (x / sliderWidth) * (MAX_QUESTION_COUNT - MIN_QUESTION_COUNT)
+        );
       if (next === questionCount) return;
       onChangeQuestionCount(next);
     },
@@ -76,6 +169,43 @@ export default function ReviewTuningModalUI({
   const handleSliderLayout = React.useCallback((event: LayoutChangeEvent) => {
     setSliderWidth(event.nativeEvent.layout.width);
   }, []);
+
+  const toggleQuestionType = React.useCallback(
+    (questionType: ReviewQuestionType) => {
+      const isSelected = selectedQuestionTypes.includes(questionType);
+      if (isSelected && selectedQuestionTypes.length === 1) return;
+      onChangeSelectedQuestionTypes(
+        isSelected
+          ? selectedQuestionTypes.filter((type) => type !== questionType)
+          : [...selectedQuestionTypes, questionType]
+      );
+    },
+    [onChangeSelectedQuestionTypes, selectedQuestionTypes]
+  );
+
+  const selectAllQuestionTypes = React.useCallback(() => {
+    onChangeSelectedQuestionTypes(DEFAULT_REVIEW_QUESTION_TYPES);
+  }, [onChangeSelectedQuestionTypes]);
+
+  const toggleSourceAlbum = React.useCallback(
+    (albumId: string) => {
+      if (!onChangeSelectedSourceAlbumIds) return;
+      if (albumId === 'all') {
+        onChangeSelectedSourceAlbumIds(['all']);
+        return;
+      }
+
+      const withoutAll = selectedSourceAlbumIds.filter((id) => id !== 'all');
+      const isSelected = withoutAll.includes(albumId);
+      const next = isSelected
+        ? withoutAll.filter((id) => id !== albumId)
+        : [...withoutAll, albumId];
+      onChangeSelectedSourceAlbumIds(
+        next.length > 0 ? Array.from(new Set(next)) : ['all']
+      );
+    },
+    [onChangeSelectedSourceAlbumIds, selectedSourceAlbumIds]
+  );
 
   React.useEffect(() => {
     if (visible) {
@@ -123,123 +253,431 @@ export default function ReviewTuningModalUI({
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.rootPressable} onPress={onClose}>
-        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
-        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={[styles.sheet, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
-          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>REVIEW TUNING</Text>
-
-          <View style={styles.counterRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.counterButton,
-                { backgroundColor: palette.modalOptionBg },
-                pressed ? styles.pressableIconPressed : null,
-              ]}
-              onPress={decrement}
+      <View style={styles.root}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+          <Animated.View
+            style={[styles.backdrop, { opacity: backdropOpacity }]}
+          />
+        </Pressable>
+        <Animated.View
+          style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}
+        >
+          <Pressable
+            style={[styles.sheet, { backgroundColor: modalSurface }]}
+            onPress={() => undefined}
+          >
+            <ScrollView
+              style={styles.contentScroll}
+              contentContainerStyle={styles.content}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
             >
-              <Text style={[styles.counterSymbol, { color: palette.textOnContainer }]}>−</Text>
-            </Pressable>
+              <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>
+                {tUI(uiLanguage, 'review.tuningEyebrow')}
+              </Text>
 
-            <View style={[styles.counterValueWrap, { backgroundColor: palette.mutedSurface }]}>
-              <Text style={[styles.counterValue, { color: palette.textOnContainer }]}>{questionCount}</Text>
-              <Text style={[styles.counterLabel, { color: palette.secondaryText }]}>questions</Text>
-            </View>
+              <View style={styles.counterRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.counterButton,
+                    {
+                      backgroundColor: optionSurface,
+                      borderColor: optionBorder,
+                    },
+                    pressed ? styles.pressableIconPressed : null,
+                  ]}
+                  onPress={decrement}
+                >
+                  <Text
+                    style={[
+                      styles.counterSymbol,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    −
+                  </Text>
+                </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.counterButton,
-                { backgroundColor: palette.modalOptionBg },
-                pressed ? styles.pressableIconPressed : null,
-              ]}
-              onPress={increment}
-            >
-              <Text style={[styles.counterSymbol, { color: palette.textOnContainer }]}>＋</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.sliderBlock}>
-            <View
-              style={styles.sliderRailTouch}
-              onLayout={handleSliderLayout}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-              onResponderGrant={updateQuestionCountFromSlider}
-              onResponderMove={updateQuestionCountFromSlider}
-            >
-              <View style={[styles.sliderRail, { backgroundColor: palette.modalOptionBg }]}>
                 <View
                   style={[
-                    styles.sliderFill,
+                    styles.counterValueWrap,
                     {
-                      width: `${sliderProgress * 100}%`,
-                      backgroundColor: MODAL_CTA_COLOR,
+                      backgroundColor: optionSurface,
+                      borderColor: optionBorder,
                     },
                   ]}
-                />
+                >
+                  <Text
+                    style={[
+                      styles.counterValue,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    {questionCount}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.counterLabel,
+                      { color: palette.secondaryText },
+                    ]}
+                  >
+                    {tUI(uiLanguage, 'review.questionsLabel')}
+                  </Text>
+                </View>
+
+                <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.counterButton,
+                    {
+                      backgroundColor: optionSurface,
+                      borderColor: optionBorder,
+                    },
+                    pressed ? styles.pressableIconPressed : null,
+                  ]}
+                  onPress={increment}
+                >
+                  <Text
+                    style={[
+                      styles.counterSymbol,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    ＋
+                  </Text>
+                </Pressable>
               </View>
+
+              <View style={styles.sliderBlock}>
+                <View
+                  style={styles.sliderRailTouch}
+                  onLayout={handleSliderLayout}
+                  onStartShouldSetResponder={() => true}
+                  onMoveShouldSetResponder={() => true}
+                  onResponderGrant={updateQuestionCountFromSlider}
+                  onResponderMove={updateQuestionCountFromSlider}
+                >
+                  <View
+                    style={[
+                      styles.sliderRail,
+                      { backgroundColor: optionBorder },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.sliderFill,
+                        {
+                          width: `${sliderProgress * 100}%`,
+                          backgroundColor: MODAL_CTA_COLOR,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.sliderThumb,
+                      {
+                        left: `${sliderProgress * 100}%`,
+                        backgroundColor: MODAL_CTA_COLOR,
+                      },
+                    ]}
+                  />
+                </View>
+                <View style={styles.sliderBoundsRow}>
+                  <Text
+                    style={[
+                      styles.sliderBoundText,
+                      { color: palette.secondaryText },
+                    ]}
+                  >
+                    {MIN_QUESTION_COUNT}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.sliderBoundText,
+                      { color: palette.secondaryText },
+                    ]}
+                  >
+                    {MAX_QUESTION_COUNT}
+                  </Text>
+                </View>
+              </View>
+
               <View
-                pointerEvents="none"
                 style={[
-                  styles.sliderThumb,
-                  {
-                    left: `${sliderProgress * 100}%`,
-                    backgroundColor: MODAL_CTA_COLOR,
-                  },
+                  styles.sectionDivider,
+                  { backgroundColor: optionBorder },
                 ]}
               />
-            </View>
-            <View style={styles.sliderBoundsRow}>
-              <Text style={[styles.sliderBoundText, { color: palette.secondaryText }]}>{MIN_QUESTION_COUNT}</Text>
-              <Text style={[styles.sliderBoundText, { color: palette.secondaryText }]}>{MAX_QUESTION_COUNT}</Text>
-            </View>
-          </View>
 
-          {onChangeTodayNewWordsOnly ? (
-            <>
-              <View style={[styles.sectionDivider, { backgroundColor: palette.modalOptionBorder }]} />
-              <View
+              <View style={styles.questionTypeHeader}>
+                <Text
+                  style={[
+                    styles.questionTypeTitle,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'review.questionTypes')}
+                </Text>
+                {selectedQuestionTypes.length <
+                DEFAULT_REVIEW_QUESTION_TYPES.length ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.selectAllButton,
+                      pressed ? styles.pressableMediumPressed : null,
+                    ]}
+                    onPress={selectAllQuestionTypes}
+                  >
+                    <Text
+                      style={[styles.selectAllText, { color: MODAL_CTA_COLOR }]}
+                    >
+                      {tUI(uiLanguage, 'review.selectAllQuestionTypes')}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <View style={styles.questionTypeGrid}>
+                {REVIEW_QUESTION_TYPE_OPTIONS.map((option) => {
+                  const presentation = QUESTION_TYPE_PRESENTATION[option.key];
+                  const isSelected = selectedQuestionTypes.includes(option.key);
+                  return (
+                    <Pressable
+                      key={option.key}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: isSelected }}
+                      accessibilityLabel={tUI(
+                        uiLanguage,
+                        presentation.labelKey
+                      )}
+                      style={({ pressed }) => [
+                        styles.questionTypeOption,
+                        {
+                          backgroundColor: isSelected
+                            ? selectedSurface
+                            : optionSurface,
+                          borderColor: isSelected
+                            ? selectedBorder
+                            : optionBorder,
+                        },
+                        pressed ? styles.questionTypeOptionPressed : null,
+                      ]}
+                      onPress={() => toggleQuestionType(option.key)}
+                    >
+                      <Ionicons
+                        name={presentation.icon}
+                        size={18}
+                        color={
+                          isSelected ? MODAL_CTA_COLOR : palette.secondaryText
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.questionTypeOptionText,
+                          {
+                            color: isSelected
+                              ? palette.textOnContainer
+                              : palette.secondaryText,
+                          },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {tUI(uiLanguage, presentation.labelKey)}
+                      </Text>
+                      <Ionicons
+                        name={
+                          isSelected ? 'checkmark-circle' : 'ellipse-outline'
+                        }
+                        size={17}
+                        color={
+                          isSelected
+                            ? MODAL_CTA_COLOR
+                            : optionBorder
+                        }
+                      />
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {sourceAlbums.length > 0 && onChangeSelectedSourceAlbumIds ? (
+                <>
+                  <View
+                    style={[
+                      styles.sectionDivider,
+                      { backgroundColor: optionBorder },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.questionTypeTitle,
+                      { color: palette.textOnContainer },
+                    ]}
+                  >
+                    {tUI(uiLanguage, 'review.sourceAlbums')}
+                  </Text>
+                  <View style={styles.questionTypeGrid}>
+                    {sourceAlbums.map((album) => {
+                      const isSelected = selectedSourceAlbumIds.includes(
+                        album.id
+                      );
+                      return (
+                        <Pressable
+                          key={album.id}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isSelected }}
+                          accessibilityLabel={album.label}
+                          style={({ pressed }) => [
+                            styles.questionTypeOption,
+                            {
+                              backgroundColor: isSelected
+                                ? selectedSurface
+                                : optionSurface,
+                              borderColor: isSelected
+                                ? selectedBorder
+                                : optionBorder,
+                            },
+                            pressed ? styles.questionTypeOptionPressed : null,
+                          ]}
+                          onPress={() => toggleSourceAlbum(album.id)}
+                        >
+                          <View
+                            style={[
+                              styles.sourceAlbumPreview,
+                              {
+                                backgroundColor:
+                                  album.color || palette.modalOptionBg,
+                              },
+                            ]}
+                          >
+                            {album.coverImageUri ? (
+                              <Image
+                                source={{ uri: album.coverImageUri }}
+                                style={styles.sourceAlbumCover}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Text style={styles.sourceAlbumEmoji}>
+                                {album.emoji || '📁'}
+                              </Text>
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.questionTypeOptionText,
+                              {
+                                color: isSelected
+                                  ? palette.textOnContainer
+                                  : palette.secondaryText,
+                              },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {album.label}
+                          </Text>
+                          <Ionicons
+                            name={
+                              isSelected
+                                ? 'checkmark-circle'
+                                : 'ellipse-outline'
+                            }
+                            size={17}
+                            color={
+                              isSelected
+                                ? MODAL_CTA_COLOR
+                                : optionBorder
+                            }
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+
+              {onChangeTodayNewWordsOnly ? (
+                <>
+                  <View
+                    style={[
+                      styles.sectionDivider,
+                      { backgroundColor: optionBorder },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.toggleRow,
+                      {
+                        backgroundColor: optionSurface,
+                        borderColor: optionBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.toggleCopy}>
+                      <Text
+                        style={[
+                          styles.toggleLabel,
+                          { color: palette.textOnContainer },
+                        ]}
+                      >
+                        {tUI(uiLanguage, 'review.todayNewWordsOnly')}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={todayNewWordsOnly}
+                      onValueChange={onChangeTodayNewWordsOnly}
+                      trackColor={{
+                        false: optionBorder,
+                        true: MODAL_CTA_COLOR,
+                      }}
+                      thumbColor={TEXT_ON_CTA}
+                      ios_backgroundColor={optionBorder}
+                    />
+                  </View>
+                </>
+              ) : null}
+            </ScrollView>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.doneButton,
+                {
+                  backgroundColor: isDarkMode
+                    ? palette.modalSecondaryButtonBg
+                    : optionSurface,
+                  borderColor: optionBorder,
+                },
+                pressed ? styles.pressablePrimaryPressed : null,
+              ]}
+              onPress={onClose}
+            >
+              <Text
                 style={[
-                  styles.toggleRow,
+                  styles.doneText,
                   {
-                    backgroundColor: palette.mutedSurface,
-                    borderColor: palette.modalOptionBorder,
+                    color: isDarkMode
+                      ? palette.modalSecondaryButtonText
+                      : palette.textOnContainer,
                   },
                 ]}
               >
-                <View style={styles.toggleCopy}>
-                  <Text style={[styles.toggleLabel, { color: palette.textOnContainer }]}>Today&apos;s new words only</Text>
-                </View>
-                <Switch
-                  value={todayNewWordsOnly}
-                  onValueChange={onChangeTodayNewWordsOnly}
-                  trackColor={{ false: palette.modalOptionBg, true: MODAL_CTA_COLOR }}
-                  thumbColor={TEXT_ON_CTA}
-                  ios_backgroundColor={palette.modalOptionBg}
-                />
-              </View>
-            </>
-          ) : null}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.doneButton,
-              { backgroundColor: palette.modalSecondaryButtonBg },
-              pressed ? styles.pressablePrimaryPressed : null,
-            ]}
-            onPress={onClose}
-          >
-            <Text style={[styles.doneText, { color: palette.modalSecondaryButtonText }]}>Done</Text>
-          </Pressable>
+                {tUI(uiLanguage, 'common.done')}
+              </Text>
+            </Pressable>
           </Pressable>
         </Animated.View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  rootPressable: {
+  root: {
     flex: 1,
   },
   backdrop: {
@@ -258,6 +696,16 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 22,
     gap: 16,
+    maxHeight: '92%',
+    flexShrink: 1,
+  },
+  contentScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  content: {
+    gap: 16,
+    paddingBottom: 2,
   },
   eyebrow: {
     color: '#8D93A1',
@@ -279,6 +727,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
+    borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -291,6 +740,7 @@ const styles = StyleSheet.create({
   counterValueWrap: {
     flex: 1,
     borderRadius: 20,
+    borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.08)',
     paddingVertical: 18,
     alignItems: 'center',
@@ -346,6 +796,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  sourceAlbumEmoji: {
+    fontSize: 17,
+    textAlign: 'center',
+  },
+  sourceAlbumPreview: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sourceAlbumCover: {
+    width: '100%',
+    height: '100%',
+  },
   toggleRow: {
     borderRadius: 18,
     borderWidth: 1,
@@ -363,9 +829,57 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  questionTypeHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  questionTypeTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  selectAllButton: {
+    minHeight: 28,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectAllText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  questionTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  questionTypeOption: {
+    minHeight: 54,
+    flexBasis: '48%',
+    flexGrow: 1,
+    maxWidth: '49%',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  questionTypeOptionPressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
+  },
+  questionTypeOptionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
   doneButton: {
     marginTop: 4,
     borderRadius: BUTTON_TOKENS.radius.lg,
+    borderWidth: 1,
     backgroundColor: '#FFFFFF',
     minHeight: BUTTON_TOKENS.height.prominent,
     alignItems: 'center',
@@ -381,11 +895,11 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.985 }],
   },
   pressableMediumPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.96 }],
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
   },
   pressableIconPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.94 }],
+    opacity: 0.96,
+    transform: [{ scale: 0.985 }],
   },
 });

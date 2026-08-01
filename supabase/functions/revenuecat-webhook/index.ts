@@ -91,7 +91,8 @@ Deno.serve(async (req: Request) => {
     console.error('[revenuecat-webhook] failed:', error);
     return jsonResponse(
       {
-        error: error instanceof Error ? error.message : 'RevenueCat webhook sync failed',
+        error: 'RevenueCat webhook sync failed',
+        reason: 'webhook_sync_failed',
       },
       500
     );

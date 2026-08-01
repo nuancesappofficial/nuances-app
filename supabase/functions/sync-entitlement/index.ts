@@ -1,6 +1,5 @@
 import {
   createServiceRoleClient,
-  ensureServerTrialEnrollment,
   resolveServerEntitlement,
   syncRevenueCatSubscriptionToSupabase,
 } from '../_shared/entitlement.ts';
@@ -38,7 +37,6 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabase = createServiceRoleClient();
-    await ensureServerTrialEnrollment({ supabase, userId });
     await syncRevenueCatSubscriptionToSupabase({ supabase, userId });
     const snapshot = await resolveServerEntitlement({ supabase, userId, user });
     return jsonResponse(snapshot);
@@ -46,7 +44,8 @@ Deno.serve(async (req: Request) => {
     console.error('[sync-entitlement] failed:', error);
     return jsonResponse(
       {
-        error: error instanceof Error ? error.message : 'sync-entitlement failed',
+        error: 'sync-entitlement failed',
+        reason: 'entitlement_sync_failed',
       },
       500
     );

@@ -1,11 +1,22 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useColorScheme } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  useColorScheme,
+} from 'react-native';
+import { tUI } from '../../../i18n/uiLanguage';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { resolveThemeColors } from '../../../theme/colors';
+import type { UILanguage } from '../../../services/settings/userSettings';
 
 type Props = {
   visible: boolean;
   title: string;
+  uiLanguage: UILanguage;
   onClose: () => void;
   onDelete: () => void;
 };
@@ -15,11 +26,22 @@ const MODAL_ENTRY_DURATION_MS = 360;
 const MODAL_BACKDROP_DURATION_MS = 240;
 const MODAL_EXIT_DURATION_MS = 220;
 
-export default function CardActionModalUI({ visible, title, onClose, onDelete }: Props) {
+export default function CardActionModalUI({
+  visible,
+  title,
+  uiLanguage,
+  onClose,
+  onDelete,
+}: Props) {
   const colorScheme = useColorScheme();
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const [shouldRender, setShouldRender] = React.useState(visible);
-  const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
+  const entranceY = React.useRef(
+    new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)
+  ).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -69,31 +91,67 @@ export default function CardActionModalUI({ visible, title, onClose, onDelete }:
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.rootPressable} onPress={onClose}>
-        <Animated.View style={[styles.sortModalOverlay, { opacity: backdropOpacity }]} />
-        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
-          <Pressable style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
-          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>CARD OPTIONS</Text>
-          <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>{title}</Text>
+        <Animated.View
+          style={[styles.sortModalOverlay, { opacity: backdropOpacity }]}
+        />
+        <Animated.View
+          style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}
+        >
           <Pressable
-            style={({ pressed }) => [
-              styles.deleteOptionBtn,
-              { backgroundColor: palette.destructiveBg, borderColor: palette.destructiveBorder },
-              pressed ? styles.optionBtnPressed : null,
-            ]}
-            onPress={onDelete}
+            style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]}
+            onPress={() => undefined}
           >
-            <Text style={[styles.deleteOptionText, { color: palette.destructiveText }]}>刪掉卡片</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.cancelOptionBtn,
-              { backgroundColor: palette.modalSecondaryButtonBg, borderColor: palette.modalOptionBorder },
-              pressed ? styles.optionBtnPressed : null,
-            ]}
-            onPress={onClose}
-          >
-            <Text style={[styles.cancelOptionText, { color: palette.modalSecondaryButtonText }]}>取消</Text>
-          </Pressable>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>
+              {tUI(uiLanguage, 'cardAction.eyebrow')}
+            </Text>
+            <Text
+              style={[
+                styles.sortModalTitle,
+                { color: palette.textOnContainer },
+              ]}
+            >
+              {title}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.deleteOptionBtn,
+                {
+                  backgroundColor: palette.destructiveBg,
+                  borderColor: palette.destructiveBorder,
+                },
+                pressed ? styles.optionBtnPressed : null,
+              ]}
+              onPress={onDelete}
+            >
+              <Text
+                style={[
+                  styles.deleteOptionText,
+                  { color: palette.destructiveText },
+                ]}
+              >
+                {tUI(uiLanguage, 'cardAction.delete')}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.cancelOptionBtn,
+                {
+                  backgroundColor: palette.modalSecondaryButtonBg,
+                  borderColor: palette.modalOptionBorder,
+                },
+                pressed ? styles.optionBtnPressed : null,
+              ]}
+              onPress={onClose}
+            >
+              <Text
+                style={[
+                  styles.cancelOptionText,
+                  { color: palette.modalSecondaryButtonText },
+                ]}
+              >
+                {tUI(uiLanguage, 'common.cancel')}
+              </Text>
+            </Pressable>
           </Pressable>
         </Animated.View>
       </Pressable>

@@ -119,6 +119,8 @@ export type AppVersionPolicy = {
   platform: AppVersionPlatform;
   latest_version: string;
   minimum_supported_version: string;
+  latest_build_number: number | null;
+  minimum_supported_build_number: number | null;
   update_url: string | null;
   required: boolean;
   message_title: string | null;
@@ -130,6 +132,8 @@ export type AppVersionPolicyInsert = {
   platform: AppVersionPlatform;
   latest_version: string;
   minimum_supported_version: string;
+  latest_build_number?: number | null;
+  minimum_supported_build_number?: number | null;
   update_url?: string | null;
   required?: boolean;
   message_title?: string | null;
@@ -198,6 +202,10 @@ export type Card = {
   original_sentence: string;
   definition: string;
   contextual_explanation: string | null;
+  semantic_relations: {
+    synonyms: Array<{ term: string; translation?: string }>;
+    antonyms: Array<{ term: string; translation?: string }>;
+  } | null;
   phonetic_transcription: string | null;
   reference_audio_url: string | null;
   difficulty_level: number | null;

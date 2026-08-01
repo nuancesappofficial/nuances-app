@@ -4,10 +4,14 @@ export type CompletedCard = {
   word: string;
   displayWord: string;
   targetPhrase?: string;
+  typoSuggestion?: string;
+  typoReason?: string;
+  typoDecision?: 'accepted' | 'rejected';
   partOfSpeech: string;
   definition: string;
   cultural: string;
   collocationsText: string;
+  semanticRelationsText: string;
   note: string;
   phoneticTranscription?: string | null;
   sourceSentence: string;
@@ -26,6 +30,7 @@ export type PreviewRevealState = {
   showFrontSentence: boolean;
   showFrontTranslation: boolean;
   showBackCollocation: boolean;
+  showBackSemanticRelations: boolean;
   showBackExample: boolean;
   showBackCultural: boolean;
   showBackNote: boolean;

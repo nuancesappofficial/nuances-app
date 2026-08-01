@@ -19,10 +19,12 @@ import {
   type AIReplyLanguage,
   type TTSVoice,
   type WordPopSlideMs,
+  type UILanguage,
 } from '@services/settings/userSettings';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, resolveThemeColors } from '../../../theme/colors';
-import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../../../constants/legalLinks';
+import { APP_STORE_REVIEW_URL, PRIVACY_POLICY_URL, SUPPORT_EMAIL, TERMS_OF_SERVICE_URL } from '../../../constants/legalLinks';
+import { tUI } from '../../../i18n/uiLanguage';
 
 const AI_LANGUAGE_OPTIONS: Array<{ code: AIReplyLanguage; label: string }> = [
   { code: 'zh-TW', label: '繁中' },
@@ -52,7 +54,7 @@ const WORD_POP_SLIDE_OPTIONS: Array<{ value: WordPopSlideMs; label: string }> = 
   { value: 4200, label: '4.2s' },
   { value: 5200, label: '5.2s' },
 ];
-
+const APPLE_SUBSCRIPTION_MANAGEMENT_URL = 'https://apps.apple.com/account/subscriptions';
 type Props = {
   visible: boolean;
   renderAsStaticPage?: boolean;
@@ -61,6 +63,7 @@ type Props = {
   ttsVoiceLanguage: AIReplyLanguage;
   ttsVoice: TTSVoice;
   wordPopSlideMs: WordPopSlideMs;
+  uiLanguage: UILanguage;
   onClose: () => void;
   onPressUploadProfilePic: () => void;
   onChangeAIReplyLanguage: (language: AIReplyLanguage) => void;
@@ -81,6 +84,7 @@ export default function ProfileSettingsModalUI({
   ttsVoiceLanguage,
   ttsVoice,
   wordPopSlideMs,
+  uiLanguage,
   onClose,
   onPressUploadProfilePic,
   onChangeAIReplyLanguage,
@@ -167,19 +171,54 @@ export default function ProfileSettingsModalUI({
     () => WORD_POP_SLIDE_OPTIONS.find((option) => option.value === wordPopSlideMs)?.label ?? '2.6s',
     [wordPopSlideMs]
   );
+  const localizedMembershipLabel = React.useMemo(() => {
+    if (membershipLabel === 'Trial') return tUI(uiLanguage, 'common.trial');
+    if (membershipLabel === 'Premium') return tUI(uiLanguage, 'common.premium');
+    return tUI(uiLanguage, 'common.free');
+  }, [membershipLabel, uiLanguage]);
 
   const openLegalLink = React.useCallback(async (url: string) => {
     try {
       await Linking.openURL(url);
     } catch (error) {
       console.warn('[ProfileSettings] failed to open legal link:', error);
-      Alert.alert('Unable to open link.');
+      Alert.alert(tUI(uiLanguage, 'common.unableToOpenLink'));
     }
-  }, []);
+  }, [uiLanguage]);
+
+  const openSubscriptionManagement = React.useCallback(async () => {
+    try {
+      await Linking.openURL(APPLE_SUBSCRIPTION_MANAGEMENT_URL);
+    } catch (error) {
+      console.warn('[ProfileSettings] failed to open subscription management:', error);
+      Alert.alert(tUI(uiLanguage, 'common.unableToOpenLink'));
+    }
+  }, [uiLanguage]);
+
+  const openAppStoreReview = React.useCallback(async () => {
+    try {
+      await Linking.openURL(APP_STORE_REVIEW_URL);
+    } catch (error) {
+      console.warn('[ProfileSettings] failed to open App Store review:', error);
+      Alert.alert(tUI(uiLanguage, 'common.unableToOpenLink'));
+    }
+  }, [uiLanguage]);
+
+  const openDeveloperMessage = React.useCallback(async () => {
+    const subject = encodeURIComponent(tUI(uiLanguage, 'profile.feedbackEmailSubject'));
+    const body = encodeURIComponent(tUI(uiLanguage, 'profile.feedbackEmailBody'));
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn('[ProfileSettings] failed to open feedback email:', error);
+      Alert.alert(tUI(uiLanguage, 'common.unableToOpenLink'));
+    }
+  }, [uiLanguage]);
 
   const renderLanguageDropdown = () => (
     <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Language</Text>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'settings.title.language')}</Text>
       <TouchableOpacity
         style={[
           styles.languageDropdownTrigger,
@@ -233,7 +272,7 @@ export default function ProfileSettingsModalUI({
 
   const renderMembershipInfo = () => (
     <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Membership</Text>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.membership')}</Text>
       <View
         style={[
           styles.languageDropdownTrigger,
@@ -241,19 +280,40 @@ export default function ProfileSettingsModalUI({
           { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
         ]}
       >
-        <View style={styles.membershipInfoTextWrap}>
-          <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{membershipLabel}</Text>
-          <Text style={[styles.membershipInfoCaption, { color: palette.secondaryText }]}>
-            Manage upgrades from the main settings page.
-          </Text>
+          <View style={styles.membershipInfoTextWrap}>
+            <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{localizedMembershipLabel}</Text>
+            <Text style={[styles.membershipInfoCaption, { color: palette.secondaryText }]}>
+            {tUI(uiLanguage, 'profile.settingsSubtitle')}
+            </Text>
+          </View>
         </View>
-      </View>
+        {membershipLabel === 'Premium' || membershipLabel === 'Trial' ? (
+          <TouchableOpacity
+            style={[
+              styles.languageDropdownTrigger,
+              styles.legalLinkRow,
+              { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+            ]}
+            activeOpacity={0.9}
+            onPress={() => void openSubscriptionManagement()}
+          >
+            <View style={styles.membershipInfoTextWrap}>
+              <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>
+                {tUI(uiLanguage, 'settings.membership.manageSubscription')}
+              </Text>
+              <Text style={[styles.membershipInfoCaption, { color: palette.secondaryText }]}>
+                {tUI(uiLanguage, 'settings.membership.manageSubscriptionMeta')}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
+          </TouchableOpacity>
+        ) : null}
     </View>
   );
 
   const renderLegalLinks = () => (
     <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Legal</Text>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.legal')}</Text>
       <TouchableOpacity
         style={[
           styles.languageDropdownTrigger,
@@ -262,7 +322,7 @@ export default function ProfileSettingsModalUI({
         activeOpacity={0.9}
         onPress={() => void openLegalLink(PRIVACY_POLICY_URL)}
       >
-        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>Privacy Policy</Text>
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.privacyPolicy')}</Text>
         <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
       </TouchableOpacity>
       <TouchableOpacity
@@ -274,8 +334,44 @@ export default function ProfileSettingsModalUI({
         activeOpacity={0.9}
         onPress={() => void openLegalLink(TERMS_OF_SERVICE_URL)}
       >
-        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>Terms of Service</Text>
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.termsOfService')}</Text>
         <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderFeedbackLinks = () => (
+    <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
+      <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.feedback')}</Text>
+      <TouchableOpacity
+        style={[
+          styles.languageDropdownTrigger,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
+        activeOpacity={0.9}
+        onPress={() => void openAppStoreReview()}
+      >
+        <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.rateApp')}</Text>
+        <Ionicons name="star-outline" size={18} color={palette.secondaryText} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.languageDropdownTrigger,
+          styles.legalLinkRow,
+          { backgroundColor: palette.modalOptionBg, borderColor: palette.modalOptionBorder },
+        ]}
+        activeOpacity={0.9}
+        onPress={() => void openDeveloperMessage()}
+      >
+        <View style={styles.membershipInfoTextWrap}>
+          <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>
+            {tUI(uiLanguage, 'profile.messageDeveloper')}
+          </Text>
+          <Text style={[styles.membershipInfoCaption, { color: palette.secondaryText }]}>
+            {tUI(uiLanguage, 'profile.messageDeveloperMeta')}
+          </Text>
+        </View>
+        <Ionicons name="mail-outline" size={18} color={palette.secondaryText} />
       </TouchableOpacity>
     </View>
   );
@@ -288,20 +384,20 @@ export default function ProfileSettingsModalUI({
             <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: palette.mutedSurface }]} activeOpacity={0.85} onPress={onClose}>
               <Ionicons name="chevron-back" size={24} color={palette.textOnBg} />
             </TouchableOpacity>
-            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>PROFILE</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.membership')}</Text>
             <View style={styles.headerIconBtnGhost} />
           </View>
 
-          <Text style={[styles.title, { color: palette.textOnBg }]}>Settings</Text>
-          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Personalize your profile and AI response language.</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>{tUI(uiLanguage, 'profile.settingsTitle')}</Text>
+          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.settingsSubtitle')}</Text>
 
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
-            <Text style={styles.primaryButtonText}>Upload profile pic</Text>
+            <Text style={styles.primaryButtonText}>{tUI(uiLanguage, 'profile.uploadProfilePic')}</Text>
           </TouchableOpacity>
           {renderMembershipInfo()}
           {renderLanguageDropdown()}
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.voice')}</Text>
             <TouchableOpacity
               style={[
                 styles.languageDropdownTrigger,
@@ -353,7 +449,7 @@ export default function ProfileSettingsModalUI({
             ) : null}
           </View>
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Word Pop Slide Interval</Text>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'settings.main.wordPop')}</Text>
             <TouchableOpacity
               style={[
                 styles.languageDropdownTrigger,
@@ -403,6 +499,7 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
+          {renderFeedbackLinks()}
           {renderLegalLinks()}
         </SafeAreaView>
       </View>
@@ -432,20 +529,20 @@ export default function ProfileSettingsModalUI({
             <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: palette.mutedSurface }]} activeOpacity={0.85} onPress={onClose}>
               <Ionicons name="chevron-back" size={24} color={palette.textOnBg} />
             </TouchableOpacity>
-            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>PROFILE</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.membership')}</Text>
             <View style={styles.headerIconBtnGhost} />
           </View>
 
-          <Text style={[styles.title, { color: palette.textOnBg }]}>Settings</Text>
-          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>Personalize your profile and AI response language.</Text>
+          <Text style={[styles.title, { color: palette.textOnBg }]}>{tUI(uiLanguage, 'profile.settingsTitle')}</Text>
+          <Text style={[styles.subtitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.settingsSubtitle')}</Text>
 
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.9} onPress={onPressUploadProfilePic}>
-            <Text style={styles.primaryButtonText}>Upload profile pic</Text>
+            <Text style={styles.primaryButtonText}>{tUI(uiLanguage, 'profile.uploadProfilePic')}</Text>
           </TouchableOpacity>
           {renderMembershipInfo()}
           {renderLanguageDropdown()}
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Voice</Text>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'profile.voice')}</Text>
             <TouchableOpacity
               style={[
                 styles.languageDropdownTrigger,
@@ -497,7 +594,7 @@ export default function ProfileSettingsModalUI({
             ) : null}
           </View>
           <View style={[styles.languageSection, { backgroundColor: palette.mutedSurface }]}>
-            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>Word Pop Slide Interval</Text>
+            <Text style={[styles.languageTitle, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'settings.main.wordPop')}</Text>
             <TouchableOpacity
               style={[
                 styles.languageDropdownTrigger,
@@ -547,6 +644,7 @@ export default function ProfileSettingsModalUI({
               </View>
             ) : null}
           </View>
+          {renderFeedbackLinks()}
           {renderLegalLinks()}
         </SafeAreaView>
       </Animated.View>

@@ -14,6 +14,7 @@ type Props = {
   onMomentumScrollEnd: (event: any) => void;
   snapInterval: number;
   sidePadding: number;
+  horizontalScrollEnabled?: boolean;
 };
 
 export default function CardDetailCarouselUI({
@@ -27,6 +28,7 @@ export default function CardDetailCarouselUI({
   onMomentumScrollEnd,
   snapInterval,
   sidePadding,
+  horizontalScrollEnabled = true,
 }: Props) {
   return (
     <View style={styles.stageSection}>
@@ -37,7 +39,7 @@ export default function CardDetailCarouselUI({
           extraData={extraData}
           keyExtractor={(item) => item.id}
           horizontal
-          scrollEnabled
+          scrollEnabled={horizontalScrollEnabled}
           showsHorizontalScrollIndicator={false}
           snapToInterval={snapInterval}
           snapToAlignment="start"
@@ -60,6 +62,7 @@ export default function CardDetailCarouselUI({
           renderItem={renderItem}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
+          onScrollEndDrag={onMomentumScrollEnd}
           onMomentumScrollEnd={onMomentumScrollEnd}
         />
       </View>

@@ -2,7 +2,6 @@
 // This version works in Expo Go by using mock data instead of WatermelonDB
 
 import { StatusBar } from 'expo-status-bar';
-import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import {
   Animated,
@@ -17,10 +16,10 @@ import {
   Image,
   useColorScheme,
   useWindowDimensions,
+  Platform,
   type LayoutChangeEvent,
-  type AppStateStatus,
 } from 'react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -41,36 +40,104 @@ import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import { AppTourProvider } from './src/contexts/AppTourContext';
 import {
-  completeOAuthFromUrl,
-  getCurrentUser,
   getCurrentSession,
+  signIn,
   signInWithApple,
   signInWithGoogle,
   signOut,
   supabase,
 } from './src/services/supabase/client';
 import { enforceLocalDataScopeForUser } from './src/services/auth/localDataScope';
+import { resetFreshTestAccount } from './src/features/auth/freshTestAccount';
+import {
+  beginFreshTestAccountReset,
+  finishFreshTestAccountReset,
+  waitForFreshTestAccountReset,
+} from './src/features/auth/freshTestAccountGate';
 import SubscriptionService from './src/services/subscription/SubscriptionService';
+import ReminderNotificationService from './src/services/notifications/ReminderNotificationService';
+import TipNotificationService from './src/services/notifications/TipNotificationService';
+import TrialNotificationService from './src/services/notifications/TrialNotificationService';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
+import { syncIfNeeded } from './src/services/sync';
 import {
   loadUserSettings,
+  hasStoredUserSettings,
+  getAIReplyLanguageForUILanguage,
+  getNativeUILanguageFromDevice,
   normalizeAIBreakdownMode,
   normalizeLearningLanguages,
+  normalizeNativeUILanguage,
   saveUserSettings,
 } from './src/services/settings/userSettings';
 import { prepareOCRLanguagesForLearningLanguages } from './src/services/ocr/languagePacks';
 import { installUserMistakeAlertLogger } from './src/services/logging/userMistakeLog';
+import { logDiagnosticEvent } from './src/services/logging/diagnosticsLog';
+import { traceFirstRun } from './src/services/logging/firstRunTraceRuntime';
+import { analytics } from './src/services/analytics';
+import { processPendingCardImageUploads } from './src/services/cards/cardImageCloudQueue';
 import { SCREEN_BG, resolveThemeColors } from './src/theme/colors';
 import { tUI } from './src/i18n/uiLanguage';
+import { setAppGroupActiveUserId } from './src/native/SharedDefaultsModule';
+import {
+  clearTourSeenLocally,
+  hasSeenTourLocally,
+  markTourSeenLocally,
+} from './src/features/tour/tourSeen';
+import { clearDefaultExperienceCardSeen } from './src/features/cache/defaultExperienceCard';
+import {
+  INTERNAL_TESTER_TOOLS_ENABLED,
+  VIDEO_TOUR_ENABLED,
+} from './src/features/tour/tourMode';
+import {
+  advanceFirstRunJourney,
+  createFirstRunJourney,
+} from './src/features/tour/firstRunJourney';
+import TourMotionLab from './src/screens/dev/TourMotionLab';
+import {
+  createHiddenSignInCurtain,
+  transitionSignInCurtain,
+} from './src/features/auth/signInCurtain';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
-WebBrowser.maybeCompleteAuthSession();
 installUserMistakeAlertLogger();
+void ReminderNotificationService.configure();
 const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
 const DEV_RESET_ONBOARDING_URL = `${AUTH_REDIRECT_SCHEME}://dev/reset-onboarding`;
+const DEV_SKIP_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/skip-tour`;
+const DEV_TOUR_MOTION_LAB_URL = `${AUTH_REDIRECT_SCHEME}://dev/tour-motion-lab`;
+const DEV_REPLAY_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/replay-tour`;
+const DEV_REPLAY_VIDEO_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/replay-video-tour`;
+
+type VideoTourFlowComponent = typeof import('./src/screens/flow/VideoTourFlow').default;
+let loadedVideoTourFlow: VideoTourFlowComponent | null = null;
+let videoTourLoadFailed = false;
+
+function getVideoTourFlow(): VideoTourFlowComponent {
+  if (!loadedVideoTourFlow) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      loadedVideoTourFlow = require('./src/screens/flow/VideoTourFlow').default as VideoTourFlowComponent;
+    } catch (error) {
+      console.warn('[VideoTour] failed to load video tutorial:', error);
+      throw error;
+    }
+  }
+  return loadedVideoTourFlow;
+}
+
+function tryGetVideoTourFlow(): VideoTourFlowComponent | null {
+  if (videoTourLoadFailed) return null;
+  try {
+    return getVideoTourFlow();
+  } catch {
+    videoTourLoadFailed = true;
+    return null;
+  }
+}
 
 function ShareExtensionSync({
   userId,
@@ -97,12 +164,23 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   }
 }
 
+const STARTUP_REMOTE_GATE_TIMEOUT_MS = 5000;
+const STARTUP_LOCAL_SCOPE_TIMEOUT_MS = 10000;
+const NATIVE_BRIDGE_TIMEOUT_MS = 3000;
+const STARTUP_WATCHDOG_TIMEOUT_MS = 15000;
+
 async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('onboarding_completed')
-    .eq('id', nextUserId)
-    .maybeSingle();
+  const { data, error } = await withTimeout(
+    Promise.resolve(
+      supabase
+        .from('profiles')
+        .select('onboarding_completed')
+        .eq('id', nextUserId)
+        .maybeSingle()
+    ),
+    STARTUP_REMOTE_GATE_TIMEOUT_MS,
+    'checkOnboardingStatus'
+  );
 
   if (error) {
     console.warn('[Onboarding] status lookup failed:', error.message);
@@ -112,10 +190,33 @@ async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
   return data?.onboarding_completed === true;
 }
 
+async function shouldShowVideoTour(nextUserId: string): Promise<boolean> {
+  if (!VIDEO_TOUR_ENABLED) return false;
+  if (await hasSeenTourLocally(nextUserId)) return false;
+  const { data, error } = await withTimeout(
+    Promise.resolve(
+      supabase
+        .from('profiles')
+        .select('has_seen_tour')
+        .eq('id', nextUserId)
+        .maybeSingle()
+    ),
+    STARTUP_REMOTE_GATE_TIMEOUT_MS,
+    'shouldShowVideoTour'
+  );
+
+  if (error) {
+    console.warn('[VideoTour] status lookup failed:', error.message);
+    return false;
+  }
+
+  return data?.has_seen_tour !== true;
+}
+
 async function syncProfileSettingsToLocal(nextUserId: string): Promise<void> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('ai_breakdown_mode, target_language')
+    .select('ai_breakdown_mode, target_language, native_language')
     .eq('id', nextUserId)
     .maybeSingle();
 
@@ -124,17 +225,53 @@ async function syncProfileSettingsToLocal(nextUserId: string): Promise<void> {
     return;
   }
 
-  if (!data?.ai_breakdown_mode && !data?.target_language) return;
+  if (!data?.ai_breakdown_mode && !data?.target_language && !data?.native_language) return;
   const normalizedMode = normalizeAIBreakdownMode(data.ai_breakdown_mode);
   const normalizedLearningLanguages = normalizeLearningLanguages(data.target_language);
+  const hasLocalSettings = await hasStoredUserSettings();
   const settings = await loadUserSettings();
+  const profileUILanguage = data.native_language
+    ? normalizeNativeUILanguage(data.native_language)
+    : null;
+  const resolvedUILanguage = hasLocalSettings
+    ? settings.uiLanguage
+    : profileUILanguage || settings.uiLanguage;
+  const resolvedAIReplyLanguage = getAIReplyLanguageForUILanguage(resolvedUILanguage);
   const shouldUpdateMode = settings.personalization.aiBreakdownMode !== normalizedMode;
   const shouldUpdateLearningLanguages =
     normalizedLearningLanguages.join(',') !== settings.learningLanguages.join(',');
-  if (!shouldUpdateMode && !shouldUpdateLearningLanguages) return;
+  const shouldUpdateNativeLanguage =
+    settings.uiLanguage !== resolvedUILanguage ||
+    settings.aiReplyLanguage !== resolvedAIReplyLanguage;
+  if (!shouldUpdateMode && !shouldUpdateLearningLanguages && !shouldUpdateNativeLanguage) {
+    void prepareOCRLanguagesForLearningLanguages(
+      settings.imageTextLanguages,
+      settings.imageTextLanguageMode
+    );
+    if (profileUILanguage !== settings.uiLanguage) {
+      void supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: nextUserId,
+            native_language: settings.uiLanguage,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        )
+        .then(({ error: syncError }) => {
+          if (syncError) {
+            console.warn('[Settings] profile language repair failed:', syncError.message);
+          }
+        });
+    }
+    return;
+  }
 
   const nextSettings = {
     ...settings,
+    uiLanguage: resolvedUILanguage,
+    aiReplyLanguage: resolvedAIReplyLanguage,
     learningLanguages: normalizedLearningLanguages,
     personalization: {
       ...settings.personalization,
@@ -142,20 +279,83 @@ async function syncProfileSettingsToLocal(nextUserId: string): Promise<void> {
     },
   };
   await saveUserSettings(nextSettings);
-  void prepareOCRLanguagesForLearningLanguages(normalizedLearningLanguages);
+  if (profileUILanguage !== resolvedUILanguage) {
+    void supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: nextUserId,
+          native_language: resolvedUILanguage,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      )
+      .then(({ error: syncError }) => {
+        if (syncError) {
+          console.warn('[Settings] profile language repair failed:', syncError.message);
+        }
+      });
+  }
+  void prepareOCRLanguagesForLearningLanguages(
+    nextSettings.imageTextLanguages,
+    nextSettings.imageTextLanguageMode
+  );
+}
+
+function triggerBackgroundCardSync(reason: 'startup' | 'auth' | 'foreground') {
+  const work = syncIfNeeded({
+    maxAgeMs: reason === 'foreground' ? 2 * 60 * 1000 : 15 * 1000,
+    maxAttempts: 2,
+  });
+  return work
+    .then((result) => {
+      if (!result.success) {
+        console.warn(`[Sync] ${reason} sync failed:`, result.message || result.error);
+      }
+      return result.success;
+    })
+    .catch((error) => {
+      console.warn(`[Sync] ${reason} sync crashed:`, error);
+      return false;
+    });
+}
+
+function triggerBackgroundAccountRefresh(
+  userId: string,
+  reason: 'startup' | 'auth'
+): void {
+  void SubscriptionService.syncEntitlements(userId)
+    .catch((error) => {
+      console.warn(`[Subscription] ${reason} background refresh failed:`, error);
+    });
+  void syncProfileSettingsToLocal(userId).catch((error) => {
+    console.warn(`[Settings] ${reason} background refresh failed:`, error);
+  });
+  void ReminderNotificationService.evaluateAndSchedule({
+    allowSoftPrompt: false,
+    markAppActive: true,
+  }).catch((error) => {
+    console.warn(`[Reminders] ${reason} schedule failed:`, error);
+  });
+  void TipNotificationService.reconcile().catch((error) => {
+    console.warn(`[Tips] ${reason} schedule failed:`, error);
+  });
 }
 
 function AuthGate({
   onPressGoogle,
   onPressApple,
+  onPressTestAccount,
   loading,
 }: {
   onPressGoogle: () => void;
   onPressApple: () => void;
+  onPressTestAccount?: () => void;
   loading: boolean;
 }) {
   const colorScheme = useColorScheme();
   const isLight = colorScheme === 'light';
+  const uiLanguage = getNativeUILanguageFromDevice();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [heroHeight, setHeroHeight] = React.useState<number>(windowHeight);
@@ -324,31 +524,51 @@ function AuthGate({
 
         <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }, authTitleAnimatedStyle]}>
           <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
+          {__DEV__ && onPressTestAccount ? (
+            <LightPressable
+              style={[styles.devTestAccountButton, loading && styles.googleButtonDisabled]}
+              onPress={onPressTestAccount}
+              disabled={loading}
+              pressedScale={0.98}
+              pressedOpacity={0.9}
+            >
+              <Ionicons name="flask-outline" size={15} color="#D9F1FF" />
+              <Text style={styles.devTestAccountButtonText}>
+                {loading ? 'Connecting…' : 'Fresh Test Account (Dev)'}
+              </Text>
+            </LightPressable>
+          ) : null}
         </Animated.View>
 
         <Animated.View style={[styles.authActionStack, authActionsAnimatedStyle]} onLayout={handleActionStackLayout}>
-          <LightPressable
-            style={[styles.googleButton, loading && styles.googleButtonDisabled]}
-            onPress={onPressApple}
-            disabled={loading}
-            pressedScale={0.985}
-            pressedOpacity={0.96}
-          >
-            <View
-              style={[
-                styles.appleButtonSurface,
-                {
-                  backgroundColor: isLight ? '#FFFFFF' : '#F8FAFC',
-                  borderColor: isLight ? 'rgba(15,23,42,0.10)' : 'rgba(255,255,255,0.08)',
-                },
-              ]}
+          {Platform.OS === 'ios' ? (
+            <LightPressable
+              style={[styles.googleButton, loading && styles.googleButtonDisabled]}
+              onPress={onPressApple}
+              disabled={loading}
+              pressedScale={0.985}
+              pressedOpacity={0.96}
             >
-              <View style={styles.authButtonContent}>
-                <Ionicons name="logo-apple" size={20} color="#0F172A" />
-                <Text style={styles.appleButtonText}>{loading ? '連線中...' : 'Continue with Apple'}</Text>
+              <View
+                style={[
+                  styles.appleButtonSurface,
+                  {
+                    backgroundColor: isLight ? '#FFFFFF' : '#F8FAFC',
+                    borderColor: isLight ? 'rgba(15,23,42,0.10)' : 'rgba(255,255,255,0.08)',
+                  },
+                ]}
+              >
+                <View style={styles.authButtonContent}>
+                  <Ionicons name="logo-apple" size={20} color="#0F172A" />
+                  <Text
+                    style={styles.appleButtonText}
+                  >
+                    {loading ? tUI(uiLanguage, 'auth.connecting') : tUI(uiLanguage, 'auth.continueWithApple')}
+                  </Text>
+                </View>
               </View>
-            </View>
-          </LightPressable>
+            </LightPressable>
+          ) : null}
 
           <LightPressable
             style={[styles.googleButton, loading && styles.googleButtonDisabled]}
@@ -365,10 +585,15 @@ function AuthGate({
             >
               <View style={styles.authButtonContent}>
                 <Ionicons name="logo-google" size={18} color="#F4EEF3" />
-                <Text style={styles.googleButtonText}>{loading ? '連線中...' : 'Continue with Google'}</Text>
+                <Text
+                  style={styles.googleButtonText}
+                >
+                  {loading ? tUI(uiLanguage, 'auth.connecting') : tUI(uiLanguage, 'auth.continueWithGoogle')}
+                </Text>
               </View>
             </LinearGradient>
           </LightPressable>
+
         </Animated.View>
       </View>
     </View>
@@ -418,56 +643,234 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [videoTourChecked, setVideoTourChecked] = useState(false);
+  const [needsVideoTour, setNeedsVideoTour] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [allowOfflineAccess, setAllowOfflineAccess] = useState(false);
   const [showBootCurtain, setShowBootCurtain] = useState(true);
-  const [showSignInCurtain, setShowSignInCurtain] = useState(false);
-  const [signInCurtainReady, setSignInCurtainReady] = useState(false);
-  const lastHandledOAuthUrlRef = React.useRef<string | null>(null);
-  const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
+  const [signInCurtain, dispatchSignInCurtain] = useReducer(
+    transitionSignInCurtain,
+    undefined,
+    createHiddenSignInCurtain
+  );
+  const [showVideoTourCurtain, setShowVideoTourCurtain] = useState(false);
+  const [showTourMotionLab, setShowTourMotionLab] = useState(false);
+  const [manualVideoTourRequested, setManualVideoTourRequested] = useState(false);
+  const [startTutorialAfterVideoTour, setStartTutorialAfterVideoTour] = useState(false);
+  const videoTourEntryOpacity = React.useRef(new Animated.Value(1)).current;
   const promptedVersionKeyRef = React.useRef<string | null>(null);
+  const authTransitionIdRef = React.useRef(0);
+  const activeUserIdRef = React.useRef<string | null>(null);
+  const analyticsAppOpenedRef = React.useRef(false);
+  const startupGateStateRef = React.useRef({
+    isReady: false,
+    userId: null as string | null,
+    onboardingChecked: false,
+    videoTourChecked: false,
+  });
+  startupGateStateRef.current = { isReady, userId, onboardingChecked, videoTourChecked };
 
   useEffect(() => {
+    if (!isReady) return;
+
+    if (!userId) {
+      analytics.reset();
+      if (!analyticsAppOpenedRef.current) {
+        analyticsAppOpenedRef.current = true;
+        analytics.track('app_opened', { auth_state: 'anonymous' });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      let email: string | undefined;
+      try {
+        const { session } = await getCurrentSession();
+        if (session?.user?.id === userId) {
+          email = session.user.email;
+        }
+      } catch (error) {
+        console.warn('[Analytics] Failed to load identity properties:', error);
+      }
+      if (cancelled) return;
+
+      analytics.identify(userId, { email });
+      if (!analyticsAppOpenedRef.current) {
+        analyticsAppOpenedRef.current = true;
+        analytics.track('app_opened', { auth_state: 'authenticated' });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, userId]);
+
+  useEffect(() => {
+    traceFirstRun('app_start', 'app_component_mounted', {
+      appState: AppState.currentState,
+    });
+    void logDiagnosticEvent({
+      severity: 'info',
+      category: 'app_lifecycle',
+      event: 'app_component_mounted',
+      context: { initialAppState: AppState.currentState, isExpoGo },
+    });
     initializeApp();
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const gate = startupGateStateRef.current;
+      const surfaceReady = gate.isReady && (
+        !gate.userId || (gate.onboardingChecked && gate.videoTourChecked)
+      );
+      if (surfaceReady) return;
+
+      void logDiagnosticEvent({
+        severity: 'error',
+        category: 'app_lifecycle',
+        event: 'startup_gate_watchdog_released',
+        userId: gate.userId,
+        context: {
+          timeoutMs: STARTUP_WATCHDOG_TIMEOUT_MS,
+          ...gate,
+        },
+      });
+      setNeedsOnboarding(false);
+      setOnboardingChecked(true);
+      setNeedsVideoTour(false);
+      setVideoTourChecked(true);
+      dispatchSignInCurtain('session-ready');
+      setIsReady(true);
+    }, STARTUP_WATCHDOG_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   const initializeApp = async () => {
+    const startupTransitionId = authTransitionIdRef.current;
+    const stopForNewerAuthTransition = (): boolean => {
+      if (authTransitionIdRef.current === startupTransitionId) return false;
+      return true;
+    };
+
     try {
+      void logDiagnosticEvent({
+        severity: 'info',
+        category: 'app_lifecycle',
+        event: 'app_initialization_started',
+      });
       if (isExpoGo) {
         console.log('✅ Running in Expo Go mode');
       }
 
       const { session } = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
+      if (stopForNewerAuthTransition()) return;
       if (session?.access_token) {
-        const { user } = await withTimeout(getCurrentUser(), 6000, 'getCurrentUser');
-        await SubscriptionService.ensureTrialEnrollment();
+        void logDiagnosticEvent({
+          severity: 'info',
+          category: 'auth',
+          event: 'startup_session_restored',
+          context: { hasUser: Boolean(session.user?.id) },
+        });
+        // getSession() restores the persisted local session. Network validation,
+        // RevenueCat and profile refresh must never block a normal cold start.
+        const user = session.user;
         if (user?.id) {
-          await enforceLocalDataScopeForUser(user.id);
-          await SubscriptionService.syncEntitlements(user.id);
-        }
-        const nextUserId = user?.id ?? null;
-        setUserId(nextUserId);
-        if (nextUserId) {
-          await syncProfileSettingsToLocal(nextUserId);
-          const completed = await withTimeout(
-            checkOnboardingStatus(nextUserId),
-            6000,
-            'checkOnboardingStatus'
+          const localScopeStartedAt = Date.now();
+          await withTimeout(
+            enforceLocalDataScopeForUser(user.id),
+            STARTUP_LOCAL_SCOPE_TIMEOUT_MS,
+            'enforceLocalDataScopeForUser'
           );
-          setNeedsOnboarding(!completed);
-        } else {
+          void logDiagnosticEvent({
+            severity: 'info',
+            category: 'app_lifecycle',
+            event: 'startup_local_scope_ready',
+            userId: user.id,
+            context: { durationMs: Date.now() - localScopeStartedAt },
+          });
+          if (stopForNewerAuthTransition()) return;
+          await withTimeout(
+            setAppGroupActiveUserId(user.id),
+            NATIVE_BRIDGE_TIMEOUT_MS,
+            'setAppGroupActiveUserId(startup)'
+          );
+          if (stopForNewerAuthTransition()) return;
+          activeUserIdRef.current = user.id;
+          setUserId(user.id);
           setNeedsOnboarding(false);
+          setOnboardingChecked(true);
+          setNeedsVideoTour(false);
+          setVideoTourChecked(false);
+          setIsReady(true);
+
+          void triggerBackgroundCardSync('startup').then((synced) =>
+            synced ? processPendingCardImageUploads(user.id) : undefined
+          );
+          triggerBackgroundAccountRefresh(user.id, 'startup');
+          void checkOnboardingStatus(user.id).then((completed) => {
+            if (activeUserIdRef.current !== user.id) return;
+            setNeedsOnboarding(!completed);
+            void shouldShowVideoTour(user.id)
+              .then((showVideoTour) => {
+                if (activeUserIdRef.current !== user.id) return;
+                setNeedsVideoTour(showVideoTour);
+                setVideoTourChecked(true);
+              })
+              .catch((error) => {
+                console.warn('[VideoTour] background status check failed:', error);
+                if (activeUserIdRef.current !== user.id) return;
+                setNeedsVideoTour(false);
+                setVideoTourChecked(true);
+              });
+          }).catch((error) => {
+            console.warn('[App] background onboarding check failed:', error);
+            if (activeUserIdRef.current === user.id) {
+              setNeedsVideoTour(false);
+              setVideoTourChecked(true);
+            }
+          });
         }
-        setOnboardingChecked(true);
       } else {
+        void logDiagnosticEvent({
+          severity: 'info',
+          category: 'auth',
+          event: 'startup_session_missing',
+        });
+        await withTimeout(
+          setAppGroupActiveUserId(null),
+          NATIVE_BRIDGE_TIMEOUT_MS,
+          'setAppGroupActiveUserId(clear-startup)'
+        );
+        // A missing startup session can be transient. Keep local rows intact and
+        // hide them behind the auth gate until a user identity is confirmed.
+        activeUserIdRef.current = null;
         setUserId(null);
         setNeedsOnboarding(false);
         setOnboardingChecked(true);
+        setNeedsVideoTour(false);
+        setVideoTourChecked(true);
       }
 
       void checkForAppVersionUpdate();
       setIsReady(true);
+      void logDiagnosticEvent({
+        severity: 'info',
+        category: 'app_lifecycle',
+        event: 'app_initialization_completed',
+        context: { hasSession: Boolean(session?.access_token) },
+      });
     } catch (error) {
+      void logDiagnosticEvent({
+        severity: 'error',
+        category: 'app_lifecycle',
+        event: 'app_initialization_failed',
+        message: error instanceof Error ? error.message : String(error),
+        context: { error },
+      });
       console.error('Initialization error:', error);
       // 網路不可用時不要卡在 Loading/Auth Gate，先讓使用者進離線模式瀏覽本機資料。
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -477,26 +880,44 @@ export default function App() {
         message.includes('network request timed out') ||
         message.includes('authretryablefetcherror');
       if (isNetworkTimeout) {
-        setAllowOfflineAccess(true);
+        setAllowOfflineAccess(false);
       }
+      activeUserIdRef.current = null;
       setUserId(null);
       setNeedsOnboarding(false);
       setOnboardingChecked(true);
+      setNeedsVideoTour(false);
+      setVideoTourChecked(true);
       setIsReady(true); // Continue anyway
       void checkForAppVersionUpdate();
     }
   };
 
   const checkForAppVersionUpdate = React.useCallback(async () => {
+    if (__DEV__) return;
     const status = await checkAppVersionUpdateStatus();
     if (!status) return;
+    void logDiagnosticEvent({
+      severity: 'info',
+      category: 'app_lifecycle',
+      event: 'app_version_policy_checked',
+      context: {
+        isRequired: status.isRequired,
+        hasUpdateUrl: Boolean(status.updateUrl),
+        currentBuildNumber: status.currentBuildNumber,
+        latestBuildNumber: status.latestBuildNumber,
+      },
+    });
     const settings = await loadUserSettings().catch(() => null);
     const uiLanguage = settings?.uiLanguage ?? 'en';
 
     const promptKey = [
       status.currentVersion,
+      status.currentBuildNumber ?? 'current-build',
       status.latestVersion || 'latest',
+      status.latestBuildNumber ?? 'latest-build',
       status.minimumSupportedVersion || 'minimum',
+      status.minimumSupportedBuildNumber ?? 'minimum-build',
       status.isRequired ? 'required' : 'optional',
     ].join(':');
     if (!status.isRequired && promptedVersionKeyRef.current === promptKey) return;
@@ -535,39 +956,187 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      traceFirstRun('auth', 'state_changed', {
+        authEvent: event,
+        hasSession: Boolean(session?.access_token),
+        hasUser: Boolean(session?.user?.id),
+      });
+      void logDiagnosticEvent({
+        severity: 'info',
+        category: 'auth',
+        event: 'auth_state_changed',
+        context: {
+          authEvent: event,
+          hasSession: Boolean(session?.access_token),
+          hasUser: Boolean(session?.user?.id),
+        },
+      });
+      const transitionId = authTransitionIdRef.current + 1;
+      authTransitionIdRef.current = transitionId;
+      const isStaleTransition = () => authTransitionIdRef.current !== transitionId;
+
       if (!session?.access_token) {
+        // Hide the previous account immediately. Cleanup may touch many local
+        // rows/files and must not leave the old navigator interactive.
+        setAllowOfflineAccess(false);
+        activeUserIdRef.current = null;
         setUserId(null);
         setNeedsOnboarding(false);
         setOnboardingChecked(true);
-        setShowSignInCurtain(false);
-        setSignInCurtainReady(false);
+        setNeedsVideoTour(false);
+        setVideoTourChecked(true);
+        dispatchSignInCurtain('sign-in-aborted');
+        setIsReady(true);
+        void (async () => {
+          try {
+            await Promise.allSettled([
+              withTimeout(
+                setAppGroupActiveUserId(null),
+                NATIVE_BRIDGE_TIMEOUT_MS,
+                'setAppGroupActiveUserId(sign-out)'
+              ),
+              withTimeout(
+                ReminderNotificationService.cancelAll(),
+                NATIVE_BRIDGE_TIMEOUT_MS,
+                'cancelReminderNotifications(sign-out)'
+              ),
+              withTimeout(
+                TipNotificationService.cancelScheduled(),
+                NATIVE_BRIDGE_TIMEOUT_MS,
+                'cancelTipNotifications(sign-out)'
+              ),
+              withTimeout(
+                TrialNotificationService.cancelAll(),
+                NATIVE_BRIDGE_TIMEOUT_MS,
+                'cancelTrialNotifications(sign-out)'
+              ),
+            ]);
+          } catch (error) {
+            console.warn('[App] local auth suspension failed:', error);
+          }
+        })();
         return;
+      }
+      const incomingUserId = session.user.id;
+      if (
+        activeUserIdRef.current === incomingUserId &&
+        (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')
+      ) {
+        return;
+      }
+      const isAccountSwitch = Boolean(
+        activeUserIdRef.current && activeUserIdRef.current !== incomingUserId
+      );
+      if (isAccountSwitch) {
+        // Unmount account A before any asynchronous cleanup/bootstrap for B.
+        activeUserIdRef.current = null;
+        setUserId(null);
+        setNeedsVideoTour(false);
+        setVideoTourChecked(false);
       }
       void (async () => {
         try {
           setOnboardingChecked(false);
-          const { user } = await getCurrentUser();
-          await SubscriptionService.ensureTrialEnrollment();
-          if (user?.id) {
-            await enforceLocalDataScopeForUser(user.id);
-            await SubscriptionService.syncEntitlements(user.id);
-          }
-          const nextUserId = user?.id ?? null;
-          setUserId(nextUserId);
+          const nextUserId = incomingUserId;
           if (nextUserId) {
-            await syncProfileSettingsToLocal(nextUserId);
+            await waitForFreshTestAccountReset();
+            if (isStaleTransition()) return;
+            if (isAccountSwitch) {
+              await withTimeout(
+                setAppGroupActiveUserId(null),
+                NATIVE_BRIDGE_TIMEOUT_MS,
+                'setAppGroupActiveUserId(account-switch-clear)'
+              );
+              if (isStaleTransition()) return;
+              await Promise.allSettled([
+                withTimeout(
+                  ReminderNotificationService.cancelAll(),
+                  NATIVE_BRIDGE_TIMEOUT_MS,
+                  'cancelReminderNotifications(account-switch)'
+                ),
+                withTimeout(
+                  TipNotificationService.cancelScheduled(),
+                  NATIVE_BRIDGE_TIMEOUT_MS,
+                  'cancelTipNotifications(account-switch)'
+                ),
+                withTimeout(
+                  TrialNotificationService.cancelAll(),
+                  NATIVE_BRIDGE_TIMEOUT_MS,
+                  'cancelTrialNotifications(account-switch)'
+                ),
+              ]);
+              if (isStaleTransition()) return;
+            }
+            await withTimeout(
+              enforceLocalDataScopeForUser(nextUserId),
+              STARTUP_LOCAL_SCOPE_TIMEOUT_MS,
+              'enforceLocalDataScopeForUser(auth-transition)'
+            );
+            if (isStaleTransition()) return;
+            await withTimeout(
+              setAppGroupActiveUserId(nextUserId),
+              NATIVE_BRIDGE_TIMEOUT_MS,
+              'setAppGroupActiveUserId(auth-transition)'
+            );
+            if (isStaleTransition()) return;
+            // The authenticated navigator can now be selected safely. Do not
+            // let subscription/profile bootstrap expose the AuthGate.
+            activeUserIdRef.current = nextUserId;
+            setUserId(nextUserId);
+            traceFirstRun('auth', 'local_identity_ready');
+            // Keep card backup independent from subscription service failures.
+            void triggerBackgroundCardSync('auth').then((synced) =>
+              synced ? processPendingCardImageUploads(nextUserId) : undefined
+            );
+            triggerBackgroundAccountRefresh(nextUserId, 'auth');
+          }
+          setAllowOfflineAccess(false);
+          if (nextUserId) {
+            setNeedsOnboarding(false);
+            setOnboardingChecked(false);
+            setNeedsVideoTour(false);
+            setVideoTourChecked(false);
             const completed = await checkOnboardingStatus(nextUserId);
+            if (isStaleTransition()) return;
+            traceFirstRun('auth', 'onboarding_status_resolved', { completed });
             setNeedsOnboarding(!completed);
+            setOnboardingChecked(true);
+            if (completed) {
+              const showVideoTour = await shouldShowVideoTour(nextUserId);
+              if (isStaleTransition()) return;
+              setNeedsVideoTour(showVideoTour);
+            }
+            setVideoTourChecked(true);
+            dispatchSignInCurtain('session-ready');
+            setIsReady(true);
+            return;
           } else {
             setNeedsOnboarding(false);
+            setNeedsVideoTour(false);
+            setVideoTourChecked(true);
           }
+          activeUserIdRef.current = nextUserId;
+          setUserId(nextUserId);
           setOnboardingChecked(true);
-          setSignInCurtainReady(true);
+          dispatchSignInCurtain('session-ready');
+          setIsReady(true);
         } catch (error) {
+          void logDiagnosticEvent({
+            severity: 'error',
+            category: 'auth',
+            event: 'auth_bootstrap_failed',
+            message: error instanceof Error ? error.message : String(error),
+            context: { error },
+          });
           console.error('[App] auth state entitlement bootstrap failed:', error);
-          setOnboardingChecked(true);
-          setSignInCurtainReady(true);
+          if (!isStaleTransition()) {
+            setOnboardingChecked(true);
+            setNeedsVideoTour(false);
+            setVideoTourChecked(true);
+            dispatchSignInCurtain('session-ready');
+            setIsReady(true);
+          }
         }
       })();
     });
@@ -576,68 +1145,123 @@ export default function App() {
     };
   }, []);
 
-  const handleOAuthCallback = React.useCallback(async (url: string) => {
-    if (!url.includes('auth/callback')) return;
-    if (lastHandledOAuthUrlRef.current === url) return;
-    lastHandledOAuthUrlRef.current = url;
+  const resetOnboardingAndTutorialForCurrentUser = React.useCallback(async () => {
+    const { session } = await getCurrentSession();
+    const user = session?.user;
+    if (!user?.id) {
+      Alert.alert('無法重設 onboarding', '目前沒有登入中的使用者。');
+      return;
+    }
 
-    setShowSignInCurtain(true);
-    setSignInCurtainReady(false);
-    const { error, handled } = await completeOAuthFromUrl(url);
-    if (handled && error) {
-      setShowSignInCurtain(false);
-      setSignInCurtainReady(false);
-      Alert.alert('登入失敗', error.message);
-      return;
-    }
-    if (handled && !error) {
-      return;
-    }
-    setShowSignInCurtain(false);
-    setSignInCurtainReady(false);
+    const settings = await loadUserSettings();
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        native_language: settings.uiLanguage,
+        english_level: null,
+        learning_goal: null,
+        ai_breakdown_mode: 'context',
+        onboarding_completed: false,
+        has_seen_tour: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
+
+    if (error) throw error;
+    await clearTourSeenLocally(user.id);
+    await clearDefaultExperienceCardSeen(user.id);
+    await saveUserSettings({
+      ...settings,
+      personalization: {
+        ...settings.personalization,
+        aiBreakdownMode: 'context',
+      },
+    });
+
+    activeUserIdRef.current = user.id;
+    setUserId(user.id);
+    setAllowOfflineAccess(false);
+    setNeedsOnboarding(true);
+    setOnboardingChecked(true);
+    setNeedsVideoTour(VIDEO_TOUR_ENABLED);
+    setManualVideoTourRequested(false);
+    setVideoTourChecked(true);
   }, []);
 
   const handleDeveloperCommand = React.useCallback(async (url: string) => {
     if (!__DEV__) return false;
+    if (url.startsWith(DEV_TOUR_MOTION_LAB_URL)) {
+      setShowTourMotionLab(true);
+      return true;
+    }
+    if (url.startsWith(DEV_REPLAY_TOUR_URL)) {
+      return true;
+    }
+    if (url.startsWith(DEV_REPLAY_VIDEO_TOUR_URL)) {
+      try {
+        const { session } = await getCurrentSession();
+        const user = session?.user;
+        if (!user?.id) {
+          Alert.alert('無法重播 video tutorial', '目前沒有登入中的使用者。');
+          return true;
+        }
+        await clearTourSeenLocally(user.id);
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            has_seen_tour: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+        if (error) throw error;
+        activeUserIdRef.current = user.id;
+        setUserId(user.id);
+        setNeedsOnboarding(false);
+        setOnboardingChecked(true);
+        setNeedsVideoTour(true);
+        setVideoTourChecked(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知錯誤';
+        Alert.alert('重播 video tutorial 失敗', message);
+      }
+      return true;
+    }
     if (url.startsWith(DEV_RESET_ONBOARDING_URL)) {
       try {
-        const { user } = await getCurrentUser();
+        await resetOnboardingAndTutorialForCurrentUser();
+        Alert.alert('Onboarding 已重設', '目前帳號會重新進入 onboarding flow。');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知錯誤';
+        Alert.alert('重設 onboarding 失敗', message);
+      }
+      return true;
+    }
+
+    if (url.startsWith(DEV_SKIP_TOUR_URL)) {
+      try {
+        const { session } = await getCurrentSession();
+        const user = session?.user;
         if (!user?.id) {
-          Alert.alert('無法重設 onboarding', '目前沒有登入中的使用者。');
+          Alert.alert('無法跳過 tutorial', '目前沒有登入中的使用者。');
           return true;
         }
 
         const { error } = await supabase
           .from('profiles')
           .update({
-            native_language: 'zh-TW',
-            english_level: null,
-            learning_goal: null,
-            ai_breakdown_mode: 'context',
-            onboarding_completed: false,
-            has_seen_tour: false,
+            has_seen_tour: true,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);
 
         if (error) throw error;
-        const settings = await loadUserSettings();
-        await saveUserSettings({
-          ...settings,
-          personalization: {
-            ...settings.personalization,
-            aiBreakdownMode: 'context',
-          },
-        });
-
-        setUserId(user.id);
-        setAllowOfflineAccess(false);
-        setNeedsOnboarding(true);
-        setOnboardingChecked(true);
-        Alert.alert('Onboarding 已重設', '目前帳號會重新進入 onboarding flow。');
+        await markTourSeenLocally(user.id);
+        setNeedsVideoTour(false);
+        setVideoTourChecked(true);
+        Alert.alert('Tutorial 已跳過', '目前帳號不會再自動播放 global tour。');
       } catch (error) {
         const message = error instanceof Error ? error.message : '未知錯誤';
-        Alert.alert('重設 onboarding 失敗', message);
+        Alert.alert('跳過 tutorial 失敗', message);
       }
       return true;
     }
@@ -647,26 +1271,26 @@ export default function App() {
     try {
       await signOut();
       setAllowOfflineAccess(false);
-      setUserId(null);
-      setNeedsOnboarding(false);
-      setOnboardingChecked(true);
-      setShowSignInCurtain(false);
-      setSignInCurtainReady(false);
+        activeUserIdRef.current = null;
+        setUserId(null);
+        setNeedsOnboarding(false);
+        setOnboardingChecked(true);
+        setNeedsVideoTour(false);
+        setVideoTourChecked(true);
+        dispatchSignInCurtain('sign-in-aborted');
       Alert.alert('已登出', '已切回 auth 畫面。');
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知錯誤';
       Alert.alert('登出失敗', message);
     }
     return true;
-  }, []);
+  }, [resetOnboardingAndTutorialForCurrentUser]);
 
   const handleIncomingUrl = React.useCallback(
     async (url: string) => {
-      const handledDevCommand = await handleDeveloperCommand(url);
-      if (handledDevCommand) return;
-      await handleOAuthCallback(url);
+      await handleDeveloperCommand(url);
     },
-    [handleDeveloperCommand, handleOAuthCallback]
+    [handleDeveloperCommand]
   );
 
   useEffect(() => {
@@ -685,97 +1309,178 @@ export default function App() {
     };
   }, [handleIncomingUrl]);
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      const wasBackground = appStateRef.current.match(/inactive|background/);
-      if (wasBackground && nextAppState === 'active' && userId) {
-        void checkForAppVersionUpdate();
-        void SubscriptionService.syncEntitlements(userId).catch((error) => {
-          console.error('[Subscription] Foreground entitlement sync failed:', error);
-        });
-      }
-      if (wasBackground && nextAppState === 'active' && !userId) {
-        void checkForAppVersionUpdate();
-      }
-      appStateRef.current = nextAppState;
-    });
-    return () => {
-      subscription.remove();
-    };
-  }, [checkForAppVersionUpdate, userId]);
-
   const handleGoogleSignIn = React.useCallback(async () => {
+    traceFirstRun('auth', 'sign_in_started', { provider: 'google' });
+    dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
-      const { data, redirectTo, error } = await signInWithGoogle();
+      const { data, error, cancelled } = await signInWithGoogle();
+      if (cancelled) {
+        traceFirstRun('auth', 'sign_in_cancelled', { provider: 'google' });
+        dispatchSignInCurtain('sign-in-aborted');
+        return;
+      }
       if (error) {
+        traceFirstRun('auth', 'sign_in_failed', {
+          provider: 'google',
+          error,
+        });
+        dispatchSignInCurtain('sign-in-aborted');
         Alert.alert(
           '登入失敗',
-          `Google OAuth 問題：${error.message}\n\n請檢查 Supabase Google Provider 與 Google Cloud OAuth 設定。`
+          `Google 登入問題：${error.message}\n\n請檢查 Google iOS／Web Client ID 與 Supabase Google Provider 設定。`
         );
         return;
       }
-
-      const authUrl = data?.url?.trim();
-      if (!authUrl) {
-        Alert.alert('登入失敗', 'Google OAuth URL 取得失敗');
+      if (!data?.session?.access_token) {
+        dispatchSignInCurtain('sign-in-aborted');
+        Alert.alert('登入失敗', 'Google 登入完成，但沒有建立 app session。');
         return;
       }
-
-      const authResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
-      if (authResult.type === 'success' && authResult.url) {
-        await handleOAuthCallback(authResult.url);
-      } else if (authResult.type !== 'cancel' && authResult.type !== 'dismiss') {
-        Alert.alert('登入失敗', `Google OAuth 未完成（${authResult.type}）`);
-      }
+      dispatchSignInCurtain('sign-in-returned');
+      traceFirstRun('auth', 'provider_returned_session', {
+        provider: 'google',
+      });
     } catch (error) {
+      traceFirstRun('auth', 'sign_in_crashed', {
+        provider: 'google',
+        error,
+      });
+      dispatchSignInCurtain('sign-in-aborted');
       const message = error instanceof Error ? error.message : '未知錯誤';
       Alert.alert('登入失敗', message);
     } finally {
       setAuthLoading(false);
     }
-  }, [handleOAuthCallback]);
+  }, []);
 
   const handleAppleSignIn = React.useCallback(async () => {
+    traceFirstRun('auth', 'sign_in_started', { provider: 'apple' });
+    dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
-      const { data, redirectTo, error } = await signInWithApple();
+      const { data, error } = await signInWithApple();
       if (error) {
+        traceFirstRun('auth', 'sign_in_failed', {
+          provider: 'apple',
+          error,
+        });
+        dispatchSignInCurtain('sign-in-aborted');
         Alert.alert(
           '登入失敗',
-          `Apple OAuth 問題：${error.message}\n\n請檢查 Supabase Apple Provider 與 Apple Services 設定。`
+          `Apple 登入問題：${error.message}\n\n請檢查原生 Apple Sign In capability 與 Supabase Apple provider 設定。`
         );
         return;
       }
-
-      const authUrl = data?.url?.trim();
-      if (!authUrl) {
-        Alert.alert('登入失敗', 'Apple OAuth URL 取得失敗');
+      if (!data?.session?.access_token) {
+        dispatchSignInCurtain('sign-in-aborted');
+        Alert.alert('登入失敗', 'Apple 登入完成，但沒有建立 app session。');
         return;
       }
-
-      const authResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
-      if (authResult.type === 'success' && authResult.url) {
-        await handleOAuthCallback(authResult.url);
-      } else if (authResult.type !== 'cancel' && authResult.type !== 'dismiss') {
-        Alert.alert('登入失敗', `Apple OAuth 未完成（${authResult.type}）`);
-      }
+      dispatchSignInCurtain('sign-in-returned');
+      traceFirstRun('auth', 'provider_returned_session', {
+        provider: 'apple',
+      });
     } catch (error) {
+      traceFirstRun('auth', 'sign_in_crashed', {
+        provider: 'apple',
+        error,
+      });
+      dispatchSignInCurtain('sign-in-aborted');
       const message = error instanceof Error ? error.message : '未知錯誤';
       Alert.alert('登入失敗', message);
     } finally {
       setAuthLoading(false);
     }
-  }, [handleOAuthCallback]);
+  }, []);
+
+  const handleTestAccountSignIn = React.useCallback(async () => {
+    const email = process.env.EXPO_PUBLIC_TEST_ACCOUNT_EMAIL;
+    const password = process.env.EXPO_PUBLIC_TEST_ACCOUNT_PASSWORD;
+    if (!__DEV__ || !email || !password) {
+      Alert.alert('Test account unavailable', 'Dev test account credentials are not configured.');
+      return;
+    }
+
+    traceFirstRun('auth', 'sign_in_started', { provider: 'dev_test_account' });
+    beginFreshTestAccountReset();
+    dispatchSignInCurtain('sign-in-started');
+    setAuthLoading(true);
+    try {
+      const { data, error } = await signIn(email, password);
+      if (error || !data?.session?.access_token) {
+        throw error ?? new Error('Test account did not return a session.');
+      }
+      const reset = await resetFreshTestAccount();
+      await Promise.all([
+        clearTourSeenLocally(reset.user_id),
+        clearDefaultExperienceCardSeen(reset.user_id),
+      ]);
+      traceFirstRun('auth', 'dev_test_account_reset_completed', {
+        userId: reset.user_id,
+      });
+      traceFirstRun('auth', 'provider_returned_session', {
+        provider: 'dev_test_account',
+      });
+      dispatchSignInCurtain('sign-in-returned');
+    } catch (error) {
+      traceFirstRun('auth', 'sign_in_failed', {
+        provider: 'dev_test_account',
+        error,
+      });
+      dispatchSignInCurtain('sign-in-aborted');
+      Alert.alert(
+        'Test account sign-in failed',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+    } finally {
+      finishFreshTestAccountReset();
+      setAuthLoading(false);
+    }
+  }, []);
 
   const handleBootCurtainOpened = React.useCallback(() => {
     setShowBootCurtain(false);
   }, []);
 
   const handleSignInCurtainOpened = React.useCallback(() => {
-    setShowSignInCurtain(false);
-    setSignInCurtainReady(false);
+    dispatchSignInCurtain('animation-completed');
   }, []);
+
+  const handleVideoTourCurtainOpened = React.useCallback(() => {
+    setShowVideoTourCurtain(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (!userId || (!needsVideoTour && !manualVideoTourRequested)) return;
+    videoTourEntryOpacity.stopAnimation();
+    videoTourEntryOpacity.setValue(0);
+    Animated.timing(videoTourEntryOpacity, {
+      toValue: 1,
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [manualVideoTourRequested, needsVideoTour, userId, videoTourEntryOpacity]);
+
+  const shouldRenderVideoTour = Boolean(
+    VIDEO_TOUR_ENABLED &&
+    userId &&
+    !needsOnboarding &&
+    (needsVideoTour || manualVideoTourRequested)
+  );
+  const VideoTourFlow = shouldRenderVideoTour ? tryGetVideoTourFlow() : null;
+  const appSurfaceReady = Boolean(
+    isReady && (!userId || (onboardingChecked && videoTourChecked))
+  );
+
+  React.useEffect(() => {
+    if (!shouldRenderVideoTour || VideoTourFlow) return;
+    console.warn('[VideoTour] unavailable; continuing without video tutorial.');
+    setNeedsVideoTour(false);
+    setManualVideoTourRequested(false);
+    setVideoTourChecked(true);
+  }, [VideoTourFlow, shouldRenderVideoTour]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -784,22 +1489,81 @@ export default function App() {
           <ShareExtensionProvider>
             <AppTourProvider>
               <ShareExtensionSync userId={userId}>
-                {userId && !onboardingChecked ? (
-                  <View style={styles.bootLoadingBase} />
+                {showTourMotionLab ? (
+                  <TourMotionLab onClose={() => setShowTourMotionLab(false)} />
+                ) : userId && (!onboardingChecked || !videoTourChecked) ? (
+                  <AnimatedSplashV2 ready={false} showLogo={false} />
+                ) : userId && VideoTourFlow ? (
+                  <Animated.View style={[styles.videoTourEntry, { opacity: videoTourEntryOpacity }]}>
+                    <VideoTourFlow
+                      userId={userId}
+                      markSeenOnComplete={!manualVideoTourRequested}
+                      onComplete={() => {
+                        traceFirstRun('video_tour', 'completed');
+                        if (!manualVideoTourRequested && !needsOnboarding) {
+                          setShowVideoTourCurtain(true);
+                        }
+                        if (!manualVideoTourRequested) {
+                          const nextJourney = advanceFirstRunJourney(
+                            { stage: 'video-tour' },
+                            'video-tour-completed'
+                          );
+                          setStartTutorialAfterVideoTour(
+                            nextJourney.stage === 'tutorial'
+                          );
+                        }
+                        setNeedsVideoTour(false);
+                        setManualVideoTourRequested(false);
+                        setVideoTourChecked(true);
+                      }}
+                    />
+                  </Animated.View>
                 ) : userId && needsOnboarding ? (
                   <OnboardingFlow
                     userId={userId}
                     onComplete={() => {
+                      traceFirstRun('onboarding', 'completed_and_routed');
+                      const nextJourney = advanceFirstRunJourney(
+                        createFirstRunJourney(),
+                        'onboarding-completed'
+                      );
                       setNeedsOnboarding(false);
                       setOnboardingChecked(true);
+                      setNeedsVideoTour(
+                        VIDEO_TOUR_ENABLED && nextJourney.stage === 'video-tour'
+                      );
+                      setStartTutorialAfterVideoTour(
+                        !VIDEO_TOUR_ENABLED
+                      );
+                      setVideoTourChecked(true);
                     }}
                   />
-                ) : userId || allowOfflineAccess ? (
-                  <RootNavigator isExpoGo={isExpoGo} />
+                ) : userId ? (
+                  <RootNavigator
+                    key={userId}
+                    isExpoGo={isExpoGo}
+                    startTutorialOnMount={startTutorialAfterVideoTour}
+                    onTutorialStarted={() => setStartTutorialAfterVideoTour(false)}
+                    onReplayVideoTutorial={() => {
+                      if (VIDEO_TOUR_ENABLED) {
+                        setManualVideoTourRequested(true);
+                        return;
+                      }
+                      Alert.alert(
+                        'Tutorial 暫時關閉',
+                        'Video tutorial 目前在 TestFlight 上造成原生播放器 crash，已暫時關閉。'
+                      );
+                    }}
+                  />
                 ) : (
                   <AuthGate
                     onPressGoogle={handleGoogleSignIn}
                     onPressApple={handleAppleSignIn}
+                    onPressTestAccount={
+                      INTERNAL_TESTER_TOOLS_ENABLED
+                        ? handleTestAccountSignIn
+                        : undefined
+                    }
                     loading={authLoading}
                   />
                 )}
@@ -811,12 +1575,18 @@ export default function App() {
           <View style={styles.bootLoadingBase} />
         )}
         {showBootCurtain ? (
-          <AnimatedSplashV2 ready={isReady} onAnimationComplete={handleBootCurtainOpened} />
+          <AnimatedSplashV2 ready={appSurfaceReady} onAnimationComplete={handleBootCurtainOpened} />
         ) : null}
-        {showSignInCurtain ? (
+        {signInCurtain.visible ? (
           <AnimatedSplashV2
-            ready={signInCurtainReady}
+            ready={signInCurtain.ready}
             onAnimationComplete={handleSignInCurtainOpened}
+          />
+        ) : null}
+        {showVideoTourCurtain ? (
+          <AnimatedSplashV2
+            ready={true}
+            onAnimationComplete={handleVideoTourCurtainOpened}
           />
         ) : null}
         <GlobalThemeCrossFadeOverlay />
@@ -826,6 +1596,9 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  videoTourEntry: {
+    flex: 1,
+  },
   bootLoadingBase: {
     flex: 1,
     backgroundColor: SCREEN_BG,
@@ -861,6 +1634,23 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 38,
     letterSpacing: -0.9,
+  },
+  devTestAccountButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(78,175,244,0.18)',
+    borderColor: 'rgba(217,241,255,0.45)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  devTestAccountButtonText: {
+    color: '#D9F1FF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   themeFadeOverlay: {
     ...StyleSheet.absoluteFillObject,

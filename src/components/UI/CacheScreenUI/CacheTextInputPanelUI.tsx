@@ -1,10 +1,13 @@
 import React from 'react';
 import { Text, TextInput, StyleSheet, View } from 'react-native';
 import { CONTAINER_BG, TEXT_ON_CONTAINER, resolveThemeColors } from '../../../theme/colors';
+import { tUI } from '../../../i18n/uiLanguage';
+import type { UILanguage } from '../../../services/settings/userSettings';
 
 type Props = {
   manualText: string;
   onChangeManualText: (value: string) => void;
+  uiLanguage: UILanguage;
   inputHeight?: number;
   palette?: ReturnType<typeof resolveThemeColors>;
 };
@@ -12,12 +15,15 @@ type Props = {
 export default function CacheTextInputPanelUI({
   manualText,
   onChangeManualText,
+  uiLanguage,
   inputHeight = 118,
   palette,
 }: Props) {
   return (
     <View style={styles.container}>
-      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Paste or type text</Text>
+      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>
+        {tUI(uiLanguage, 'cache.inputLabel')}
+      </Text>
       <TextInput
         value={manualText}
         onChangeText={onChangeManualText}
@@ -32,7 +38,7 @@ export default function CacheTextInputPanelUI({
             color: palette?.textOnContainer ?? TEXT_ON_CONTAINER,
           },
         ]}
-        placeholder="Paste a sentence containing slang, idioms, or expressions..."
+        placeholder={tUI(uiLanguage, 'cache.inputPlaceholder')}
         placeholderTextColor={palette?.secondaryText ?? '#9CA3AF'}
       />
     </View>

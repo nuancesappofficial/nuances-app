@@ -1,17 +1,25 @@
 /**
  * useShareExtension Hook
  *
- * App 啟動或從背景喚醒時檢查 Share Extension 傳遞的內容，入庫後觸發 snackbar
+ * App 啟動或從背景喚醒時檢查 Share Extension 傳遞的內容。
+ * Share Extension 只寫入 local-only cache，不得觸發 Supabase 同步。
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
-import { checkAndProcessSharedContent } from '../services/shareExtension/shareExtensionService';
-import { syncWithRetry } from '../services/sync';
+import { AppState, AppStateStatus, Platform } from 'react-native';
+import { AndroidShareIntent } from 'android-share-intent';
+import {
+  checkAndProcessSharedContent,
+  hasPendingSharedContent,
+} from '../services/shareExtension/shareExtensionService';
+
+const FOREGROUND_SHARE_CHECK_MIN_INTERVAL_MS = 5000;
 
 export function useShareExtension(userId: string | null) {
   const appState = useRef(AppState.currentState);
   const delayedCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightCheckRef = useRef<Promise<void> | null>(null);
+  const lastForegroundCheckAtRef = useRef(0);
 
   const clearDelayedCheck = useCallback(() => {
     if (delayedCheckRef.current) {
@@ -20,52 +28,65 @@ export function useShareExtension(userId: string | null) {
     }
   }, []);
 
-  const runCheck = useCallback(async (source: string) => {
-    if (!userId) return;
+  const runCheck = useCallback((source: string) => {
+    if (!userId || AppState.currentState !== 'active') return Promise.resolve();
+    if (inFlightCheckRef.current) return inFlightCheckRef.current;
 
-    const result = await checkAndProcessSharedContent(userId).catch((error) => {
-      console.error('[ShareExtension] Shared content check failed:', error);
-      return {
-        addedCount: 0,
-        blockedCount: 0,
-        currentCacheCount: 0,
-        planType: 'premium' as const,
-      };
-    });
-
-    console.log('[ShareExtension] Ingest result:', {
-      source,
-      addedCount: result.addedCount,
-      blockedCount: result.blockedCount,
-      currentCacheCount: result.currentCacheCount,
-      planType: result.planType,
-    });
-
-    // 在 App 啟動/回前景時做一次背景同步，不阻斷 UI 流程
-    await syncWithRetry(2).catch((error) => {
-      console.error('[ShareExtension] Background sync failed:', error);
-    });
+    const work = hasPendingSharedContent()
+      .then((hasPending) => {
+        if (!hasPending || AppState.currentState !== 'active') return undefined;
+        return checkAndProcessSharedContent(userId);
+      })
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(`[ShareExtension] ${source} shared content check failed:`, error);
+      })
+      .finally(() => {
+        if (inFlightCheckRef.current === work) {
+          inFlightCheckRef.current = null;
+        }
+      });
+    inFlightCheckRef.current = work;
+    return work;
   }, [userId]);
+
+  const scheduleCheck = useCallback((source: string, delayMs: number) => {
+    clearDelayedCheck();
+    delayedCheckRef.current = setTimeout(() => {
+      delayedCheckRef.current = null;
+      void runCheck(source);
+    }, delayMs);
+  }, [clearDelayedCheck, runCheck]);
 
   useEffect(() => {
     if (!userId) return;
 
-    runCheck('mount');
+    scheduleCheck('mount', 250);
 
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        runCheck('foreground');
+        const now = Date.now();
+        if (now - lastForegroundCheckAtRef.current < FOREGROUND_SHARE_CHECK_MIN_INTERVAL_MS) {
+          appState.current = nextAppState;
+          return;
+        }
+        lastForegroundCheckAtRef.current = now;
+        scheduleCheck('foreground', 900);
+      } else if (nextAppState !== 'active') {
         clearDelayedCheck();
-        delayedCheckRef.current = setTimeout(() => {
-          runCheck('foreground_delayed');
-        }, 700);
       }
       appState.current = nextAppState;
     });
+    const androidShareSubscription = Platform.OS === 'android'
+      ? AndroidShareIntent.addListener(() => {
+          scheduleCheck('android_intent', 100);
+        })
+      : null;
 
     return () => {
       clearDelayedCheck();
       subscription.remove();
+      androidShareSubscription?.remove();
     };
-  }, [clearDelayedCheck, runCheck, userId]);
+  }, [clearDelayedCheck, scheduleCheck, userId]);
 }

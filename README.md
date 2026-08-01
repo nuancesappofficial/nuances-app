@@ -156,19 +156,24 @@ nuances-app/
 
 ## 🔐 環境變量
 
-創建 `.env` 文件並添加以下配置：
+創建 `.env` 文件並添加 client-safe 配置：
 
 ```env
 # Supabase
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-# Azure AI Speech
-EXPO_PUBLIC_AZURE_SPEECH_KEY=your_azure_speech_key
-EXPO_PUBLIC_AZURE_SPEECH_REGION=your_region
+Provider API keys must stay server-side in Supabase Edge Function secrets, not in
+`EXPO_PUBLIC_*` variables:
 
-# Google Gemini API (免費方案: 1,500 RPD, 15 RPM)
-EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
+```env
+AZURE_SPEECH_KEY=your_azure_speech_key
+AZURE_SPEECH_REGION=your_region
+GEMINI_API_KEY=your_gemini_api_key
+OPENAI_API_KEY=your_openai_api_key
+REVENUECAT_SECRET_KEY=your_revenuecat_secret_key
+REVENUECAT_WEBHOOK_AUTH_TOKEN=your_revenuecat_webhook_token
 ```
 
 ⚠️ **不要提交 `.env` 文件到 Git！**

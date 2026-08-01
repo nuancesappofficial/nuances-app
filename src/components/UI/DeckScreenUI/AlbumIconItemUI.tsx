@@ -15,9 +15,12 @@ import Reanimated, {
 import FolderIcon from './FolderIcon';
 import type { DeckAlbum } from './deckTypes';
 import LightPressable from '../shared/LightPressable';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { getDeckAlbumDisplayName } from '../../../features/deck/albums';
 
 type Props = {
   item: DeckAlbum;
+  uiLanguage: UILanguage;
   onPress: (album: DeckAlbum) => void;
   isMenuVisible: SharedValue<boolean>;
   startX: SharedValue<number>;
@@ -41,6 +44,7 @@ function triggerSelectionHaptic() {
 
 export default function AlbumIconItemUI({
   item,
+  uiLanguage,
   onPress,
   isMenuVisible,
   startX,
@@ -158,7 +162,7 @@ export default function AlbumIconItemUI({
           }}
         >
           <FolderIcon
-            title={item.name}
+            title={getDeckAlbumDisplayName(item, uiLanguage)}
             wordCount={item.wordCount}
             latestCards={item.latestCards}
             iconEmoji={item.emoji}

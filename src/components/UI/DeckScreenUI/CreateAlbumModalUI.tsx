@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   CONTAINER_BG,
   MODAL_CTA_COLOR,
@@ -26,10 +27,12 @@ import {
   TEXT_ON_CTA,
   resolveThemeColors,
 } from '../../../theme/colors';
+import type { UILanguage } from '@services/settings/userSettings';
 
 type Props = {
   visible: boolean;
   albumName: string;
+  uiLanguage: UILanguage;
   onChangeAlbumName: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
@@ -47,14 +50,19 @@ const KEYBOARD_EXTRA_GAP = 8;
 export default function CreateAlbumModalUI({
   visible,
   albumName,
+  uiLanguage,
   onChangeAlbumName,
   onCancel,
   onConfirm,
   tourConfirmActive = false,
-  tourConfirmTooltip = 'Create album.',
+  tourConfirmTooltip = tUI(uiLanguage, 'deck.tourCreateAlbum'),
 }: Props) {
   const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const modalSurface = isDarkMode ? palette.modalBg : '#F3EFE9';
+  const optionSurface = isDarkMode ? palette.containerBg : '#FFFFFF';
+  const optionBorder = isDarkMode ? palette.modalOptionBorder : '#E2DDD6';
   const { height: windowHeight } = useWindowDimensions();
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [sheetHeight, setSheetHeight] = React.useState(0);
@@ -163,24 +171,39 @@ export default function CreateAlbumModalUI({
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: sheetTransform }] }]}>
           <Pressable
-            style={[styles.sheet, { backgroundColor: palette.modalBg, borderColor: palette.modalOptionBorder }]}
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: modalSurface,
+                borderColor: optionBorder,
+              },
+            ]}
             onLayout={(event) => {
               const nextHeight = Math.round(event.nativeEvent.layout.height);
               setSheetHeight((prev) => (prev === nextHeight ? prev : nextHeight));
             }}
             onPress={() => undefined}
           >
-            <View style={[styles.handle, { backgroundColor: palette.secondaryText }]} />
+            <View
+              style={[
+                styles.handle,
+                {
+                  backgroundColor: isDarkMode
+                    ? palette.secondaryText
+                    : '#9AA7B8',
+                },
+              ]}
+            />
 
-            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>NEW ALBUM</Text>
-            <Text style={[styles.title, { color: palette.textOnContainer }]}>Album name</Text>
+            <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>{tUI(uiLanguage, 'create.albumSettingsTitle')}</Text>
+            <Text style={[styles.title, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumNameTitle')}</Text>
 
             <TextInput
               style={[
                 styles.input,
                 {
-                  backgroundColor: palette.containerBg,
-                  borderColor: palette.modalOptionBorder,
+                  backgroundColor: optionSurface,
+                  borderColor: optionBorder,
                   color: palette.textOnContainer,
                 },
               ]}
@@ -193,26 +216,28 @@ export default function CreateAlbumModalUI({
               <Pressable
                 style={({ pressed }) => [
                   styles.cancelButton,
-                  { backgroundColor: palette.containerBg, borderColor: palette.modalOptionBorder },
+                  {
+                    backgroundColor: optionSurface,
+                    borderColor: optionBorder,
+                  },
                   pressed ? styles.pressablePrimaryPressed : null,
                 ]}
                 onPress={onCancel}
               >
-                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>Cancel</Text>
+                <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumCancel')}</Text>
               </Pressable>
 
               <TutorialSpotlight
                 active={tourConfirmActive}
                 tooltip={tourConfirmTooltip}
                 onSpotlightPress={onConfirm}
-                showSkip={false}
                 style={styles.tourButtonWrapper}
               >
                 <Pressable
                   style={({ pressed }) => [styles.confirmButton, pressed ? styles.pressablePrimaryPressed : null]}
                   onPress={onConfirm}
                 >
-                  <Text style={styles.confirmText}>Create</Text>
+                  <Text style={styles.confirmText}>{tUI(uiLanguage, 'create.albumCreate')}</Text>
                 </Pressable>
               </TutorialSpotlight>
             </View>

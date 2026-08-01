@@ -1,16 +1,17 @@
 import React from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useColorScheme } from 'react-native';
+import { tUI } from '../../../i18n/uiLanguage';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { TEXT_ON_CTA, CTA_COLOR, CTA_COLOR_BORDER, resolveThemeColors } from '../../../theme/colors';
-
-type SortMode = 'recently_added' | 'recently_reviewed' | 'alphabetical';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import type { AlbumSortMode } from '../../../features/deck/albumSortPreferences';
 
 type Props = {
   visible: boolean;
-  sortMode: SortMode;
-  sortLabel: string;
+  sortMode: AlbumSortMode;
+  uiLanguage: UILanguage;
   onClose: () => void;
-  onChangeSortMode: (mode: SortMode) => void;
+  onChangeSortMode: (mode: AlbumSortMode) => void;
 };
 
 const MODAL_ENTRY_TRANSLATE_Y = 420;
@@ -21,7 +22,7 @@ const MODAL_EXIT_DURATION_MS = 220;
 export default function AlbumSortModalUI({
   visible,
   sortMode,
-  sortLabel,
+  uiLanguage,
   onClose,
   onChangeSortMode,
 }: Props) {
@@ -81,8 +82,7 @@ export default function AlbumSortModalUI({
         <Animated.View style={[styles.sortModalOverlay, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
           <Pressable style={[styles.sortModalCard, { backgroundColor: palette.modalBg }]} onPress={() => undefined}>
-          <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>SORT OPTIONS</Text>
-          <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>Sort by</Text>
+          <Text style={[styles.sortModalTitle, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'sort.title')}</Text>
 
           <Pressable
             style={({ pressed }) => [
@@ -92,9 +92,11 @@ export default function AlbumSortModalUI({
               pressed ? styles.sortOptionBtnPressed : null,
             ]}
             onPress={() => onChangeSortMode('recently_added')}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: sortMode === 'recently_added' }}
           >
-            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_added' && styles.sortOptionTextActive]}>
-              Recently added
+              <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_added' && styles.sortOptionTextActive]}>
+              {tUI(uiLanguage, 'sort.recentlyAdded')}
             </Text>
           </Pressable>
 
@@ -106,9 +108,11 @@ export default function AlbumSortModalUI({
               pressed ? styles.sortOptionBtnPressed : null,
             ]}
             onPress={() => onChangeSortMode('recently_reviewed')}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: sortMode === 'recently_reviewed' }}
           >
-            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_reviewed' && styles.sortOptionTextActive]}>
-              Recently reviewed
+              <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'recently_reviewed' && styles.sortOptionTextActive]}>
+              {tUI(uiLanguage, 'sort.recentlyReviewed')}
             </Text>
           </Pressable>
 
@@ -120,13 +124,14 @@ export default function AlbumSortModalUI({
               pressed ? styles.sortOptionBtnPressed : null,
             ]}
             onPress={() => onChangeSortMode('alphabetical')}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: sortMode === 'alphabetical' }}
           >
-            <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'alphabetical' && styles.sortOptionTextActive]}>
-              Alphabetical
+              <Text style={[styles.sortOptionText, { color: palette.textOnContainer }, sortMode === 'alphabetical' && styles.sortOptionTextActive]}>
+              {tUI(uiLanguage, 'sort.alphabetical')}
             </Text>
           </Pressable>
 
-          <Text style={[styles.sortModeHint, { color: palette.secondaryText }]}>{`Current: ${sortLabel}`}</Text>
           </Pressable>
         </Animated.View>
       </Pressable>
@@ -154,12 +159,6 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 22,
     gap: 12,
-  },
-  eyebrow: {
-    color: '#8D93A1',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.6,
   },
   sortModalTitle: {
     color: '#FFFFFF',
@@ -191,11 +190,5 @@ const styles = StyleSheet.create({
   },
   sortOptionTextActive: {
     color: TEXT_ON_CTA,
-  },
-  sortModeHint: {
-    marginTop: 6,
-    color: '#97A0AF',
-    fontSize: 13,
-    fontWeight: '600',
   },
 });

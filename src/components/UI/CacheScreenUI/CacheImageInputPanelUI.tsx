@@ -2,6 +2,8 @@ import React from 'react';
 import { Text, Pressable, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONTAINER_BG, MODAL_CTA_COLOR, MODAL_CTA_COLOR_BORDER, TEXT_ON_CTA, resolveThemeColors } from '../../../theme/colors';
+import { DEFAULT_USER_SETTINGS, type UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 
 type Props = {
   creatingImage: boolean;
@@ -9,6 +11,7 @@ type Props = {
   onUploadImage: () => void;
   onCaptureImage: () => void;
   palette?: ReturnType<typeof resolveThemeColors>;
+  uiLanguage?: UILanguage;
 };
 
 export default function CacheImageInputPanelUI({
@@ -17,10 +20,13 @@ export default function CacheImageInputPanelUI({
   onUploadImage,
   onCaptureImage,
   palette,
+  uiLanguage = DEFAULT_USER_SETTINGS.uiLanguage,
 }: Props) {
   return (
     <>
-      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>Capture or upload image</Text>
+      <Text style={[styles.inputLabel, palette ? { color: palette.secondaryText } : null]}>
+        {tUI(uiLanguage, 'cache.imageLabel')}
+      </Text>
       <View
         style={[
           styles.imageUploadPanel,
@@ -42,7 +48,7 @@ export default function CacheImageInputPanelUI({
           <Ionicons name="image-outline" size={34} color={TEXT_ON_CTA} />
         </Pressable>
         <Text style={[styles.imageUploadText, palette ? { color: palette.textOnContainer } : null]}>
-          {creatingImage ? 'processing image...' : 'upload image'}
+          {creatingImage ? tUI(uiLanguage, 'cache.processingImage') : tUI(uiLanguage, 'cache.uploadImage')}
         </Text>
       </View>
       <Pressable
@@ -113,8 +119,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   uploadCirclePressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.94 }],
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
   },
   primaryPressed: {
     opacity: 0.94,

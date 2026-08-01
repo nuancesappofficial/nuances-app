@@ -1,12 +1,16 @@
 import React from 'react';
 import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 
 type Props = {
   visible: boolean;
   hasPermission: boolean;
   cameraRef: React.RefObject<CameraView | null>;
   facing: CameraType;
+  uiLanguage: UILanguage;
   onClose: () => void;
   onToggleFacing: () => void;
   onCapture: () => void;
@@ -17,10 +21,13 @@ export default function CameraModalUI({
   hasPermission,
   cameraRef,
   facing,
+  uiLanguage,
   onClose,
   onToggleFacing,
   onCapture,
 }: Props) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal
       visible={visible}
@@ -37,11 +44,13 @@ export default function CameraModalUI({
           />
         ) : (
           <View style={styles.cameraPermissionFallback}>
-            <Text style={styles.cameraPermissionText}>需要相機權限才能拍照</Text>
+            <Text style={styles.cameraPermissionText}>
+              {tUI(uiLanguage, 'camera.permissionRequired')}
+            </Text>
           </View>
         )}
 
-        <View style={styles.cameraTopBar}>
+        <View style={[styles.cameraTopBar, { top: insets.top + 12 }]}>
           <Pressable
             style={({ pressed }) => [styles.cameraTopButton, pressed ? styles.iconButtonPressed : null]}
             onPress={onClose}
@@ -56,7 +65,7 @@ export default function CameraModalUI({
           </Pressable>
         </View>
 
-        <View style={styles.cameraBottomBar}>
+        <View style={[styles.cameraBottomBar, { bottom: insets.bottom + 18 }]}>
           <Pressable
             style={({ pressed }) => [
               styles.shutterOuter,
@@ -91,7 +100,6 @@ const styles = StyleSheet.create({
   },
   cameraTopBar: {
     position: 'absolute',
-    top: 56,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -113,7 +121,6 @@ const styles = StyleSheet.create({
   },
   cameraBottomBar: {
     position: 'absolute',
-    bottom: 42,
     left: 0,
     right: 0,
     alignItems: 'center',

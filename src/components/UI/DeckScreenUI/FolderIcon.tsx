@@ -20,6 +20,7 @@ type FolderIconProps = {
   coverColor?: string;
   coverImageUri?: string;
   compact?: boolean;
+  thumbnail?: boolean;
 };
 
 const COVER_RADIUS = 16;
@@ -66,6 +67,7 @@ export function FolderIcon({
   coverColor,
   coverImageUri,
   compact = false,
+  thumbnail = false,
 }: FolderIconProps) {
   const colorScheme = useColorScheme();
   const palette = resolveThemeColors(colorScheme);
@@ -89,6 +91,8 @@ export function FolderIcon({
           style={[
             styles.iconLayer,
             styles.iconLayerFront,
+            compact ? styles.iconLayerFrontCompact : null,
+            thumbnail ? styles.iconLayerFrontThumbnail : null,
             hasCoverImage ? styles.iconLayerFrontImageCover : null,
             { backgroundColor: frontColor },
           ]}
@@ -97,38 +101,38 @@ export function FolderIcon({
             <Image source={{ uri: coverImageUri }} style={styles.coverImage} resizeMode="cover" />
           ) : null}
           {hasCoverImage ? null : (
-            <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null]}>
+            <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null, thumbnail ? styles.symbolWrapThumbnail : null]}>
               {iconEmoji ? (
-                <Text style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null, { color: iconColor }]}>
+                <Text allowFontScaling={false} style={[styles.emojiIcon, compact ? styles.emojiIconCompact : null, thumbnail ? styles.emojiIconThumbnail : null, { color: iconColor }]}>
                   {iconEmoji}
                 </Text>
               ) : canUseSymbols ? (
                 <SymbolView
                   name={coverTheme.symbol}
-                  size={compact ? 42 : 56}
+                  size={thumbnail ? 30 : compact ? 42 : 56}
                   tintColor={iconColor}
                   type="monochrome"
-                  style={{ width: compact ? 42 : 56, height: compact ? 42 : 56 }}
+                  style={{ width: thumbnail ? 30 : compact ? 42 : 56, height: thumbnail ? 30 : compact ? 42 : 56 }}
                   fallback={
-                    <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                    <Text allowFontScaling={false} style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, thumbnail ? styles.fallbackIconThumbnail : null, { color: iconColor }]}>
                       {coverTheme.fallback}
                     </Text>
                   }
                 />
               ) : (
-                <Text style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, { color: iconColor }]}>
+                <Text allowFontScaling={false} style={[styles.fallbackIcon, compact ? styles.fallbackIconCompact : null, thumbnail ? styles.fallbackIconThumbnail : null, { color: iconColor }]}>
                   {coverTheme.fallback}
                 </Text>
               )}
             </View>
           )}
-          {compact ? (
+          {compact && !thumbnail ? (
             <LinearGradient
               colors={[palette.albumCoverShadeStart, palette.albumCoverShadeMid, palette.albumCoverShadeEnd]}
               locations={[0, 0.58, 1]}
               style={styles.bottomShade}
             >
-              <Text style={[styles.bottomTitle, { color: bottomTitleColor }]} numberOfLines={1}>
+              <Text style={[styles.bottomTitle, { color: bottomTitleColor }]} numberOfLines={2}>
                 {title}
               </Text>
             </LinearGradient>
@@ -138,7 +142,7 @@ export function FolderIcon({
 
       {!compact ? (
         <>
-          <Text style={[styles.title, { color: titleColor }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: titleColor }]} numberOfLines={2}>
             {title}
           </Text>
           <Text style={[styles.subtitle, { color: subtitleColor }]}>{countLabel}</Text>
@@ -178,6 +182,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingTop: 22,
   },
+  iconLayerFrontCompact: {
+    paddingTop: 18,
+  },
+  iconLayerFrontThumbnail: {
+    paddingTop: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
   iconLayerFrontImageCover: {
     paddingTop: 0,
     justifyContent: 'flex-end',
@@ -198,12 +214,20 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
   },
+  symbolWrapThumbnail: {
+    width: 40,
+    height: 40,
+  },
   fallbackIcon: {
     fontSize: 48,
     fontWeight: '600',
   },
   fallbackIconCompact: {
     fontSize: 34,
+  },
+  fallbackIconThumbnail: {
+    fontSize: 28,
+    lineHeight: 32,
   },
   emojiIcon: {
     color: '#F8FAFC',
@@ -213,6 +237,10 @@ const styles = StyleSheet.create({
   emojiIconCompact: {
     fontSize: 34,
     lineHeight: 38,
+  },
+  emojiIconThumbnail: {
+    fontSize: 28,
+    lineHeight: 32,
   },
   bottomShade: {
     position: 'absolute',

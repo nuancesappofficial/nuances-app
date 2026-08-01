@@ -5,6 +5,7 @@ import React
 class SharedDefaultsModule: NSObject {
   private let appGroupID = "group.com.jeffenglishlearning.nuances.v2"
   private let sharedContentKey = "shared_content"
+  private let activeUserIDKey = "active_user_id"
   private let uiLanguageKey = "nuances_ui_language"
 
   @objc
@@ -37,26 +38,18 @@ class SharedDefaultsModule: NSObject {
 
   @objc(clearSharedContentIfTimestampMatches:resolver:rejecter:)
   func clearSharedContentIfTimestampMatches(
-    timestamp: NSNumber,
+    _ expectedTimestamp: NSNumber,
     resolve: RCTPromiseResolveBlock,
     reject: RCTPromiseRejectBlock
   ) {
-    guard let defaults = UserDefaults(suiteName: appGroupID) else {
+    guard let defaults = UserDefaults(suiteName: appGroupID),
+          let content = defaults.dictionary(forKey: sharedContentKey),
+          let currentTimestamp = content["timestamp"] as? NSNumber else {
       resolve(false)
       return
     }
 
-    guard let value = defaults.dictionary(forKey: sharedContentKey) else {
-      resolve(true)
-      return
-    }
-
-    let currentTimestamp = (value["timestamp"] as? NSNumber)?.doubleValue
-      ?? value["timestamp"] as? Double
-      ?? 0
-    let expectedTimestamp = timestamp.doubleValue
-
-    guard expectedTimestamp <= 0 || abs(currentTimestamp - expectedTimestamp) < 0.0001 else {
+    guard currentTimestamp.doubleValue == expectedTimestamp.doubleValue else {
       resolve(false)
       return
     }
@@ -66,16 +59,46 @@ class SharedDefaultsModule: NSObject {
     resolve(true)
   }
 
-  @objc(setUILanguage:resolver:rejecter:)
-  func setUILanguage(language: NSString, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+  @objc(setActiveUserId:resolver:rejecter:)
+  func setActiveUserId(
+    _ userId: String?,
+    resolve: RCTPromiseResolveBlock,
+    reject: RCTPromiseRejectBlock
+  ) {
     guard let defaults = UserDefaults(suiteName: appGroupID) else {
       resolve(nil)
       return
     }
 
-    defaults.set(language as String, forKey: uiLanguageKey)
+    if let normalized = userId?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !normalized.isEmpty {
+      defaults.set(normalized, forKey: activeUserIDKey)
+    } else {
+      defaults.removeObject(forKey: activeUserIDKey)
+    }
     defaults.synchronize()
     resolve(nil)
   }
 
+  @objc(setUILanguage:resolver:rejecter:)
+  func setUILanguage(
+    _ language: String?,
+    resolve: RCTPromiseResolveBlock,
+    reject: RCTPromiseRejectBlock
+  ) {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else {
+      resolve(nil)
+      return
+    }
+
+    let normalized = language?.trimmingCharacters(in: .whitespacesAndNewlines)
+    switch normalized {
+    case "zh-TW", "zh-CN", "en":
+      defaults.set(normalized, forKey: uiLanguageKey)
+    default:
+      defaults.set("en", forKey: uiLanguageKey)
+    }
+    defaults.synchronize()
+    resolve(nil)
+  }
 }

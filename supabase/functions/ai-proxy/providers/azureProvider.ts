@@ -1,5 +1,6 @@
 import { jsonResponse } from '../_shared/httpResponse.ts';
 import { sanitizeText } from '../_shared/requestSanitizers.ts';
+import { withDependencyGuard } from '../../_shared/dependencyGuard.ts';
 import {
   AZURE_MIN_WAV_BYTES,
   AZURE_REQUEST_TIMEOUT_MS,
@@ -23,10 +24,18 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
+    return await withDependencyGuard(
+      'azure-speech',
+      () =>
+        fetch(input, {
+          ...init,
+          signal: controller.signal,
+        }),
+      {
+        isFailure: (response) =>
+          response.status === 429 || response.status >= 500,
+      }
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -60,6 +69,20 @@ function sanitizeLocale(locale: unknown): string {
   const normalized = sanitizeText(locale, 20);
   if (!normalized) return 'en-US';
   return /^[a-z]{2,3}-[A-Z]{2}$/.test(normalized) ? normalized : 'en-US';
+}
+
+function parseAzureJsonResponse(rawText: string): unknown {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return {
+      error: {
+        message: trimmed.slice(0, 500),
+      },
+    };
+  }
 }
 
 function normalizeAudioBase64(input: string): string {
@@ -150,6 +173,35 @@ function parseWavFormat(bytes: Uint8Array): {
   };
 }
 
+export function estimateWavDurationSecondsFromBase64(input: string): number {
+  try {
+    const bytes = decodeBase64ToBytes(normalizeAudioBase64(input));
+    if (!isLikelyWav(bytes)) return 0;
+    const format = parseWavFormat(bytes);
+    if (!format.byteRate || format.byteRate <= 0) return 0;
+
+    let offset = 12;
+    while (offset + 8 <= bytes.length) {
+      const chunkId = String.fromCharCode(
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3]
+      );
+      const chunkSize = readUint32LE(bytes, offset + 4);
+      if (chunkSize === null) break;
+      if (chunkId === 'data') {
+        return Math.max(0, chunkSize / format.byteRate);
+      }
+      offset += 8 + chunkSize + (chunkSize % 2);
+    }
+
+    return Math.max(0, (bytes.length - 44) / format.byteRate);
+  } catch {
+    return 0;
+  }
+}
+
 function buildArticulationHint(expected: string, spoken: string | null): string {
   const substitution = spoken && spoken !== expected
     ? `你目前更接近 ${spoken}，目標要更靠近 ${expected}。`
@@ -231,6 +283,7 @@ export async function handlePronunciationAssess(
     Dimension: 'Comprehensive',
     EnableMiscue: true,
     EnableProsodyAssessment: true,
+    PhonemeAlphabet: 'IPA',
     NBestPhonemeCount: 3,
   }));
   const endpoint =
@@ -257,13 +310,21 @@ export async function handlePronunciationAssess(
   );
 
   const rawText = await azureResponse.text().catch(() => '');
-  const raw = rawText ? JSON.parse(rawText) : null;
+  const raw = parseAzureJsonResponse(rawText);
   if (!azureResponse.ok) {
     const detail =
       (raw as { error?: { message?: string }; RecognitionStatus?: string } | null)?.error?.message
       || (raw as { RecognitionStatus?: string } | null)?.RecognitionStatus
       || `Azure Speech request failed (${azureResponse.status})`;
-    throw new Error(`${detail} (wavBytes=${audioBytes.length})`);
+    return jsonResponse(
+      {
+        error: `${detail} (wavBytes=${audioBytes.length})`,
+        reason: 'azure_pronunciation_failed',
+        locale,
+        wavFormat,
+      },
+      azureResponse.status >= 400 && azureResponse.status < 500 ? 400 : 502
+    );
   }
 
   const rawRecord = (raw || {}) as {
@@ -323,25 +384,6 @@ export async function handlePronunciationAssess(
   const wordsRaw = Array.isArray(best?.Words)
     ? best.Words
     : (Array.isArray(rawRecord.Words) ? rawRecord.Words : []);
-  console.log(
-    '[ai-proxy][pronunciation_assess] azure-shape',
-    JSON.stringify({
-      recognitionStatus: rawRecord.RecognitionStatus ?? null,
-      hasNBest: Array.isArray(rawRecord.NBest) && rawRecord.NBest.length > 0,
-      hasPAInBest: Boolean(best?.PronunciationAssessment),
-      hasPAInRoot: Boolean(rawRecord.PronunciationAssessment),
-      wordsCount: wordsRaw.length,
-      phonemeCountInWords: wordsRaw.reduce(
-        (sum, word) => sum + (Array.isArray(word?.Phonemes) ? word.Phonemes.length : 0),
-        0
-      ),
-      syllableCountInWords: wordsRaw.reduce(
-        (sum, word) => sum + (Array.isArray(word?.Syllables) ? word.Syllables.length : 0),
-        0
-      ),
-    })
-  );
-
   const phonemeFeedback: Array<{
     phoneme: string;
     letters?: string;
@@ -410,11 +452,6 @@ export async function handlePronunciationAssess(
           suggestion: '放慢語速，將此音節拆開重讀，先求清楚再求連貫。',
         });
       }
-      if (perWordPhonemes.length === 0 && perWordSyllables.length > 0) {
-        for (const s of perWordSyllables) {
-          phonemeFeedback.push(s);
-        }
-      }
       const mappedLettersByPhoneme = splitWordIntoLetterSegments(word, perWordPhonemes.length);
       for (const [index, p] of perWordPhonemes.entries()) {
         letterSegments.push({
@@ -426,19 +463,6 @@ export async function handlePronunciationAssess(
           level: p.level,
           suggestion: p.suggestion,
         });
-      }
-      if (perWordPhonemes.length === 0) {
-        for (const s of perWordSyllables) {
-          letterSegments.push({
-            text: word,
-            letters: s.phoneme,
-            phoneme: s.phoneme,
-            spokenPhoneme: null,
-            accuracy: s.accuracy,
-            level: s.level,
-            suggestion: s.suggestion,
-          });
-        }
       }
       const accuracy =
         extractAccuracyScore(wordItem)
@@ -471,18 +495,6 @@ export async function handlePronunciationAssess(
     ?? extractAccuracyScore(wordsRaw[0])
     ?? wordAvgScore
     ?? 0;
-  console.log(
-    '[ai-proxy][pronunciation_assess] normalized-summary',
-    JSON.stringify({
-      hasPronunciationAssessment,
-      overallScore,
-      wordFeedbackCount: wordFeedback.length,
-      phonemeFeedbackCount: phonemeFeedback.length,
-      letterSegmentCount: letterSegments.length,
-      hasTopLevelScores,
-    })
-  );
-
   return jsonResponse({
     result: {
       overallScore,

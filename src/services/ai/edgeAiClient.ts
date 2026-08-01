@@ -5,6 +5,9 @@ type AIProvider = 'openai' | 'gemini';
 type AIFeatureAction =
   | 'analyze_text'
   | 'generate_card'
+  | 'generate_card_stream'
+  | 'generate_card_core_stream'
+  | 'generate_card_enrichment_stream'
   | 'analyze_context'
   | 'analyze_and_generate_card'
   | 'pronunciation_assess'
@@ -37,10 +40,16 @@ type AsyncActionOptions = {
 
 const AI_EDGE_FUNCTION_NAME =
   process.env.EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME || 'ai-proxy';
-const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(
+  /\/+$/,
+  ''
+);
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
-const DEV_DEFAULT_PLAN = (process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN || '').trim();
+const AI_EDGE_TIMEOUT_MS = 45000;
+const AI_CLIENT_DIAGNOSTICS_ENABLED =
+  __DEV__ ||
+  String(process.env.EXPO_PUBLIC_AI_CLIENT_DIAGNOSTICS || '').toLowerCase() ===
+    'true';
 
 export class AIAuthError extends Error {
   constructor(message = 'Authentication required: please sign in first') {
@@ -72,8 +81,53 @@ function isPronunciationQuotaError(detail: string): boolean {
   const lower = detail.toLowerCase();
   return (
     lower.includes('pronunciation_daily_quota_exceeded') ||
+    lower.includes('pronunciation_week_quota_exceeded') ||
+    lower.includes('pronunciation_month_quota_exceeded') ||
+    lower.includes('pronunciation fair-use limit') ||
     lower.includes('daily pronunciation quota exceeded')
   );
+}
+
+function isDailyQuotaError(detail: string): boolean {
+  const lower = detail.toLowerCase();
+  return (
+    lower.includes('ai_generation_daily_quota_exceeded') ||
+    lower.includes('ai_generation_week_quota_exceeded') ||
+    lower.includes('ai_generation_month_quota_exceeded') ||
+    lower.includes('ai card generation limit') ||
+    lower.includes('ai card generation fair-use limit') ||
+    lower.includes('daily_quota_exceeded') ||
+    lower.includes('daily quota exceeded') ||
+    lower.includes("you've reached today's")
+  );
+}
+
+function isRateLimitError(detail: string): boolean {
+  const lower = detail.toLowerCase();
+  return (
+    lower.includes('rate_limit_exceeded') ||
+    lower.includes('rate limit exceeded') ||
+    lower.includes('too quickly')
+  );
+}
+
+function userFacingQuotaError(detail: string): string | null {
+  if (isPronunciationQuotaError(detail)) {
+    if (detail.toLowerCase().includes('subscription period')) {
+      return "You've used this subscription period's pronunciation scoring fair-use limit. You can still create cards and study; pronunciation scoring resets next period.";
+    }
+    return "You've used today's pronunciation check limit. You can still create cards and study; pronunciation scoring resets tomorrow.";
+  }
+  if (isDailyQuotaError(detail)) {
+    if (detail.toLowerCase().includes('subscription period')) {
+      return "You've used this subscription period's AI card generation fair-use limit. You can still review existing cards and use features that do not need new AI generation; this resets next period.";
+    }
+    return "You've used today's AI card generation limit. You can still review existing cards and use features that do not need new AI generation; this resets tomorrow.";
+  }
+  if (isRateLimitError(detail)) {
+    return "You're going a little fast. Please wait a moment and try again.";
+  }
+  return null;
 }
 
 async function ensureCloudAIAccess(featureLabel: string): Promise<void> {
@@ -81,12 +135,23 @@ async function ensureCloudAIAccess(featureLabel: string): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user?.id) {
+    logAIClientDiagnostic('cloud_access_no_user', { featureLabel });
     throw new AIAuthError('Authentication required: please sign in first');
   }
 
   const entitlement = await SubscriptionService.getEntitlementSnapshot(user.id);
+  logAIClientDiagnostic('cloud_access_snapshot', {
+    featureLabel,
+    user: user.id.slice(-8),
+    planType: entitlement.planType,
+    canUseCloudAI: entitlement.canUseCloudAI,
+    canUseAutoCardGeneration: entitlement.canUseAutoCardGeneration,
+    devBypass: entitlement.devBypass,
+  });
   if (!entitlement.canUseCloudAI) {
-    throw new PremiumFeatureError(`${featureLabel} 需要試用版或 Premium 才能使用。`);
+    throw new PremiumFeatureError(
+      `${featureLabel} 需要試用版或 Premium 才能使用。`
+    );
   }
 }
 
@@ -96,15 +161,52 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function buildEdgeHeaders(authHeaders: { Authorization: string }): Record<string, string> {
+function buildEdgeHeaders(authHeaders: {
+  Authorization: string;
+}): Record<string, string> {
   return {
     'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
     apikey: SUPABASE_ANON_KEY,
     Authorization: authHeaders.Authorization,
-    ...(__DEV__ && DEV_BYPASS_ENABLED && DEV_DEFAULT_PLAN === 'premium'
+    ...(SubscriptionService.isPremiumBypassEnabled()
       ? { 'x-nuances-dev-plan': 'premium' }
       : {}),
   };
+}
+
+function logAIClientDiagnostic(
+  event: string,
+  meta: Record<string, unknown> = {}
+) {
+  if (!AI_CLIENT_DIAGNOSTICS_ENABLED) return;
+  console.log('[AIClient][diagnostic]', {
+    event,
+    ...meta,
+  });
+}
+
+function formatEdgeFunctionError(status: number, parsedBody: unknown): string {
+  if (parsedBody && typeof parsedBody === 'object') {
+    const body = parsedBody as Record<string, unknown>;
+    const message =
+      typeof body.message === 'string' && body.message.trim()
+        ? body.message.trim()
+        : '';
+    const error =
+      typeof body.error === 'string'
+        ? body.error
+        : 'Edge Function request failed';
+    const reason = typeof body.reason === 'string' ? body.reason : '';
+    const details = typeof body.details === 'string' ? body.details : '';
+    const requestId =
+      typeof body.requestId === 'string' ? `requestId=${body.requestId}` : '';
+    const suffix = [reason, details, requestId].filter(Boolean).join(': ');
+    const base = message || error;
+    return suffix ? `${base} (${status}): ${suffix}` : `${base} (${status})`;
+  }
+  const bodyText = typeof parsedBody === 'string' ? parsedBody : '';
+  return `Edge Function returned a non-2xx status code (status: ${status}, body: ${bodyText || '<empty>'})`;
 }
 
 export function isAIProxyConfigured(): boolean {
@@ -124,6 +226,7 @@ async function getAuthHeader(): Promise<{ Authorization: string }> {
   const accessToken = session?.access_token;
   const normalizedToken = accessToken?.trim().replace(/^"(.+)"$/, '$1') || '';
   if (normalizedToken) {
+    logAIClientDiagnostic('auth_header_ready', { source: 'session' });
     return {
       Authorization: `Bearer ${normalizedToken}`,
     };
@@ -133,8 +236,10 @@ async function getAuthHeader(): Promise<{ Authorization: string }> {
   // 先嘗試 refresh 再判定為未登入，避免請求在本機端就被攔下且 Supabase 無任何 log。
   const refreshed = await refreshAuthHeader();
   if (refreshed?.Authorization) {
+    logAIClientDiagnostic('auth_header_ready', { source: 'refresh' });
     return refreshed;
   }
+  logAIClientDiagnostic('auth_header_missing');
   throw new AIAuthError('Authentication required: please sign in first');
 }
 
@@ -163,21 +268,25 @@ function isInvalidJwtError(detail: string): boolean {
 
   return (
     mentionsAuthTokenProblem ||
-    (is401 && (lower.includes('missing valid jwt') || lower.includes('invalid jwt')))
+    (is401 &&
+      (lower.includes('missing valid jwt') || lower.includes('invalid jwt')))
   );
 }
 
 function normalizePayload(payload: unknown): unknown {
   if (!payload || typeof payload !== 'object') return payload;
   const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(
+    payload as Record<string, unknown>
+  )) {
     if (typeof value === 'string') {
       if (key === 'audioBase64') {
         result[key] = value.trim();
         continue;
       }
       const normalized = value.replace(/\s+/g, ' ').trim();
-      result[key] = normalized.length > 2000 ? normalized.slice(0, 2000) : normalized;
+      result[key] =
+        normalized.length > 2000 ? normalized.slice(0, 2000) : normalized;
       continue;
     }
     result[key] = value;
@@ -197,11 +306,31 @@ async function invokeAIEndpoint(
   }
 
   const endpoint = `${SUPABASE_URL}/functions/v1/${AI_EDGE_FUNCTION_NAME}`;
+  const startedAt = Date.now();
+  logAIClientDiagnostic('edge_request_start', {
+    endpoint,
+    bodyType:
+      body &&
+      typeof body === 'object' &&
+      'action' in (body as Record<string, unknown>)
+        ? `action:${String((body as Record<string, unknown>).action)}`
+        : 'legacy',
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, AI_EDGE_TIMEOUT_MS);
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: buildEdgeHeaders(authHeaders),
       body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    logAIClientDiagnostic('edge_response_received', {
+      status: response.status,
+      ok: response.ok,
+      latencyMs: Date.now() - startedAt,
     });
 
     const responseText = await response.text();
@@ -215,21 +344,40 @@ async function invokeAIEndpoint(
     })();
 
     if (!response.ok) {
-      const bodyText = typeof parsedBody === 'string'
-        ? parsedBody
-        : JSON.stringify(parsedBody);
       return {
         data: null,
-        error: `Edge Function returned a non-2xx status code (status: ${response.status}, body: ${bodyText || '<empty>'})`,
+        error: formatEdgeFunctionError(response.status, parsedBody),
       };
     }
 
     return { data: parsedBody, error: null };
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      logAIClientDiagnostic('edge_request_timeout', {
+        timeoutMs: AI_EDGE_TIMEOUT_MS,
+        latencyMs: Date.now() - startedAt,
+      });
     return {
       data: null,
-      error: error instanceof Error ? error.message : String(error || 'network error'),
+        error: `AI request timed out after ${Math.round(AI_EDGE_TIMEOUT_MS / 1000)} seconds`,
     };
+  }
+    logAIClientDiagnostic('edge_request_failed', {
+      latencyMs: Date.now() - startedAt,
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error || 'network error'),
+    });
+    return {
+      data: null,
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error || 'network error'),
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -324,10 +472,13 @@ export async function callAIAction<TPayload, TResult>(
   payload: TPayload,
   options: AsyncActionOptions = {}
 ): Promise<TResult> {
+  // generate_card must reach ai-proxy so server-side entitlement, diagnostics,
+  // and request IDs stay authoritative across TestFlight and production.
   if (
     action !== 'usage_summary' &&
     action !== 'get_task_result' &&
-    action !== 'pronunciation_assess'
+    action !== 'pronunciation_assess' &&
+    action !== 'generate_card'
   ) {
     await ensureCloudAIAccess('AI 自動生成');
   }
@@ -340,7 +491,8 @@ export async function callAIAction<TPayload, TResult>(
     normalizedPayload !== null &&
     'text' in (normalizedPayload as Record<string, unknown>) &&
     typeof (normalizedPayload as Record<string, unknown>).text === 'string' &&
-    ((normalizedPayload as Record<string, unknown>).text as string).length >= asyncThresholdChars;
+    ((normalizedPayload as Record<string, unknown>).text as string).length >=
+      asyncThresholdChars;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const { data, error } = await invokeAIEndpoint(
@@ -360,11 +512,17 @@ export async function callAIAction<TPayload, TResult>(
           | undefined;
         const taskId = asyncTask?.taskId;
         if (!taskId) {
-          throw new Error(`AI action did not return taskId for async action: ${action}`);
+          throw new Error(
+            `AI action did not return taskId for async action: ${action}`
+          );
         }
         const maxPollAttempts = options.maxPollAttempts ?? 30;
         const pollIntervalMs = options.pollIntervalMs ?? 1000;
-        for (let pollAttempt = 0; pollAttempt < maxPollAttempts; pollAttempt += 1) {
+        for (
+          let pollAttempt = 0;
+          pollAttempt < maxPollAttempts;
+          pollAttempt += 1
+        ) {
           await sleep(pollIntervalMs);
           const taskResult = await callAIAction<
             { taskId: string },
@@ -390,7 +548,9 @@ export async function callAIAction<TPayload, TResult>(
       }
       const result = obj.result as TResult | undefined;
       if (!result) {
-        throw new Error(`AI action returned empty result for action: ${action}`);
+        throw new Error(
+          `AI action returned empty result for action: ${action}`
+        );
       }
       return result;
     }
@@ -413,10 +573,9 @@ export async function callAIAction<TPayload, TResult>(
     if (isPremiumFeatureError(detail)) {
       throw new PremiumFeatureError('Premium or active trial required');
     }
-    if (isPronunciationQuotaError(detail)) {
-      throw new Error(
-        'Daily pronunciation check limit reached. Please try again tomorrow or upgrade for a higher fair-use limit.'
-      );
+    const quotaError = userFacingQuotaError(detail);
+    if (quotaError) {
+      throw new Error(quotaError);
     }
     throw new Error(`AI action error: ${detail}`);
   }
@@ -424,10 +583,257 @@ export async function callAIAction<TPayload, TResult>(
   throw new AIAuthError('Authentication required: please sign in again');
 }
 
+export async function streamAIAction<TPayload>(
+  action: AIFeatureAction,
+  payload: TPayload,
+  handlers: {
+    onToken?: (delta: string) => void;
+    onFirstToken?: () => void;
+  } = {}
+): Promise<{
+  rawContent: string;
+  ttfbMs?: number;
+  totalMs?: number;
+  model?: string;
+  resolution?: {
+    originalTarget?: string;
+    canonicalSubject?: string;
+    normalizationKind?: 'unchanged' | 'lemma' | 'typo' | 'phrase';
+    isPartOfPhrase?: boolean;
+    detectedPhrase?: string;
+    phraseConfidence?: number;
+    phraseMeaningDiffers?: boolean;
+    isLikelyTypo?: boolean;
+    correctedTargetWord?: string;
+    typoReason?: string;
+  };
+}> {
+  if (
+    action !== 'generate_card_stream' &&
+    action !== 'generate_card_core_stream' &&
+    action !== 'generate_card_enrichment_stream'
+  ) {
+    await ensureCloudAIAccess('AI 自動生成');
+  }
+  let authHeaders = await getAuthHeader();
+  const normalizedPayload = normalizePayload(payload);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const endpoint = `${SUPABASE_URL}/functions/v1/${AI_EDGE_FUNCTION_NAME}`;
+    const startedAt = Date.now();
+
+    try {
+      const { status, text, donePayload, finalRawContent } = await new Promise<{
+        status: number;
+        text: string;
+        donePayload: Record<string, unknown>;
+        finalRawContent: string;
+      }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', endpoint);
+        xhr.timeout = AI_EDGE_TIMEOUT_MS;
+        const headers = buildEdgeHeaders(authHeaders);
+        for (const [key, val] of Object.entries(headers)) {
+          xhr.setRequestHeader(key, val);
+        }
+
+        let seenBytes = 0;
+        let buffer = '';
+        let rawContent = '';
+        let sawFirstToken = false;
+        let parsedDonePayload: Record<string, unknown> = {};
+
+        const processBufferedEvents = (flush = false) => {
+          const events: string[] = [];
+          const delimiter = /\r\n\r\n|\n\n|\r\r/g;
+          let consumedThrough = 0;
+          let match: RegExpExecArray | null;
+
+          while ((match = delimiter.exec(buffer)) !== null) {
+            events.push(buffer.slice(consumedThrough, match.index));
+            consumedThrough = match.index + match[0].length;
+          }
+
+          buffer = buffer.slice(consumedThrough);
+          if (flush && buffer.trim()) {
+            events.push(buffer);
+            buffer = '';
+          }
+
+          for (const ev of events) {
+            const data = ev
+              .split(/\r\n|\n|\r/)
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n')
+              .trim();
+            if (!data) continue;
+
+            try {
+              const payloadObj = JSON.parse(data) as Record<string, unknown>;
+
+              if (payloadObj.delta !== undefined) {
+                if (!sawFirstToken) {
+                  sawFirstToken = true;
+                  handlers.onFirstToken?.();
+                }
+                rawContent += String(payloadObj.delta);
+                handlers.onToken?.(String(payloadObj.delta));
+              }
+
+              if (
+                payloadObj.ttfbMs !== undefined ||
+                payloadObj.totalMs !== undefined ||
+                payloadObj.model !== undefined
+              ) {
+                parsedDonePayload = payloadObj;
+                if (typeof payloadObj.rawContent === 'string') {
+                  rawContent = payloadObj.rawContent;
+                }
+              }
+            } catch {
+              // Ignore malformed server events while allowing later events through.
+            }
+          }
+        };
+
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === 3 && xhr.status === 200) {
+            const currentText = xhr.responseText || '';
+            const chunk = currentText.slice(seenBytes);
+            seenBytes = currentText.length;
+            buffer += chunk;
+            processBufferedEvents(false);
+          }
+
+          if (xhr.readyState !== 4) return;
+
+          // A non-200 response is still a completed request. Resolve it so the
+          // caller can classify 401/403 responses instead of leaving the ghost
+          // card waiting on a Promise that can never settle.
+          if (xhr.status === 200) {
+            const currentText = xhr.responseText || '';
+            const chunk = currentText.slice(seenBytes);
+            seenBytes = currentText.length;
+            buffer += chunk;
+            processBufferedEvents(true);
+          }
+          resolve({
+            status: xhr.status,
+            text: xhr.responseText,
+            donePayload: parsedDonePayload,
+            finalRawContent: rawContent,
+          });
+        };
+
+        xhr.onerror = () => reject(new Error('Network request failed'));
+        xhr.ontimeout = () =>
+          reject(
+            new Error(
+              `AI request timed out after ${Math.round(AI_EDGE_TIMEOUT_MS / 1000)} seconds`
+            )
+          );
+        xhr.send(JSON.stringify({ action, payload: normalizedPayload }));
+      });
+
+      if (status !== 200) {
+        const detail = formatEdgeFunctionError(
+          status,
+          (() => {
+            try {
+              return JSON.parse(text) as unknown;
+            } catch {
+              return text;
+            }
+          })()
+        );
+
+        if (isInvalidJwtError(detail) && attempt === 0) {
+          const refreshedHeaders = await refreshAuthHeader();
+          if (refreshedHeaders) {
+            authHeaders = refreshedHeaders;
+            continue;
+          }
+          throw new AIAuthError(
+            'Authentication required: please sign in again'
+          );
+        }
+        if (isPremiumFeatureError(detail)) {
+          throw new PremiumFeatureError('Premium or active trial required');
+        }
+        const quotaError = userFacingQuotaError(detail);
+        if (quotaError) {
+          throw new Error(quotaError);
+        }
+        throw new Error(`AI stream action error: ${detail}`);
+      }
+
+      const resultRawContent =
+        (typeof donePayload.rawContent === 'string'
+          ? donePayload.rawContent
+          : undefined) || finalRawContent;
+
+      logAIClientDiagnostic('stream_action_done', {
+        action,
+        latencyMs: Date.now() - startedAt,
+        ttfbMs: donePayload.ttfbMs,
+        model: donePayload.model,
+        rawContentLength: resultRawContent.length,
+      });
+
+      return {
+        rawContent: resultRawContent,
+        ttfbMs:
+          typeof donePayload.ttfbMs === 'number'
+            ? donePayload.ttfbMs
+            : undefined,
+        totalMs:
+          typeof donePayload.totalMs === 'number'
+            ? donePayload.totalMs
+            : undefined,
+        model:
+          typeof donePayload.model === 'string' ? donePayload.model : undefined,
+        resolution:
+          donePayload.resolution &&
+          typeof donePayload.resolution === 'object' &&
+          !Array.isArray(donePayload.resolution)
+            ? (donePayload.resolution as {
+                originalTarget?: string;
+                canonicalSubject?: string;
+                normalizationKind?: 'unchanged' | 'lemma' | 'typo' | 'phrase';
+                isPartOfPhrase?: boolean;
+                detectedPhrase?: string;
+                phraseConfidence?: number;
+                phraseMeaningDiffers?: boolean;
+                isLikelyTypo?: boolean;
+                correctedTargetWord?: string;
+                typoReason?: string;
+              })
+            : undefined,
+      };
+    } catch (error) {
+      if (error instanceof PremiumFeatureError || error instanceof AIAuthError) {
+        throw error;
+      }
+      if (attempt === 1) {
+        throw error;
+      }
+      console.warn('Stream attempt 0 failed, retrying...', error);
+    }
+  }
+
+  throw new Error('AI stream action failed after maximum retries');
+}
+
 export async function streamOpenAIProxy(
   request: Omit<AIRequest, 'provider'>,
   onToken: (delta: string) => void
-): Promise<{ ttfbMs?: number; totalMs?: number; inputTokens?: number; outputTokens?: number }> {
+): Promise<{
+  ttfbMs?: number;
+  totalMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}> {
   const authHeaders = await getAuthHeader();
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error('Supabase configuration missing for Edge Function');
@@ -453,7 +859,12 @@ export async function streamOpenAIProxy(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let donePayload: { ttfbMs?: number; totalMs?: number; inputTokens?: number; outputTokens?: number } = {};
+  let donePayload: {
+    ttfbMs?: number;
+    totalMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } = {};
 
   let shouldRead = true;
   while (shouldRead) {
@@ -467,8 +878,14 @@ export async function streamOpenAIProxy(
     buffer = events.pop() || '';
     for (const eventChunk of events) {
       const lines = eventChunk.split('\n');
-      const eventType = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-      const dataLine = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+      const eventType = lines
+        .find((line) => line.startsWith('event:'))
+        ?.slice(6)
+        .trim();
+      const dataLine = lines
+        .find((line) => line.startsWith('data:'))
+        ?.slice(5)
+        .trim();
       if (!eventType || !dataLine) continue;
       try {
         const payload = JSON.parse(dataLine) as Record<string, unknown>;
@@ -477,10 +894,18 @@ export async function streamOpenAIProxy(
         }
         if (eventType === 'done') {
           donePayload = {
-            ttfbMs: typeof payload.ttfbMs === 'number' ? payload.ttfbMs : undefined,
-            totalMs: typeof payload.totalMs === 'number' ? payload.totalMs : undefined,
-            inputTokens: typeof payload.inputTokens === 'number' ? payload.inputTokens : undefined,
-            outputTokens: typeof payload.outputTokens === 'number' ? payload.outputTokens : undefined,
+            ttfbMs:
+              typeof payload.ttfbMs === 'number' ? payload.ttfbMs : undefined,
+            totalMs:
+              typeof payload.totalMs === 'number' ? payload.totalMs : undefined,
+            inputTokens:
+              typeof payload.inputTokens === 'number'
+                ? payload.inputTokens
+                : undefined,
+            outputTokens:
+              typeof payload.outputTokens === 'number'
+                ? payload.outputTokens
+                : undefined,
           };
         }
       } catch {

@@ -1,0 +1,27 @@
+diff --git a/node_modules/expo-video/ios/VideoPlayer.swift b/node_modules/expo-video/ios/VideoPlayer.swift
+index 847500d..c90057d 100644
+--- a/node_modules/expo-video/ios/VideoPlayer.swift
++++ b/node_modules/expo-video/ios/VideoPlayer.swift
+@@ -98,7 +98,7 @@ internal final class VideoPlayer: SharedRef<AVPlayer>, Hashable, VideoPlayerObse
+ 
+       if showNowPlayingNotification {
+         NowPlayingManager.shared.registerPlayer(self)
+-      } else {
++      } else if oldValue {
+         NowPlayingManager.shared.unregisterPlayer(self)
+       }
+     }
+@@ -180,7 +180,12 @@ internal final class VideoPlayer: SharedRef<AVPlayer>, Hashable, VideoPlayerObse
+ 
+   deinit {
+     observer?.cleanup()
+-    NowPlayingManager.shared.unregisterPlayer(self)
++    // Avoid initializing MPRemoteCommandCenter while tearing down players that
++    // never participated in Now Playing. Rapidly replacing muted tutorial
++    // players can otherwise race MediaRemote setup during deallocation.
++    if showNowPlayingNotification {
++      NowPlayingManager.shared.unregisterPlayer(self)
++    }
+     VideoManager.shared.unregister(videoPlayer: self)
+ 
+     videoSourceLoader.cancelCurrentTask()

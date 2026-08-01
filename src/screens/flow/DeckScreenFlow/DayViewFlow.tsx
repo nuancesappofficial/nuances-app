@@ -5,7 +5,16 @@ import { SCREEN_BG } from '../../../theme/colors';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import {
+  getInitialUserSettings,
+  loadUserSettings,
+  subscribeUserSettings,
+  type UILanguage,
+} from '@services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
+import { formatPartOfSpeechLabel } from '../../../i18n/partOfSpeech';
+import { isPhraseLikeCardSubject } from '../../../features/cards/cardUsage';
 
 type Props = {
   navigation: any;
@@ -13,16 +22,6 @@ type Props = {
 };
 
 const masteryColors = ['#FFE5E5', '#FFE5CC', '#E5F4FF', '#E5FFE5'];
-
-const dayNames: Record<string, string> = {
-  Mon: 'Monday',
-  Tue: 'Tuesday',
-  Wed: 'Wednesday',
-  Thu: 'Thursday',
-  Fri: 'Friday',
-  Sat: 'Saturday',
-  Sun: 'Sunday',
-};
 
 const dayColors: Record<string, string> = {
   Mon: '#FFE5E5',
@@ -32,6 +31,16 @@ const dayColors: Record<string, string> = {
   Fri: '#FFE5F5',
   Sat: '#F5E5FF',
   Sun: '#FFE5CC',
+};
+
+const UI_LOCALES: Record<UILanguage, string> = {
+  en: 'en-US',
+  'zh-TW': 'zh-TW',
+  'zh-CN': 'zh-CN',
+  ja: 'ja-JP',
+  ko: 'ko-KR',
+  es: 'es-ES',
+  fr: 'fr-FR',
 };
 
 function getMasteryIndex(card: Card): number {
@@ -53,8 +62,49 @@ function todayDayKey(): string {
   return dayKeyFromDate(new Date());
 }
 
+function formatDayName(
+  day: string,
+  uiLanguage: UILanguage,
+  width: 'short' | 'long'
+): string {
+  const dayIndex = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+    day
+  );
+  if (dayIndex < 0) return day;
+  const reference = new Date(Date.UTC(2024, 0, 7 + dayIndex));
+  return reference.toLocaleDateString(UI_LOCALES[uiLanguage], {
+    weekday: width,
+    timeZone: 'UTC',
+  });
+}
+
 export default function DayViewScreen({ navigation, route }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    () => getInitialUserSettings().uiLanguage
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) setUiLanguage(settings.uiLanguage);
+      })
+      .catch((error) => {
+        console.warn('[DayView] load UI language failed:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        setUiLanguage(settings.uiLanguage);
+      }),
+    []
+  );
 
   React.useEffect(() => {
     let sub: { unsubscribe: () => void } | undefined;
@@ -62,18 +112,24 @@ export default function DayViewScreen({ navigation, route }: Props) {
 
     const load = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
           if (!cancelled) setAllCards([]);
           return;
         }
         const queryCards = database
           .get<Card>('cards')
-          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+          .query(
+            Q.where('user_id', userId),
+            Q.where('deleted_at', null),
+            Q.sortBy('created_at', Q.desc)
+          );
         const data = await queryCards.fetch();
         if (cancelled) return;
         setAllCards(data);
-        sub = queryCards.observe().subscribe((nextData) => setAllCards(nextData));
+        sub = queryCards
+          .observe()
+          .subscribe((nextData) => setAllCards(nextData));
       } catch (error) {
         console.error('[DayView] load cards failed:', error);
         if (!cancelled) setAllCards([]);
@@ -88,6 +144,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
   }, []);
 
   const day = route.params?.day || todayDayKey();
+  const displayDayName = formatDayName(day, uiLanguage, 'long');
 
   const dayCards = React.useMemo(() => {
     return allCards.filter((card) => dayKeyFromDate(card.createdAt) === day);
@@ -98,22 +155,34 @@ export default function DayViewScreen({ navigation, route }: Props) {
       <View style={styles.header}>
         <Pressable
           onPress={() => navigation.goBack()}
-          style={({ pressed }) => [styles.backButton, pressed ? styles.iconButtonPressed : null]}
+          style={({ pressed }) => [
+            styles.backButton,
+            pressed ? styles.iconButtonPressed : null,
+          ]}
         >
           <Text style={styles.backChevron}>‹</Text>
-          <Text style={styles.backText}>Deck</Text>
+          <Text style={styles.backText}>
+            {tUI(uiLanguage, 'deck.albumAllCards')}
+          </Text>
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.dayHeader}>
-          <View style={[styles.dayBadge, { backgroundColor: dayColors[day] || '#F2F2F7' }]}>
-            <Text style={styles.dayBadgeText}>{day}</Text>
+          <View
+            style={[
+              styles.dayBadge,
+              { backgroundColor: dayColors[day] || '#F2F2F7' },
+            ]}
+          >
+            <Text style={styles.dayBadgeText}>
+              {formatDayName(day, uiLanguage, 'short')}
+            </Text>
           </View>
           <View>
-            <Text style={styles.dayTitle}>{dayNames[day] || day}</Text>
+            <Text style={styles.dayTitle}>{displayDayName}</Text>
             <Text style={styles.daySubTitle}>
-              {dayCards.length} {dayCards.length === 1 ? 'word' : 'words'} added
+              {dayCards.length} {tUI(uiLanguage, 'deck.words')}
             </Text>
           </View>
         </View>
@@ -127,14 +196,17 @@ export default function DayViewScreen({ navigation, route }: Props) {
                   key={card.id}
                   style={({ pressed }) => [
                     styles.cardTile,
-                    { backgroundColor: masteryColors[mastery], opacity: 1 - Math.min(index, 6) * 0.03 },
+                    {
+                      backgroundColor: masteryColors[mastery],
+                      opacity: 1 - Math.min(index, 6) * 0.03,
+                    },
                     pressed ? styles.cardTilePressed : null,
                   ]}
                   onPress={() =>
                     navigation.navigate('CardDetail', {
                       cardId: card.id,
                       cardIds: dayCards.map((item) => item.id),
-                      headerTitle: dayNames[day] || day,
+                      headerTitle: displayDayName,
                     })
                   }
                 >
@@ -146,7 +218,15 @@ export default function DayViewScreen({ navigation, route }: Props) {
 
                   <View style={styles.posBadge}>
                     <Text style={styles.posText} numberOfLines={1}>
-                      {card.partOfSpeech || 'unknown'}
+                      {formatPartOfSpeechLabel(
+                        isPhraseLikeCardSubject(
+                          card.targetWord || card.targetPhrase,
+                          card.partOfSpeech
+                        )
+                          ? 'phrase'
+                          : card.partOfSpeech,
+                        uiLanguage
+                      )}
                     </Text>
                   </View>
 
@@ -162,7 +242,9 @@ export default function DayViewScreen({ navigation, route }: Props) {
             <View style={styles.emptyCircle}>
               <Text style={styles.emptyEmoji}>📚</Text>
             </View>
-            <Text style={styles.emptyTitle}>No words added this day</Text>
+            <Text style={styles.emptyTitle}>
+              {tUI(uiLanguage, 'deck.noWordsAddedThisDay')}
+            </Text>
           </View>
         )}
       </ScrollView>

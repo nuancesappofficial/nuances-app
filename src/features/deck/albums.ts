@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../components/UI/DeckScreenUI/deckTypes';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import type { UILanguage } from '@services/settings/userSettings';
+import { tUI } from '../../i18n/uiLanguage';
 
 export type DeckAlbumPreferences = {
   customAlbums: DeckAlbum[];
@@ -18,6 +20,39 @@ export const DEFAULT_CUSTOM_ALBUM_COLOR = '#1E293B';
 export const ALBUM_TAG_PREFIX = 'album:';
 export const ALL_CARDS_ALBUM_ID = 'all';
 export const FAVORITES_ALBUM_ID = 'favorites';
+
+type DeckAlbumPreferencesListener = (
+  preferences: DeckAlbumPreferences,
+  userId?: string
+) => void;
+
+const deckAlbumPreferencesListeners = new Set<DeckAlbumPreferencesListener>();
+
+export function subscribeDeckAlbumPreferences(
+  listener: DeckAlbumPreferencesListener
+): () => void {
+  deckAlbumPreferencesListeners.add(listener);
+  return () => {
+    deckAlbumPreferencesListeners.delete(listener);
+  };
+}
+
+export function getDeckAlbumDisplayName(
+  album: Pick<DeckAlbum, 'id' | 'name' | 'isNameCustomized'>,
+  uiLanguage: UILanguage
+): string {
+  if (album.isNameCustomized) return album.name;
+  if (album.id === ALL_CARDS_ALBUM_ID || album.id === 'all-cards') {
+    return tUI(uiLanguage, 'deck.albumAllCards');
+  }
+  if (album.id === FAVORITES_ALBUM_ID) {
+    return tUI(uiLanguage, 'deck.albumFavorites');
+  }
+  if (album.id === 'slang') {
+    return tUI(uiLanguage, 'deck.albumInternetSlang');
+  }
+  return album.name;
+}
 
 export function getTagsArray(tags: unknown): string[] {
   if (Array.isArray(tags)) {
@@ -50,14 +85,18 @@ export function getTagsArray(tags: unknown): string[] {
   return [];
 }
 
-async function getDeckAlbumPrefsKey(): Promise<string> {
-  const userId = await getCurrentAuthUserId();
+async function getDeckAlbumPrefsKey(expectedUserId?: string): Promise<string> {
+  const userId = expectedUserId || (await getCurrentSessionUserId());
   return `${DECK_ALBUM_PREFS_KEY}:${userId ?? 'guest'}`;
 }
 
-export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> {
+export async function loadDeckAlbumPreferences(
+  expectedUserId?: string
+): Promise<DeckAlbumPreferences> {
   try {
-    const raw = await AsyncStorage.getItem(await getDeckAlbumPrefsKey());
+    const raw = await AsyncStorage.getItem(
+      await getDeckAlbumPrefsKey(expectedUserId)
+    );
     if (!raw) {
       return {
         customAlbums: [],
@@ -71,24 +110,32 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
 
     const parsed = JSON.parse(raw) as Partial<DeckAlbumPreferences>;
     return {
-      customAlbums: Array.isArray(parsed.customAlbums) ? parsed.customAlbums : [],
+      customAlbums: Array.isArray(parsed.customAlbums)
+        ? parsed.customAlbums
+        : [],
       albumNameOverrides:
-        parsed.albumNameOverrides && typeof parsed.albumNameOverrides === 'object'
+        parsed.albumNameOverrides &&
+        typeof parsed.albumNameOverrides === 'object'
           ? (parsed.albumNameOverrides as Record<string, string>)
           : {},
       albumEmojiOverrides:
-        parsed.albumEmojiOverrides && typeof parsed.albumEmojiOverrides === 'object'
+        parsed.albumEmojiOverrides &&
+        typeof parsed.albumEmojiOverrides === 'object'
           ? (parsed.albumEmojiOverrides as Record<string, string>)
           : {},
       albumColorOverrides:
-        parsed.albumColorOverrides && typeof parsed.albumColorOverrides === 'object'
+        parsed.albumColorOverrides &&
+        typeof parsed.albumColorOverrides === 'object'
           ? (parsed.albumColorOverrides as Record<string, string>)
           : {},
       albumCoverOverrides:
-        parsed.albumCoverOverrides && typeof parsed.albumCoverOverrides === 'object'
+        parsed.albumCoverOverrides &&
+        typeof parsed.albumCoverOverrides === 'object'
           ? (parsed.albumCoverOverrides as Record<string, string>)
           : {},
-      deletedAlbumIds: Array.isArray(parsed.deletedAlbumIds) ? parsed.deletedAlbumIds : [],
+      deletedAlbumIds: Array.isArray(parsed.deletedAlbumIds)
+        ? parsed.deletedAlbumIds
+        : [],
     };
   } catch (error) {
     console.warn('[DeckAlbums] load preferences failed:', error);
@@ -103,11 +150,24 @@ export async function loadDeckAlbumPreferences(): Promise<DeckAlbumPreferences> 
   }
 }
 
-export async function saveDeckAlbumPreferences(payload: DeckAlbumPreferences): Promise<void> {
-  await AsyncStorage.setItem(await getDeckAlbumPrefsKey(), JSON.stringify(payload));
+export async function saveDeckAlbumPreferences(
+  payload: DeckAlbumPreferences,
+  expectedUserId?: string
+): Promise<void> {
+  const userId = expectedUserId || (await getCurrentSessionUserId());
+  await AsyncStorage.setItem(
+    `${DECK_ALBUM_PREFS_KEY}:${userId ?? 'guest'}`,
+    JSON.stringify(payload)
+  );
+  deckAlbumPreferencesListeners.forEach((listener) => {
+    listener(payload, userId ?? undefined);
+  });
 }
 
-export function buildPreviewCards(cards: Card[], cardImageMap: Record<string, string>) {
+export function buildPreviewCards(
+  cards: Card[],
+  cardImageMap: Record<string, string>
+) {
   return cards.slice(0, 3).map((card) => {
     const imageUrl = cardImageMap[card.id];
     return {
@@ -147,7 +207,8 @@ export function buildDeckAlbums(
     const albumTagIds = tags
       .filter((tag) => tag.startsWith(ALBUM_TAG_PREFIX))
       .map((tag) => tag.slice(ALBUM_TAG_PREFIX.length).trim());
-    const text = `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
+    const text =
+      `${card.targetWord || ''} ${card.definition || ''}`.toLowerCase();
 
     if (albumTagIds.includes(FAVORITES_ALBUM_ID)) {
       favoriteCards.push(card);
@@ -209,13 +270,19 @@ export function buildDeckAlbums(
     };
   });
 
+  const customAlbumIds = new Set(prefs.customAlbums.map((album) => album.id));
   return [...defaultAlbums, ...computedCustomAlbums]
-    .map((album) => ({
-      ...album,
-      name: prefs.albumNameOverrides[album.id] || album.name,
-      emoji: prefs.albumEmojiOverrides[album.id] || album.emoji,
-      color: prefs.albumColorOverrides[album.id] || album.color,
-      coverImageUri: prefs.albumCoverOverrides[album.id] || album.coverImageUri,
-    }))
+    .map((album) => {
+      const customName = (prefs.albumNameOverrides[album.id] || '').trim();
+      return {
+        ...album,
+        name: customName || album.name,
+        isNameCustomized: Boolean(customName) || customAlbumIds.has(album.id),
+        emoji: prefs.albumEmojiOverrides[album.id] || album.emoji,
+        color: prefs.albumColorOverrides[album.id] || album.color,
+        coverImageUri:
+          prefs.albumCoverOverrides[album.id] || album.coverImageUri,
+      };
+    })
     .filter((album) => !prefs.deletedAlbumIds.includes(album.id));
 }

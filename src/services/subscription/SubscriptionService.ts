@@ -1,4 +1,5 @@
 import { Model, Q } from '@nozbe/watermelondb';
+import { DeviceEventEmitter } from 'react-native';
 import { database } from '@database/index';
 import type UserSettings from '@database/models/UserSettings';
 import { supabase } from '@services/supabase/client';
@@ -13,10 +14,11 @@ import {
   configureRevenueCat,
   getRevenueCatCustomerInfo,
   getRevenueCatExpiration,
-  hasRevenueCatPremium,
+  getRevenueCatPlanType,
   purchaseRevenueCatPremium,
   restoreRevenueCatPurchases,
 } from './revenueCat';
+import TrialNotificationService from '../notifications/TrialNotificationService';
 
 const DAILY_FREE_VOICE_LIMIT = 3;
 const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
@@ -27,6 +29,7 @@ const SYNC_ENTITLEMENT_EDGE_FUNCTION_NAME =
   process.env.EXPO_PUBLIC_SYNC_ENTITLEMENT_FUNCTION_NAME || 'sync-entitlement';
 const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+export const SUBSCRIPTION_ENTITLEMENT_UPDATED_EVENT = 'nuances.subscription.entitlementUpdated';
 
 type UserSettingsRecord = Model & {
   userId: string;
@@ -53,6 +56,7 @@ export type EntitlementSnapshot = {
   lastVoiceResetDate: string;
   cacheCardLimit: number | null;
   devBypass: boolean;
+  serverSynced?: boolean;
 };
 
 export type ConsumeVoiceQuotaResult = {
@@ -126,14 +130,30 @@ function buildSnapshot(params: {
 
 function buildDevSnapshot(mode: PlanType): EntitlementSnapshot {
   const today = toDateKey();
+  const devTrialEndsAt = mode === 'trial'
+    ? new Date(Date.now() + TRIAL_DURATION_MS).toISOString()
+    : null;
   return buildSnapshot({
     planType: mode,
     dailyVoiceUses: 0,
     lastVoiceResetDate: today,
     devBypass: true,
-    trialEndsAt: null,
+    trialEndsAt: devTrialEndsAt,
     subscriptionExpiresAt: mode === 'premium' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
   });
+}
+
+function reconcileTrialNotification(snapshot: EntitlementSnapshot): void {
+  void TrialNotificationService.reconcile({
+    planType: snapshot.planType,
+    trialEndsAt: snapshot.trialEndsAt,
+  }).catch((error) => {
+    console.warn('[Subscription] trial notification reconcile failed:', error);
+  });
+}
+
+function emitEntitlementUpdated(snapshot: EntitlementSnapshot): void {
+  DeviceEventEmitter.emit(SUBSCRIPTION_ENTITLEMENT_UPDATED_EVENT, snapshot);
 }
 
 function getDevOverridePlan(settings: UserAppSettings): PlanType | null {
@@ -184,10 +204,6 @@ async function getOrCreateUserSettingsRecord(userId: string): Promise<UserSettin
   return record;
 }
 
-function resolveTrialPlan(settings: UserAppSettings, now = Date.now()): PlanType {
-  return isFutureIso(settings.trialEndsAt, now) ? 'trial' : 'free';
-}
-
 async function persistSettings(next: UserAppSettings): Promise<UserAppSettings> {
   await saveUserSettings(next);
   return next;
@@ -228,9 +244,12 @@ async function invokeSyncEntitlementEndpoint(): Promise<RemoteEntitlementPayload
   if (!authHeaders?.Authorization) return null;
 
   const endpoint = `${SUPABASE_URL}/functions/v1/${SYNC_ENTITLEMENT_EDGE_FUNCTION_NAME}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
@@ -247,6 +266,8 @@ async function invokeSyncEntitlementEndpoint(): Promise<RemoteEntitlementPayload
   } catch (error) {
     console.warn('[Subscription] sync-entitlement network failed:', error);
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -257,13 +278,14 @@ async function applyRevenueCatCache(userId: string): Promise<void> {
 
     const settings = await loadUserSettings();
     const nowIso = new Date().toISOString();
-    const hasPremium = hasRevenueCatPremium(customerInfo);
+    const planType = getRevenueCatPlanType(customerInfo);
     const subscriptionExpiresAt = getRevenueCatExpiration(customerInfo);
-    if (hasPremium) {
+    if (planType !== 'free') {
       await persistSettings({
         ...settings,
-        planType: 'premium',
-        entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : 'premium',
+        planType,
+        entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : planType,
+        trialEndsAt: planType === 'trial' ? subscriptionExpiresAt : null,
         subscriptionExpiresAt,
         lastEntitlementSyncAt: nowIso,
       });
@@ -274,6 +296,7 @@ async function applyRevenueCatCache(userId: string): Promise<void> {
       ...settings,
       planType: 'free',
       entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : 'free',
+      trialEndsAt: null,
       subscriptionExpiresAt: null,
       lastEntitlementSyncAt: nowIso,
     });
@@ -289,7 +312,7 @@ async function applyServerSnapshotToSettings(snapshot: RemoteEntitlementPayload)
     ...settings,
     planType: nextPlan,
     entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : nextPlan,
-    trialEndsAt: typeof snapshot.trialEndsAt === 'string' ? snapshot.trialEndsAt : settings.trialEndsAt,
+    trialEndsAt: typeof snapshot.trialEndsAt === 'string' ? snapshot.trialEndsAt : null,
     subscriptionExpiresAt:
       typeof snapshot.subscriptionExpiresAt === 'string' || snapshot.subscriptionExpiresAt === null
         ? snapshot.subscriptionExpiresAt
@@ -313,21 +336,20 @@ async function resolveEffectivePlanType(userId: string): Promise<{
     };
   }
 
-  if (settings.planType === 'premium' && isFutureIso(settings.subscriptionExpiresAt)) {
+  if ((settings.planType === 'premium' || settings.planType === 'trial') && isFutureIso(settings.subscriptionExpiresAt)) {
     return {
-      planType: 'premium',
+      planType: settings.planType,
       trialEndsAt: settings.trialEndsAt,
       subscriptionExpiresAt: settings.subscriptionExpiresAt,
     };
   }
 
-  const trialPlan = settings.lastEntitlementSyncAt ? resolveTrialPlan(settings) : 'free';
-  if (settings.planType !== trialPlan || settings.subscriptionExpiresAt) {
-    await syncSettingsPlan(trialPlan, settings.trialStartedAt, settings.trialEndsAt, null);
+  if (settings.planType !== 'free' || settings.trialEndsAt || settings.subscriptionExpiresAt) {
+    await syncSettingsPlan('free', null, null, null);
   }
   return {
-    planType: trialPlan,
-    trialEndsAt: settings.trialEndsAt,
+    planType: 'free',
+    trialEndsAt: null,
     subscriptionExpiresAt: null,
   };
 }
@@ -341,16 +363,12 @@ export const SubscriptionService = {
     return DEV_BYPASS_ENABLED;
   },
 
-  async ensureTrialEnrollment(): Promise<void> {
-    const currentSettings = await loadUserSettings();
-    if (DEV_BYPASS_ENABLED && (currentSettings.entitlementMode === 'free' || currentSettings.entitlementMode === 'premium')) {
-      return;
-    }
-
-    const remote = await invokeSyncEntitlementEndpoint();
-    if (remote) {
-      await applyServerSnapshotToSettings(remote);
-    }
+  isPremiumBypassEnabled(): boolean {
+    if (!DEV_BYPASS_ENABLED) return false;
+    const defaultPlan = normalizeEntitlementMode(
+      process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_DEFAULT_PLAN as PlanType | null | undefined
+    );
+    return defaultPlan === 'premium';
   },
 
   async syncEntitlements(userId: string, options?: { preferServer?: boolean }): Promise<EntitlementSnapshot> {
@@ -365,11 +383,12 @@ export const SubscriptionService = {
           planType: devOverride,
         });
       }
-      return buildDevSnapshot(devOverride);
+      const snapshot = buildDevSnapshot(devOverride);
+      reconcileTrialNotification(snapshot);
+      return snapshot;
     }
 
     await configureRevenueCat(userId);
-    await this.ensureTrialEnrollment();
     await applyRevenueCatCache(userId);
     if (options?.preferServer !== false) {
       const remote = await invokeSyncEntitlementEndpoint();
@@ -377,7 +396,9 @@ export const SubscriptionService = {
         await applyServerSnapshotToSettings(remote);
       }
     }
-    return this.getEntitlementSnapshot(userId);
+    const snapshot = await this.getEntitlementSnapshot(userId);
+    reconcileTrialNotification(snapshot);
+    return snapshot;
   },
 
   async getEntitlementSnapshot(userId: string): Promise<EntitlementSnapshot> {
@@ -413,32 +434,56 @@ export const SubscriptionService = {
   async purchasePremium(userId: string, packageIdentifier?: string | null): Promise<EntitlementSnapshot> {
     const customerInfo = await purchaseRevenueCatPremium(userId, packageIdentifier);
     const settings = await loadUserSettings();
+    const planType = getRevenueCatPlanType(customerInfo);
+    const subscriptionExpiresAt = getRevenueCatExpiration(customerInfo);
     await persistSettings({
       ...settings,
-      planType: hasRevenueCatPremium(customerInfo) ? 'premium' : settings.planType,
-      entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : hasRevenueCatPremium(customerInfo) ? 'premium' : settings.planType,
-      subscriptionExpiresAt: getRevenueCatExpiration(customerInfo),
+      planType,
+      entitlementMode: DEV_BYPASS_ENABLED ? settings.entitlementMode : planType,
+      trialEndsAt: planType === 'trial' ? subscriptionExpiresAt : null,
+      subscriptionExpiresAt,
       lastEntitlementSyncAt: new Date().toISOString(),
     });
-    return this.syncEntitlements(userId, { preferServer: false });
+    const remote = await invokeSyncEntitlementEndpoint();
+    if (remote) {
+      await applyServerSnapshotToSettings(remote);
+      const snapshot = await this.getEntitlementSnapshot(userId);
+      reconcileTrialNotification(snapshot);
+      emitEntitlementUpdated(snapshot);
+      return { ...snapshot, serverSynced: true };
+    }
+    const snapshot = await this.getEntitlementSnapshot(userId);
+    reconcileTrialNotification(snapshot);
+    return { ...snapshot, serverSynced: false };
   },
 
   async restorePurchases(userId: string): Promise<EntitlementSnapshot> {
     const customerInfo = await restoreRevenueCatPurchases(userId);
     const settings = await loadUserSettings();
+    const planType = getRevenueCatPlanType(customerInfo);
+    const subscriptionExpiresAt = getRevenueCatExpiration(customerInfo);
     await persistSettings({
       ...settings,
-      planType: hasRevenueCatPremium(customerInfo) ? 'premium' : resolveTrialPlan(settings),
+      planType,
       entitlementMode:
         DEV_BYPASS_ENABLED
           ? settings.entitlementMode
-          : hasRevenueCatPremium(customerInfo)
-            ? 'premium'
-            : resolveTrialPlan(settings),
-      subscriptionExpiresAt: getRevenueCatExpiration(customerInfo),
+          : planType,
+      trialEndsAt: planType === 'trial' ? subscriptionExpiresAt : null,
+      subscriptionExpiresAt,
       lastEntitlementSyncAt: new Date().toISOString(),
     });
-    return this.syncEntitlements(userId, { preferServer: false });
+    const remote = await invokeSyncEntitlementEndpoint();
+    if (remote) {
+      await applyServerSnapshotToSettings(remote);
+      const snapshot = await this.getEntitlementSnapshot(userId);
+      reconcileTrialNotification(snapshot);
+      emitEntitlementUpdated(snapshot);
+      return { ...snapshot, serverSynced: true };
+    }
+    const snapshot = await this.getEntitlementSnapshot(userId);
+    reconcileTrialNotification(snapshot);
+    return { ...snapshot, serverSynced: false };
   },
 
   async isPremium(userId: string): Promise<boolean> {

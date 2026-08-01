@@ -3,7 +3,11 @@ import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import {
+  ensureDefaultExperienceCard,
+  isDefaultExperienceCard,
+} from '../../../../features/cache/defaultExperienceCard';
 
 export type CacheCardRecord = {
   id: string;
@@ -12,6 +16,7 @@ export type CacheCardRecord = {
   detectedPreview?: string;
   sourceLabel: string;
   importedAtLabel: string;
+  isDefaultExperienceCard: boolean;
   cachedItem: CachedItem;
 };
 
@@ -49,11 +54,12 @@ export function useCacheListDataSource(params: Params) {
 
     const load = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
           if (!cancelled) setCacheItems([]);
           return;
         }
+        await ensureDefaultExperienceCard(userId);
         const query = database
           .get<CachedItem>('cached_items')
           .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
@@ -80,7 +86,7 @@ export function useCacheListDataSource(params: Params) {
 
     const load = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
           if (!cancelled) setAllCards([]);
           return;
@@ -131,6 +137,7 @@ export function useCacheListDataSource(params: Params) {
         detectedPreview,
         sourceLabel: toSourceLabel(item.sourceApp),
         importedAtLabel: toRelativeImportTime(item.createdAt),
+        isDefaultExperienceCard: isDefaultExperienceCard(item),
         cachedItem: item,
       });
       return acc;

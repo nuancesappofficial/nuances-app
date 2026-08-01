@@ -8,8 +8,15 @@ import { resolveCardImageUri } from '@services/media/cardImage';
 import CardViewUI from '../../../components/UI/DeckScreenUI/CardViewUI';
 import AlbumSortModalUI from '../../../components/UI/DeckScreenUI/AlbumSortModalUI';
 import CardActionModalUI from '../../../components/UI/DeckScreenUI/CardActionModalUI';
+import { queueDeletedCardForCloudPersistence } from '@services/cards/cardCloudPersistence';
 import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
+import {
+  getInitialUserSettings,
+  loadUserSettings,
+  subscribeUserSettings,
+  type UILanguage,
+} from '@services/settings/userSettings';
 import {
   DEFAULT_ALBUM_REVIEW_PREFERENCES,
   loadAlbumReviewPreferences,
@@ -17,7 +24,16 @@ import {
   type ReviewQuestionType,
 } from '../../../features/deck/reviewPreferences';
 import { consumeAlbumPreload } from '../../../features/deck/albumPreloadCache';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { tUI } from '../../../i18n/uiLanguage';
+import { getDeckAlbumDisplayName } from '../../../features/deck/albums';
+import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
+import {
+  DEFAULT_ALBUM_SORT_MODE,
+  loadAlbumSortMode,
+  saveAlbumSortMode,
+  type AlbumSortMode,
+} from '../../../features/deck/albumSortPreferences';
 
 type Album = {
   id: string;
@@ -35,8 +51,6 @@ type Props = {
   navigation: any;
   route: { params?: RouteParams };
 };
-
-type SortMode = 'recently_added' | 'recently_reviewed' | 'alphabetical';
 
 function getDefaultAlbum(): Album {
   return {
@@ -66,6 +80,16 @@ function getWordText(card: Card): string {
   return card.targetWord || card.targetPhrase || card.definition || 'WORD';
 }
 
+function hasQuizUsableCard(card: Card): boolean {
+  if (!isEnglishLearningCard(card)) return false;
+  return Boolean(
+    (card.targetPhrase || '').trim() ||
+      (card.targetWord || '').trim() ||
+      (card.definition || '').trim() ||
+      (card.contextualExplanation || '').trim()
+  );
+}
+
 function withHexAlpha(color: string, alphaHex: string): string {
   if (/^#[0-9a-f]{6}$/i.test(color)) return `${color}${alphaHex}`;
   return color;
@@ -81,12 +105,21 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     () => initialPreloadRef.current?.cardImageMap ?? {}
   );
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [sortMode, setSortMode] = React.useState<SortMode>('recently_added');
+  const [sortMode, setSortMode] = React.useState<AlbumSortMode>(
+    DEFAULT_ALBUM_SORT_MODE
+  );
   const [showSortModal, setShowSortModal] = React.useState(false);
   const [isSearchVisible, setIsSearchVisible] = React.useState(false);
   const [showCardActionModal, setShowCardActionModal] = React.useState(false);
   const [showReviewTuningModal, setShowReviewTuningModal] = React.useState(false);
   const [selectedCard, setSelectedCard] = React.useState<Card | null>(null);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    () => getInitialUserSettings().uiLanguage
+  );
+  const albumDisplayName = React.useMemo(
+    () => getDeckAlbumDisplayName(album, uiLanguage),
+    [album, uiLanguage]
+  );
   const [seenCardIds, setSeenCardIds] = React.useState<Set<string>>(
     () => initialPreloadRef.current?.seenCardIds ?? new Set()
   );
@@ -98,6 +131,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   );
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
+  const sortPreferenceRevisionRef = React.useRef(0);
 
   const closeCardActionModal = React.useCallback(() => {
     setShowCardActionModal(false);
@@ -118,12 +152,36 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         text: '刪除',
         style: 'destructive',
         onPress: () => {
-          void database.write(async () => {
-            await targetCard.update((record) => {
-              record.deletedAt = new Date();
-            });
-          });
+          const userId = targetCard.userId;
+          setAlbumCards((current) =>
+            current.filter((card) => card.id !== targetCard.id)
+          );
           closeCardActionModal();
+
+          void database
+            .write(async () => {
+              await targetCard.update((record) => {
+                record.deletedAt = new Date();
+              });
+            })
+            .then(() => {
+              // WatermelonDB is the durable handoff. Supabase upload and remote
+              // confirmation stay entirely off the deletion interaction path.
+              queueDeletedCardForCloudPersistence({
+                userId,
+                cardId: targetCard.id,
+              });
+            })
+            .catch((error) => {
+              console.warn('[AlbumView] local soft delete failed:', error);
+              setAlbumCards((current) => {
+                if (current.some((card) => card.id === targetCard.id)) {
+                  return current;
+                }
+                return [targetCard, ...current];
+              });
+              Alert.alert('刪除失敗', '請稍後再試');
+            });
         },
       },
     ]);
@@ -139,6 +197,48 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     }).start();
   }, [screenOpacity]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    const hydrateLanguage = async () => {
+      try {
+        const settings = await loadUserSettings();
+        if (!cancelled) setUiLanguage(settings.uiLanguage);
+      } catch (error) {
+        console.error('[AlbumView] load UI language failed:', error);
+      }
+    };
+
+    void hydrateLanguage();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        setUiLanguage(settings.uiLanguage);
+      }),
+    []
+  );
+
+  React.useEffect(() => {
+    const revision = sortPreferenceRevisionRef.current + 1;
+    sortPreferenceRevisionRef.current = revision;
+
+    void loadAlbumSortMode(album.id).then((savedMode) => {
+      if (sortPreferenceRevisionRef.current === revision) {
+        setSortMode(savedMode);
+      }
+    });
+
+    return () => {
+      if (sortPreferenceRevisionRef.current === revision) {
+        sortPreferenceRevisionRef.current += 1;
+      }
+    };
+  }, [album.id]);
+
   const themeColor = React.useMemo(() => album.color || '#3B82F6', [album.color]);
   React.useEffect(() => {
     let sub: { unsubscribe: () => void } | undefined;
@@ -146,25 +246,41 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
 
     const load = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
           if (!cancelled) setAlbumCards([]);
           return;
         }
         const cardsCollection = database.get<Card>('cards');
-        const queryCards =
-          album.id === 'all-cards' || !album.cardIds.length
-            ? cardsCollection.query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
-            : cardsCollection.query(
-                Q.where('user_id', userId),
-                Q.where('deleted_at', null),
-                Q.where('id', Q.oneOf(album.cardIds)),
-                Q.sortBy('created_at', Q.desc)
-              );
-        const data = await queryCards.fetch();
+        let data: Card[] = [];
+        if (album.id === 'all-cards') {
+          data = await cardsCollection
+            .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+            .fetch();
+        } else if (album.cardIds.length > 0) {
+          data = await cardsCollection
+            .query(
+              Q.where('user_id', userId),
+              Q.where('deleted_at', null),
+              Q.where('id', Q.oneOf(album.cardIds)),
+              Q.sortBy('created_at', Q.desc)
+            )
+            .fetch();
+        }
         if (cancelled) return;
         setAlbumCards(data);
-        sub = queryCards.observe().subscribe((nextData) => setAlbumCards(nextData));
+        if (album.id === 'all-cards' || album.cardIds.length > 0) {
+          const queryCards =
+            album.id === 'all-cards'
+              ? cardsCollection.query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+              : cardsCollection.query(
+                  Q.where('user_id', userId),
+                  Q.where('deleted_at', null),
+                  Q.where('id', Q.oneOf(album.cardIds)),
+                  Q.sortBy('created_at', Q.desc)
+                );
+          sub = queryCards.observe().subscribe((nextData) => setAlbumCards(nextData));
+        }
       } catch (error) {
         console.error('[AlbumView] load album cards failed:', error);
         if (!cancelled) setAlbumCards([]);
@@ -290,12 +406,6 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     return result;
   }, [albumCards, searchQuery, sortMode]);
 
-  const sortLabel = React.useMemo(() => {
-    if (sortMode === 'recently_reviewed') return 'Recently reviewed';
-    if (sortMode === 'alphabetical') return 'Alphabetical';
-    return 'Recently added';
-  }, [sortMode]);
-
   const handleChangeQuestionCount = React.useCallback(
     (nextCount: number) => {
       setReviewQuestionCount(nextCount);
@@ -314,27 +424,29 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
 
   const handlePressPlay = React.useCallback(() => {
     const sourceCards = processedCards.length > 0 ? processedCards : albumCards;
-    if (!sourceCards.length) {
-      Alert.alert('沒有可測驗的字卡', '這個資料夾目前沒有可用題目。');
+    const quizUsableCards = sourceCards.filter(hasQuizUsableCard);
+    if (!quizUsableCards.length) {
+      Alert.alert(tUI(uiLanguage, 'deck.alertNoWordsTitle'), tUI(uiLanguage, 'deck.alertNoWordsBody'));
       return;
     }
 
     navigation.navigate('CardReview', {
       albumId: album.id,
-      albumName: album.name || 'Made for You',
-      cardIds: sourceCards.map((card) => card.id),
+      albumName: albumDisplayName || tUI(uiLanguage, 'deck.madeForYou'),
+      cardIds: quizUsableCards.map((card) => card.id),
       questionCount: reviewQuestionCount,
       selectedQuestionTypes,
       themeColor,
     });
-  }, [album.id, album.name, albumCards, navigation, processedCards, reviewQuestionCount, selectedQuestionTypes, themeColor]);
+  }, [album.id, albumCards, albumDisplayName, navigation, processedCards, reviewQuestionCount, selectedQuestionTypes, themeColor, uiLanguage]);
 
   return (
     <>
       <CardViewUI
         screenOpacity={screenOpacity}
         themeColor={themeColor}
-        albumName={album.name || 'Made for You'}
+        albumName={albumDisplayName}
+        uiLanguage={uiLanguage}
         processedCards={processedCards}
         learnedPercent={learnedPercent}
         searchQuery={searchQuery}
@@ -360,8 +472,8 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
           navigation.navigate('CardDetail', {
             cardId: item.id,
             cardIds: processedCards.map((card) => card.id),
-            albumName: album.name || 'Made for You',
-            headerTitle: album.name || 'Made for You',
+            albumName: albumDisplayName,
+            headerTitle: albumDisplayName,
           })
         }
         onPressMoreCard={openCardActionModal}
@@ -374,17 +486,22 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
       <AlbumSortModalUI
         visible={showSortModal}
         sortMode={sortMode}
-        sortLabel={sortLabel}
+        uiLanguage={uiLanguage}
         onClose={() => setShowSortModal(false)}
         onChangeSortMode={(mode) => {
+          sortPreferenceRevisionRef.current += 1;
           setSortMode(mode);
           setShowSortModal(false);
+          void saveAlbumSortMode(album.id, mode).catch((error) => {
+            console.warn('[AlbumView] save sort preference failed:', error);
+          });
         }}
       />
 
       <CardActionModalUI
         visible={showCardActionModal}
         title={selectedCard ? getWordText(selectedCard) : 'Card Action'}
+        uiLanguage={uiLanguage}
         onClose={closeCardActionModal}
         onDelete={handleDeleteCard}
       />
@@ -393,6 +510,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         visible={showReviewTuningModal}
         questionCount={reviewQuestionCount}
         selectedQuestionTypes={selectedQuestionTypes}
+        uiLanguage={uiLanguage}
         onClose={() => setShowReviewTuningModal(false)}
         onChangeQuestionCount={handleChangeQuestionCount}
         onChangeSelectedQuestionTypes={handleChangeSelectedQuestionTypes}

@@ -1,0 +1,6 @@
+ignore:
+  - scripts/check-app-store-readiness.js
+
+rules:
+  platform-reference:
+    severity: info

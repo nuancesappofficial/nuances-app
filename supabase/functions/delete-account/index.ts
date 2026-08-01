@@ -122,6 +122,7 @@ Deno.serve(async (req: Request) => {
     const supabase = createServiceRoleClient();
     const steps: DeletionStep[] = [];
 
+    // Legacy cleanup path: remote cached_items are deprecated, but older rows/storage may still exist.
     const { data: cachedItems, error: cachedItemsError } = await supabase
       .from('cached_items')
       .select('image_storage_path, audio_storage_path, content_url')
@@ -164,7 +165,8 @@ Deno.serve(async (req: Request) => {
     console.error('[delete-account] failed:', error);
     return jsonResponse(
       {
-        error: error instanceof Error ? error.message : 'delete-account failed',
+        error: 'delete-account failed',
+        reason: 'account_deletion_failed',
       },
       500
     );

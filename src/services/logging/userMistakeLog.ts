@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { logDiagnosticEvent } from './diagnosticsLog';
 
 export type UserMistakeLogCategory =
   | 'auth'
@@ -75,8 +77,13 @@ function shouldLogAlert(title: string, message: string): boolean {
   return USER_ERROR_TITLE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-async function readEntries(): Promise<UserMistakeLogEntry[]> {
-  const raw = await AsyncStorage.getItem(USER_MISTAKE_LOG_KEY);
+async function getLogStorageKey(): Promise<string> {
+  const userId = await getCurrentSessionUserId();
+  return `${USER_MISTAKE_LOG_KEY}:${userId ?? 'guest'}`;
+}
+
+async function readEntries(storageKey?: string): Promise<UserMistakeLogEntry[]> {
+  const raw = await AsyncStorage.getItem(storageKey ?? await getLogStorageKey());
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -101,11 +108,22 @@ export async function logUserMistakeEvent(params: {
     message,
   };
 
-  const existing = await readEntries();
+  const storageKey = await getLogStorageKey();
+  const existing = await readEntries(storageKey);
   const next = [entry, ...existing].slice(0, MAX_LOG_ENTRIES);
-  await AsyncStorage.setItem(USER_MISTAKE_LOG_KEY, JSON.stringify(next));
+  await AsyncStorage.setItem(storageKey, JSON.stringify(next));
 
-  console.info('[UserMistakeLog]', entry);
+  void logDiagnosticEvent({
+    severity: 'info',
+    category: 'ui',
+    event: 'user_visible_error_alert',
+    message: title,
+    context: {
+      category: entry.category,
+      message,
+    },
+  });
+  if (__DEV__) console.info('[UserMistakeLog]', entry);
 
   return entry;
 }
@@ -115,7 +133,7 @@ export async function getUserMistakeLogs(): Promise<UserMistakeLogEntry[]> {
 }
 
 export async function clearUserMistakeLogs(): Promise<void> {
-  await AsyncStorage.removeItem(USER_MISTAKE_LOG_KEY);
+  await AsyncStorage.removeItem(await getLogStorageKey());
 }
 
 export function installUserMistakeAlertLogger(): void {

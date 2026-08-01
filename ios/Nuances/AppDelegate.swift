@@ -1,7 +1,6 @@
 import Expo
 import React
 import ReactAppDependencyProvider
-import UserNotifications
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
@@ -30,23 +29,7 @@ public class AppDelegate: ExpoAppDelegate {
       launchOptions: launchOptions)
 #endif
 
-    prepareShareReceiptNotifications()
-
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  private func prepareShareReceiptNotifications() {
-    let center = UNUserNotificationCenter.current()
-    center.getNotificationSettings { settings in
-      guard settings.authorizationStatus == .notDetermined else { return }
-
-      center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-        if let error = error {
-          NSLog("[Nuances] notification authorization failed: \(error.localizedDescription)")
-        }
-        NSLog("[Nuances] notification authorization prepared for share receipts, granted: \(granted)")
-      }
-    }
   }
 
   // Linking API

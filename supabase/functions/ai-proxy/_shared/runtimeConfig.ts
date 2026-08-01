@@ -50,7 +50,7 @@ export const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')
   .filter(Boolean);
 
 export const GEMINI_ALLOWED_MODELS = (Deno.env.get('GEMINI_ALLOWED_MODELS')
-  ?? 'gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-pro')
+  ?? 'gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite')
   .split(',')
   .map((item: string) => item.trim())
   .filter(Boolean);

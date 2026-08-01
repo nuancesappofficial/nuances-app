@@ -2,21 +2,29 @@
 
 ## Demo Account
 
-- TODO: Add reviewer email.
-- TODO: Add reviewer password.
-- TODO: Confirm the demo account has completed onboarding or explain onboarding steps.
+- Reviewers should use Sign in with Apple in the app.
+- No separate demo username or password is provided.
+- If onboarding appears after Apple auth, complete the short onboarding flow and continue to the main app.
+- Apple authentication is the intended review login path for this submission.
 
 ## Login
 
 - The app supports Apple and Google OAuth login through Supabase Auth.
-- Reviewers can use the demo account above if gated features require authentication.
+- Reviewers should use Apple auth for App Review testing.
+- No reviewer credentials are required because Sign in with Apple creates the review account.
+
+## Support
+
+- Support URL: https://app.notion.com/p/Nuances-support-39a7da995fa580b58912fd2ae3cf3310
+- Support email: nuances.app.official@gmail.com
 
 ## Subscription and Restore Purchases
 
 - Premium unlocks AI card generation, premium cloud TTS, pronunciation scoring, and expanded cache/card creation limits.
 - Purchases are handled through Apple in-app purchase via RevenueCat.
 - Restore Purchases is available from the membership paywall.
-- TODO: Confirm the submitted build includes the same RevenueCat offering and App Store subscription products shown in the app.
+- The membership screen reads the active RevenueCat offering and only renders packages returned by RevenueCat.
+- The submitted build uses the RevenueCat `default` offering with the weekly, monthly, and yearly App Store subscription products configured in App Store Connect.
 
 ## AI Card Generation
 
@@ -36,8 +44,10 @@
 ## Account Deletion
 
 - Backend account deletion support is implemented through the Supabase `delete-account` Edge Function.
-- TODO: Add the in-app settings entry after UI approval so reviewers can trigger account deletion directly from the app.
+- In-app account deletion is available from Settings and asks for confirmation before deleting the authenticated user's account and app data.
 
 ## Reviewer Notes To Paste
 
-TODO: Replace this section with final App Store Connect text after demo credentials and live product IDs are confirmed.
+Nuances helps users create and review language-learning flashcards. Reviewers should sign in with Apple, complete onboarding if prompted, and test card creation from typed text, images, or shared content. Premium features are sold through Apple in-app purchase via RevenueCat; the membership screen displays the active RevenueCat offering, supports purchase, and includes Restore Purchases. AI card generation, cloud TTS, and pronunciation scoring are routed through Supabase Edge Functions so provider secrets are not included in the app bundle. Pronunciation scoring uses microphone access only after the user starts the pronunciation practice flow. The iOS share extension lets users send text or images into Nuances through the configured App Group. Account deletion is available in Settings and deletes the authenticated user's Supabase auth account, profile, cards, cached items, media, review history, sync metadata, and subscription records.
+
+No separate demo username or password is provided. Please use Sign in with Apple for review testing. Support is available at https://app.notion.com/p/Nuances-support-39a7da995fa580b58912fd2ae3cf3310 or nuances.app.official@gmail.com.

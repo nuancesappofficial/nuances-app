@@ -3,43 +3,42 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		997B66B90A0331AED4266999 /* libPods-Nuances.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4FC609D457724FCA04F2A9B4 /* libPods-Nuances.a */; };
+		89A69BCF5799849C60169516 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33BB43D95C14DCA359FB9690 /* ExpoModulesProvider.swift */; };
+		A2EA0A0E6C77BE22E86AACBB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4C920413EB62504FB8EB448C /* PrivacyInfo.xcprivacy */; };
+		A6CC89CDD18BE18DAEF48B92 /* libPods-Nuances.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D5A91345A29AA71D719EBA9 /* libPods-Nuances.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		DB1249D720B8508B14ED3153 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8498B55BCB333E236113CF4 /* ExpoModulesProvider.swift */; };
-		EF1C307C2FC4417700AF46E9 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EF1C307B2FC4417700AF46E9 /* StoreKit.framework */; };
-		EF504DB02FA9E020007185E9 /* NuancesShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		F0A100012FAAE01000100001 /* SharedDefaultsModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A100032FAAE01000100003 /* SharedDefaultsModule.swift */; };
-		F0A100022FAAE01000100002 /* SharedDefaultsModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = F0A100042FAAE01000100004 /* SharedDefaultsModuleBridge.m */; };
-		F0A100052FAAE01000100005 /* VisionOCRModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A100072FAAE01000100007 /* VisionOCRModule.swift */; };
-		F0A100062FAAE01000100006 /* VisionOCRModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = F0A100082FAAE01000100008 /* VisionOCRModuleBridge.m */; };
+		C20A01012FF2DA520054DF3A /* SharedDefaultsModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20A01022FF2DA520054DF3A /* SharedDefaultsModule.swift */; };
+		C20A01032FF2DA520054DF3A /* SharedDefaultsModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = C20A01042FF2DA520054DF3A /* SharedDefaultsModuleBridge.m */; };
+		EFDA9C922FF2DA520054DF3A /* NuancesShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EFDA9C882FF2DA520054DF3A /* NuancesShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EFDA9CA12FF2DA520054DF3A /* MainInterface.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = EFDA9C9D2FF2DA520054DF3A /* MainInterface.storyboard */; };
+		EFDA9CA22FF2DA520054DF3A /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDA9C9E2FF2DA520054DF3A /* ShareViewController.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		F3F7744EA3E628D95B72D566 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 85F5555A1FD8AFC115C6C507 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		EF504DAE2FA9E020007185E9 /* PBXContainerItemProxy */ = {
+		EFDA9C902FF2DA520054DF3A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = EF504DA52FA9E020007185E9;
+			remoteGlobalIDString = EFDA9C872FF2DA520054DF3A;
 			remoteInfo = NuancesShareExtension;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		EF504DB12FA9E020007185E9 /* Embed Foundation Extensions */ = {
+		EFDA9C972FF2DA520054DF3A /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				EF504DB02FA9E020007185E9 /* NuancesShareExtension.appex in Embed Foundation Extensions */,
+				EFDA9C922FF2DA520054DF3A /* NuancesShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -47,63 +46,38 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0D5A91345A29AA71D719EBA9 /* libPods-Nuances.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Nuances.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07F961A680F5B00A75B9A /* Nuances.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nuances.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Nuances/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Nuances/Info.plist; sourceTree = "<group>"; };
-		4FC609D457724FCA04F2A9B4 /* libPods-Nuances.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Nuances.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		533FE94A621EF05ECE69EE4C /* Pods-Nuances.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Nuances.debug.xcconfig"; path = "Target Support Files/Pods-Nuances/Pods-Nuances.debug.xcconfig"; sourceTree = "<group>"; };
-		6365C87AAE4AD0DD418179BA /* Pods-Nuances.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Nuances.release.xcconfig"; path = "Target Support Files/Pods-Nuances/Pods-Nuances.release.xcconfig"; sourceTree = "<group>"; };
-		85F5555A1FD8AFC115C6C507 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Nuances/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		33BB43D95C14DCA359FB9690 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Nuances/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		4C920413EB62504FB8EB448C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Nuances/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Nuances/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		E8498B55BCB333E236113CF4 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Nuances/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		C1555DC92CDA353466639AA6 /* Pods-Nuances.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Nuances.release.xcconfig"; path = "Target Support Files/Pods-Nuances/Pods-Nuances.release.xcconfig"; sourceTree = "<group>"; };
+		C20A01022FF2DA520054DF3A /* SharedDefaultsModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedDefaultsModule.swift; path = Nuances/SharedDefaultsModule.swift; sourceTree = "<group>"; };
+		C20A01042FF2DA520054DF3A /* SharedDefaultsModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SharedDefaultsModuleBridge.m; path = Nuances/SharedDefaultsModuleBridge.m; sourceTree = "<group>"; };
+		E0DF4C8DE3765A6617AB60DD /* Pods-Nuances.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Nuances.debug.xcconfig"; path = "Target Support Files/Pods-Nuances/Pods-Nuances.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		EF1C307B2FC4417700AF46E9 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
-		EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NuancesShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		F0A100032FAAE01000100003 /* SharedDefaultsModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedDefaultsModule.swift; path = Nuances/SharedDefaultsModule.swift; sourceTree = "<group>"; };
-		F0A100042FAAE01000100004 /* SharedDefaultsModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SharedDefaultsModuleBridge.m; path = Nuances/SharedDefaultsModuleBridge.m; sourceTree = "<group>"; };
-		F0A100072FAAE01000100007 /* VisionOCRModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VisionOCRModule.swift; path = Nuances/VisionOCRModule.swift; sourceTree = "<group>"; };
-		F0A100082FAAE01000100008 /* VisionOCRModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VisionOCRModuleBridge.m; path = Nuances/VisionOCRModuleBridge.m; sourceTree = "<group>"; };
+		EFDA9C882FF2DA520054DF3A /* NuancesShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NuancesShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EFDA9C9C2FF2DA520054DF3A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		EFDA9C9D2FF2DA520054DF3A /* MainInterface.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = Base.lproj/MainInterface.storyboard; sourceTree = "<group>"; };
+		EFDA9C9E2FF2DA520054DF3A /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		EFDA9C9F2FF2DA520054DF3A /* NuancesShareExtension.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = NuancesShareExtension.entitlements; sourceTree = "<group>"; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Nuances/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Nuances-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Nuances-Bridging-Header.h"; path = "Nuances/Nuances-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		EF504DB42FA9E020007185E9 /* Exceptions for "NuancesShareExtension" folder in "NuancesShareExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = EF504DA52FA9E020007185E9 /* NuancesShareExtension */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		EF504DA72FA9E020007185E9 /* NuancesShareExtension */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				EF504DB42FA9E020007185E9 /* Exceptions for "NuancesShareExtension" folder in "NuancesShareExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = NuancesShareExtension;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				997B66B90A0331AED4266999 /* libPods-Nuances.a in Frameworks */,
-				EF1C307C2FC4417700AF46E9 /* StoreKit.framework in Frameworks */,
+				A6CC89CDD18BE18DAEF48B92 /* libPods-Nuances.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EF504DA32FA9E020007185E9 /* Frameworks */ = {
+		EFDA9C852FF2DA520054DF3A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -113,40 +87,46 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		06C05224B66E0F795D20A91D /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				E0DF4C8DE3765A6617AB60DD /* Pods-Nuances.debug.xcconfig */,
+				C1555DC92CDA353466639AA6 /* Pods-Nuances.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
 		13B07FAE1A68108700A75B9A /* Nuances */ = {
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* Nuances-Bridging-Header.h */,
-				F0A100032FAAE01000100003 /* SharedDefaultsModule.swift */,
-				F0A100042FAAE01000100004 /* SharedDefaultsModuleBridge.m */,
-				F0A100072FAAE01000100007 /* VisionOCRModule.swift */,
-				F0A100082FAAE01000100008 /* VisionOCRModuleBridge.m */,
+				C20A01022FF2DA520054DF3A /* SharedDefaultsModule.swift */,
+				C20A01042FF2DA520054DF3A /* SharedDefaultsModuleBridge.m */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				85F5555A1FD8AFC115C6C507 /* PrivacyInfo.xcprivacy */,
+				4C920413EB62504FB8EB448C /* PrivacyInfo.xcprivacy */,
 			);
 			name = Nuances;
+			sourceTree = "<group>";
+		};
+		1848EC7E33ED266F5708AC53 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				A4D2E709B5CD721DD37B8C5C /* Nuances */,
+			);
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				EF1C307B2FC4417700AF46E9 /* StoreKit.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				4FC609D457724FCA04F2A9B4 /* libPods-Nuances.a */,
+				0D5A91345A29AA71D719EBA9 /* libPods-Nuances.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		5EDF9AB39602157622489E34 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				D24CBE70C21DDDE12FB5034D /* Nuances */,
-			);
-			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -161,11 +141,11 @@
 			children = (
 				13B07FAE1A68108700A75B9A /* Nuances */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
-				EF504DA72FA9E020007185E9 /* NuancesShareExtension */,
+				EFDA9C892FF2DA520054DF3A /* NuancesShareExtension */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				9B8ACA16562B56F7B36D005F /* Pods */,
-				5EDF9AB39602157622489E34 /* ExpoModulesProviders */,
+				06C05224B66E0F795D20A91D /* Pods */,
+				1848EC7E33ED266F5708AC53 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -176,18 +156,17 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* Nuances.app */,
-				EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */,
+				EFDA9C882FF2DA520054DF3A /* NuancesShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9B8ACA16562B56F7B36D005F /* Pods */ = {
+		A4D2E709B5CD721DD37B8C5C /* Nuances */ = {
 			isa = PBXGroup;
 			children = (
-				533FE94A621EF05ECE69EE4C /* Pods-Nuances.debug.xcconfig */,
-				6365C87AAE4AD0DD418179BA /* Pods-Nuances.release.xcconfig */,
+				33BB43D95C14DCA359FB9690 /* ExpoModulesProvider.swift */,
 			);
-			path = Pods;
+			name = Nuances;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -199,12 +178,15 @@
 			path = Nuances/Supporting;
 			sourceTree = "<group>";
 		};
-		D24CBE70C21DDDE12FB5034D /* Nuances */ = {
+		EFDA9C892FF2DA520054DF3A /* NuancesShareExtension */ = {
 			isa = PBXGroup;
 			children = (
-				E8498B55BCB333E236113CF4 /* ExpoModulesProvider.swift */,
+				EFDA9C9D2FF2DA520054DF3A /* MainInterface.storyboard */,
+				EFDA9C9C2FF2DA520054DF3A /* Info.plist */,
+				EFDA9C9F2FF2DA520054DF3A /* NuancesShareExtension.entitlements */,
+				EFDA9C9E2FF2DA520054DF3A /* ShareViewController.swift */,
 			);
-			name = Nuances;
+			path = NuancesShareExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -215,43 +197,41 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Nuances" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				D14D135BE06E170AE02D667B /* [Expo] Configure project */,
+				6A012DD3A1CCFD7C7503CF02 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				6417FA9B7C37AF7D5B9423B1 /* [CP] Embed Pods Frameworks */,
-				EF504DB12FA9E020007185E9 /* Embed Foundation Extensions */,
+				ED321F9333B5C39FBE6ADED9 /* [CP] Embed Pods Frameworks */,
+				C30D5A4A2F6E4C4F8F5F3B28 /* Generate React Native prebuilt dSYMs */,
+				EFDA9C972FF2DA520054DF3A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				EF504DAF2FA9E020007185E9 /* PBXTargetDependency */,
+				EFDA9C912FF2DA520054DF3A /* PBXTargetDependency */,
 			);
 			name = Nuances;
 			productName = Nuances;
 			productReference = 13B07F961A680F5B00A75B9A /* Nuances.app */;
 			productType = "com.apple.product-type.application";
 		};
-		EF504DA52FA9E020007185E9 /* NuancesShareExtension */ = {
+		EFDA9C872FF2DA520054DF3A /* NuancesShareExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = EF504DB52FA9E020007185E9 /* Build configuration list for PBXNativeTarget "NuancesShareExtension" */;
+			buildConfigurationList = EFDA9C942FF2DA520054DF3A /* Build configuration list for PBXNativeTarget "NuancesShareExtension" */;
 			buildPhases = (
-				EF504DA22FA9E020007185E9 /* Sources */,
-				EF504DA32FA9E020007185E9 /* Frameworks */,
-				EF504DA42FA9E020007185E9 /* Resources */,
+				EFDA9C842FF2DA520054DF3A /* Sources */,
+				EFDA9C852FF2DA520054DF3A /* Frameworks */,
+				EFDA9C862FF2DA520054DF3A /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				EF504DA72FA9E020007185E9 /* NuancesShareExtension */,
-			);
 			name = NuancesShareExtension;
 			productName = NuancesShareExtension;
-			productReference = EF504DA62FA9E020007185E9 /* NuancesShareExtension.appex */;
+			productReference = EFDA9C882FF2DA520054DF3A /* NuancesShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -265,9 +245,8 @@
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
-						ProvisioningStyle = Automatic;
 					};
-					EF504DA52FA9E020007185E9 = {
+					EFDA9C872FF2DA520054DF3A = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -286,7 +265,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* Nuances */,
-				EF504DA52FA9E020007185E9 /* NuancesShareExtension */,
+				EFDA9C872FF2DA520054DF3A /* NuancesShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -299,14 +278,15 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				F3F7744EA3E628D95B72D566 /* PrivacyInfo.xcprivacy in Resources */,
+				A2EA0A0E6C77BE22E86AACBB /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EF504DA42FA9E020007185E9 /* Resources */ = {
+		EFDA9C862FF2DA520054DF3A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EFDA9CA12FF2DA520054DF3A /* MainInterface.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -352,69 +332,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		6417FA9B7C37AF7D5B9423B1 /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-resources.sh",
-				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/PurchasesHybridCommon/PurchasesHybridCommon.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/RevenueCat/RevenueCat.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/SDWebImage/SDWebImage.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
-			);
-			name = "[CP] Copy Pods Resources";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PurchasesHybridCommon.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RevenueCat.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SDWebImage.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		D14D135BE06E170AE02D667B /* [Expo] Configure project */ = {
+		6A012DD3A1CCFD7C7503CF02 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -438,6 +356,107 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Nuances/expo-configure-project.sh\"\n";
 		};
+		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/AppAuth/AppAuthCore_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXApplication/ExpoApplication_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXNotifications/ExpoNotifications_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GTMAppAuth/GTMAppAuth_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GTMSessionFetcher/GTMSessionFetcher_Core_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleSignIn/GoogleSignIn.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUtilities/GoogleUtilities_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesSwift/Promises_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PurchasesHybridCommon/PurchasesHybridCommon.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/RevenueCat/RevenueCat.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/SDWebImage/SDWebImage.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AppAuthCore_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoApplication_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoNotifications_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMAppAuth_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMSessionFetcher_Core_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleSignIn.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleUtilities_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Promises_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PurchasesHybridCommon.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RevenueCat.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SDWebImage.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		C30D5A4A2F6E4C4F8F5F3B28 /* Generate React Native prebuilt dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/React",
+				"${PODS_ROOT}/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework/ios-arm64/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes",
+			);
+			name = "Generate React Native prebuilt dSYMs";
+			outputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/React.framework.dSYM",
+				"${DWARF_DSYM_FOLDER_PATH}/ReactNativeDependencies.framework.dSYM",
+				"${DWARF_DSYM_FOLDER_PATH}/hermes.framework.dSYM",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [[ \"$PLATFORM_NAME\" != \"iphoneos\" ]]; then\n  exit 0\nfi\n\nif [[ -z \"$DWARF_DSYM_FOLDER_PATH\" ]]; then\n  exit 0\nfi\n\nmkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\n\ngenerate_dsym() {\n  local binary_path=\"$1\"\n  local dsym_name=\"$2\"\n  local output_path=\"$DWARF_DSYM_FOLDER_PATH/$dsym_name\"\n\n  if [[ ! -f \"$binary_path\" ]]; then\n    echo \"warning: Missing binary for dSYM generation: $binary_path\"\n    return 0\n  fi\n\n  echo \"Generating $dsym_name from $binary_path\"\n  /usr/bin/dsymutil \"$binary_path\" -o \"$output_path\" || true\n}\n\ngenerate_dsym \"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/React\" \"React.framework.dSYM\"\ngenerate_dsym \"${PODS_ROOT}/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework/ios-arm64/ReactNativeDependencies.framework/ReactNativeDependencies\" \"ReactNativeDependencies.framework.dSYM\"\ngenerate_dsym \"${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes\" \"hermes.framework.dSYM\"\n";
+			showEnvVarsInLog = 0;
+		};
+		ED321F9333B5C39FBE6ADED9 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Nuances/Pods-Nuances-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -446,42 +465,39 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				F0A100012FAAE01000100001 /* SharedDefaultsModule.swift in Sources */,
-				F0A100022FAAE01000100002 /* SharedDefaultsModuleBridge.m in Sources */,
-				F0A100052FAAE01000100005 /* VisionOCRModule.swift in Sources */,
-				F0A100062FAAE01000100006 /* VisionOCRModuleBridge.m in Sources */,
-				DB1249D720B8508B14ED3153 /* ExpoModulesProvider.swift in Sources */,
+				89A69BCF5799849C60169516 /* ExpoModulesProvider.swift in Sources */,
+				C20A01012FF2DA520054DF3A /* SharedDefaultsModule.swift in Sources */,
+				C20A01032FF2DA520054DF3A /* SharedDefaultsModuleBridge.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EF504DA22FA9E020007185E9 /* Sources */ = {
+		EFDA9C842FF2DA520054DF3A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EFDA9CA22FF2DA520054DF3A /* ShareViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		EF504DAF2FA9E020007185E9 /* PBXTargetDependency */ = {
+		EFDA9C912FF2DA520054DF3A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = EF504DA52FA9E020007185E9 /* NuancesShareExtension */;
-			targetProxy = EF504DAE2FA9E020007185E9 /* PBXContainerItemProxy */;
+			target = EFDA9C872FF2DA520054DF3A /* NuancesShareExtension */;
+			targetProxy = EFDA9C902FF2DA520054DF3A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 533FE94A621EF05ECE69EE4C /* Pods-Nuances.debug.xcconfig */;
+			baseConfigurationReference = E0DF4C8DE3765A6617AB60DD /* Pods-Nuances.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Nuances/Nuances.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 84;
 				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -494,7 +510,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -506,21 +522,19 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Nuances/Nuances-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6365C87AAE4AD0DD418179BA /* Pods-Nuances.release.xcconfig */;
+			baseConfigurationReference = C1555DC92CDA353466639AA6 /* Pods-Nuances.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Nuances/Nuances.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 84;
 				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				INFOPLIST_FILE = Nuances/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -528,7 +542,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -539,7 +553,7 @@
 				PRODUCT_NAME = Nuances;
 				SWIFT_OBJC_BRIDGING_HEADER = "Nuances/Nuances-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -662,7 +676,7 @@
 			};
 			name = Release;
 		};
-		EF504DB22FA9E020007185E9 /* Debug */ = {
+		EFDA9C952FF2DA520054DF3A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -674,16 +688,15 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = NuancesShareExtension/NuancesShareExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 84;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NuancesShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Nuances;
+				INFOPLIST_KEY_CFBundleDisplayName = NuancesShareExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -692,7 +705,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
@@ -706,11 +719,11 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
-		EF504DB32FA9E020007185E9 /* Release */ = {
+		EFDA9C962FF2DA520054DF3A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -722,17 +735,16 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = NuancesShareExtension/NuancesShareExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 84;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 8N93UUP9VY;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NuancesShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Nuances;
+				INFOPLIST_KEY_CFBundleDisplayName = NuancesShareExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -741,7 +753,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.1;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.jeffenglishlearning.nuances.NuancesShareExtension;
@@ -753,7 +765,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -778,11 +790,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		EF504DB52FA9E020007185E9 /* Build configuration list for PBXNativeTarget "NuancesShareExtension" */ = {
+		EFDA9C942FF2DA520054DF3A /* Build configuration list for PBXNativeTarget "NuancesShareExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				EF504DB22FA9E020007185E9 /* Debug */,
-				EF504DB32FA9E020007185E9 /* Release */,
+				EFDA9C952FF2DA520054DF3A /* Debug */,
+				EFDA9C962FF2DA520054DF3A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

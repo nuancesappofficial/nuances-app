@@ -2,6 +2,7 @@ declare const Deno: any;
 
 import { corsHeaders } from '../_shared/httpResponse.ts';
 import { OPENAI_ALLOWED_MODELS } from '../_shared/runtimeConfig.ts';
+import { withDependencyGuard } from '../../_shared/dependencyGuard.ts';
 
 export type ProviderModelRoute = {
   model: string;
@@ -22,6 +23,35 @@ type ProviderResponse = {
   content: string;
   metrics: ProviderExecutionMetrics;
 };
+
+const OPENAI_REQUEST_TIMEOUT_MS = Math.max(
+  5_000,
+  Number(Deno.env.get('OPENAI_REQUEST_TIMEOUT_MS') ?? '30000')
+);
+
+async function fetchOpenAI(
+  init: RequestInit,
+  timeoutMs = OPENAI_REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await withDependencyGuard(
+      'openai',
+      () =>
+        fetch('https://api.openai.com/v1/chat/completions', {
+          ...init,
+          signal: controller.signal,
+        }),
+      {
+        isFailure: (response) =>
+          response.status === 429 || response.status >= 500,
+      }
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function pickModel(
   requested: unknown,
@@ -72,7 +102,7 @@ export async function callOpenAIChat(params: {
   model: string;
   messages: { role: string; content: string }[];
   temperature?: number;
-  maxTokens: number;
+  maxTokens?: number;
   jsonMode?: boolean;
 }): Promise<ProviderResponse> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -83,7 +113,8 @@ export async function callOpenAIChat(params: {
   const startedAt = Date.now();
   const model = pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const maxTokens = Math.max(128, Math.min(4096, Math.round(Number(params.maxTokens) || 1024)));
+  const response = await fetchOpenAI({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -92,8 +123,8 @@ export async function callOpenAIChat(params: {
     body: JSON.stringify({
       model,
       messages: params.messages,
-      temperature: params.temperature ?? 0.5,
-      max_tokens: params.maxTokens,
+      temperature: params.temperature ?? 0.3,
+      max_tokens: maxTokens,
       ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }),
   });
@@ -129,14 +160,16 @@ export async function buildOpenAIStreamResponse(params: {
   model: string;
   messages: { role: string; content: string }[];
   temperature?: number;
-  maxTokens: number;
+  maxTokens?: number;
+  jsonMode?: boolean;
 }): Promise<Response> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
     throw new Error('Missing OPENAI_API_KEY in Edge Function secrets');
   }
   const startedAt = Date.now();
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const maxTokens = Math.max(128, Math.min(4096, Math.round(Number(params.maxTokens) || 1024)));
+  const response = await fetchOpenAI({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -145,8 +178,9 @@ export async function buildOpenAIStreamResponse(params: {
     body: JSON.stringify({
       model: pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]),
       messages: params.messages,
-      temperature: params.temperature ?? 0.5,
-      max_tokens: params.maxTokens,
+      temperature: params.temperature ?? 0.3,
+      max_tokens: maxTokens,
+      ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
       stream: true,
       stream_options: { include_usage: true },
     }),
@@ -166,7 +200,10 @@ export async function buildOpenAIStreamResponse(params: {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      controller.enqueue(encoder.encode('event: ready\ndata: {"started":true}\n\n'));
+      const padding = ' '.repeat(4096);
+      controller.enqueue(
+        encoder.encode(`event: ready\ndata: ${JSON.stringify({ started: true, padding })}\n\n`)
+      );
       let shouldRead = true;
       while (shouldRead) {
         const { done, value } = await reader.read();
@@ -201,6 +238,8 @@ export async function buildOpenAIStreamResponse(params: {
       }
 
       const donePayload = {
+        provider: 'openai',
+        model: pickModel(params.model, OPENAI_ALLOWED_MODELS, OPENAI_ALLOWED_MODELS[0]),
         ttfbMs: firstTokenAt ? firstTokenAt - startedAt : null,
         totalMs: Date.now() - startedAt,
         inputTokens,

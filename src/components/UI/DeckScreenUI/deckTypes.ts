@@ -15,4 +15,5 @@ export type DeckAlbum = {
   wordCount: number;
   latestCards: AlbumPreviewCard[];
   isDefault?: boolean;
+  isNameCustomized?: boolean;
 };

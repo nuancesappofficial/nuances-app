@@ -14,6 +14,12 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import Svg, { Path } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  DEFAULT_USER_SETTINGS,
+  type UILanguage,
+} from '../services/settings/userSettings';
+import { tUI } from '../i18n/uiLanguage';
+import MovingTutorialArrow from './UI/shared/MovingTutorialArrow';
 
 type Size = {
   width: number;
@@ -43,6 +49,8 @@ type Props = {
   cropShape?: 'rect' | 'circle' | 'album';
   fixedCropSize?: number;
   modalAnimationType?: 'none' | 'slide' | 'fade';
+  uiLanguage?: UILanguage;
+  showConfirmTutorialArrow?: boolean;
   onCancel: () => void;
   onConfirm: (croppedUri: string) => void;
 };
@@ -56,7 +64,13 @@ const ALBUM_CROP_RADIUS = 28;
 const CROP_GUIDE_CORNER_LENGTH = 42;
 const CROP_GUIDE_CORNER_THICKNESS = 8;
 
-function createRoundedRectPath(x: number, y: number, width: number, height: number, radius: number) {
+function createRoundedRectPath(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   return [
     `M ${x + r} ${y}`,
@@ -79,13 +93,18 @@ export default function ImageCropperModal({
   cropShape = 'rect',
   fixedCropSize,
   modalAnimationType = 'slide',
+  uiLanguage = DEFAULT_USER_SETTINGS.uiLanguage,
+  showConfirmTutorialArrow = false,
   onCancel,
   onConfirm,
 }: Props) {
   const insets = useSafeAreaInsets();
   const isFixedCropShape = cropShape === 'circle' || cropShape === 'album';
   const [imageSize, setImageSize] = React.useState<Size | null>(null);
-  const [containerSize, setContainerSize] = React.useState<Size>({ width: 0, height: 0 });
+  const [containerSize, setContainerSize] = React.useState<Size>({
+    width: 0,
+    height: 0,
+  });
   const [cropRect, setCropRect] = React.useState<Rect | null>(null);
   const [processing, setProcessing] = React.useState(false);
   const [imageTransform, setImageTransform] = React.useState<ImageTransform>({
@@ -106,24 +125,34 @@ export default function ImageCropperModal({
     left: number;
     top: number;
   } | null>(null);
-  const reservedTopInset = React.useMemo(() => insets.top + (isFixedCropShape ? 104 : 88), [insets.top, isFixedCropShape]);
+  const reservedTopInset = React.useMemo(
+    () => insets.top + (isFixedCropShape ? 104 : 88),
+    [insets.top, isFixedCropShape]
+  );
 
-  const commitImageTransform = React.useCallback((nextTransform: ImageTransform) => {
-    const current = imageTransformRef.current;
-    const hasMeaningfulChange =
-      Math.abs(current.scale - nextTransform.scale) > 0.002 ||
-      Math.abs(current.translateX - nextTransform.translateX) > 0.35 ||
-      Math.abs(current.translateY - nextTransform.translateY) > 0.35;
-    if (!hasMeaningfulChange) {
-      return;
-    }
-    imageTransformRef.current = nextTransform;
-    setImageTransform(nextTransform);
-  }, []);
+  const commitImageTransform = React.useCallback(
+    (nextTransform: ImageTransform) => {
+      const current = imageTransformRef.current;
+      const hasMeaningfulChange =
+        Math.abs(current.scale - nextTransform.scale) > 0.002 ||
+        Math.abs(current.translateX - nextTransform.translateX) > 0.35 ||
+        Math.abs(current.translateY - nextTransform.translateY) > 0.35;
+      if (!hasMeaningfulChange) {
+        return;
+      }
+      imageTransformRef.current = nextTransform;
+      setImageTransform(nextTransform);
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!visible || !imageUri) return;
-    if (initialImageSize && initialImageSize.width > 0 && initialImageSize.height > 0) {
+    if (
+      initialImageSize &&
+      initialImageSize.width > 0 &&
+      initialImageSize.height > 0
+    ) {
       setImageSize(initialImageSize);
       return;
     }
@@ -132,14 +161,18 @@ export default function ImageCropperModal({
       imageUri,
       (width, height) => setImageSize({ width, height }),
       () => {
-        Alert.alert('錯誤', '無法讀取圖片尺寸');
+        Alert.alert(
+          tUI(uiLanguage, 'cropper.failedTitle'),
+          tUI(uiLanguage, 'cropper.failedBody')
+        );
         onCancel();
       }
     );
-  }, [visible, imageUri, initialImageSize, onCancel]);
+  }, [visible, imageUri, initialImageSize, onCancel, uiLanguage]);
 
   const displayMetrics = React.useMemo(() => {
-    if (!imageSize || !containerSize.width || !containerSize.height) return null;
+    if (!imageSize || !containerSize.width || !containerSize.height)
+      return null;
     const scale = Math.min(
       containerSize.width / imageSize.width,
       containerSize.height / imageSize.height
@@ -160,15 +193,30 @@ export default function ImageCropperModal({
 
     if (isFixedCropShape) {
       const preferredSize = fixedCropSize ?? 200;
-      const maxHeightWithoutHeader = Math.max(MIN_EDGE, containerSize.height - reservedTopInset - 28);
+      const maxHeightWithoutHeader = Math.max(
+        MIN_EDGE,
+        containerSize.height - reservedTopInset - 28
+      );
       const size = Math.max(
         MIN_EDGE,
-        Math.min(preferredSize, displayMetrics.width, displayMetrics.height, maxHeightWithoutHeader)
+        Math.min(
+          preferredSize,
+          displayMetrics.width,
+          displayMetrics.height,
+          maxHeightWithoutHeader
+        )
       );
       const left = (containerSize.width - size) / 2;
       const centeredTop = (containerSize.height - size) / 2;
-      const maxTop = Math.max(reservedTopInset, containerSize.height - size - 28);
-      const top = clamp(Math.max(centeredTop, reservedTopInset), reservedTopInset, maxTop);
+      const maxTop = Math.max(
+        reservedTopInset,
+        containerSize.height - size - 28
+      );
+      const top = clamp(
+        Math.max(centeredTop, reservedTopInset),
+        reservedTopInset,
+        maxTop
+      );
       setCropRect({ x: left, y: top, width: size, height: size });
       return;
     }
@@ -181,7 +229,10 @@ export default function ImageCropperModal({
       const y = clamp(
         Math.max(preferredY, reservedTopInset),
         displayMetrics.top,
-        Math.max(displayMetrics.top, displayMetrics.top + displayMetrics.height - MIN_EDGE)
+        Math.max(
+          displayMetrics.top,
+          displayMetrics.top + displayMetrics.height - MIN_EDGE
+        )
       );
       const availableBottom = displayMetrics.top + displayMetrics.height;
       return {
@@ -191,7 +242,16 @@ export default function ImageCropperModal({
         height: Math.max(MIN_EDGE, availableBottom - y - marginY),
       };
     });
-  }, [clamp, containerSize.height, containerSize.width, cropShape, displayMetrics, fixedCropSize, isFixedCropShape, reservedTopInset]);
+  }, [
+    clamp,
+    containerSize.height,
+    containerSize.width,
+    cropShape,
+    displayMetrics,
+    fixedCropSize,
+    isFixedCropShape,
+    reservedTopInset,
+  ]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -223,7 +283,10 @@ export default function ImageCropperModal({
       return { minScale: 1, maxScale: 4 };
     }
     // Let users pinch inward as long as the image still fully covers the fixed crop mask.
-    const minScale = Math.max(cropRect.width / displayMetrics.width, cropRect.height / displayMetrics.height);
+    const minScale = Math.max(
+      cropRect.width / displayMetrics.width,
+      cropRect.height / displayMetrics.height
+    );
     return {
       minScale,
       maxScale: Math.max(minScale, 4),
@@ -262,7 +325,15 @@ export default function ImageCropperModal({
         translateY: 0,
       })
     );
-  }, [clampCircleTransform, circleScaleBounds.minScale, commitImageTransform, cropRect, displayMetrics, isFixedCropShape, visible]);
+  }, [
+    clampCircleTransform,
+    circleScaleBounds.minScale,
+    commitImageTransform,
+    cropRect,
+    displayMetrics,
+    isFixedCropShape,
+    visible,
+  ]);
 
   const createHandleResponder = React.useCallback(
     (corner: CornerKey) => {
@@ -291,17 +362,48 @@ export default function ImageCropperModal({
             const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
             next = { x, y, width: right - x, height: bottom - y };
           } else if (corner === 'topRight') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
+            const newRight = clamp(
+              right + dx,
+              startRect.x + MIN_EDGE,
+              metrics.left + metrics.width
+            );
             const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
-            next = { x: startRect.x, y, width: newRight - startRect.x, height: bottom - y };
+            next = {
+              x: startRect.x,
+              y,
+              width: newRight - startRect.x,
+              height: bottom - y,
+            };
           } else if (corner === 'bottomRight') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
-            next = { x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: newBottom - startRect.y };
+            const newRight = clamp(
+              right + dx,
+              startRect.x + MIN_EDGE,
+              metrics.left + metrics.width
+            );
+            const newBottom = clamp(
+              bottom + dy,
+              startRect.y + MIN_EDGE,
+              metrics.top + metrics.height
+            );
+            next = {
+              x: startRect.x,
+              y: startRect.y,
+              width: newRight - startRect.x,
+              height: newBottom - startRect.y,
+            };
           } else {
             const x = clamp(startRect.x + dx, metrics.left, right - MIN_EDGE);
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
-            next = { x, y: startRect.y, width: right - x, height: newBottom - startRect.y };
+            const newBottom = clamp(
+              bottom + dy,
+              startRect.y + MIN_EDGE,
+              metrics.top + metrics.height
+            );
+            next = {
+              x,
+              y: startRect.y,
+              width: right - x,
+              height: newBottom - startRect.y,
+            };
           }
 
           setCropRect(next);
@@ -333,16 +435,44 @@ export default function ImageCropperModal({
 
           if (edge === 'top') {
             const y = clamp(startRect.y + dy, metrics.top, bottom - MIN_EDGE);
-            setCropRect({ x: startRect.x, y, width: startRect.width, height: bottom - y });
+            setCropRect({
+              x: startRect.x,
+              y,
+              width: startRect.width,
+              height: bottom - y,
+            });
           } else if (edge === 'right') {
-            const newRight = clamp(right + dx, startRect.x + MIN_EDGE, metrics.left + metrics.width);
-            setCropRect({ x: startRect.x, y: startRect.y, width: newRight - startRect.x, height: startRect.height });
+            const newRight = clamp(
+              right + dx,
+              startRect.x + MIN_EDGE,
+              metrics.left + metrics.width
+            );
+            setCropRect({
+              x: startRect.x,
+              y: startRect.y,
+              width: newRight - startRect.x,
+              height: startRect.height,
+            });
           } else if (edge === 'bottom') {
-            const newBottom = clamp(bottom + dy, startRect.y + MIN_EDGE, metrics.top + metrics.height);
-            setCropRect({ x: startRect.x, y: startRect.y, width: startRect.width, height: newBottom - startRect.y });
+            const newBottom = clamp(
+              bottom + dy,
+              startRect.y + MIN_EDGE,
+              metrics.top + metrics.height
+            );
+            setCropRect({
+              x: startRect.x,
+              y: startRect.y,
+              width: startRect.width,
+              height: newBottom - startRect.y,
+            });
           } else {
             const x = clamp(startRect.x + dx, metrics.left, right - MIN_EDGE);
-            setCropRect({ x, y: startRect.y, width: right - x, height: startRect.height });
+            setCropRect({
+              x,
+              y: startRect.y,
+              width: right - x,
+              height: startRect.height,
+            });
           }
         },
       });
@@ -381,13 +511,23 @@ export default function ImageCropperModal({
     })()
   ).current;
 
-  const topLeftResponder = React.useRef(createHandleResponder('topLeft')).current;
-  const topRightResponder = React.useRef(createHandleResponder('topRight')).current;
-  const bottomRightResponder = React.useRef(createHandleResponder('bottomRight')).current;
-  const bottomLeftResponder = React.useRef(createHandleResponder('bottomLeft')).current;
+  const topLeftResponder = React.useRef(
+    createHandleResponder('topLeft')
+  ).current;
+  const topRightResponder = React.useRef(
+    createHandleResponder('topRight')
+  ).current;
+  const bottomRightResponder = React.useRef(
+    createHandleResponder('bottomRight')
+  ).current;
+  const bottomLeftResponder = React.useRef(
+    createHandleResponder('bottomLeft')
+  ).current;
   const topEdgeResponder = React.useRef(createEdgeResponder('top')).current;
   const rightEdgeResponder = React.useRef(createEdgeResponder('right')).current;
-  const bottomEdgeResponder = React.useRef(createEdgeResponder('bottom')).current;
+  const bottomEdgeResponder = React.useRef(
+    createEdgeResponder('bottom')
+  ).current;
   const leftEdgeResponder = React.useRef(createEdgeResponder('left')).current;
 
   const circleImageFrame = React.useMemo(() => {
@@ -395,8 +535,14 @@ export default function ImageCropperModal({
     const width = displayMetrics.width * imageTransform.scale;
     const height = displayMetrics.height * imageTransform.scale;
     return {
-      left: displayMetrics.left + (displayMetrics.width - width) / 2 + imageTransform.translateX,
-      top: displayMetrics.top + (displayMetrics.height - height) / 2 + imageTransform.translateY,
+      left:
+        displayMetrics.left +
+        (displayMetrics.width - width) / 2 +
+        imageTransform.translateX,
+      top:
+        displayMetrics.top +
+        (displayMetrics.height - height) / 2 +
+        imageTransform.translateY,
       width,
       height,
     };
@@ -420,7 +566,8 @@ export default function ImageCropperModal({
 
   const updateFixedPan = React.useCallback(
     (translationX: number, translationY: number) => {
-      const startTransform = fixedGestureStartRef.current ?? imageTransformRef.current;
+      const startTransform =
+        fixedGestureStartRef.current ?? imageTransformRef.current;
       commitImageTransform(
         clampCircleTransform({
           scale: startTransform.scale,
@@ -434,7 +581,8 @@ export default function ImageCropperModal({
 
   const updateFixedPinch = React.useCallback(
     (gestureScale: number) => {
-      const startTransform = fixedGestureStartRef.current ?? imageTransformRef.current;
+      const startTransform =
+        fixedGestureStartRef.current ?? imageTransformRef.current;
       const nextScale = clamp(
         startTransform.scale * gestureScale,
         circleScaleBounds.minScale,
@@ -448,7 +596,13 @@ export default function ImageCropperModal({
         })
       );
     },
-    [clamp, clampCircleTransform, circleScaleBounds.maxScale, circleScaleBounds.minScale, commitImageTransform]
+    [
+      clamp,
+      clampCircleTransform,
+      circleScaleBounds.maxScale,
+      circleScaleBounds.minScale,
+      commitImageTransform,
+    ]
   );
 
   const resetFixedGesture = React.useCallback(() => {
@@ -493,7 +647,13 @@ export default function ImageCropperModal({
       });
 
     return Gesture.Simultaneous(pan, pinch);
-  }, [beginFixedGesture, isFixedCropShape, resetFixedGesture, updateFixedPan, updateFixedPinch]);
+  }, [
+    beginFixedGesture,
+    isFixedCropShape,
+    resetFixedGesture,
+    updateFixedPan,
+    updateFixedPinch,
+  ]);
 
   const handleConfirm = React.useCallback(async () => {
     if (!imageUri || !cropRect || !imageSize || !displayMetrics) return;
@@ -509,25 +669,55 @@ export default function ImageCropperModal({
       if (isFixedCropShape && circleImageFrame) {
         originX = Math.max(
           0,
-          Math.round(((cropRect.x - circleImageFrame.left) / circleImageFrame.width) * imageSize.width)
+          Math.round(
+            ((cropRect.x - circleImageFrame.left) / circleImageFrame.width) *
+              imageSize.width
+          )
         );
         originY = Math.max(
           0,
-          Math.round(((cropRect.y - circleImageFrame.top) / circleImageFrame.height) * imageSize.height)
+          Math.round(
+            ((cropRect.y - circleImageFrame.top) / circleImageFrame.height) *
+              imageSize.height
+          )
         );
-        width = Math.max(1, Math.round((cropRect.width / circleImageFrame.width) * imageSize.width));
-        height = Math.max(1, Math.round((cropRect.height / circleImageFrame.height) * imageSize.height));
+        width = Math.max(
+          1,
+          Math.round(
+            (cropRect.width / circleImageFrame.width) * imageSize.width
+          )
+        );
+        height = Math.max(
+          1,
+          Math.round(
+            (cropRect.height / circleImageFrame.height) * imageSize.height
+          )
+        );
       } else {
         originX = Math.max(
           0,
-          Math.round(((cropRect.x - displayMetrics.left) / displayMetrics.width) * imageSize.width)
+          Math.round(
+            ((cropRect.x - displayMetrics.left) / displayMetrics.width) *
+              imageSize.width
+          )
         );
         originY = Math.max(
           0,
-          Math.round(((cropRect.y - displayMetrics.top) / displayMetrics.height) * imageSize.height)
+          Math.round(
+            ((cropRect.y - displayMetrics.top) / displayMetrics.height) *
+              imageSize.height
+          )
         );
-        width = Math.max(1, Math.round((cropRect.width / displayMetrics.width) * imageSize.width));
-        height = Math.max(1, Math.round((cropRect.height / displayMetrics.height) * imageSize.height));
+        width = Math.max(
+          1,
+          Math.round((cropRect.width / displayMetrics.width) * imageSize.width)
+        );
+        height = Math.max(
+          1,
+          Math.round(
+            (cropRect.height / displayMetrics.height) * imageSize.height
+          )
+        );
       }
 
       const result = await ImageManipulator.manipulateAsync(
@@ -539,11 +729,23 @@ export default function ImageCropperModal({
       onConfirm(result.uri);
     } catch (error) {
       console.error('[ImageCropper] crop failed:', error);
-      Alert.alert('裁切失敗', '請重試');
+      Alert.alert(
+        tUI(uiLanguage, 'cropper.failedTitle'),
+        tUI(uiLanguage, 'cropper.failedBody')
+      );
     } finally {
       setProcessing(false);
     }
-  }, [circleImageFrame, cropRect, displayMetrics, imageSize, imageUri, isFixedCropShape, onConfirm]);
+  }, [
+    circleImageFrame,
+    cropRect,
+    displayMetrics,
+    imageSize,
+    imageUri,
+    isFixedCropShape,
+    onConfirm,
+    uiLanguage,
+  ]);
 
   return (
     <Modal
@@ -602,7 +804,17 @@ export default function ImageCropperModal({
                 </View>
               ) : (
                 <>
-                  <View style={[styles.mask, { left: 0, top: 0, width: containerSize.width, height: cropRect.y }]} />
+                  <View
+                    style={[
+                      styles.mask,
+                      {
+                        left: 0,
+                        top: 0,
+                        width: containerSize.width,
+                        height: cropRect.y,
+                      },
+                    ]}
+                  />
                   <View
                     style={[
                       styles.mask,
@@ -610,18 +822,34 @@ export default function ImageCropperModal({
                         left: 0,
                         top: cropRect.y + cropRect.height,
                         width: containerSize.width,
-                        height: Math.max(0, containerSize.height - (cropRect.y + cropRect.height)),
+                        height: Math.max(
+                          0,
+                          containerSize.height - (cropRect.y + cropRect.height)
+                        ),
                       },
                     ]}
                   />
-                  <View style={[styles.mask, { left: 0, top: cropRect.y, width: cropRect.x, height: cropRect.height }]} />
+                  <View
+                    style={[
+                      styles.mask,
+                      {
+                        left: 0,
+                        top: cropRect.y,
+                        width: cropRect.x,
+                        height: cropRect.height,
+                      },
+                    ]}
+                  />
                   <View
                     style={[
                       styles.mask,
                       {
                         left: cropRect.x + cropRect.width,
                         top: cropRect.y,
-                        width: Math.max(0, containerSize.width - (cropRect.x + cropRect.width)),
+                        width: Math.max(
+                          0,
+                          containerSize.width - (cropRect.x + cropRect.width)
+                        ),
                         height: cropRect.height,
                       },
                     ]}
@@ -638,19 +866,65 @@ export default function ImageCropperModal({
                 ]}
               />
               {cropShape === 'album' ? (
-                <View pointerEvents="none" style={[styles.albumCropSilhouette, cropRectStyle]}>
+                <View
+                  pointerEvents="none"
+                  style={[styles.albumCropSilhouette, cropRectStyle]}
+                >
                   <View style={styles.albumCropNameBand} />
                 </View>
               ) : (
-                <View pointerEvents="none" style={[styles.cropGuide, cropRectStyle]}>
-                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopLeftHorizontal]} />
-                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopLeftVertical]} />
-                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideTopRightHorizontal]} />
-                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideTopRightVertical]} />
-                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomRightHorizontal]} />
-                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomRightVertical]} />
-                  <View style={[styles.cropGuideCornerHorizontal, styles.cropGuideBottomLeftHorizontal]} />
-                  <View style={[styles.cropGuideCornerVertical, styles.cropGuideBottomLeftVertical]} />
+                <View
+                  pointerEvents="none"
+                  style={[styles.cropGuide, cropRectStyle]}
+                >
+                  <View
+                    style={[
+                      styles.cropGuideCornerHorizontal,
+                      styles.cropGuideTopLeftHorizontal,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerVertical,
+                      styles.cropGuideTopLeftVertical,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerHorizontal,
+                      styles.cropGuideTopRightHorizontal,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerVertical,
+                      styles.cropGuideTopRightVertical,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerHorizontal,
+                      styles.cropGuideBottomRightHorizontal,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerVertical,
+                      styles.cropGuideBottomRightVertical,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerHorizontal,
+                      styles.cropGuideBottomLeftHorizontal,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cropGuideCornerVertical,
+                      styles.cropGuideBottomLeftVertical,
+                    ]}
+                  />
                 </View>
               )}
 
@@ -672,8 +946,14 @@ export default function ImageCropperModal({
                     {
                       left: cropRect.x + MOVE_HITBOX_INSET,
                       top: cropRect.y + MOVE_HITBOX_INSET,
-                      width: Math.max(0, cropRect.width - MOVE_HITBOX_INSET * 2),
-                      height: Math.max(0, cropRect.height - MOVE_HITBOX_INSET * 2),
+                      width: Math.max(
+                        0,
+                        cropRect.width - MOVE_HITBOX_INSET * 2
+                      ),
+                      height: Math.max(
+                        0,
+                        cropRect.height - MOVE_HITBOX_INSET * 2
+                      ),
                     },
                   ]}
                   {...moveRectResponder.panHandlers}
@@ -697,9 +977,13 @@ export default function ImageCropperModal({
                     style={[
                       styles.edgeHitboxVertical,
                       {
-                        left: cropRect.x + cropRect.width - EDGE_HITBOX_SIZE / 2,
+                        left:
+                          cropRect.x + cropRect.width - EDGE_HITBOX_SIZE / 2,
                         top: cropRect.y + HANDLE_HITBOX_SIZE / 2,
-                        height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                        height: Math.max(
+                          0,
+                          cropRect.height - HANDLE_HITBOX_SIZE
+                        ),
                       },
                     ]}
                     {...rightEdgeResponder.panHandlers}
@@ -709,7 +993,8 @@ export default function ImageCropperModal({
                       styles.edgeHitboxHorizontal,
                       {
                         left: cropRect.x + HANDLE_HITBOX_SIZE / 2,
-                        top: cropRect.y + cropRect.height - EDGE_HITBOX_SIZE / 2,
+                        top:
+                          cropRect.y + cropRect.height - EDGE_HITBOX_SIZE / 2,
                         width: Math.max(0, cropRect.width - HANDLE_HITBOX_SIZE),
                       },
                     ]}
@@ -721,14 +1006,23 @@ export default function ImageCropperModal({
                       {
                         left: cropRect.x - EDGE_HITBOX_SIZE / 2,
                         top: cropRect.y + HANDLE_HITBOX_SIZE / 2,
-                        height: Math.max(0, cropRect.height - HANDLE_HITBOX_SIZE),
+                        height: Math.max(
+                          0,
+                          cropRect.height - HANDLE_HITBOX_SIZE
+                        ),
                       },
                     ]}
                     {...leftEdgeResponder.panHandlers}
                   />
 
                   <View
-                    style={[styles.cornerHitbox, { left: cropRect.x - HANDLE_HITBOX_SIZE / 2, top: cropRect.y - HANDLE_HITBOX_SIZE / 2 }]}
+                    style={[
+                      styles.cornerHitbox,
+                      {
+                        left: cropRect.x - HANDLE_HITBOX_SIZE / 2,
+                        top: cropRect.y - HANDLE_HITBOX_SIZE / 2,
+                      },
+                    ]}
                     {...topLeftResponder.panHandlers}
                   >
                     <View style={styles.cornerHandle} />
@@ -737,7 +1031,8 @@ export default function ImageCropperModal({
                     style={[
                       styles.cornerHitbox,
                       {
-                        left: cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
+                        left:
+                          cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
                         top: cropRect.y - HANDLE_HITBOX_SIZE / 2,
                       },
                     ]}
@@ -749,8 +1044,10 @@ export default function ImageCropperModal({
                     style={[
                       styles.cornerHitbox,
                       {
-                        left: cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
-                        top: cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
+                        left:
+                          cropRect.x + cropRect.width - HANDLE_HITBOX_SIZE / 2,
+                        top:
+                          cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
                       },
                     ]}
                     {...bottomRightResponder.panHandlers}
@@ -762,7 +1059,8 @@ export default function ImageCropperModal({
                       styles.cornerHitbox,
                       {
                         left: cropRect.x - HANDLE_HITBOX_SIZE / 2,
-                        top: cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
+                        top:
+                          cropRect.y + cropRect.height - HANDLE_HITBOX_SIZE / 2,
                       },
                     ]}
                     {...bottomLeftResponder.panHandlers}
@@ -782,25 +1080,50 @@ export default function ImageCropperModal({
         <View style={[styles.headerOverlay, { paddingTop: insets.top + 12 }]}>
           <Pressable
             onPress={onCancel}
-            style={({ pressed }) => [styles.headerChip, pressed && !processing ? styles.pressableChipPressed : null]}
-            disabled={processing}
-          >
-            <Text style={styles.cancelText}>取消</Text>
-          </Pressable>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.title}>裁切圖片</Text>
-            {isFixedCropShape ? <Text style={styles.helperText}>拖曳與縮放</Text> : null}
-          </View>
-          <Pressable
-            onPress={handleConfirm}
             style={({ pressed }) => [
               styles.headerChip,
-              pressed && !processing && cropRect ? styles.pressableChipPressed : null,
+              pressed && !processing ? styles.pressableChipPressed : null,
             ]}
-            disabled={processing || !cropRect}
+            disabled={processing}
           >
-            <Text style={styles.confirmText}>{processing ? '處理中...' : '完成'}</Text>
+            <Text style={styles.cancelText}>
+              {tUI(uiLanguage, 'common.cancel')}
+            </Text>
           </Pressable>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.title}>{tUI(uiLanguage, 'cropper.title')}</Text>
+            {isFixedCropShape ? (
+              <Text style={styles.helperText}>
+                {tUI(uiLanguage, 'cropper.helper')}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.confirmTutorialTarget}>
+            {showConfirmTutorialArrow && !processing ? (
+              <MovingTutorialArrow
+                direction="right"
+                color="#4EAFF4"
+                size={28}
+                style={styles.confirmTutorialArrow}
+              />
+            ) : null}
+            <Pressable
+              onPress={handleConfirm}
+              style={({ pressed }) => [
+                styles.headerChip,
+                pressed && !processing && cropRect
+                  ? styles.pressableChipPressed
+                  : null,
+              ]}
+              disabled={processing || !cropRect}
+            >
+              <Text style={styles.confirmText}>
+                {processing
+                  ? tUI(uiLanguage, 'cropper.processing')
+                  : tUI(uiLanguage, 'common.done')}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </Modal>
@@ -834,6 +1157,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  confirmTutorialTarget: {
+    position: 'relative',
+  },
+  confirmTutorialArrow: {
+    position: 'absolute',
+    right: '100%',
+    marginRight: 10,
+    top: -9,
   },
   pressableChipPressed: {
     opacity: 0.9,

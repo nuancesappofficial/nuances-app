@@ -1,9 +1,10 @@
 {
   "expo": {
     "name": "Nuances",
+    "description": "AI-assisted English flashcards, pronunciation practice, and study tools built from text, images, and shared content.",
     "slug": "nuances-app",
     "scheme": "nuances",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/app_icons/NUANCES_ICON8.png",
     "userInterfaceStyle": "automatic",
@@ -11,13 +12,15 @@
     "splash": {
       "image": "./assets/app_icons/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#6DBCF6"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.jeffenglishlearning.nuances",
-      "buildNumber": "2",
+      "buildNumber": "84",
       "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Required to capture text or physical documents to create flashcards.",
         "NSPhotoLibraryUsageDescription": "Required to select existing images for custom flashcards.",
@@ -31,14 +34,38 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.jeffenglishlearning.nuances"
+      "package": "com.jeffenglishlearning.nuances",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "favicon": "./assets/app_icons/favicon.png"
     },
     "plugins": [
+      "expo-apple-authentication",
       "expo-camera",
-      "./plugins/withShareExtension.js"
+      "expo-notifications",
+      "./plugins/withShareExtension.js",
+      "./plugins/withAndroidShareIntent.js",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.209409749377-go8sidkq8is8uecc76l7vl4ph6omot1r"
+        }
+      ],
+      "./plugins/withGoogleSignInPodfile.js",
+      "expo-video",
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser"
     ],
     "owner": "jeffenglishlearning",
     "extra": {

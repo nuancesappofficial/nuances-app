@@ -25,6 +25,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { resolveThemeColors } from '../../../theme/colors';
+import { useAppIsActive } from '../../../hooks/useAppIsActive';
 
 const DEFAULT_LOGO = require('../../../../assets/app_icons/icon_cutout2.png');
 
@@ -222,6 +223,7 @@ export default function AnimatedSplash({
   onFinished,
   logoSource = DEFAULT_LOGO,
 }: AnimatedSplashProps) {
+  const isAppActive = useAppIsActive();
   const colorScheme = useColorScheme();
   const palette = useSplashPalette(colorScheme);
   const { width, height } = useWindowDimensions();
@@ -239,6 +241,10 @@ export default function AnimatedSplash({
   }, [onFinished]);
 
   React.useEffect(() => {
+    if (!isAppActive) {
+      cancelAnimation(pulse);
+      return;
+    }
     shardIntroProgress.value = withTiming(1, {
       duration: 1180,
       easing: Easing.out(Easing.cubic),
@@ -269,7 +275,7 @@ export default function AnimatedSplash({
     return () => {
       cancelAnimation(pulse);
     };
-  }, [logoOpacity, logoScale, pulse, shardIntroProgress]);
+  }, [isAppActive, logoOpacity, logoScale, pulse, shardIntroProgress]);
 
   React.useEffect(() => {
     if (!ready) {

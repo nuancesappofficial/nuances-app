@@ -41,6 +41,8 @@ const paywallFooter = readFile('src/components/UI/ProfileScreenUI/PaywallFooter.
 const legalLinks = readFile('src/constants/legalLinks.ts') || '';
 const appJson = readFile('app.json') || '';
 const todo = readFile('to-do list.md') || '';
+const APP_STORE_METADATA_LOCALES = ['en-US', 'es-ES', 'fr-FR', 'ja-JP', 'ko-KR', 'zh-Hans', 'zh-Hant'];
+const STANDARD_EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
 const icon = {
   pass: 'PASS',
@@ -111,6 +113,18 @@ add(
       : 'warn',
     'Checklist marks backend account deletion complete',
     'Keep to-do list.md synchronized with implemented backend support.'
+  );
+  const metadataMissingEula = APP_STORE_METADATA_LOCALES.filter((locale) => {
+    const metadata = readFile(`app-store-assets/metadata/${locale}.md`) || '';
+    const description = metadata.match(/## Description\s+([\s\S]*?)(?=\n## )/)?.[1] || '';
+    return !description.includes(STANDARD_EULA_URL);
+  });
+  add(
+    metadataMissingEula.length === 0 ? 'pass' : 'fail',
+    'Localized App Store descriptions include Terms of Use',
+    metadataMissingEula.length === 0
+      ? 'All seven localized descriptions include the functional Apple standard EULA link.'
+      : `Missing from Description: ${metadataMissingEula.join(', ')}.`
   );
 }
 

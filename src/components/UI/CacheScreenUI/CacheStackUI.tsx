@@ -1,11 +1,21 @@
 import React from 'react';
 import { View, StyleSheet, Text, Pressable } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
+import Animated, {
+  Extrapolate,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import CacheCardUI from './CacheCardUI';
+import CacheCardUI, {
+  CACHE_CARD_HEIGHT,
+  CACHE_CARD_HORIZONTAL_INSET,
+} from './CacheCardUI';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 
 // 調整「Skip + Add + Cache Stack」整組的垂直位移（負值往上、正值往下）
 const CACHE_STACK_GROUP_OFFSET_Y = -50;
@@ -17,6 +27,7 @@ type CacheStackItem = {
   detectedPreview?: string;
   sourceLabel: string;
   importedAtLabel: string;
+  isDefaultExperienceCard?: boolean;
 };
 
 type Props = {
@@ -27,6 +38,9 @@ type Props = {
   onCardSwipeStart: (itemId: string, direction: 'left' | 'right') => void;
   onCardSwipe: (itemId: string, direction: 'left' | 'right') => void;
   onCardImageError: (itemId: string) => void;
+  onDeleteAll: () => void;
+  uiLanguage: UILanguage;
+  deletionLocked?: boolean;
   tourCreateActive?: boolean;
   tourCreateTooltip?: string;
 };
@@ -39,8 +53,11 @@ export default function CacheStackUI({
   onCardSwipeStart,
   onCardSwipe,
   onCardImageError,
+  onDeleteAll,
+  uiLanguage,
+  deletionLocked = false,
   tourCreateActive = false,
-  tourCreateTooltip = 'Swipe right.',
+  tourCreateTooltip,
 }: Props) {
   const topCardDragX = useSharedValue(0);
   const swipeSeqRef = React.useRef(0);
@@ -51,6 +68,7 @@ export default function CacheStackUI({
   } | null>(null);
   const topCard = cards[cards.length - 1];
   const swipingItemIdsRef = React.useRef(new Set<string>());
+  const skipLongPressAtRef = React.useRef(0);
 
   React.useEffect(() => {
     const activeIds = new Set(cards.map((card) => card.id));
@@ -124,6 +142,26 @@ export default function CacheStackUI({
     triggerTopCardSwipe('right');
   }, [triggerActionTapHaptic, triggerTopCardSwipe]);
 
+  const handleSkipPress = React.useCallback(() => {
+    if (deletionLocked) return;
+    if (Date.now() - skipLongPressAtRef.current < 1200) {
+      return;
+    }
+    triggerActionTapHaptic('left');
+    triggerTopCardSwipe('left');
+  }, [
+    deletionLocked,
+    triggerActionTapHaptic,
+    triggerTopCardSwipe,
+  ]);
+
+  const handleSkipLongPress = React.useCallback(() => {
+    if (deletionLocked) return;
+    skipLongPressAtRef.current = Date.now();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    onDeleteAll();
+  }, [deletionLocked, onDeleteAll]);
+
   const createActionButton = (
     <Pressable
       onPress={handleCreatePress}
@@ -136,7 +174,7 @@ export default function CacheStackUI({
             pointerEvents="none"
           />
           <View style={styles.actionContentRow}>
-            <Text style={styles.createActionText}>Create</Text>
+            <Text style={styles.createActionText}>{tUI(uiLanguage, 'cache.create')}</Text>
             <Ionicons name="sparkles" size={12} color="#FFFFFF" />
           </View>
         </Animated.View>
@@ -149,10 +187,9 @@ export default function CacheStackUI({
       {cards.length > 0 ? (
         <View style={styles.floatingActionsRow}>
           <Pressable
-            onPress={() => {
-              triggerActionTapHaptic('left');
-              triggerTopCardSwipe('left');
-            }}
+            onPress={handleSkipPress}
+            onLongPress={handleSkipLongPress}
+            delayLongPress={600}
             style={styles.actionPressTarget}
           >
             <Animated.View style={styles.actionShell}>
@@ -160,27 +197,20 @@ export default function CacheStackUI({
                 <Animated.View style={[StyleSheet.absoluteFill, styles.actionTintLayer, skipTintStyle]} pointerEvents="none" />
                 <View style={styles.actionContentRow}>
                   <Ionicons name="close" size={14} color="#FFFFFF" />
-                  <Text style={styles.skipActionText}>Skip</Text>
+                  <Text style={styles.skipActionText}>{tUI(uiLanguage, 'cache.skip')}</Text>
                 </View>
               </Animated.View>
             </Animated.View>
           </Pressable>
-          <TutorialSpotlight
-            active={tourCreateActive}
-            tooltip={tourCreateTooltip}
-            onSpotlightPress={handleCreatePress}
-          >
-            {createActionButton}
-          </TutorialSpotlight>
+          {createActionButton}
         </View>
       ) : null}
       {cards.map((item, index) => {
         const entranceOrder = enteringCardIds.indexOf(item.id);
         const shouldAnimateEntrance = entranceOrder >= 0;
-
-        return (
+        const isTopCard = index === cards.length - 1;
+        const cardNode = (
           <CacheCardUI
-            key={item.id}
             itemId={item.id}
             imageUri={item.imageUri}
             text={item.text}
@@ -188,7 +218,7 @@ export default function CacheStackUI({
             sourceLabel={item.sourceLabel}
             importedAtLabel={item.importedAtLabel}
             index={index}
-            isTopCard={index === cards.length - 1}
+            isTopCard={isTopCard}
             topCardDragX={topCardDragX}
             swipeTrigger={swipeTrigger}
             onImageError={onCardImageError}
@@ -198,7 +228,21 @@ export default function CacheStackUI({
             animationSeed={animationSeed}
             shouldAnimateEntrance={shouldAnimateEntrance}
             entranceOrder={entranceOrder}
+            showSwipeTugHint={Boolean(item.isDefaultExperienceCard && isTopCard)}
+            deletionLocked={deletionLocked}
           />
+        );
+
+        return (
+          <TutorialSpotlight
+            key={`cache-card-${item.id}`}
+            active={tourCreateActive && isTopCard}
+            tooltip={tourCreateTooltip || tUI(uiLanguage, 'cache.tourSwipeRight')}
+            style={styles.cardSlot}
+            onSpotlightPress={handleCreatePress}
+          >
+            {cardNode}
+          </TutorialSpotlight>
         );
       })}
     </View>
@@ -211,6 +255,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ translateY: 40 + CACHE_STACK_GROUP_OFFSET_Y }],
+  },
+  cardSlot: {
+    position: 'absolute',
+    top: '50%',
+    left: CACHE_CARD_HORIZONTAL_INSET,
+    right: CACHE_CARD_HORIZONTAL_INSET,
+    height: CACHE_CARD_HEIGHT,
+    marginTop: -CACHE_CARD_HEIGHT / 2,
   },
   floatingActionsRow: {
     position: 'absolute',

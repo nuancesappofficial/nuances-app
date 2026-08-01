@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image,
   Modal,
@@ -22,7 +23,10 @@ import {
   Vibration,
   Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,12 +44,23 @@ import type CachedItem from '@database/models/CachedItem';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import {
   assessPronunciationCloud,
+  detectPronunciationLocale,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import {
+  playDefaultExperiencePronunciation,
+  stopDefaultExperiencePronunciation,
+} from '@services/tts/defaultExperienceSpeech';
+import {
+  getIpaPhonemeAudioTarget,
+  loadStandardIpaPhonemes,
+  speakIpaPhoneme,
+} from '@services/pronunciation/ipaPhonemes';
 import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
-import { getCurrentAuthUserId } from '@services/auth/userIdentity';
+import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { analytics } from '@services/analytics';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
@@ -53,7 +68,6 @@ import CardDetailHeaderActionsUI from '../../../components/UI/DeckScreenUI/CardD
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
 import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
-import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import { useCardDetailPlayback } from './hooks/useCardDetailPlayback';
 import { useCardDetailPronunciation } from './hooks/useCardDetailPronunciation';
 import { useCardDetailNavigationState } from './hooks/useCardDetailNavigationState';
@@ -73,16 +87,43 @@ import {
   createCustomAlbum,
   loadDeckAlbumPreferences,
   saveDeckAlbumPreferences,
+  subscribeDeckAlbumPreferences,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
-import { loadCardStickyNotes, saveCardStickyNotes } from '../../../features/deck/cardStickyNotes';
-import { loadPronunciationHistory, upsertPronunciationResult } from '../../../features/deck/pronunciationHistory';
+import {
+  loadCardStickyNotes,
+  saveCardStickyNotes,
+} from '../../../features/deck/cardStickyNotes';
+import {
+  loadPronunciationHistory,
+  upsertPronunciationResult,
+} from '../../../features/deck/pronunciationHistory';
+import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
 import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
+import {
+  getInitialUserSettings,
+  loadUserSettings,
+  subscribeUserSettings,
+  type UILanguage,
+} from '@services/settings/userSettings';
+import { queueSavedCardsForCloudPersistence } from '@services/cards/cardCloudPersistence';
+import { tUI } from '../../../i18n/uiLanguage';
+import {
+  resolvePronunciationAudioSource,
+  shouldUseDefaultExperiencePronunciation,
+} from '../../../features/cache/defaultExperiencePronunciation';
 
 type Props = {
   navigation: any;
-  route: { params?: { cardId?: string; cardIds?: string[]; albumName?: string; headerTitle?: string } };
+  route: {
+    params?: {
+      cardId?: string;
+      cardIds?: string[];
+      albumName?: string;
+      headerTitle?: string;
+    };
+  };
 };
 type PronunciationResult = {
   score: number | null;
@@ -133,7 +174,11 @@ function getFloatingHeaderTop(insetTop: number): number {
 
 function isFilePath(text: string | undefined | null): boolean {
   if (!text) return true;
-  return text.startsWith('file://') || text.startsWith('/') || text.startsWith('http');
+  return (
+    text.startsWith('file://') ||
+    text.startsWith('/') ||
+    text.startsWith('http')
+  );
 }
 
 function sanitizePronunciationText(text: string | undefined | null): string {
@@ -144,6 +189,63 @@ function sanitizePronunciationText(text: string | undefined | null): string {
   if (/^(https?:\/\/|www\.)/i.test(trimmed)) return '';
   if (/^[a-z]+:\/\/\S+/i.test(trimmed)) return '';
   return trimmed;
+}
+
+function resolveCardPronunciationSubject(
+  card: Card | null | undefined
+): string {
+  const phrase = sanitizePronunciationText(card?.targetPhrase);
+  const word = sanitizePronunciationText(card?.targetWord);
+  if (phrase && phrase.toLowerCase() !== word.toLowerCase()) return phrase;
+  if (word) return word;
+  if (phrase) return phrase;
+  return sanitizePronunciationText(card?.originalSentence);
+}
+
+function getEnglishOnlyPronunciationMessage(uiLanguage: UILanguage): {
+  title: string;
+  body: string;
+} {
+  if (uiLanguage === 'zh-TW') {
+    return {
+      title: '目前只支援英文發音',
+      body: '這張卡片不是英文學習卡，所以不會送到發音教練。',
+    };
+  }
+  if (uiLanguage === 'zh-CN') {
+    return {
+      title: '目前只支持英文发音',
+      body: '这张卡片不是英文学习卡，所以不会送到发音教练。',
+    };
+  }
+  if (uiLanguage === 'ja') {
+    return {
+      title: '英語の発音のみ対応しています',
+      body: '発音コーチは現在、英語学習カードのみ対応しています。',
+    };
+  }
+  if (uiLanguage === 'ko') {
+    return {
+      title: '영어 발음만 지원됩니다',
+      body: '발음 코치는 현재 영어 학습 카드만 지원합니다.',
+    };
+  }
+  if (uiLanguage === 'es') {
+    return {
+      title: 'Solo se admite la pronunciación en inglés',
+      body: 'El entrenador de pronunciación solo admite tarjetas de aprendizaje de inglés.',
+    };
+  }
+  if (uiLanguage === 'fr') {
+    return {
+      title: 'Seule la prononciation anglaise est prise en charge',
+      body: "Le coach de prononciation prend actuellement en charge uniquement les fiches d'anglais.",
+    };
+  }
+  return {
+    title: 'English pronunciation only',
+    body: 'Pronunciation Coach currently supports English learning cards only.',
+  };
 }
 
 function buildPronunciation(word: string): string {
@@ -198,14 +300,28 @@ function deriveSelectedAlbums(tags: string[]): string[] {
 }
 
 function hasSecondaryAlbumBookmark(albumIds: string[]): boolean {
-  return albumIds.some((id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID);
+  return albumIds.some(
+    (id) => id !== ALL_CARDS_ALBUM_ID && id !== FAVORITES_ALBUM_ID
+  );
 }
 
-function formatCardDate(input: Date | string | undefined | null): string {
+function formatCardDate(
+  input: Date | string | undefined | null,
+  uiLanguage: UILanguage
+): string {
   if (!input) return '';
   const d = new Date(input);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
+  const locale: Record<UILanguage, string> = {
+    en: 'en-US',
+    'zh-TW': 'zh-TW',
+    'zh-CN': 'zh-CN',
+    ja: 'ja-JP',
+    ko: 'ko-KR',
+    es: 'es-ES',
+    fr: 'fr-FR',
+  };
+  return d.toLocaleDateString(locale[uiLanguage], {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -215,7 +331,10 @@ function formatCardDate(input: Date | string | undefined | null): string {
 export default function CardDetailScreen({ navigation, route }: Props) {
   const colorScheme = useColorScheme();
   const isLightMode = colorScheme === 'light';
-  const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const palette = React.useMemo(
+    () => resolveThemeColors(colorScheme),
+    [colorScheme]
+  );
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const floatingHeaderTop = getFloatingHeaderTop(insets.top);
@@ -223,9 +342,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const appTour = useAppTour();
   const cardId = route.params?.cardId;
   const routeCardIds = route.params?.cardIds;
-  const headerTitle = route.params?.headerTitle || route.params?.albumName || 'Deck';
+  const headerTitle =
+    route.params?.headerTitle || route.params?.albumName || 'Deck';
   const [allCards, setAllCards] = React.useState<Card[]>([]);
-  const [cardImageMap, setCardImageMap] = React.useState<Record<string, string>>({});
+  const [cardImageMap, setCardImageMap] = React.useState<
+    Record<string, string>
+  >({});
   const [loading, setLoading] = React.useState(true);
   const {
     currentIndex,
@@ -248,6 +370,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     fullscreenOriginDeltaY,
     fullscreenDragYValueRef,
   } = useCardDetailNavigationState();
+  const [isCardContentExpanded, setIsCardContentExpanded] =
+    React.useState(false);
   const {
     isPlaying,
     setIsPlaying,
@@ -294,20 +418,47 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   } = useCardDetailPronunciation();
 
   const [showAlbumSheet, setShowAlbumSheet] = React.useState(false);
+  const [recoveredIpaByCardId, setRecoveredIpaByCardId] = React.useState<
+    Record<string, string[]>
+  >({});
+  const [ipaLookupCardId, setIpaLookupCardId] = React.useState<string | null>(
+    null
+  );
+  const [ipaLookupErrors, setIpaLookupErrors] = React.useState<
+    Record<string, string>
+  >({});
   const [showStickyNoteModal, setShowStickyNoteModal] = React.useState(false);
-  const [stickyNotesByCardId, setStickyNotesByCardId] = React.useState<Record<string, string>>({});
+  const [stickyNotesByCardId, setStickyNotesByCardId] = React.useState<
+    Record<string, string>
+  >({});
   const [stickyDraft, setStickyDraft] = React.useState('');
-  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
+  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] =
+    React.useState(false);
   const [selectedAlbums, setSelectedAlbums] = React.useState<string[]>([]);
   const [customAlbums, setCustomAlbums] = React.useState<DeckAlbum[]>([]);
-  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<Record<string, string>>({});
-  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<Record<string, string>>({});
-  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<Record<string, string>>({});
-  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<Record<string, string>>({});
+  const [albumNameOverrides, setAlbumNameOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumEmojiOverrides, setAlbumEmojiOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumColorOverrides, setAlbumColorOverrides] = React.useState<
+    Record<string, string>
+  >({});
+  const [albumCoverOverrides, setAlbumCoverOverrides] = React.useState<
+    Record<string, string>
+  >({});
   const [deletedAlbumIds, setDeletedAlbumIds] = React.useState<string[]>([]);
   const [newAlbumName, setNewAlbumName] = React.useState('');
-  const [pronunciationRecordingElapsedMs, setPronunciationRecordingElapsedMs] = React.useState(0);
-  const pronunciationHardCapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    () => getInitialUserSettings().uiLanguage
+  );
+  const [pronunciationRecordingElapsedMs, setPronunciationRecordingElapsedMs] =
+    React.useState(0);
+  const pronunciationHardCapTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const isTourCoachOpenRef = React.useRef(false);
 
   const clearPronunciationHardCapTimer = React.useCallback(() => {
     if (pronunciationHardCapTimerRef.current) {
@@ -315,6 +466,28 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       pronunciationHardCapTimerRef.current = null;
     }
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) setUiLanguage(settings.uiLanguage);
+      })
+      .catch((error) => {
+        console.warn('[CardDetail] load UI language failed:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        setUiLanguage(settings.uiLanguage);
+      }),
+    []
+  );
 
   React.useEffect(() => {
     activeIndexUI.value = currentIndex ?? 0;
@@ -331,21 +504,50 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setDeletedAlbumIds(prefs.deletedAlbumIds);
   }, []);
 
+  React.useEffect(
+    () =>
+      subscribeDeckAlbumPreferences((prefs) => {
+        setCustomAlbums(prefs.customAlbums);
+        setAlbumNameOverrides(prefs.albumNameOverrides);
+        setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
+        setAlbumColorOverrides(prefs.albumColorOverrides);
+        setAlbumCoverOverrides(prefs.albumCoverOverrides);
+        setDeletedAlbumIds(prefs.deletedAlbumIds);
+      }),
+    []
+  );
+
   React.useEffect(() => {
     let sub: { unsubscribe: () => void } | undefined;
     let cancelled = false;
 
     const loadCards = async () => {
       try {
-        const userId = await getCurrentAuthUserId();
+        const userId = await getCurrentSessionUserId();
         if (!userId) {
           if (!cancelled) setAllCards([]);
           return;
         }
         const queryCards = database
           .get<Card>('cards')
-          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
-        const data = await queryCards.fetch();
+          .query(
+            Q.where('user_id', userId),
+            Q.where('deleted_at', null),
+            Q.sortBy('created_at', Q.desc)
+          );
+        let queryTimer: ReturnType<typeof setTimeout> | null = null;
+        const queryTimeout = new Promise<never>((_, reject) => {
+          queryTimer = setTimeout(
+            () => reject(new Error('Local card detail query timed out')),
+            8000
+          );
+        });
+        const data = await Promise.race([
+          queryCards.fetch(),
+          queryTimeout,
+        ]).finally(() => {
+          if (queryTimer) clearTimeout(queryTimer);
+        });
         if (cancelled) return;
         setAllCards(data);
         sub = queryCards.observe().subscribe((nextData) => {
@@ -402,7 +604,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       .filter((item): item is Card => item != null && allowed.has(item.id));
   }, [allCards, routeCardIds]);
 
-  const card = currentIndex === null ? null : scopedCards[currentIndex] ?? null;
+  const card =
+    currentIndex === null ? null : (scopedCards[currentIndex] ?? null);
   const runPronunciationRevealSequence = React.useCallback(async () => {
     const runId = ++pronunciationRevealRunIdRef.current;
     const stillCurrent = () => pronunciationRevealRunIdRef.current === runId;
@@ -451,7 +654,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setPronunciationRevealStep(3);
   }, [card?.id, pronunciationResultsByCardId]);
 
-  const resolvedImageUri = card ? cardImageMap[card.id] ?? null : null;
+  const resolvedImageUri = card ? (cardImageMap[card.id] ?? null) : null;
   const markCenteredCardSeen = React.useCallback(
     (index: number) => {
       const targetCard = scopedCards[index];
@@ -472,7 +675,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
     const targetIndex = !cardId
       ? 0
-      : Math.max(0, scopedCards.findIndex((item) => item.id === cardId));
+      : Math.max(
+          0,
+          scopedCards.findIndex((item) => item.id === cardId)
+        );
 
     initialScrollDone.current = true;
     didMountIndexRef.current = true;
@@ -497,7 +703,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
     const targetIndex = !cardId
       ? 0
-      : Math.max(0, scopedCards.findIndex((item) => item.id === cardId));
+      : Math.max(
+          0,
+          scopedCards.findIndex((item) => item.id === cardId)
+        );
     activeIndexUI.value = targetIndex;
     setCurrentIndex(targetIndex);
     setDisplayIndex(targetIndex);
@@ -508,7 +717,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     if (!scopedCards.length) return () => undefined;
 
     const resolveImages = async () => {
-      const isLocalPath = (uri: string): boolean => uri.startsWith('file://') || uri.startsWith('/');
+      const isLocalPath = (uri: string): boolean =>
+        uri.startsWith('file://') || uri.startsWith('/');
       const hasExistingLocalFile = async (uri: string): Promise<boolean> => {
         if (!isLocalPath(uri)) return true;
         try {
@@ -531,8 +741,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       await Promise.all(
         cachedItemIds.map(async (id) => {
           try {
-            const cachedItem = await database.get<CachedItem>('cached_items').find(id);
-            cachedItemById[id] = cachedItem;
+            const cachedItem = await database
+              .get<CachedItem>('cached_items')
+              .find(id);
+            const activeOwnerId = scopedCards[0]?.userId;
+            if (activeOwnerId && cachedItem.userId === activeOwnerId) {
+              cachedItemById[id] = cachedItem;
+            }
           } catch {
             // 卡片可能已與快取項目解關聯，忽略即可
           }
@@ -541,7 +756,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
       const nextEntries = await Promise.all(
         scopedCards.map(async (item) => {
-          const cachedItem = item.cachedItemId ? cachedItemById[item.cachedItemId] : undefined;
+          const cachedItem = item.cachedItemId
+            ? cachedItemById[item.cachedItemId]
+            : undefined;
           const candidates = [
             cachedItem?.mediaUri || null,
             item.imageUrl || null,
@@ -632,20 +849,30 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         albumCoverOverrides,
         deletedAlbumIds,
       }).filter((album) => album.id !== 'all'),
-    [allCards, cardImageMap, customAlbums, albumNameOverrides, albumEmojiOverrides, albumColorOverrides, albumCoverOverrides, deletedAlbumIds]
+    [
+      allCards,
+      cardImageMap,
+      customAlbums,
+      albumNameOverrides,
+      albumEmojiOverrides,
+      albumColorOverrides,
+      albumCoverOverrides,
+      deletedAlbumIds,
+    ]
   );
   const isFavorite = selectedAlbums.includes(FAVORITES_ALBUM_ID);
 
-  const displayWord = card?.targetWord || card?.targetPhrase || '-';
+  const displayWord = resolveCardPronunciationSubject(card) || '-';
   const pronunciationText = React.useMemo(() => {
-    return (
-      sanitizePronunciationText(card?.targetWord) ||
-      sanitizePronunciationText(card?.targetPhrase) ||
-      sanitizePronunciationText(card?.originalSentence) ||
-      ''
-    );
+    return resolveCardPronunciationSubject(card);
   }, [card?.originalSentence, card?.targetPhrase, card?.targetWord]);
   const pronunciation = buildPronunciation(displayWord);
+  const usesDefaultExperiencePronunciation =
+    shouldUseDefaultExperiencePronunciation({
+      sourceApp: card?.sourceApp,
+      targetWord: card?.targetWord,
+      originalSentence: card?.originalSentence,
+    });
 
   const stopUserRecordingPreview = React.useCallback(async () => {
     const sound = userRecordingSoundRef.current;
@@ -666,6 +893,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const stopActiveAudio = React.useCallback(async () => {
     setIsPlaying(false);
     await stopUserRecordingPreview();
+    await stopDefaultExperiencePronunciation();
     await stopAzureTtsPlayback();
     await Speech.stop();
   }, [stopUserRecordingPreview]);
@@ -688,7 +916,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const markEnd = () => {
         if (!didStartDownload) return;
         didStartDownload = false;
-        setPronunciationDownloadTarget((current) => (current === target ? null : current));
+        setPronunciationDownloadTarget((current) =>
+          current === target ? null : current
+        );
         handleTtsDownloadEnd();
       };
 
@@ -720,6 +950,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
     setIsPlaying(true);
     Vibration.vibrate(8);
+    if (usesDefaultExperiencePronunciation) {
+      void playDefaultExperiencePronunciation({
+        onDone: () => setIsPlaying(false),
+        onError: () => setIsPlaying(false),
+      });
+      return;
+    }
     void speakEnglishNaturally(pronunciationText, {
       onDownloadStart: handleTtsDownloadStart,
       onDownloadEnd: handleTtsDownloadEnd,
@@ -752,7 +989,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const targetCardId = card.id;
       if (isAnalyzing) return;
       if (!pronunciationText.trim()) {
-        Alert.alert('無可評分句子', '請先選擇有可朗讀句子的卡片再進行發音分析。');
+        Alert.alert(
+          '無可評分句子',
+          '請先選擇有可朗讀句子的卡片再進行發音分析。'
+        );
         return;
       }
       if (!card.userId) {
@@ -806,7 +1046,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }
       }
 
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
 
       await stopActiveAudio();
 
@@ -814,14 +1057,24 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       waveformPointerRef.current = 0;
       waveformValues.forEach((v) => v.setValue(8));
 
-      await recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any);
+      await recording.prepareToRecordAsync(
+        PRONUNCIATION_RECORDING_OPTIONS as any
+      );
       recording.setProgressUpdateInterval(120);
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status?.isRecording) return;
-        if (typeof status.durationMillis === 'number' && Number.isFinite(status.durationMillis)) {
-          setPronunciationRecordingElapsedMs(Math.min(status.durationMillis, MAX_PRONUNCIATION_RECORDING_MS));
+        if (
+          typeof status.durationMillis === 'number' &&
+          Number.isFinite(status.durationMillis)
+        ) {
+          setPronunciationRecordingElapsedMs(
+            Math.min(status.durationMillis, MAX_PRONUNCIATION_RECORDING_MS)
+          );
         }
-        if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
+        if (
+          typeof status.metering === 'number' &&
+          Number.isFinite(status.metering)
+        ) {
           updateWaveByMetering(status.metering);
         }
         if (
@@ -841,7 +1094,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }, MAX_PRONUNCIATION_RECORDING_MS);
       Vibration.vibrate(10);
     } catch (error) {
-      console.error('[CardDetail][Pronunciation] start recording failed:', error);
+      console.error(
+        '[CardDetail][Pronunciation] start recording failed:',
+        error
+      );
       setIsRecording(false);
       Alert.alert('錄音失敗', '請再試一次。');
     } finally {
@@ -860,9 +1116,11 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
 
     try {
+      analytics.track('pronunciation_attempted', { context: 'card_detail' });
       const statusBeforeStop = await recording.getStatusAsync();
       const durationMillis =
-        statusBeforeStop.isLoaded && typeof statusBeforeStop.durationMillis === 'number'
+        statusBeforeStop.isLoaded &&
+        typeof statusBeforeStop.durationMillis === 'number'
           ? statusBeforeStop.durationMillis
           : 0;
 
@@ -876,13 +1134,19 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const currentCardId = pronunciationTargetCardIdRef.current;
       lastRecordingUriRef.current = uri || null;
       if (currentCardId && uri) {
-        setLastRecordingUriByCardId((prev) => ({ ...prev, [currentCardId]: uri }));
+        setLastRecordingUriByCardId((prev) => ({
+          ...prev,
+          [currentCardId]: uri,
+        }));
       }
 
       if (!uri) {
         throw new Error('錄音檔遺失，請重新錄音');
       }
-      if (durationMillis > 0 && durationMillis < MIN_PRONUNCIATION_RECORDING_MS) {
+      if (
+        durationMillis > 0 &&
+        durationMillis < MIN_PRONUNCIATION_RECORDING_MS
+      ) {
         throw new Error('錄音太短，請至少清楚唸出一個完整單字再送出');
       }
       if (Platform.OS === 'ios' && !uri.toLowerCase().endsWith('.wav')) {
@@ -895,7 +1159,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const result = await assessPronunciationCloud({
         referenceText: pronunciationText,
         audioUri: uri,
-        locale: 'en-US',
+        locale: detectPronunciationLocale(pronunciationText),
       });
 
       setPronunciationScore(result.score);
@@ -917,14 +1181,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           ...prev,
           [analyzedCardId]: nextResult,
         }));
-        void upsertPronunciationResult(analyzedCardId, nextResult).catch((storageError) => {
-          console.warn('[CardDetail][Pronunciation] save history failed:', storageError);
-        });
+        void upsertPronunciationResult(analyzedCardId, nextResult).catch(
+          (storageError) => {
+            console.warn(
+              '[CardDetail][Pronunciation] save history failed:',
+              storageError
+            );
+          }
+        );
       }
       Vibration.vibrate(20);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
-      const message = error instanceof Error ? error.message : '無法完成發音分析，請稍後再試。';
+      const message =
+        error instanceof Error
+          ? error.message
+          : '無法完成發音分析，請稍後再試。';
       setPronunciationAnalysisError(message);
       setShowFeedback(false);
       setPronunciationRevealStep(3);
@@ -964,7 +1236,39 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
     }
     setShowPronunciationModal(false);
-  }, []);
+    if (isTourCoachOpenRef.current) {
+      isTourCoachOpenRef.current = false;
+      setTimeout(() => {
+        navigation.goBack();
+        setTimeout(() => {
+          appTour.goToStep('STEP_10_QUIZ_SAMPLE');
+        }, 420);
+      }, 420);
+    }
+  }, [appTour, navigation]);
+
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') return;
+      clearPronunciationHardCapTimer();
+      pronunciationRevealRunIdRef.current += 1;
+      const activeRecording = recordingRef.current;
+      recordingRef.current = null;
+      recordingTransitionRef.current = false;
+      pronunciationTargetCardIdRef.current = null;
+      setIsRecording(false);
+      setPronunciationRecordingElapsedMs(0);
+      if (!activeRecording) return;
+      activeRecording.setOnRecordingStatusUpdate(null);
+      void activeRecording.stopAndUnloadAsync().catch((error: unknown) => {
+        console.warn(
+          '[CardDetail][Pronunciation] background recorder cleanup failed:',
+          error
+        );
+      });
+    });
+    return () => subscription.remove();
+  }, [clearPronunciationHardCapTimer]);
 
   const playUserRecordingPreview = async () => {
     const uri = card?.id ? lastRecordingUriByCardId[card.id] || null : null;
@@ -987,7 +1291,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }
       });
     } catch (error) {
-      console.error('[CardDetail][Pronunciation] preview playback failed:', error);
+      console.error(
+        '[CardDetail][Pronunciation] preview playback failed:',
+        error
+      );
       Alert.alert('重播失敗', '無法播放這段錄音，請重新錄音再試。');
     }
   };
@@ -1016,6 +1323,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         delete next[card.id];
         return next;
       });
+      setRecoveredIpaByCardId((prev) => {
+        const next = { ...prev };
+        delete next[card.id];
+        return next;
+      });
+      setIpaLookupErrors((prev) => {
+        const next = { ...prev };
+        delete next[card.id];
+        return next;
+      });
     }
     lastRecordingUriRef.current = null;
     waveformValues.forEach((v) => v.setValue(8));
@@ -1024,7 +1341,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const toggleAlbum = (albumId: string) => {
     setSelectedAlbums((prev) =>
-      prev.includes(albumId) ? prev.filter((id) => id !== albumId) : [...prev, albumId]
+      prev.includes(albumId)
+        ? prev.filter((id) => id !== albumId)
+        : [...prev, albumId]
     );
   };
 
@@ -1046,7 +1365,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     try {
       await saveDeckAlbumPreferences(nextPrefs);
       setCustomAlbums(nextCustomAlbums);
-      setSelectedAlbums((prev) => (prev.includes(newAlbum.id) ? prev : [...prev, newAlbum.id]));
+      setSelectedAlbums((prev) =>
+        prev.includes(newAlbum.id) ? prev : [...prev, newAlbum.id]
+      );
       setIsCreateAlbumModalVisible(false);
       setNewAlbumName('');
     } catch (error) {
@@ -1057,26 +1378,32 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const saveAlbumSelection = async () => {
     if (!card) return;
+    setShowAlbumSheet(false);
     try {
       const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
       const reservedCategoryTags = new Set(Object.values(albumIdToCategoryTag));
       const preserved = currentTags.filter(
-        (tag) => !tag.startsWith(ALBUM_TAG_PREFIX) && !reservedCategoryTags.has(tag)
+        (tag) =>
+          !tag.startsWith(ALBUM_TAG_PREFIX) && !reservedCategoryTags.has(tag)
       );
 
       const albumTags = selectedAlbums.map((id) => `${ALBUM_TAG_PREFIX}${id}`);
       const categoryTags = selectedAlbums
         .map((id) => albumIdToCategoryTag[id])
         .filter((tag): tag is string => Boolean(tag));
-      const nextTags = Array.from(new Set([...preserved, ...albumTags, ...categoryTags]));
+      const nextTags = Array.from(
+        new Set([...preserved, ...albumTags, ...categoryTags])
+      );
 
       await database.write(async () => {
         await card.update((record) => {
           record.tags = nextTags;
         });
       });
-
-      setShowAlbumSheet(false);
+      queueSavedCardsForCloudPersistence({
+        userId: card.userId,
+        cardIds: [card.id],
+      });
     } catch (error) {
       console.error('[CardDetail] save albums failed:', error);
       Alert.alert('儲存失敗', '更新資料夾關聯時發生問題，請再試一次。');
@@ -1097,6 +1424,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         await card.update((record) => {
           record.tags = nextTags;
         });
+      });
+      queueSavedCardsForCloudPersistence({
+        userId: card.userId,
+        cardIds: [card.id],
       });
 
       setSelectedAlbums((prev) =>
@@ -1141,8 +1472,21 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [showPronunciationModal, pronunciationModalAnim]);
 
   const openPronunciationModal = React.useCallback(() => {
+    if (card && !isEnglishLearningCard(card)) {
+      const message = getEnglishOnlyPronunciationMessage(uiLanguage);
+      Alert.alert(message.title, message.body);
+      return;
+    }
+    if (appTour.step === 'STEP_9_COACH_SAMPLE') {
+      isTourCoachOpenRef.current = true;
+      appTour.resetTourState();
+      setTimeout(() => {
+        setShowPronunciationModal(true);
+      }, 420);
+      return;
+    }
     setShowPronunciationModal(true);
-  }, []);
+  }, [appTour, card, uiLanguage]);
 
   const saveStickyNote = React.useCallback(async () => {
     if (!card) return;
@@ -1156,7 +1500,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setStickyNotesByCardId(nextMap);
     setShowStickyNoteModal(false);
     try {
-      await saveCardStickyNotes(nextMap);
+      await saveCardStickyNotes(nextMap, card.userId);
     } catch (error) {
       console.warn('[CardDetail] save sticky note failed:', error);
     }
@@ -1164,7 +1508,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const navigateToIndex = React.useCallback(
     (targetIndex: number, animated = true) => {
-      const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
+      const safeIndex = Math.max(
+        0,
+        Math.min(targetIndex, scopedCards.length - 1)
+      );
       if (!scopedCards[safeIndex]) return;
 
       void stopActiveAudio();
@@ -1176,40 +1523,52 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     },
     [scopedCards, stopActiveAudio]
   );
-  const closeFullscreenViewer = React.useCallback((_mode: 'tap' | 'swipe' = 'tap') => {
-    Animated.parallel([
-      Animated.timing(fullscreenBackdropOpacity, {
-        toValue: 0,
-        duration: 230,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(fullscreenDragY, {
-        toValue: 0,
-        duration: 230,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(fullscreenEntryProgress, {
-        toValue: 0,
-        duration: 230,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      fullscreenDragYValueRef.current = 0;
-      void Haptics.selectionAsync();
-      setIsFullscreenViewerVisible(false);
-      if (fullscreenCardIndex !== null) {
-        requestAnimationFrame(() => {
-          navigateToIndex(fullscreenCardIndex, false);
-        });
-      }
-    });
-  }, [fullscreenBackdropOpacity, fullscreenCardIndex, fullscreenDragY, fullscreenEntryProgress, navigateToIndex]);
+  const closeFullscreenViewer = React.useCallback(
+    (_mode: 'tap' | 'swipe' = 'tap') => {
+      Animated.parallel([
+        Animated.timing(fullscreenBackdropOpacity, {
+          toValue: 0,
+          duration: 230,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fullscreenDragY, {
+          toValue: 0,
+          duration: 230,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fullscreenEntryProgress, {
+          toValue: 0,
+          duration: 230,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        fullscreenDragYValueRef.current = 0;
+        void Haptics.selectionAsync();
+        setIsFullscreenViewerVisible(false);
+        if (fullscreenCardIndex !== null) {
+          requestAnimationFrame(() => {
+            navigateToIndex(fullscreenCardIndex, false);
+          });
+        }
+      });
+    },
+    [
+      fullscreenBackdropOpacity,
+      fullscreenCardIndex,
+      fullscreenDragY,
+      fullscreenEntryProgress,
+      navigateToIndex,
+    ]
+  );
   const handleOpenFullscreen = React.useCallback(
     (targetIndex: number, origin?: { x: number; y: number }) => {
-      const safeIndex = Math.max(0, Math.min(targetIndex, scopedCards.length - 1));
+      const safeIndex = Math.max(
+        0,
+        Math.min(targetIndex, scopedCards.length - 1)
+      );
       if (!scopedCards[safeIndex]) return;
       setFullscreenCardIndex(safeIndex);
       fullscreenDragYValueRef.current = 0;
@@ -1237,12 +1596,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          Math.abs(gestureState.dy) > Math.abs(gestureState.dx) && Math.abs(gestureState.dy) > 4,
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx) &&
+          Math.abs(gestureState.dy) > 4,
         onPanResponderMove: (_, gestureState) => {
           fullscreenDragY.setValue(gestureState.dy);
           fullscreenDragYValueRef.current = gestureState.dy;
           const dragFactor = Math.min(1, Math.abs(gestureState.dy) / 320);
-          fullscreenBackdropOpacity.setValue(Math.max(0.3, 1 - dragFactor * 0.7));
+          fullscreenBackdropOpacity.setValue(
+            Math.max(0.3, 1 - dragFactor * 0.7)
+          );
         },
         onPanResponderRelease: (_, gestureState) => {
           if (Math.abs(gestureState.dy) > 120) {
@@ -1296,14 +1658,54 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }, [fullscreenCardIndex, fullscreenEntryProgress, isFullscreenViewerVisible]);
 
   const phonemeChips = phonemeFeedback;
-  const fullscreenCard = fullscreenCardIndex === null ? null : scopedCards[fullscreenCardIndex] ?? null;
-  const fullscreenImageUri = fullscreenCard ? cardImageMap[fullscreenCard.id] ?? null : null;
+  const recoveredIpaPhonemes = card?.id
+    ? recoveredIpaByCardId[card.id] || []
+    : [];
+  const fullscreenCard =
+    fullscreenCardIndex === null
+      ? null
+      : (scopedCards[fullscreenCardIndex] ?? null);
+  const fullscreenImageUri = fullscreenCard
+    ? (cardImageMap[fullscreenCard.id] ?? null)
+    : null;
   const handlePlayPronunciationWord = React.useCallback(
     (word: string) => {
       const text = (word || '').trim();
       if (!text) return;
-      const downloadHandlers = createPronunciationDownloadHandlers(`word:${text}`);
+      const downloadHandlers = createPronunciationDownloadHandlers(
+        `word:${text}`
+      );
+      setIsPlaying(true);
+      if (usesDefaultExperiencePronunciation) {
+        void playDefaultExperiencePronunciation({
+          onDone: () => setIsPlaying(false),
+          onError: () => setIsPlaying(false),
+        });
+        return;
+      }
       void speakEnglishNaturally(text, {
+        onDownloadStart: downloadHandlers.onDownloadStart,
+        onDownloadEnd: downloadHandlers.onDownloadEnd,
+        onDone: () => setIsPlaying(false),
+        onStopped: () => setIsPlaying(false),
+        onError: () => {
+          downloadHandlers.onError();
+          setIsPlaying(false);
+        },
+      });
+    },
+    [
+      createPronunciationDownloadHandlers,
+      setIsPlaying,
+      usesDefaultExperiencePronunciation,
+    ]
+  );
+  const handlePlayPronunciationIpaPhoneme = React.useCallback(
+    (phoneme: string) => {
+      const target = getIpaPhonemeAudioTarget(phoneme);
+      if (!target) return;
+      const downloadHandlers = createPronunciationDownloadHandlers(target);
+      void speakIpaPhoneme(phoneme, {
         onDownloadStart: downloadHandlers.onDownloadStart,
         onDownloadEnd: downloadHandlers.onDownloadEnd,
         onError: downloadHandlers.onError,
@@ -1311,76 +1713,66 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     },
     [createPronunciationDownloadHandlers]
   );
-  const handlePlayPronunciationSyllable = React.useCallback((syllable: string) => {
-    const raw = (syllable || '').trim();
-    if (!raw) return;
-    const cleaned = raw.replace(/^\/+|\/+$/g, '').trim();
-    const phonemeApproxMap: Array<[string, string]> = [
-      // Common IPA/phoneme fallbacks for better TTS output.
-      ['tʃ', 'ch'],
-      ['dʒ', 'j'],
-      ['eɪ', 'ay'],
-      ['oʊ', 'oh'],
-      ['əʊ', 'oh'],
-      ['aɪ', 'eye'],
-      ['aʊ', 'ow'],
-      ['ɔɪ', 'oy'],
-      ['iː', 'ee'],
-      ['uː', 'oo'],
-      ['ɜː', 'er'],
-      ['ɔː', 'aw'],
-      ['ɑː', 'ah'],
-      ['ə', 'uh'],
-      ['ɚ', 'er'],
-      ['ɝ', 'er'],
-      ['æ', 'a'],
-      ['ɑ', 'ah'],
-      ['ɔ', 'aw'],
-      ['ʌ', 'uh'],
-      ['ɪ', 'ih'],
-      ['i', 'ee'],
-      ['u', 'oo'],
-      ['ʊ', 'oo'],
-      ['ɛ', 'eh'],
-      ['ŋ', 'ng'],
-      ['θ', 'th'],
-      ['ð', 'th'],
-      ['ʃ', 'sh'],
-      ['ʒ', 'zh'],
-      ['ˈ', ''],
-      ['ˌ', ''],
-      ['ː', ''],
-    ];
-    const text = phonemeApproxMap
-      .reduce((value, [ipa, approx]) => value.split(ipa).join(approx), cleaned)
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) return;
-    const downloadHandlers = createPronunciationDownloadHandlers(`syllable:${raw}`);
-    void speakEnglishNaturally(text, {
-      onDownloadStart: downloadHandlers.onDownloadStart,
-      onDownloadEnd: downloadHandlers.onDownloadEnd,
-      onError: downloadHandlers.onError,
+  const handleReloadPronunciationIpa = React.useCallback(async () => {
+    if (!card?.id || !pronunciationText) return;
+    const cardId = card.id;
+    setIpaLookupCardId(cardId);
+    setIpaLookupErrors((prev) => {
+      const next = { ...prev };
+      delete next[cardId];
+      return next;
     });
-  }, [createPronunciationDownloadHandlers]);
+    try {
+      const phonemes = await loadStandardIpaPhonemes(
+        pronunciationText,
+        card.phoneticTranscription
+      );
+      if (phonemes.length === 0) {
+        throw new Error('IPA unavailable');
+      }
+      setRecoveredIpaByCardId((prev) => ({
+        ...prev,
+        [cardId]: phonemes,
+      }));
+    } catch {
+      setIpaLookupErrors((prev) => ({
+        ...prev,
+        [cardId]: 'lookup_failed',
+      }));
+    } finally {
+      setIpaLookupCardId((current) => (current === cardId ? null : current));
+    }
+  }, [card?.id, card?.phoneticTranscription, pronunciationText]);
   const triggerHapticFeedback = React.useCallback(() => {
     if (!didMountIndexRef.current) return;
     void Haptics.selectionAsync();
   }, []);
 
-  const handleMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
-    if (nextIndex !== currentIndex) {
-      void stopActiveAudio();
-      setCurrentIndex(nextIndex);
-      setDisplayIndex(nextIndex);
-    }
-    const targetCard = scopedCards[nextIndex];
-    markCenteredCardSeen(nextIndex);
-    if (targetCard && route.params?.cardId !== targetCard.id) {
-      navigation.setParams({ cardId: targetCard.id });
-    }
-  }, [currentIndex, markCenteredCardSeen, navigation, route.params?.cardId, scopedCards, stopActiveAudio]);
+  const handleMomentumEnd = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextIndex = Math.round(
+        event.nativeEvent.contentOffset.x / SNAP_INTERVAL
+      );
+      if (nextIndex !== currentIndex) {
+        void stopActiveAudio();
+        setCurrentIndex(nextIndex);
+        setDisplayIndex(nextIndex);
+      }
+      const targetCard = scopedCards[nextIndex];
+      markCenteredCardSeen(nextIndex);
+      if (targetCard && route.params?.cardId !== targetCard.id) {
+        navigation.setParams({ cardId: targetCard.id });
+      }
+    },
+    [
+      currentIndex,
+      markCenteredCardSeen,
+      navigation,
+      route.params?.cardId,
+      scopedCards,
+      stopActiveAudio,
+    ]
+  );
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -1404,6 +1796,20 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         return;
       }
       setIsPlaying(true);
+      const sourceCard = scopedCards[index];
+      if (
+        resolvePronunciationAudioSource({
+          targetWord: sourceCard?.targetWord || itemPronunciationText,
+          sourceApp: sourceCard?.sourceApp,
+          originalSentence: sourceCard?.originalSentence,
+        }) === 'bundled-default-experience'
+      ) {
+        void playDefaultExperiencePronunciation({
+          onDone: () => setIsPlaying(false),
+          onError: () => setIsPlaying(false),
+        });
+        return;
+      }
       void speakEnglishNaturally(itemPronunciationText, {
         onDownloadStart: handleTtsDownloadStart,
         onDownloadEnd: handleTtsDownloadEnd,
@@ -1415,7 +1821,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         },
       });
     },
-    [handleTtsDownloadEnd, handleTtsDownloadStart, navigateToIndex]
+    [
+      handleTtsDownloadEnd,
+      handleTtsDownloadStart,
+      navigateToIndex,
+      scopedCards,
+    ]
   );
 
   const handleToggleRecordCard = React.useCallback(
@@ -1430,52 +1841,22 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   );
 
   const openCreateAlbumModal = React.useCallback(() => {
-    setShowAlbumSheet(false);
-    requestAnimationFrame(() => {
-      setIsCreateAlbumModalVisible(true);
-    });
+    setIsCreateAlbumModalVisible(true);
   }, []);
-
-  const addTourSampleToWorkAlbum = React.useCallback(async () => {
-    if (!card) return;
-    try {
-      const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
-      const workAlbumTag = `${ALBUM_TAG_PREFIX}work`;
-      const nextTags = Array.from(new Set([...currentTags, workAlbumTag, 'work']));
-      await database.write(async () => {
-        await card.update((record) => {
-          record.tags = nextTags;
-        });
-      });
-      setSelectedAlbums((prev) => (prev.includes('work') ? prev : [...prev, 'work']));
-      appTour.nextStep();
-    } catch (error) {
-      console.error('[AppTour] add sample card to work album failed:', error);
-      Alert.alert('導覽失敗', '無法把這張卡片放進 Work album，請再試一次。');
-    }
-  }, [appTour, card]);
 
   const handleCardTourTargetPress = React.useCallback(() => {
     if (appTour.step === 'STEP_8_FLICK_CARD') {
       appTour.nextStep();
       return;
     }
-    if (appTour.step === 'STEP_8_ALBUM_SAMPLE') {
-      void addTourSampleToWorkAlbum();
+    if (appTour.step === 'STEP_9_COACH_SAMPLE') {
       return;
     }
-    if (appTour.step === 'STEP_9_COACH_SAMPLE') {
-      appTour.nextStep();
-      if (typeof navigation?.popToTop === 'function' && navigation.canGoBack?.()) {
-        navigation.popToTop();
-      } else if (navigation.canGoBack?.()) {
-        navigation.goBack();
-      }
-      requestAnimationFrame(() => {
-        tabSwipeContext?.goToTab(0, { animation: 'slide' });
-      });
-    }
-  }, [addTourSampleToWorkAlbum, appTour, navigation, tabSwipeContext]);
+  }, [appTour]);
+
+  React.useEffect(() => {
+    setIsCardContentExpanded(false);
+  }, [currentIndex]);
 
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => {
@@ -1483,11 +1864,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const isThisCardFavorite =
         item.id === card?.id
           ? isFavorite
-          : deriveSelectedAlbums(parseTags(item.tags)).includes(FAVORITES_ALBUM_ID);
+          : deriveSelectedAlbums(parseTags(item.tags)).includes(
+              FAVORITES_ALBUM_ID
+            );
       const isThisCardBookmarked =
         item.id === card?.id
           ? hasSecondaryAlbumBookmark(selectedAlbums)
-          : hasSecondaryAlbumBookmark(deriveSelectedAlbums(parseTags(item.tags)));
+          : hasSecondaryAlbumBookmark(
+              deriveSelectedAlbums(parseTags(item.tags))
+            );
 
       return (
         <CardDetailCarouselCardUI
@@ -1514,7 +1899,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           snapInterval={SNAP_INTERVAL}
           sidePeekShift={SIDE_PEEK_SHIFT}
           sanitizePronunciationText={sanitizePronunciationText}
-          formatCardDate={formatCardDate}
+          formatCardDate={(input) => formatCardDate(input, uiLanguage)}
           styles={styles}
           // 新增的屬性
           isFavorite={isThisCardFavorite}
@@ -1524,9 +1909,15 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onOpenStickyNote={openStickyNoteModal}
           stickyNoteText={stickyNotesByCardId[item.id] || ''}
           onOpenPronunciationModal={openPronunciationModal}
+          uiLanguage={uiLanguage}
           tourStep={appTour.step}
           onTourTargetPress={handleCardTourTargetPress}
           isLightMode={isLightMode}
+          onContentExpandedChange={(expanded) => {
+            if (index === currentIndex) {
+              setIsCardContentExpanded(expanded);
+            }
+          }}
         />
       );
     },
@@ -1544,6 +1935,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       handleOpenFullscreen,
       handleToggleRecordCard,
       hasRecorded,
+      uiLanguage,
       isAnalyzing,
       isPlaying,
       isRecording,
@@ -1556,26 +1948,44 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       waveformValues,
       playUserRecordingPreview,
       isLightMode,
+      setIsCardContentExpanded,
       stickyNotesByCardId,
       appTour.step,
       handleCardTourTargetPress,
     ]
   );
 
-  if (loading || currentIndex === null || displayIndex === null) {
+  if (loading) {
     return (
-      <View style={[styles.loadingWrap, isLightMode ? { backgroundColor: '#FFFFFF' } : null]}>
+      <View
+        style={[
+          styles.loadingWrap,
+          isLightMode ? { backgroundColor: '#FFFFFF' } : null,
+        ]}
+      >
         <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
   }
 
-  if (!card) {
+  if (!card || currentIndex === null || displayIndex === null) {
     return (
-      <View style={[styles.loadingWrap, isLightMode ? { backgroundColor: '#FFFFFF' } : null]}>
-        <Text style={[styles.errorText, isLightMode ? { color: '#111111' } : null]}>找不到這張卡片</Text>
+      <View
+        style={[
+          styles.loadingWrap,
+          isLightMode ? { backgroundColor: '#FFFFFF' } : null,
+        ]}
+      >
+        <Text
+          style={[styles.errorText, isLightMode ? { color: '#111111' } : null]}
+        >
+          找不到這張卡片
+        </Text>
         <Pressable
-          style={({ pressed }) => [styles.errorBackBtn, pressed ? styles.pressablePrimaryPressed : null]}
+          style={({ pressed }) => [
+            styles.errorBackBtn,
+            pressed ? styles.pressablePrimaryPressed : null,
+          ]}
           onPress={() => navigation.goBack()}
         >
           <Text style={styles.errorBackText}>返回</Text>
@@ -1585,7 +1995,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={[]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: palette.screenBg }]}
+      edges={[]}
+    >
       <CardDetailHeaderActionsUI
         floatingHeaderTop={floatingHeaderTop}
         isLightMode={isLightMode}
@@ -1608,39 +2021,42 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           onMomentumScrollEnd={handleMomentumEnd}
           snapInterval={SNAP_INTERVAL}
           sidePadding={SIDE_PADDING}
+          horizontalScrollEnabled={!isCardContentExpanded}
         />
       </View>
 
-      <Modal visible={isTtsDownloading} transparent animationType="fade" statusBarTranslucent>
+      <Modal
+        visible={isTtsDownloading}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+      >
         <View style={styles.ttsDownloadBackdrop}>
           <View style={styles.ttsDownloadModal}>
             <ActivityIndicator size="small" color="#FFFFFF" />
-            <Text style={styles.ttsDownloadText}>downloading...</Text>
+            <Text style={styles.ttsDownloadText}>
+              {tUI(uiLanguage, 'cardDetail.downloading')}
+            </Text>
           </View>
         </View>
       </Modal>
 
       <CardAlbumSheetModalUI
         visible={showAlbumSheet}
-        displayWord={displayWord}
-        partOfSpeech={card.partOfSpeech || 'unknown'}
         selectedAlbums={selectedAlbums}
         allAlbums={allAlbums}
-        onClose={() => setShowAlbumSheet(false)}
+        uiLanguage={uiLanguage}
         onDone={() => void saveAlbumSelection()}
         onOpenCreateAlbum={openCreateAlbumModal}
         onToggleAlbum={toggleAlbum}
-      />
-
-      <CreateAlbumModalUI
-        visible={isCreateAlbumModalVisible}
-        albumName={newAlbumName}
-        onChangeAlbumName={setNewAlbumName}
-        onCancel={() => {
+        createAlbumVisible={isCreateAlbumModalVisible}
+        createAlbumName={newAlbumName}
+        onChangeCreateAlbumName={setNewAlbumName}
+        onCancelCreateAlbum={() => {
           setIsCreateAlbumModalVisible(false);
           setNewAlbumName('');
         }}
-        onConfirm={() => void createAlbum()}
+        onConfirmCreateAlbum={() => void createAlbum()}
       />
 
       <Modal
@@ -1671,30 +2087,42 @@ export default function CardDetailScreen({ navigation, route }: Props) {
             ]}
           >
             <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-            <Text style={styles.stickyTitle}>Card note</Text>
-            <TextInput
-              value={stickyDraft}
-              onChangeText={setStickyDraft}
-              placeholder="Write your sticky note..."
-              placeholderTextColor="#64748B"
-              multiline
-              textAlignVertical="top"
-              style={styles.stickyInput}
-            />
-            <View style={styles.stickyButtonRow}>
-              <Pressable
-                style={({ pressed }) => [styles.stickyCancelBtn, pressed ? styles.pressablePrimaryPressed : null]}
-                onPress={() => setShowStickyNoteModal(false)}
-              >
-                <Text style={styles.stickyCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.stickySaveBtn, pressed ? styles.pressablePrimaryPressed : null]}
-                onPress={() => void saveStickyNote()}
-              >
-                <Text style={styles.stickySaveText}>Save</Text>
-              </Pressable>
-            </View>
+              <Text style={styles.stickyTitle}>
+                {tUI(uiLanguage, 'cardDetail.cardNote')}
+              </Text>
+              <TextInput
+                value={stickyDraft}
+                onChangeText={setStickyDraft}
+                placeholder={tUI(uiLanguage, 'cardDetail.notePlaceholder')}
+                placeholderTextColor="#64748B"
+                multiline
+                textAlignVertical="top"
+                style={styles.stickyInput}
+              />
+              <View style={styles.stickyButtonRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.stickyCancelBtn,
+                    pressed ? styles.pressablePrimaryPressed : null,
+                  ]}
+                  onPress={() => setShowStickyNoteModal(false)}
+                >
+                  <Text style={styles.stickyCancelText}>
+                    {tUI(uiLanguage, 'common.cancel')}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.stickySaveBtn,
+                    pressed ? styles.pressablePrimaryPressed : null,
+                  ]}
+                  onPress={() => void saveStickyNote()}
+                >
+                  <Text style={styles.stickySaveText}>
+                    {tUI(uiLanguage, 'create.save')}
+                  </Text>
+                </Pressable>
+              </View>
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
@@ -1706,20 +2134,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         animationType="none"
         onRequestClose={() => void closePronunciationModal()}
       >
-        <Pressable style={styles.pronunciationBackdrop} onPress={() => void closePronunciationModal()}>
+        <Pressable
+          style={styles.pronunciationBackdrop}
+          onPress={() => void closePronunciationModal()}
+        >
           <Animated.View
             style={[
               styles.pronunciationSheet,
-              isLightMode
-                ? {
-                    backgroundColor: palette.containerBg,
-                    borderColor: palette.borderSubtle,
-                    shadowColor: '#0F172A',
-                    shadowOpacity: 0.08,
-                    shadowRadius: 18,
-                    shadowOffset: { width: 0, height: 10 },
-                  }
-                : null,
               {
                 opacity: pronunciationModalAnim,
                 transform: [
@@ -1733,7 +2154,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               },
             ]}
           >
-            <Pressable onPress={() => {}}>
+            <Pressable
+              style={styles.pronunciationSheetContent}
+              onPress={() => {}}
+            >
               <PronunciationCoachUI
                 isActiveCard
                 isRecording={isRecording}
@@ -1747,36 +2171,27 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 pronunciationScore={pronunciationScore}
                 pronunciationFeedbackLines={pronunciationFeedbackLines}
                 phonemeChips={phonemeChips}
+                recoveredIpaPhonemes={recoveredIpaPhonemes}
+                isIpaLookupLoading={Boolean(
+                  card?.id && ipaLookupCardId === card.id
+                )}
+                ipaLookupError={
+                  card?.id ? ipaLookupErrors[card.id] || null : null
+                }
                 phoneticTranscription={card?.phoneticTranscription}
                 syllableRowPattern={undefined}
                 waveformValues={waveformValues}
                 itemWord={displayWord}
+                uiLanguage={uiLanguage}
                 downloadingPronunciationTarget={pronunciationDownloadTarget}
+                isWordPlaying={isPlaying}
                 onPlayWord={handlePlayPronunciationWord}
-                onPlaySyllable={handlePlayPronunciationSyllable}
+                onPlayIpaPhoneme={handlePlayPronunciationIpaPhoneme}
+                onReloadIpa={() => void handleReloadPronunciationIpa()}
                 onReset={() => void handleReset()}
+                onClose={() => void closePronunciationModal()}
                 onPrimaryAction={() => void togglePronunciationRecording()}
               />
-              <View style={[styles.stickyButtonRow, { marginTop: 12 }]}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.stickyCancelBtn,
-                    isLightMode
-                      ? {
-                          backgroundColor: palette.mutedSurface,
-                          borderWidth: 1,
-                          borderColor: palette.borderSubtle,
-                        }
-                      : null,
-                    pressed ? styles.pressablePrimaryPressed : null,
-                  ]}
-                  onPress={() => void closePronunciationModal()}
-                >
-                  <Text style={[styles.stickyCancelText, isLightMode ? { color: palette.textOnContainer } : null]}>
-                    Close
-                  </Text>
-                </Pressable>
-              </View>
             </Pressable>
           </Animated.View>
         </Pressable>
@@ -1811,64 +2226,93 @@ export default function CardDetailScreen({ navigation, route }: Props) {
             extrapolate: 'clamp',
           });
           return (
-        <View style={{ flex: 1, backgroundColor: '#000000' }}>
-          <Animated.View
-            style={{
-              ...StyleSheet.absoluteFillObject,
-              opacity: Animated.multiply(fullscreenBackdropOpacity, fullscreenEntryProgress),
-            }}
-          >
-            <View style={{ flex: 1, backgroundColor: '#000000' }} />
-          </Animated.View>
-
-          <Animated.View
-            {...fullscreenPanResponder.panHandlers}
-            style={{
-              flex: 1,
-              transform: [
-                {
-                  translateX: Animated.multiply(fullscreenOriginDeltaX, entryTranslateX),
-                },
-                {
-                  translateY: Animated.add(
-                    fullscreenDragY,
-                    Animated.multiply(fullscreenOriginDeltaY, entryTranslateY)
+            <View style={{ flex: 1, backgroundColor: '#000000' }}>
+              <Animated.View
+                style={{
+                  ...StyleSheet.absoluteFillObject,
+                  opacity: Animated.multiply(
+                    fullscreenBackdropOpacity,
+                    fullscreenEntryProgress
                   ),
-                },
-                { scale: Animated.multiply(dragScale, entryScale) },
-              ],
-            }}
-          >
-            <TouchableOpacity
-              activeOpacity={1}
-              onPress={() => closeFullscreenViewer('tap')}
-              style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000' }}
-            >
-              {fullscreenImageUri ? (
-                <Image
-                  source={{ uri: fullscreenImageUri }}
-                  style={{ width: screenWidth, height: '100%' }}
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#F4EDE6', fontSize: 18, fontWeight: '700' }}>無圖片可顯示</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+                }}
+              >
+                <View style={{ flex: 1, backgroundColor: '#000000' }} />
+              </Animated.View>
 
-            <Pressable
-              onPress={() => closeFullscreenViewer('tap')}
-              style={({ pressed }) => [
-                styles.fullscreenCloseButton,
-                { top: Math.max(insets.top, 14), left: 14 },
-                pressed ? styles.pressableIconPressed : null,
-              ]}
-            >
-              <Ionicons name="close" size={28} color="#FFFFFF" />
-            </Pressable>
-          </Animated.View>
-        </View>
+              <Animated.View
+                {...fullscreenPanResponder.panHandlers}
+                style={{
+                  flex: 1,
+                  transform: [
+                    {
+                      translateX: Animated.multiply(
+                        fullscreenOriginDeltaX,
+                        entryTranslateX
+                      ),
+                    },
+                    {
+                      translateY: Animated.add(
+                        fullscreenDragY,
+                        Animated.multiply(
+                          fullscreenOriginDeltaY,
+                          entryTranslateY
+                        )
+                      ),
+                    },
+                    { scale: Animated.multiply(dragScale, entryScale) },
+                  ],
+                }}
+              >
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => closeFullscreenViewer('tap')}
+                  style={{
+                    flex: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#000000',
+                  }}
+                >
+                  {fullscreenImageUri ? (
+                    <Image
+                      source={{ uri: fullscreenImageUri }}
+                      style={{ width: screenWidth, height: '100%' }}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: '#F4EDE6',
+                          fontSize: 18,
+                          fontWeight: '700',
+                        }}
+                      >
+                        無圖片可顯示
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <Pressable
+                  onPress={() => closeFullscreenViewer('tap')}
+                  style={({ pressed }) => [
+                    styles.fullscreenCloseButton,
+                    { top: Math.max(insets.top, 14), left: 14 },
+                    pressed ? styles.pressableIconPressed : null,
+                  ]}
+                >
+                  <Ionicons name="close" size={28} color="#FFFFFF" />
+                </Pressable>
+              </Animated.View>
+            </View>
           );
         })()}
       </Modal>
@@ -1878,7 +2322,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SCREEN_BG },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: SCREEN_BG },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    backgroundColor: SCREEN_BG,
+  },
   errorText: { color: '#F4EDE6', fontSize: 16, fontWeight: '600' },
   errorBackBtn: {
     marginTop: 10,
@@ -1913,7 +2363,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     height: 40,
-    zIndex: -1, 
+    zIndex: -1,
   },
   headerTitleText: {
     fontSize: 30,
@@ -2210,15 +2660,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   pronunciationSheet: {
-    borderRadius: 18,
-    backgroundColor: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#334155',
-    padding: 18,
-    width: '99%',
+    width: '92%',
     maxWidth: 760,
-    minHeight: 420,
+    maxHeight: '92%',
     alignSelf: 'center',
+  },
+  pronunciationSheetContent: {
+    flexShrink: 1,
   },
   referenceSubText: {
     color: '#94A3B8',
@@ -2450,10 +2898,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.06)',
   },
-  wordTopRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 14 },
+  wordTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 14,
+  },
   wordLeft: { flex: 1 },
-  word: { fontSize: 34, fontWeight: '800', color: '#141414', letterSpacing: -1, lineHeight: 38 },
-  wordMetaRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  word: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#141414',
+    letterSpacing: -1,
+    lineHeight: 38,
+  },
+  wordMetaRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   posBadge: {
     backgroundColor: '#F2F2F6',
     borderRadius: 999,
@@ -2506,13 +2971,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionValue: { fontSize: 17, color: '#161616', lineHeight: 26 },
-  sectionExample: { fontSize: 17, color: '#161616', lineHeight: 26, fontStyle: 'italic' },
+  sectionExample: {
+    fontSize: 17,
+    color: '#161616',
+    lineHeight: 26,
+    fontStyle: 'italic',
+  },
   coachCard: {
     borderRadius: 24,
     padding: 20,
     backgroundColor: '#143D89',
   },
-  coachHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  coachHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
   coachIconWrap: {
     width: 40,
     height: 40,
@@ -2609,9 +3084,24 @@ const styles = StyleSheet.create({
   phonemeBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   phonemeGood: { backgroundColor: 'rgba(52,199,89,0.3)' },
   phonemeBad: { backgroundColor: 'rgba(255,59,48,0.3)' },
-  phonemeText: { color: '#fff', fontSize: 16, fontWeight: '700', fontFamily: 'Courier' },
-  phonemeHint: { marginTop: 8, textAlign: 'center', color: 'rgba(255,255,255,0.75)', fontSize: 12 },
-  coachHint: { marginTop: 12, textAlign: 'center', color: 'rgba(255,255,255,0.82)', fontSize: 13 },
+  phonemeText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    fontFamily: 'Courier',
+  },
+  phonemeHint: {
+    marginTop: 8,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+  },
+  coachHint: {
+    marginTop: 12,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 13,
+  },
   tipsCard: {
     backgroundColor: '#120F0F',
     borderRadius: 24,
@@ -2619,10 +3109,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(247,240,234,0.08)',
   },
-  tipsTitle: { fontSize: scaleFont(17), fontWeight: '700', color: '#F8F2EC', marginBottom: 12 },
-  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+  tipsTitle: {
+    fontSize: scaleFont(17),
+    fontWeight: '700',
+    color: '#F8F2EC',
+    marginBottom: 12,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 8,
+  },
   tipIcon: { fontSize: 16, marginTop: 1 },
-  tipText: { flex: 1, color: '#D1BDAF', fontSize: scaleFont(15), lineHeight: scaleFont(22) },
+  tipText: {
+    flex: 1,
+    color: '#D1BDAF',
+    fontSize: scaleFont(15),
+    lineHeight: scaleFont(22),
+  },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheetContainer: {
     backgroundColor: '#FAF7F3',
@@ -2641,7 +3146,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 10,
   },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sheetTitle: { fontSize: 20, fontWeight: '700', color: '#000' },
   sheetDone: { color: '#7D2A2E', fontSize: 17, fontWeight: '600' },
   sheetCardPreview: {
@@ -2654,7 +3164,12 @@ const styles = StyleSheet.create({
   },
   sheetCardWord: { fontSize: 17, fontWeight: '700', color: '#000' },
   sheetCardPos: { fontSize: 13, color: '#8E8E93', marginTop: 2 },
-  sheetCountBadge: { backgroundColor: '#7D2A2E', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  sheetCountBadge: {
+    backgroundColor: '#7D2A2E',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
   sheetCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   sheetScrollContent: { paddingBottom: 10, gap: 8 },
   createAlbumBtn: {
@@ -2674,7 +3189,13 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
   },
-  formLabel: { fontSize: 13, fontWeight: '700', color: '#8E8E93', marginBottom: 8, marginTop: 8 },
+  formLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#8E8E93',
+    marginBottom: 8,
+    marginTop: 8,
+  },
   formInput: {
     backgroundColor: '#fff',
     borderWidth: 1,

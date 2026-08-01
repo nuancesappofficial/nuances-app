@@ -62,5 +62,16 @@ export default schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: 'cards',
+          columns: [
+            { name: 'semantic_relations', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 });

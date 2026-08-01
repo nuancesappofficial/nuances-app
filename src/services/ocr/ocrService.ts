@@ -1,16 +1,18 @@
 // src/services/ocr/ocrService.ts
 // OCR Service - Tech Stack v1.5.0: Pure Text Strategy
-// Uses Apple Vision for 100% local text extraction on iOS
+// Uses platform-native on-device OCR (Apple Vision / Google ML Kit)
 // NO images are uploaded to AI servers
 
 import { Image } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { isVisionOCRAvailable, recognizeTextWithVision } from '../../native/VisionOCRModule';
 import { callAIAction } from '../ai/edgeAiClient';
 import type { AIPersonalizationOptions } from '../ai/types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
-import { getPreparedOCRVisionLanguages } from './languagePacks';
+import { getPreparedOCRVisionLanguageConfig } from './languagePacks';
+import { pickSentenceContainingWord } from '../../features/createCard/textTransforms';
 
 // ============================================================
 // Interfaces
@@ -29,6 +31,7 @@ export interface OCRBlock {
     height: number;
   };
   confidence?: number;
+  candidates?: Array<{ text: string; confidence?: number }>;
 }
 
 /**
@@ -73,14 +76,13 @@ export interface AIAnalysisResult {
 // ============================================================
 
 /**
- * 使用 Apple Vision 進行本地 OCR（iOS）
+ * 使用平台原生引擎進行本地 OCR（iOS Apple Vision / Android ML Kit）
  * ⚠️ 重要：此函數 100% 在本地執行，不需要網路連接
  * 
  * @param imageUri - 圖片的本地 URI
  * @returns OCR 識別結果（包含文字塊和座標）
  */
 export async function extractTextFromImage(imageUri: string): Promise<OCRResult> {
-  console.log('[OCR] Starting Apple Vision text recognition (LOCAL)...');
   const startTime = Date.now();
   
   try {
@@ -91,111 +93,152 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     
     const fileInfo = await FileSystem.getInfoAsync(imageUri);
     if (!fileInfo.exists) {
-      throw new Error(`OCR failed: image file not found (${imageUri})`);
+      throw new Error('OCR image file not found');
     }
 
     if (!isOCRAvailable()) {
-      throw new Error('Apple Vision OCR is not available on this device');
+      throw new Error('On-device OCR is not available on this device');
     }
 
-    const preferredVisionLanguages = await getPreparedOCRVisionLanguages();
+    const ocrLanguageConfig = await getPreparedOCRVisionLanguageConfig();
     const primaryResult = await recognizeTextWithVision(imageUri, {
-      // 混合語系時先偏向 CJK，再補英文，避免只抓到英數。
-      languages: preferredVisionLanguages,
+      languages: ocrLanguageConfig.visionLanguages,
       usesLanguageCorrection: false,
-      automaticallyDetectsLanguage: true,
+      automaticallyDetectsLanguage: ocrLanguageConfig.automaticallyDetectsLanguage,
     });
-    let blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
-    let fullText = normalizeFullText(primaryResult.fullText, blocks);
-
-    const latinOnly = hasLatin(fullText) && !hasCJK(fullText);
-    if (latinOnly) {
-      try {
-        const cjkResult = await recognizeTextWithVision(imageUri, {
-          languages: ['zh-Hant', 'zh-Hans', 'ja-JP', 'ko-KR'],
-          usesLanguageCorrection: false,
-          automaticallyDetectsLanguage: true,
-        });
-        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(cjkResult.blocks || []));
-        if (mergedBlocks.length > blocks.length) {
-          blocks = mergedBlocks;
-          fullText = normalizeFullText(
-            [primaryResult.fullText, cjkResult.fullText].filter(Boolean).join('\n'),
-            blocks
-          );
-        }
-      } catch (cjkPassError) {
-        console.warn('[OCR] CJK fallback pass failed, keep primary result:', cjkPassError);
-      }
-    }
-
-    const missingJapanese = !hasJapanese(fullText);
-    if (missingJapanese) {
-      try {
-        const japaneseResult = await recognizeTextWithVision(imageUri, {
-          languages: ['ja-JP'],
-          usesLanguageCorrection: false,
-          automaticallyDetectsLanguage: true,
-        });
-        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(japaneseResult.blocks || []));
-        if (mergedBlocks.length > blocks.length) {
-          blocks = mergedBlocks;
-          fullText = normalizeFullText(
-            [fullText, japaneseResult.fullText].filter(Boolean).join('\n'),
-            blocks
-          );
-        }
-      } catch (jaPassError) {
-        console.warn('[OCR] Japanese fallback pass failed, keep merged result:', jaPassError);
-      }
-    }
-
-    const missingKorean = !hasKorean(fullText);
-    if (missingKorean) {
-      try {
-        const koreanResult = await recognizeTextWithVision(imageUri, {
-          languages: ['ko-KR'],
-          usesLanguageCorrection: false,
-          automaticallyDetectsLanguage: true,
-        });
-        const mergedBlocks = mergeOCRBlocks(blocks, mapVisionBlocksToOCRBlocks(koreanResult.blocks || []));
-        if (mergedBlocks.length > blocks.length) {
-          blocks = mergedBlocks;
-          fullText = normalizeFullText(
-            [fullText, koreanResult.fullText].filter(Boolean).join('\n'),
-            blocks
-          );
-        }
-      } catch (koPassError) {
-        console.warn('[OCR] Korean fallback pass failed, keep merged result:', koPassError);
-      }
-    }
+    const blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
+    const fullText = normalizeFullText(primaryResult.fullText, blocks);
 
     const processingTime = Date.now() - startTime;
     
-    console.log('[OCR] Vision raw result:', {
-      blockCount: blocks.length,
-      hasText: !!fullText,
-      imageWidth: primaryResult.imageWidth,
-      imageHeight: primaryResult.imageHeight,
+    void logDiagnosticEvent({
+      severity: 'info',
+      category: 'ocr',
+      event: 'local_ocr_complete',
+      context: {
+        blockCount: blocks.length,
+        hasText: Boolean(fullText),
+        imageWidth: primaryResult.imageWidth,
+        imageHeight: primaryResult.imageHeight,
+        processingTimeMs: processingTime,
+      },
     });
-    console.log(`[OCR] ✅ Success: Found ${blocks.length} blocks in ${processingTime}ms`);
-    console.log(`[OCR] Full text preview: "${fullText.substring(0, 100)}..."`);
     
     return { blocks, fullText, processingTime };
     
   } catch (error) {
-    console.error('[OCR] ❌ Error during Vision recognition:', error);
+    void logDiagnosticEvent({
+      severity: 'error',
+      category: 'ocr',
+      event: 'local_ocr_failed',
+      context: {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        processingTimeMs: Date.now() - startTime,
+      },
+    });
     throw new Error(`OCR failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-function mapVisionBlocksToOCRBlocks(
-  visionBlocks: Array<{ text?: string; frame?: { x?: number; y?: number; width?: number; height?: number }; confidence?: number }>
-): OCRBlock[] {
+type VisionOCRBlockLike = {
+  text?: string;
+  frame?: { x?: number; y?: number; width?: number; height?: number };
+  confidence?: number;
+  candidates?: Array<{ text?: string; confidence?: number }>;
+};
+
+const OCR_SPACING_LEFT_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'do', 'for', 'from', 'had', 'has',
+  'have', 'he', 'her', 'his', 'i', 'if', 'in', 'is', 'it', 'its', 'may', 'not', 'of', 'on',
+  'or', 'our', 'she', 'so', 'that', 'the', 'their', 'they', 'this', 'to', 'we', 'were',
+  'with', 'you', 'your', 'idea', 'people', 'time', 'way', 'thing', 'work', 'world', 'life',
+  'story', 'part', 'point', 'place', 'case', 'level', 'team', 'word', 'text', 'line',
+]);
+
+const OCR_SPACING_RIGHT_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'do', 'for', 'from', 'had', 'has',
+  'have', 'he', 'her', 'his', 'i', 'if', 'in', 'is', 'it', 'its', 'may', 'not', 'of', 'on',
+  'or', 'our', 'she', 'so', 'that', 'the', 'their', 'they', 'this', 'to', 'we', 'were',
+  'with', 'you', 'your', 'about', 'after', 'before', 'into', 'over', 'than', 'through',
+  'under', 'when', 'where', 'which', 'while', 'who', 'will', 'would',
+]);
+
+const OCR_SPACING_INTACT_WORDS = new Set([
+  'another', 'anything', 'anyone', 'because', 'before', 'between', 'without', 'within',
+  'together', 'therefore', 'however', 'although', 'through', 'thought', 'though', 'whether',
+  'whatever', 'whenever', 'wherever', 'important', 'information', 'something', 'someone',
+]);
+
+function compactLatinLetters(value: string): string {
+  return value.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+function isPlainLowercaseLatinToken(value: string): boolean {
+  return /^[a-z]{5,24}$/.test(value);
+}
+
+function spacedCandidateForOCRToken(
+  token: string,
+  candidates?: Array<{ text?: string; confidence?: number }>
+): string | null {
+  if (!isPlainLowercaseLatinToken(token) || !Array.isArray(candidates)) return null;
+  const compactToken = compactLatinLetters(token);
+  const candidate = candidates
+    .map((item) => (item?.text || '').trim())
+    .find((text) => {
+      if (!/\s/.test(text)) return false;
+      if (compactLatinLetters(text) !== compactToken) return false;
+      const pieces = text.split(/\s+/).filter(Boolean);
+      return pieces.length >= 2 && pieces.length <= 4 && pieces.every((piece) => /^[A-Za-z]+$/.test(piece));
+    });
+  return candidate || null;
+}
+
+function restoreCommonOCRSpacingToken(token: string): string | null {
+  const normalized = token.toLowerCase();
+  if (!isPlainLowercaseLatinToken(normalized)) return null;
+  if (OCR_SPACING_INTACT_WORDS.has(normalized)) return null;
+  if (OCR_SPACING_LEFT_WORDS.has(normalized) || OCR_SPACING_RIGHT_WORDS.has(normalized)) return null;
+
+  let best: { text: string; score: number } | null = null;
+  for (let index = 1; index < normalized.length; index += 1) {
+    const left = normalized.slice(0, index);
+    const right = normalized.slice(index);
+    if (left.length < 1 || right.length < 1) continue;
+    const leftKnown = OCR_SPACING_LEFT_WORDS.has(left);
+    const rightKnown = OCR_SPACING_RIGHT_WORDS.has(right);
+    if (!leftKnown || !rightKnown) continue;
+
+    const functionWordBoundary = left.length <= 4 || right.length <= 5;
+    if (!functionWordBoundary) continue;
+
+    const score =
+      (left.length >= 3 ? 2 : 1) +
+      (right.length >= 3 ? 2 : 1) +
+      (rightKnown && right.length <= 5 ? 2 : 0);
+    if (!best || score > best.score) {
+      best = { text: `${left} ${right}`, score };
+    }
+  }
+  return best?.text || null;
+}
+
+function restoreOCRSpacingInText(text: string): string {
+  return text.replace(/\b[a-z]{5,24}\b/g, (token) => restoreCommonOCRSpacingToken(token) || token);
+}
+
+function resolveOCRBlockText(block: VisionOCRBlockLike): string {
+  const rawText = (block?.text || '').trim();
+  if (!rawText) return '';
+  const candidate = spacedCandidateForOCRToken(rawText, block.candidates);
+  if (candidate) return candidate;
+  return restoreOCRSpacingInText(rawText);
+}
+
+function mapVisionBlocksToOCRBlocks(visionBlocks: VisionOCRBlockLike[]): OCRBlock[] {
   return visionBlocks
     .map((block, index) => {
-      const text = (block?.text || '').trim();
+      const text = resolveOCRBlockText(block);
       const frame = block?.frame;
       if (!text || !frame) return null;
       return {
@@ -208,6 +251,14 @@ function mapVisionBlocksToOCRBlocks(
           height: Math.max(0, Number(frame.height) || 0),
         },
         confidence: typeof block.confidence === 'number' ? block.confidence : undefined,
+        candidates: Array.isArray(block.candidates)
+          ? block.candidates
+              .map((candidate) => ({
+                text: (candidate?.text || '').trim(),
+                confidence: candidate?.confidence,
+              }))
+              .filter((candidate) => candidate.text)
+          : undefined,
       } as OCRBlock;
     })
     .filter((block): block is OCRBlock => Boolean(block));
@@ -217,36 +268,14 @@ function hasCJK(text: string): boolean {
   return /[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(text);
 }
 
-function hasJapanese(text: string): boolean {
-  return /[\u3040-\u30FF]/.test(text);
-}
-
-function hasKorean(text: string): boolean {
-  return /[\uAC00-\uD7AF]/.test(text);
-}
-
 function hasLatin(text: string): boolean {
   return /[A-Za-z0-9]/.test(text);
-}
-
-function mergeOCRBlocks(primary: OCRBlock[], secondary: OCRBlock[]): OCRBlock[] {
-  const merged = [...primary];
-  const seen = new Set(
-    primary.map((block) => `${block.text}|${Math.round(block.frame.x)}|${Math.round(block.frame.y)}`)
-  );
-  secondary.forEach((block) => {
-    const key = `${block.text}|${Math.round(block.frame.x)}|${Math.round(block.frame.y)}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(block);
-  });
-  return merged;
 }
 
 function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): string {
   const trimmedRaw = (rawText || '').trim();
   if (trimmedRaw) {
-    return trimmedRaw;
+    return restoreOCRSpacingInText(trimmedRaw);
   }
 
   const tokens = blocks.map((block) => block.text.trim()).filter(Boolean);
@@ -261,13 +290,188 @@ function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): str
   return tokens.join(' ');
 }
 
+type TargetAnchoredOCROptions = {
+  /** Zero-based occurrence when the same target appears more than once. */
+  targetOccurrence?: number;
+};
+
+function tokenizeOCRText(text: string): string[] {
+  return (
+    text
+      .normalize('NFKC')
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) || []
+  );
+}
+
+function countTermOccurrences(tokens: string[], termTokens: string[]): number {
+  if (!termTokens.length || tokens.length < termTokens.length) return 0;
+  let count = 0;
+  for (let index = 0; index <= tokens.length - termTokens.length; index += 1) {
+    if (termTokens.every((token, offset) => tokens[index + offset] === token)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function horizontalOverlapRatio(left: OCRBlock, right: OCRBlock): number {
+  const overlap = Math.max(
+    0,
+    Math.min(left.frame.x + left.frame.width, right.frame.x + right.frame.width) -
+      Math.max(left.frame.x, right.frame.x)
+  );
+  const narrowerWidth = Math.max(1, Math.min(left.frame.width, right.frame.width));
+  return overlap / narrowerWidth;
+}
+
+function verticalGap(left: OCRBlock, right: OCRBlock): number {
+  const leftBottom = left.frame.y + left.frame.height;
+  const rightBottom = right.frame.y + right.frame.height;
+  if (leftBottom < right.frame.y) return right.frame.y - leftBottom;
+  if (rightBottom < left.frame.y) return left.frame.y - rightBottom;
+  return 0;
+}
+
+function joinOCRBlocks(blocks: OCRBlock[]): string {
+  const parts = blocks.map((block) => block.text.trim()).filter(Boolean);
+  if (!parts.length) return '';
+  const containsLatin = parts.some((part) => hasLatin(part));
+  const containsCJK = parts.some((part) => hasCJK(part));
+  return containsCJK && !containsLatin ? parts.join('') : parts.join(' ');
+}
+
 /**
- * 構建智能上下文（7 個單字：前 3 + 關鍵字 + 後 3）
+ * Reconstructs local OCR context from the text region containing the selected
+ * target. Vision already returns geometry for every recognized line; using it
+ * here prevents unrelated text near the crop edge from leaking into the card.
+ *
+ * Returns null when the target or usable geometry cannot be located so callers
+ * can safely fall back to the original merged OCR text.
+ */
+export function buildTargetAnchoredOCRText(
+  blocks: OCRBlock[],
+  targetText: string,
+  options: TargetAnchoredOCROptions = {}
+): string | null {
+  const targetTokens = tokenizeOCRText(targetText);
+  if (!blocks.length || !targetTokens.length) return null;
+
+  const requestedOccurrence = Math.max(
+    0,
+    Math.floor(options.targetOccurrence || 0)
+  );
+  let seenOccurrences = 0;
+  let targetIndex = -1;
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const occurrenceCount = countTermOccurrences(
+      tokenizeOCRText(blocks[index].text),
+      targetTokens
+    );
+    if (
+      occurrenceCount > 0 &&
+      requestedOccurrence < seenOccurrences + occurrenceCount
+    ) {
+      targetIndex = index;
+      break;
+    }
+    seenOccurrences += occurrenceCount;
+  }
+
+  if (targetIndex < 0) return null;
+  const targetBlock = blocks[targetIndex];
+  const validGeometry = blocks.filter(
+    (block) =>
+      Number.isFinite(block.frame.x) &&
+      Number.isFinite(block.frame.y) &&
+      block.frame.width > 0 &&
+      block.frame.height > 0
+  );
+  if (!validGeometry.includes(targetBlock)) return null;
+
+  const sortedHeights = validGeometry
+    .map((block) => block.frame.height)
+    .sort((left, right) => left - right);
+  const medianHeight =
+    sortedHeights[Math.floor(sortedHeights.length / 2)] ||
+    targetBlock.frame.height;
+  const targetCenterY =
+    targetBlock.frame.y + targetBlock.frame.height / 2;
+  const maxDistanceFromTarget = Math.max(
+    medianHeight * 7,
+    targetBlock.frame.height * 6
+  );
+
+  const selected = new Set<OCRBlock>([targetBlock]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of validGeometry) {
+      if (selected.has(candidate)) continue;
+
+      const candidateCenterY =
+        candidate.frame.y + candidate.frame.height / 2;
+      if (
+        Math.abs(candidateCenterY - targetCenterY) >
+        maxDistanceFromTarget
+      ) {
+        continue;
+      }
+
+      const similarTextSize =
+        candidate.frame.height >= medianHeight * 0.5 &&
+        candidate.frame.height <= medianHeight * 2;
+      if (!similarTextSize) continue;
+
+      const connectsToRegion = Array.from(selected).some((regionBlock) => {
+        const overlap = horizontalOverlapRatio(regionBlock, candidate);
+        const leftEdgeDifference = Math.abs(
+          regionBlock.frame.x - candidate.frame.x
+        );
+        const sameColumn =
+          overlap >= 0.35 ||
+          leftEdgeDifference <= Math.max(20, medianHeight * 1.5);
+        const nearbyLine =
+          verticalGap(regionBlock, candidate) <=
+          Math.max(12, medianHeight * 1.25);
+        const confidenceNeedsStrongerMatch =
+          typeof candidate.confidence === 'number' &&
+          candidate.confidence < 0.45;
+        const strongMatch =
+          overlap >= 0.6 &&
+          verticalGap(regionBlock, candidate) <=
+            Math.max(8, medianHeight * 0.75);
+        return (
+          sameColumn &&
+          nearbyLine &&
+          (!confidenceNeedsStrongerMatch || strongMatch)
+        );
+      });
+
+      if (connectsToRegion) {
+        selected.add(candidate);
+        changed = true;
+      }
+    }
+  }
+
+  const regionBlocks = Array.from(selected)
+    .sort(
+      (left, right) =>
+        left.frame.y - right.frame.y || left.frame.x - right.frame.x
+    );
+  const reconstructed = joinOCRBlocks(regionBlocks).trim();
+  return reconstructed || null;
+}
+
+/**
+ * 構建以完整語意句為單位的智能上下文
  * 
  * 規則：
- * 1. 目標視窗為「前 3 + target + 後 3」
- * 2. 遇到標點符號（. , ! ? ; :）該側提前停止
- * 3. 若一側提前停止，剩餘配額會轉給另一側（另一側也遇標點則停止）
+ * 1. 優先保留包含 target 的完整句子
+ * 2. 太短時補一個相鄰完整句，太長時以 target 為中心收斂
+ * 3. OCR 單行換行不視為句界，避免把視覺換行誤判成殘句
  * 
  * @param blocks - 所有 OCR 文字塊
  * @param selectedIndex - 用戶選擇的文字塊索引
@@ -282,87 +486,31 @@ export function buildContextPayload(
   }
   
   const targetRaw = blocks[selectedIndex].text;
-  const boundaryPunctuation = /[.!?;:]/;
   const trimPunctuation = (word: string) =>
     word.replace(/^[\s"'“”‘’()[\]{}<>.,!?;:]+|[\s"'“”‘’()[\]{}<>.,!?;:]+$/g, '').trim();
-  const hasLetterOrNumber = (word: string) => /[A-Za-z0-9]/.test(word);
-  const hasTrailingBoundary = (word: string) => /[.!?;:]["'”’)\]}>\s]*$/.test(word);
-  const hasLeadingBoundary = (word: string) => /^[\s"'“”‘’([<{]*[.!?;:]/.test(word);
   const targetText = trimPunctuation(targetRaw) || targetRaw.trim();
-
-  // 先收集到標點為止的左右候選詞
-  const prevCandidates: string[] = [];
-  for (let i = selectedIndex - 1; i >= 0; i--) {
-    const rawWord = blocks[i].text;
-    const containsBoundary = boundaryPunctuation.test(rawWord);
-    const cleanedWord = trimPunctuation(rawWord);
-
-    // 往左回看時，像 "juice." 代表上一句結尾，應直接停止且不納入
-    if (hasTrailingBoundary(rawWord)) {
-      break;
-    }
-    if (containsBoundary && !hasLetterOrNumber(cleanedWord)) break;
-    if (cleanedWord) {
-      prevCandidates.unshift(cleanedWord);
-    }
-    if (containsBoundary) {
-      break;
-    }
-  }
-
-  const nextCandidates: string[] = [];
-  for (let i = selectedIndex + 1; i < blocks.length; i++) {
-    const rawWord = blocks[i].text;
-    const containsBoundary = boundaryPunctuation.test(rawWord);
-    const cleanedWord = trimPunctuation(rawWord);
-
-    if (containsBoundary && !hasLetterOrNumber(cleanedWord)) {
-      break;
-    }
-    // 往右看時，像 "bag." 應保留 "bag" 後停止
-    if (hasLeadingBoundary(rawWord)) break;
-    if (cleanedWord) {
-      nextCandidates.push(cleanedWord);
-    }
-    if (containsBoundary) {
-      break;
-    }
-  }
-
-  // 基礎配額：前 3 + 後 3；若一側提前被標點截斷，剩餘配額轉給另一側
-  const baseQuota = 3;
-  let prevTake = Math.min(baseQuota, prevCandidates.length);
-  let nextTake = Math.min(baseQuota, nextCandidates.length);
-
-  const prevShortage = baseQuota - prevTake;
-  if (prevShortage > 0) {
-    const transferable = Math.min(prevShortage, nextCandidates.length - nextTake);
-    nextTake += Math.max(0, transferable);
-  }
-
-  const nextShortage = baseQuota - nextTake;
-  if (nextShortage > 0) {
-    const transferable = Math.min(nextShortage, prevCandidates.length - prevTake);
-    prevTake += Math.max(0, transferable);
-  }
-
-  const prevWords = prevCandidates.slice(-prevTake);
-  const nextWords = nextCandidates.slice(0, nextTake);
-  
-  const contextText = `${prevWords.join(' ')} ${nextWords.join(' ')}`.trim();
-  const focusSentence = `${prevCandidates.join(' ')} ${targetText} ${nextCandidates.join(' ')}`.trim();
-
-  const paragraphText = blocks
-    .map((block) => trimPunctuation(block.text))
-    .filter(Boolean)
+  const sourceParts = blocks.map((block) => block.text.trim()).filter(Boolean);
+  const paragraphText = sourceParts
     .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const precedingParts = blocks
+    .slice(0, selectedIndex)
+    .map((block) => block.text.trim())
+    .filter(Boolean);
+  const targetOffset =
+    precedingParts.join(' ').length + (precedingParts.length > 0 ? 1 : 0);
+  const focusSentence =
+    pickSentenceContainingWord(paragraphText, targetText, { targetOffset }) ||
+    targetText;
+  const targetPattern = targetText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const contextText = focusSentence
+    .replace(new RegExp(`\\b${targetPattern}\\b`, 'i'), ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
   const focusWords = focusSentence.split(/\s+/).filter(Boolean);
   const focusWordCount = focusWords.length;
-  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const targetPattern = escapeRegExp(targetText);
   const hasObjectAfterTarget = new RegExp(
     `\\b${targetPattern}\\b\\s+(?!for\\b|to\\b|in\\b|on\\b|at\\b|with\\b|of\\b|by\\b)\\w+`,
     'i'
@@ -384,14 +532,15 @@ export function buildContextPayload(
           ? 'no_business_cue'
           : 'disabled';
   
-  console.log('[OCR] Built context (7 words):', {
-    target: targetText,
-    prev: prevWords.length,
-    next: nextWords.length,
-    sentence: focusSentence,
-    useParagraphMode,
-    paragraphModeReason,
-  });
+  if (__DEV__) {
+    console.log('[OCR] Built semantic source context:', {
+      target: targetText,
+      wordCount: focusWordCount,
+      sentence: focusSentence,
+      useParagraphMode,
+      paragraphModeReason,
+    });
+  }
   
   return {
     target_text: targetText,
@@ -416,9 +565,6 @@ export async function analyzeTextWithAI(
 ): Promise<AIAnalysisResult> {
   try {
     const localPronunciation = await getLocalPhoneticTranscription(payload.target_text);
-    console.log(
-      `[Phonetic] analyze_context target="${payload.target_text}" source=${localPronunciation ? 'local' : 'api_fallback'}`
-    );
     const result = await callAIAction<
       {
         targetText: string;
@@ -455,11 +601,6 @@ export async function analyzeTextWithAI(
       useParagraphMode: payload.use_paragraph_mode,
       includePronunciation: !localPronunciation,
     });
-    console.log(
-      `[OCR] analyze_context result keyword="${result.keyword || payload.target_text}" collocation="${String(
-        result.frequentCollocations || result['Frequent collocations'] || ''
-      )}"`
-    );
 
     return {
       keyword: (result.keyword || payload.target_text).trim(),
@@ -506,7 +647,7 @@ export async function analyzeTextWithAI(
 // ============================================================
 
 /**
- * 是否可使用 OCR（iOS + Vision Native Module）
+ * 是否可使用平台本機 OCR 原生模組
  */
 export function isOCRAvailable(): boolean {
   return isVisionOCRAvailable();

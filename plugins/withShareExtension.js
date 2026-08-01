@@ -35,6 +35,7 @@ function withShareExtension(config) {
 
     // 添加 Share Extension Target 到 Xcode
     addShareExtensionTarget(xcodeProject, projectRoot);
+    syncShareExtensionBuildSettings(xcodeProject, config);
 
     return config;
   });
@@ -84,9 +85,9 @@ async function createShareExtensionFiles(projectRoot) {
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionAttributes</key>
@@ -99,12 +100,16 @@ async function createShareExtensionFiles(projectRoot) {
                 <integer>10</integer>
                 <key>NSExtensionActivationSupportsText</key>
                 <true/>
+                <key>NSExtensionActivationSupportsWebPageWithMaxCount</key>
+                <integer>1</integer>
+                <key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+                <integer>1</integer>
             </dict>
         </dict>
         <key>NSExtensionPointIdentifier</key>
         <string>com.apple.share-services</string>
         <key>NSExtensionPrincipalClass</key>
-        <string>ShareViewController</string>
+        <string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
     </dict>
 </dict>
 </plist>
@@ -135,6 +140,32 @@ function addShareExtensionTarget(xcodeProject, projectRoot) {
   // Note: 此處需要使用 xcode 套件來修改 .pbxproj
   // 由於這是複雜的 Xcode 專案修改，在實際部署時需要手動或使用更完整的工具
   console.log('Share Extension files created. Manual Xcode configuration required.');
+}
+
+/**
+ * Keep an existing extension target aligned with the containing app.
+ * iOS rejects or warns on embedded extensions whose version/build differs.
+ */
+function syncShareExtensionBuildSettings(xcodeProject, config) {
+  const extensionBundleIdentifier = `${config.ios?.bundleIdentifier}.${SHARE_EXTENSION_NAME}`;
+  const buildNumber = String(config.ios?.buildNumber || '1');
+  const marketingVersion = String(config.version || '1.0.0');
+  const configurations = xcodeProject.pbxXCBuildConfigurationSection();
+
+  Object.values(configurations).forEach((entry) => {
+    const settings = entry?.buildSettings;
+    if (!settings) return;
+
+    const bundleIdentifier = String(settings.PRODUCT_BUNDLE_IDENTIFIER || '').replace(
+      /^"|"$/g,
+      ''
+    );
+    if (bundleIdentifier !== extensionBundleIdentifier) return;
+
+    settings.CURRENT_PROJECT_VERSION = buildNumber;
+    settings.MARKETING_VERSION = marketingVersion;
+    settings.IPHONEOS_DEPLOYMENT_TARGET = '15.1';
+  });
 }
 
 module.exports = withShareExtension;

@@ -12,7 +12,17 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
-import { requireCurrentAuthUserId } from '@services/auth/userIdentity';
+import {
+  assertRecordOwnedByCurrentUser,
+  requireCurrentAuthUserId,
+} from '@services/auth/userIdentity';
+import { getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
+import {
+  getInitialUserSettings,
+  loadUserSettings,
+  subscribeUserSettings,
+  type UILanguage,
+} from '@services/settings/userSettings';
 
 type Props = {
   navigation: any;
@@ -41,8 +51,31 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   const [showCropper, setShowCropper] = React.useState(Boolean(initialImageUri && autoOpenCropper));
   const [pendingCropImage, setPendingCropImage] = React.useState<string | null>(initialImageUri ?? null);
   const [saving, setSaving] = React.useState(false);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>(
+    () => getInitialUserSettings().uiLanguage
+  );
   const cameraRef = React.useRef<CameraView | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) setUiLanguage(settings.uiLanguage);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(
+    () =>
+      subscribeUserSettings((settings) => {
+        setUiLanguage(settings.uiLanguage);
+      }),
+    []
+  );
 
   const goToCacheHome = React.useCallback(() => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
@@ -220,6 +253,12 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
 
     try {
       const userId = await requireCurrentAuthUserId();
+      if (editingItem) {
+        await assertRecordOwnedByCurrentUser(editingItem.userId, '這筆 Cache 資料');
+      } else if ((await getRemainingCacheCapacity(userId)) <= 0) {
+        Alert.alert('暫存區已滿', '請先處理或刪除部分暫存卡片後再新增。');
+        return;
+      }
       let createdItem: CachedItem | null = null;
 
       await database.write(async () => {
@@ -277,6 +316,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
         hasPermission={Boolean(cameraPermission?.granted)}
         cameraRef={cameraRef}
         facing={cameraFacing}
+        uiLanguage={uiLanguage}
         onClose={closeCamera}
         onToggleFacing={toggleCameraFacing}
         onCapture={capturePhoto}
@@ -286,6 +326,7 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
         visible={showCropper}
         imageUri={pendingCropImage}
         modalAnimationType="slide"
+        uiLanguage={uiLanguage}
         onCancel={handleCropCancel}
         onConfirm={handleCropConfirm}
       />

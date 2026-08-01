@@ -2,11 +2,12 @@ import React from 'react';
 import { Alert } from 'react-native';
 import type CachedItem from '@database/models/CachedItem';
 import type { CacheCardRecord } from './useCacheListDataSource';
+import { shouldBlockTutorialCacheDeletion } from '../../../../features/tour/tutorialCachePolicy';
 
 type Params = {
   cards: CacheCardRecord[];
   navigation: any;
-  appTour: { step?: string; nextStep: () => void };
+  appTour: { step?: string; isActive?: boolean; nextStep: () => void };
   hideCacheCardFromStack: (itemId: string) => void;
   restoreCacheCardToStack: (itemId: string) => void;
   hideCacheCardImmediately: (itemId: string) => void;
@@ -48,6 +49,17 @@ export function useCacheSwipeActions(params: Params) {
       const target = cards.find((card) => card.id === itemId);
       if (!target) return;
 
+      if (
+        shouldBlockTutorialCacheDeletion({
+          isTutorialActive: appTour.isActive,
+          tourStep: appTour.step,
+          isDefaultExperienceCard: target.isDefaultExperienceCard,
+          direction,
+        })
+      ) {
+        return;
+      }
+
       if (direction === 'left') {
         hideCacheCardImmediately(itemId);
         return;
@@ -64,6 +76,18 @@ export function useCacheSwipeActions(params: Params) {
     (itemId: string, direction: 'left' | 'right') => {
       const target = cards.find((card) => card.id === itemId);
       if (!target) return;
+
+      if (
+        shouldBlockTutorialCacheDeletion({
+          isTutorialActive: appTour.isActive,
+          tourStep: appTour.step,
+          isDefaultExperienceCard: target.isDefaultExperienceCard,
+          direction,
+        })
+      ) {
+        restoreCacheCardToStack(itemId);
+        return;
+      }
 
       if (direction === 'right') {
         if (isImageCacheCard(target)) {
@@ -92,6 +116,7 @@ export function useCacheSwipeActions(params: Params) {
         navigation.navigate('CreateCard', {
           cachedItem: target.cachedItem,
           generationMode: appTour.step === 'STEP_5_PROCESS_CACHE_CARD' ? 'ai-assisted' : undefined,
+          isDefaultExperienceTutorial: target.isDefaultExperienceCard || undefined,
         });
         return;
       }

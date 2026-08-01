@@ -29,8 +29,9 @@ import {
   TEXT_ON_CTA,
   resolveThemeColors,
 } from '../../../theme/colors';
-import { useAppTour } from '../../../contexts/AppTourContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DEFAULT_USER_SETTINGS, type UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 
 type Props = {
   visible: boolean;
@@ -38,6 +39,7 @@ type Props = {
   addTab: 'text' | 'image';
   manualText: string;
   creatingImage: boolean;
+  creatingText: boolean;
   onClose: () => void;
   onDismiss: () => void;
   onTabChange: (nextTab: 'text' | 'image') => void;
@@ -52,9 +54,12 @@ type Props = {
   tourPasteTextActive?: boolean;
   tourPasteTextTooltip?: string;
   onTourPasteTextPress?: () => void;
+  tourSampleSentences?: string[];
+  onTourCopySampleText?: (sentence: string) => void;
   tourAddTextActive?: boolean;
   tourAddTextTooltip?: string;
   onTourAddTextPress?: () => void;
+  uiLanguage?: UILanguage;
 };
 
 type LocalLayout = {
@@ -72,8 +77,8 @@ const MODAL_BACKDROP_DURATION_MS = 300;
 const MODAL_EXIT_DURATION_MS = 260;
 const TOUR_HIGHLIGHT_FADE_IN_MS = 420;
 const TOUR_HIGHLIGHT_FADE_OUT_MS = 180;
-const DARK_MODE_TOUR_TOOLTIP_BG = '#F1EBE3';
-const DARK_MODE_TOUR_TOOLTIP_TEXT = '#0F172A';
+const DARK_MODE_TOUR_TOOLTIP_BG = 'rgba(2, 33, 61, 0.97)';
+const DARK_MODE_TOUR_TOOLTIP_TEXT = '#F8FAFC';
 // Tune this value to resize Text tab input box; modal panel height follows this value.
 const TEXT_INPUT_BOX_HEIGHT = 200;
 const TEXT_TAB_EXTRA_HEIGHT = 50; // label + spacing
@@ -88,6 +93,7 @@ export default function CacheInputModalUI({
   addTab,
   manualText,
   creatingImage,
+  creatingText,
   onClose,
   onDismiss,
   onTabChange,
@@ -102,11 +108,13 @@ export default function CacheInputModalUI({
   tourPasteTextActive = false,
   tourPasteTextTooltip = '',
   onTourPasteTextPress,
+  tourSampleSentences = [],
+  onTourCopySampleText,
   tourAddTextActive = false,
   tourAddTextTooltip = '',
   onTourAddTextPress,
+  uiLanguage = DEFAULT_USER_SETTINGS.uiLanguage,
 }: Props) {
-  const appTour = useAppTour();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -150,10 +158,12 @@ export default function CacheInputModalUI({
   const activeTourTooltip = tourPasteTextActive ? tourPasteTextTooltip : tourAddTextActive ? tourAddTextTooltip : '';
   const activeTourPress = tourPasteTextActive ? onTourPasteTextPress || onPressPaste : tourAddTextActive ? onTourAddTextPress || onSubmitText : undefined;
   const isLocalTourActive = Boolean(activeTourTarget && activeTourPress);
-
-  const handleSkipTour = React.useCallback(() => {
-    appTour.skipTour();
-  }, [appTour]);
+  const shouldShowTourSampleSentences = tourPasteTextActive && tourSampleSentences.length > 0;
+  const localTourSheetTop = Math.max(0, windowHeight - Math.max(sheetHeight, 0));
+  const localTourFloatingTop = Math.min(-24, insets.top + 28 - localTourSheetTop);
+  const localTourTooltipTop = shouldShowTourSampleSentences
+    ? localTourFloatingTop + 164
+    : localTourFloatingTop + 8;
 
   React.useEffect(() => {
     Animated.timing(localTourProgress, {
@@ -371,19 +381,6 @@ export default function CacheInputModalUI({
             <BlurView tint="dark" intensity={58} style={StyleSheet.absoluteFill} />
             <View style={styles.localTourDim} />
           </Animated.View>
-          <Pressable
-            hitSlop={12}
-            onPress={handleSkipTour}
-            style={[
-              styles.localTourSkipLink,
-              !isLight ? styles.localTourSkipLinkDarkModeLightBox : null,
-              { top: insets.top + 10 },
-            ]}
-          >
-            <Text style={[styles.localTourSkipText, !isLight ? styles.localTourSkipTextDarkModeLightBox : null]}>
-              Skip tutorial
-            </Text>
-          </Pressable>
         </View>
       ) : null}
       <Animated.View
@@ -402,7 +399,9 @@ export default function CacheInputModalUI({
         }}
       >
         <View style={[styles.sheetHandle, { backgroundColor: palette.secondaryText }]} />
-        <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>ADD TO CACHE</Text>
+        <Text style={[styles.eyebrow, { color: palette.secondaryText }]}>
+          {tUI(uiLanguage, 'cache.addToCache').toUpperCase()}
+        </Text>
 
         <View
           style={[
@@ -432,7 +431,7 @@ export default function CacheInputModalUI({
                     : null,
               ]}
             >
-              Text
+              {tUI(uiLanguage, 'cache.tabText')}
             </Text>
           </Pressable>
           <Pressable
@@ -454,7 +453,7 @@ export default function CacheInputModalUI({
                     : null,
               ]}
             >
-              Image
+              {tUI(uiLanguage, 'cache.tabImage')}
             </Text>
           </Pressable>
         </View>
@@ -469,6 +468,7 @@ export default function CacheInputModalUI({
               <CacheTextInputPanelUI
                 manualText={manualText}
                 onChangeManualText={onManualTextChange}
+                uiLanguage={uiLanguage}
                 inputHeight={TEXT_INPUT_BOX_HEIGHT}
                 palette={palette}
               />
@@ -480,6 +480,7 @@ export default function CacheInputModalUI({
                 onUploadImage={onUploadImage}
                 onCaptureImage={onCaptureImage}
                 palette={palette}
+                uiLanguage={uiLanguage}
               />
             </View>
           </Animated.View>
@@ -525,7 +526,10 @@ export default function CacheInputModalUI({
                   { color: palette.textOnContainer },
                 ]}
               >
-                {textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
+                {tUI(
+                  uiLanguage,
+                  textPrimaryAction === 'clear' ? 'cache.clear' : 'cache.paste'
+                )}
               </Text>
             </Pressable>
             <Pressable
@@ -541,19 +545,60 @@ export default function CacheInputModalUI({
                 styles.actionBtn,
                 styles.addBtn,
                 tourAddTextActive ? styles.tourActionBtnActive : null,
-                !manualText.trim() && styles.actionBtnDisabled,
-                pressed && Boolean(manualText.trim()) ? styles.actionBtnPressed : null,
+                (!manualText.trim() || creatingText) && styles.actionBtnDisabled,
+                pressed && Boolean(manualText.trim()) && !creatingText ? styles.actionBtnPressed : null,
               ]}
-              disabled={!manualText.trim()}
+              disabled={!manualText.trim() || creatingText}
               onPress={tourAddTextActive ? onTourAddTextPress || onSubmitText : onSubmitText}
             >
-              <Text style={[styles.actionBtnText, styles.addBtnText]}>Add</Text>
+              <Text style={[styles.actionBtnText, styles.addBtnText]}>
+                {tUI(uiLanguage, creatingText ? 'cache.adding' : 'cache.add')}
+              </Text>
             </Pressable>
           </View>
         ) : null}
 
         {activeTourTarget && activeTourPress ? (
           <View style={styles.localTourSheetOverlay}>
+            {shouldShowTourSampleSentences ? (
+              <Animated.View
+                style={[
+                  styles.sampleStickyNote,
+                  !isLight ? styles.sampleStickyNoteDarkModeLightBox : null,
+                  { opacity: localTourContentOpacity },
+                  { top: localTourFloatingTop },
+                ]}
+              >
+                <View style={styles.sampleCardAccent} />
+                <Text style={[styles.sampleStickyTitle, !isLight ? styles.sampleStickyTitleDarkMode : null]}>
+                  {tUI(uiLanguage, 'cache.copyAnySentence')}
+                </Text>
+                {tourSampleSentences.map((sentence, index) => (
+                  <View
+                    key={`${sentence}-${index}`}
+                    style={[
+                      styles.sampleSentenceRow,
+                      !isLight ? styles.sampleSentenceRowDarkMode : null,
+                      index === tourSampleSentences.length - 1 ? styles.sampleSentenceRowLast : null,
+                    ]}
+                  >
+                    <Text style={[styles.sampleSentenceText, !isLight ? styles.sampleSentenceTextDarkMode : null]}>
+                      {sentence}
+                    </Text>
+                    <Pressable
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles.sampleCopyBtn,
+                        pressed ? styles.sampleCopyBtnPressed : null,
+                      ]}
+                      onPress={() => onTourCopySampleText?.(sentence)}
+                    >
+                      <Text style={styles.sampleCopyText}>{tUI(uiLanguage, 'cache.copy')}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </Animated.View>
+            ) : null}
             <Animated.View
               pointerEvents="none"
               style={[
@@ -562,7 +607,7 @@ export default function CacheInputModalUI({
                 { opacity: localTourContentOpacity },
                 {
                   left: Math.max(12, Math.min(activeTourTarget.x, panelWidth - 260)),
-                  top: Math.max(12, activeTourTarget.y - 96),
+                  top: localTourTooltipTop,
                 },
               ]}
             >
@@ -599,7 +644,14 @@ export default function CacheInputModalUI({
                     { color: activeTourAction === 'add' ? TEXT_ON_CTA : palette.textOnContainer },
                   ]}
                 >
-                  {activeTourAction === 'add' ? 'Add' : textPrimaryAction === 'clear' ? 'Clear' : 'Paste'}
+                  {tUI(
+                    uiLanguage,
+                    activeTourAction === 'add'
+                      ? 'cache.add'
+                      : textPrimaryAction === 'clear'
+                        ? 'cache.clear'
+                        : 'cache.paste'
+                  )}
                 </Text>
               </Animated.View>
             </Pressable>
@@ -716,7 +768,6 @@ const styles = StyleSheet.create({
   localTourSheetOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 80,
-    overflow: 'hidden',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
@@ -724,32 +775,126 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.50)',
   },
+  sampleStickyNote: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    top: 14,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingTop: 15,
+    paddingBottom: 11,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    borderWidth: 1,
+    borderColor: 'rgba(2,33,61,0.14)',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 18,
+    overflow: 'hidden',
+  },
+  sampleStickyNoteDarkModeLightBox: {
+    backgroundColor: DARK_MODE_TOUR_TOOLTIP_BG,
+    borderColor: 'rgba(137,206,255,0.34)',
+    shadowColor: '#00111F',
+    shadowOpacity: 0.34,
+  },
+  sampleCardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: '#4EAFF4',
+  },
+  sampleStickyTitle: {
+    marginBottom: 6,
+    color: '#1E293B',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '900',
+    letterSpacing: -0.1,
+  },
+  sampleStickyTitleDarkMode: {
+    color: DARK_MODE_TOUR_TOOLTIP_TEXT,
+  },
+  sampleSentenceRow: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(30,41,59,0.10)',
+    paddingVertical: 6,
+  },
+  sampleSentenceRowLast: {
+    borderBottomWidth: 0,
+  },
+  sampleSentenceRowDarkMode: {
+    borderBottomColor: 'rgba(191,231,255,0.14)',
+  },
+  sampleSentenceText: {
+    flex: 1,
+    color: '#1E293B',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  sampleSentenceTextDarkMode: {
+    color: DARK_MODE_TOUR_TOOLTIP_TEXT,
+  },
+  sampleCopyBtn: {
+    minWidth: 58,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MODAL_CTA_COLOR,
+    borderWidth: 1,
+    borderColor: MODAL_CTA_COLOR_BORDER,
+  },
+  sampleCopyBtnPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  sampleCopyText: {
+    color: TEXT_ON_CTA,
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
   localTourTooltip: {
     position: 'absolute',
     width: 260,
     borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingVertical: 13,
-    backgroundColor: 'rgba(2,33,61,0.94)',
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    backgroundColor: 'rgba(255,255,255,0.98)',
     borderWidth: 1,
-    borderColor: 'rgba(137,206,255,0.38)',
-    shadowColor: '#4EAFF4',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    borderColor: 'rgba(2,33,61,0.14)',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4EAFF4',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
     elevation: 18,
   },
   localTourTooltipText: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    lineHeight: 19,
+    color: '#0F172A',
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '800',
+    letterSpacing: -0.15,
   },
   localTourTooltipDarkModeLightBox: {
     backgroundColor: DARK_MODE_TOUR_TOOLTIP_BG,
-    borderColor: 'rgba(15,23,42,0.16)',
-    shadowColor: '#000000',
-    shadowOpacity: 0.22,
+    borderColor: 'rgba(137,206,255,0.34)',
+    borderLeftColor: '#4EAFF4',
+    shadowColor: '#00111F',
+    shadowOpacity: 0.34,
   },
   localTourTooltipTextDarkModeLightBox: {
     color: DARK_MODE_TOUR_TOOLTIP_TEXT,
@@ -769,30 +914,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  localTourSkipLink: {
-    position: 'absolute',
-    right: 18,
-    zIndex: 90,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(15,23,42,0.48)',
-    borderWidth: 1,
-    borderColor: 'rgba(248,250,252,0.18)',
-  },
-  localTourSkipText: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  localTourSkipLinkDarkModeLightBox: {
-    backgroundColor: DARK_MODE_TOUR_TOOLTIP_BG,
-    borderColor: 'rgba(15,23,42,0.16)',
-  },
-  localTourSkipTextDarkModeLightBox: {
-    color: DARK_MODE_TOUR_TOOLTIP_TEXT,
   },
   pasteBtn: {
     backgroundColor: CONTAINER_BG,

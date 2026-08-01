@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View, useColorScheme } from 'react-native';
+import { Animated, Easing, Linking, StyleSheet, TouchableOpacity, View, useColorScheme } from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -10,6 +10,7 @@ import {
 import { createStackNavigator } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 import { Q } from '@nozbe/watermelondb';
 import CacheScreenFlow from '../screens/flow/CacheScreenFlow';
 import AddCacheItemFlow from '../screens/flow/CacheScreenFlow/AddCacheItemFlow';
@@ -26,6 +27,12 @@ import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeC
 import { database } from '../database';
 import type CachedItem from '../database/models/CachedItem';
 import { resolveThemeColors } from '../theme/colors';
+import { getCurrentSessionUserId } from '../services/auth/userIdentity';
+import SubscriptionService from '../services/subscription/SubscriptionService';
+import { APP_STORE_REVIEW_URL } from '../constants/legalLinks';
+import { useAppTour } from '../contexts/AppTourContext';
+import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
+import { traceFirstRun } from '../services/logging/firstRunTraceRuntime';
 
 const CacheStackNav = createStackNavigator();
 const CardsStackNav = createStackNavigator();
@@ -46,6 +53,14 @@ const TAB_ITEMS = [
   { activeIcon: 'layers', inactiveIcon: 'layers-outline' },
   { activeIcon: 'settings', inactiveIcon: 'settings-outline' },
 ] as const;
+
+function getNotificationCacheCount(response: Notifications.NotificationResponse | null | undefined): number {
+  const data = response?.notification.request.content.data;
+  if (!data || (data.kind !== 'nuances-reminder' && data.kind !== 'nuances-share-receipt')) return 0;
+  const rawCount = data.cacheCount;
+  const count = typeof rawCount === 'number' ? rawCount : Number(rawCount);
+  return Number.isFinite(count) ? count : 0;
+}
 
 const APP_DARK_THEME = {
   ...DarkTheme,
@@ -109,6 +124,7 @@ function CacheStack({
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
 }) {
   const syncSwipeEnabled = React.useCallback(() => {
+    if (!navigationRef.isReady()) return;
     const state = navigationRef.getRootState();
     const routeName = getActiveRouteName(state);
     const isRootRoute = routeName === 'CacheList';
@@ -164,6 +180,7 @@ function CacheStack({
 
 function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledChange: (enabled: boolean) => void; navigationRef: ReturnType<typeof createNavigationContainerRef<any>> }) {
   const syncSwipeEnabled = React.useCallback(() => {
+    if (!navigationRef.isReady()) return;
     const state = navigationRef.getRootState();
     const routeName = getActiveRouteName(state);
     onSwipeEnabledChange(routeName === 'CardsList' || routeName === 'Deck');
@@ -199,11 +216,14 @@ function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledCha
 function ProfileStack({
   onSwipeEnabledChange,
   navigationRef,
+  onReplayVideoTutorial,
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+  onReplayVideoTutorial: () => void;
 }) {
   const syncSwipeEnabled = React.useCallback(() => {
+    if (!navigationRef.isReady()) return;
     const state = navigationRef.getRootState();
     const routeName = getActiveRouteName(state);
     onSwipeEnabledChange(routeName === 'ProfileHome');
@@ -224,7 +244,14 @@ function ProfileStack({
           screenOptions={{ headerShown: false, gestureEnabled: false }}
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
-          <ProfileStackNav.Screen name="ProfileHome" component={ProfileMainFlow} />
+          <ProfileStackNav.Screen name="ProfileHome">
+            {(props) => (
+              <ProfileMainFlow
+                {...props}
+                onReplayVideoTutorial={onReplayVideoTutorial}
+              />
+            )}
+          </ProfileStackNav.Screen>
           <ProfileStackNav.Screen name="ProfileSettings" component={SyncProfileSettingsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
           <ProfileStackNav.Screen name="ProfileSettingOptions" component={SyncProfileSettingOptionsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
           <ProfileStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
@@ -234,7 +261,12 @@ function ProfileStack({
   );
 }
 
-type RootNavigatorProps = { isExpoGo?: boolean };
+type RootNavigatorProps = {
+  isExpoGo?: boolean;
+  onReplayVideoTutorial?: () => void;
+  startTutorialOnMount?: boolean;
+  onTutorialStarted?: () => void;
+};
 
 function LiquidTabBar({ selectedTabIndex, onSelectTab, cacheBadgeCount, navBg, navBorder, navIconActive, navIconInactive, navCapsuleBg, navCapsuleBorder }: any) {
   const insets = useSafeAreaInsets();
@@ -309,7 +341,14 @@ function LiquidTabBar({ selectedTabIndex, onSelectTab, cacheBadgeCount, navBg, n
   );
 }
 
-export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProps) {
+export default function RootNavigator({
+  isExpoGo: _isExpoGo,
+  onReplayVideoTutorial,
+  startTutorialOnMount = false,
+  onTutorialStarted,
+}: RootNavigatorProps) {
+  const appTour = useAppTour();
+  const didStartRequestedTutorialRef = React.useRef(false);
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
@@ -342,7 +381,52 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
   }, [tabOpacities]);
 
-  const openMembershipPaywall = React.useCallback((options?: { returnTo?: 'settings' | 'create-card' }) => {
+  React.useEffect(() => {
+    if (!startTutorialOnMount || didStartRequestedTutorialRef.current) return;
+    didStartRequestedTutorialRef.current = true;
+    const tutorialTab = getFirstRunTutorialStartTab({ stage: 'tutorial' });
+    switchTabImmediately(tutorialTab === 'cache' ? 1 : 0, 0);
+    traceFirstRun('tutorial', 'start_requested', {
+      startTab: tutorialTab,
+    });
+
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        traceFirstRun('tutorial', 'started', { startTab: tutorialTab });
+        appTour.startTour();
+        onTutorialStarted?.();
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame != null) cancelAnimationFrame(secondFrame);
+    };
+  }, [
+    appTour,
+    onTutorialStarted,
+    startTutorialOnMount,
+    switchTabImmediately,
+  ]);
+
+  const openMembershipPaywall = React.useCallback((options?: {
+    returnTo?: 'settings' | 'create-card';
+    source?: 'settings' | 'create_card' | 'review' | 'unknown';
+  }) => {
+    if (SubscriptionService.isPremiumBypassEnabled()) {
+      traceFirstRun('paywall', 'suppressed_by_dev_bypass', {
+        source: options?.source ?? 'unknown',
+      });
+      console.log('[Membership] Premium bypass active; paywall suppressed.');
+      return;
+    }
+
+    traceFirstRun('paywall', 'open_requested', {
+      source: options?.source ?? 'unknown',
+      returnTo: options?.returnTo ?? 'settings',
+    });
+
     setTabBarForcedHidden(false);
     switchTabImmediately(2);
 
@@ -350,13 +434,20 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     const navigateToMembership = () => {
       if (!profileNavigationRef.isReady()) {
         attempts += 1;
-        if (attempts > 20) return;
+        if (attempts > 20) {
+          traceFirstRun('paywall', 'navigation_failed', { attempts });
+          return;
+        }
         requestAnimationFrame(navigateToMembership);
         return;
       }
       profileNavigationRef.navigate('ProfileSettingOptions', {
         kind: 'membership',
         returnTo: options?.returnTo ?? 'settings',
+        source: options?.source ?? 'unknown',
+      });
+      traceFirstRun('paywall', 'screen_navigated', {
+        source: options?.source ?? 'unknown',
       });
     };
 
@@ -368,6 +459,118 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
     if (!cacheNavigationRef.canGoBack()) return;
     cacheNavigationRef.dispatch(StackActions.popToTop());
   }, [cacheNavigationRef]);
+
+  const routeToCacheRoot = React.useCallback(() => {
+    setTabBarForcedHidden(false);
+    switchTabImmediately(1);
+
+    let attempts = 0;
+    const popCacheRootWhenReady = () => {
+      if (!cacheNavigationRef.isReady()) {
+        attempts += 1;
+        if (attempts > 20) return;
+        requestAnimationFrame(popCacheRootWhenReady);
+        return;
+      }
+      resetCacheStackToRoot();
+    };
+
+    setTimeout(popCacheRootWhenReady, 280);
+  }, [cacheNavigationRef, resetCacheStackToRoot, switchTabImmediately]);
+
+  const routeToDeckRoot = React.useCallback(() => {
+    setTabBarForcedHidden(false);
+    switchTabImmediately(0);
+
+    let attempts = 0;
+    const popDeckRootWhenReady = () => {
+      if (!cardsNavigationRef.isReady()) {
+        attempts += 1;
+        if (attempts > 20) return;
+        requestAnimationFrame(popDeckRootWhenReady);
+        return;
+      }
+      if (cardsNavigationRef.canGoBack()) {
+        cardsNavigationRef.dispatch(StackActions.popToTop());
+      }
+    };
+
+    setTimeout(popDeckRootWhenReady, 280);
+  }, [cardsNavigationRef, switchTabImmediately]);
+
+  const handledNotificationResponseIdRef = React.useRef<string | null>(null);
+
+  const handleReminderNotificationResponse = React.useCallback(
+    (response: Notifications.NotificationResponse | null | undefined) => {
+      const requestId = response?.notification.request.identifier;
+      if (!requestId || handledNotificationResponseIdRef.current === requestId) return;
+      const data = response?.notification.request.content.data;
+      if (data?.kind === 'nuances-tip') {
+        handledNotificationResponseIdRef.current = requestId;
+        if (data.target === 'cache') {
+          routeToCacheRoot();
+        } else if (data.target === 'deck') {
+          routeToDeckRoot();
+        } else if (data.target === 'rate') {
+          void Linking.openURL(APP_STORE_REVIEW_URL).catch((error) => {
+            console.warn('[Tips] failed to open App Store review:', error);
+          });
+        }
+        try {
+          Notifications.clearLastNotificationResponse();
+        } catch {
+          // Some runtimes may not expose the native clear hook yet.
+        }
+        return;
+      }
+      if (data?.kind === 'nuances-reminder' && data.target === 'cache') {
+        handledNotificationResponseIdRef.current = requestId;
+        routeToCacheRoot();
+        try {
+          Notifications.clearLastNotificationResponse();
+        } catch {
+          // Some runtimes may not expose the native clear hook yet.
+        }
+        return;
+      }
+      if (data?.kind === 'nuances-reminder' && data.target === 'deck') {
+        handledNotificationResponseIdRef.current = requestId;
+        routeToDeckRoot();
+        try {
+          Notifications.clearLastNotificationResponse();
+        } catch {
+          // Some runtimes may not expose the native clear hook yet.
+        }
+        return;
+      }
+      if (getNotificationCacheCount(response) <= 0) return;
+
+      handledNotificationResponseIdRef.current = requestId;
+      routeToCacheRoot();
+      try {
+        Notifications.clearLastNotificationResponse();
+      } catch {
+        // Some runtimes may not expose the native clear hook yet.
+      }
+    },
+    [routeToCacheRoot, routeToDeckRoot]
+  );
+
+  React.useEffect(() => {
+    try {
+      handleReminderNotificationResponse(Notifications.getLastNotificationResponse());
+    } catch {
+      // Native notifications may be unavailable in tests or unsupported runtimes.
+    }
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      handleReminderNotificationResponse(response);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleReminderNotificationResponse]);
 
   const setTabRootRouteEnabled = React.useCallback((index: number, enabled: boolean) => {
     setTabRootRouteEnabledMap((prev) => {
@@ -394,10 +597,34 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
   const shouldShowTabBar = (tabRootRouteEnabledMap[selectedTabIndex] ?? true) && !tabBarForcedHidden;
 
   React.useEffect(() => {
-    const query = database.get<CachedItem>('cached_items').query(Q.where('deleted_at', null));
-    query.fetch().then((items) => setCacheBadgeCount(items.length)).catch(() => setCacheBadgeCount(0));
-    const sub = query.observe().subscribe((items) => setCacheBadgeCount(items.length));
-    return () => sub.unsubscribe();
+    let unsubscribed = false;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    void (async () => {
+      try {
+        const userId = await getCurrentSessionUserId();
+        if (!userId || unsubscribed) {
+          setCacheBadgeCount(0);
+          return;
+        }
+        const query = database
+          .get<CachedItem>('cached_items')
+          .query(Q.where('user_id', userId), Q.where('deleted_at', null));
+        const count = await query.fetchCount();
+        if (unsubscribed) return;
+        setCacheBadgeCount(count);
+        subscription = query.observeCount().subscribe((nextCount) => setCacheBadgeCount(nextCount));
+      } catch {
+        if (!unsubscribed) {
+          setCacheBadgeCount(0);
+        }
+      }
+    })();
+
+    return () => {
+      unsubscribed = true;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -446,7 +673,11 @@ export default function RootNavigator({ isExpoGo: _isExpoGo }: RootNavigatorProp
             <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
-            <ProfileStack navigationRef={profileNavigationRef} onSwipeEnabledChange={handleProfileRootRouteEnabledChange} />
+            <ProfileStack
+              navigationRef={profileNavigationRef}
+              onSwipeEnabledChange={handleProfileRootRouteEnabledChange}
+              onReplayVideoTutorial={onReplayVideoTutorial || (() => {})}
+            />
           </Animated.View>
         </View>
 

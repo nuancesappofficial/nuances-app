@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   useAnimatedStyle,
@@ -19,6 +20,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { useAppIsActive } from '../../../hooks/useAppIsActive';
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
@@ -45,12 +47,17 @@ export default function OnboardingHeroTriplet({
   size = DEFAULT_SIZE,
   style,
 }: OnboardingHeroTripletProps) {
+  const isAppActive = useAppIsActive();
   const entranceScale = useSharedValue(0.5);
   const spreadProgress = useSharedValue(0);
   const idleY = useSharedValue(0);
   const satelliteSpread = Math.min(size * SATELLITE_SPREAD_RATIO, 112);
 
   React.useEffect(() => {
+    if (!isAppActive) {
+      cancelAnimation(idleY);
+      return;
+    }
     entranceScale.value = withSpring(1, SPRING_CONFIG);
     spreadProgress.value = withDelay(100, withSpring(1, SPRING_CONFIG));
     idleY.value = withRepeat(
@@ -61,7 +68,8 @@ export default function OnboardingHeroTriplet({
       -1,
       true
     );
-  }, [entranceScale, idleY, spreadProgress]);
+    return () => cancelAnimation(idleY);
+  }, [entranceScale, idleY, isAppActive, spreadProgress]);
 
   const idleContainerStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: idleY.value }],

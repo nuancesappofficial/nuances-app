@@ -1,23 +1,33 @@
 import React from 'react';
-import { StyleSheet, Dimensions, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withDelay,
+  withSequence,
+  withTiming,
+  withRepeat,
+  cancelAnimation,
+  Easing,
   runOnJS,
   interpolate,
   Extrapolate,
   useDerivedValue,
   type SharedValue,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import CacheTextCardFace from './CacheTextCardFace';
 import CacheImageCardFace from './CacheImageCardFace';
+import MovingTutorialArrow from '../shared/MovingTutorialArrow';
+import { useAppIsActive } from '../../../hooks/useAppIsActive';
+import { clampTutorialCacheDragX } from '../../../features/tour/tutorialCachePolicy';
 
-const { width } = Dimensions.get('window');
+export const CACHE_CARD_HORIZONTAL_INSET = 40;
+export const CACHE_CARD_HEIGHT = 480;
 
 const ELEGANT_SPRING = {
   damping: 32,
@@ -58,6 +68,8 @@ type Props = {
   animationSeed: number;
   shouldAnimateEntrance?: boolean;
   entranceOrder?: number;
+  showSwipeTugHint?: boolean;
+  deletionLocked?: boolean;
 };
 
 export default function CacheCardUI({
@@ -78,7 +90,12 @@ export default function CacheCardUI({
   animationSeed,
   shouldAnimateEntrance = false,
   entranceOrder = -1,
+  showSwipeTugHint = false,
+  deletionLocked = false,
 }: Props) {
+  const { width } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
+  const isAppActive = useAppIsActive();
   const toY = index * -4;
   const targetRot = React.useMemo(() => getStableCardRotation(itemId), [itemId]);
   const delay = (entranceOrder >= 0 ? entranceOrder : 0) * 110;
@@ -95,6 +112,20 @@ export default function CacheCardUI({
   const hasRestoreInitialized = React.useRef(false);
   const lastSwipeTriggerSeq = React.useRef<number | null>(null);
   const lastEntranceTokenRef = React.useRef<string | null>(null);
+  const tugHintTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tugRestartSeed, setTugRestartSeed] = React.useState(0);
+  const tutorialTugX = useSharedValue(0);
+  const tutorialPulse = useSharedValue(0);
+
+  const cancelPendingTugHint = React.useCallback(() => {
+    if (!tugHintTimerRef.current) return;
+    clearTimeout(tugHintTimerRef.current);
+    tugHintTimerRef.current = null;
+  }, []);
+
+  const restartTutorialTug = React.useCallback(() => {
+    setTugRestartSeed((current) => current + 1);
+  }, []);
 
   const triggerSwipeHaptic = React.useCallback((direction: 'left' | 'right') => {
     void Haptics.impactAsync(
@@ -156,6 +187,73 @@ export default function CacheCardUI({
   ]);
 
   React.useEffect(() => {
+    cancelAnimation(tutorialTugX);
+    cancelAnimation(tutorialPulse);
+    tutorialTugX.value = 0;
+    tutorialPulse.value = showSwipeTugHint && isTopCard ? 1 : 0;
+
+    if (!showSwipeTugHint || !isTopCard || !isAppActive) return;
+
+    if (reduceMotion) {
+      tutorialPulse.value = 1;
+      return;
+    }
+
+    const entranceDuration = shouldAnimateEntrance ? delay + 1050 : 0;
+    tugHintTimerRef.current = setTimeout(() => {
+      tugHintTimerRef.current = null;
+      tutorialTugX.value = withRepeat(
+        withSequence(
+          withTiming(20, { duration: 260, easing: Easing.out(Easing.cubic) }),
+          withTiming(0, { duration: 340, easing: Easing.inOut(Easing.quad) }),
+          withDelay(900, withTiming(0, { duration: 1 }))
+        ),
+        -1,
+        false
+      );
+      topCardDragX.value = withRepeat(
+        withSequence(
+          withTiming(20, { duration: 260, easing: Easing.out(Easing.cubic) }),
+          withTiming(0, { duration: 340, easing: Easing.inOut(Easing.quad) }),
+          withDelay(900, withTiming(0, { duration: 1 }))
+        ),
+        -1,
+        false
+      );
+      tutorialPulse.value = withRepeat(
+        withSequence(
+          withTiming(0.35, { duration: 720, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1, { duration: 720, easing: Easing.inOut(Easing.quad) })
+        ),
+        -1,
+        false
+      );
+    }, entranceDuration + 650);
+
+    return () => {
+      cancelPendingTugHint();
+      cancelAnimation(tutorialTugX);
+      cancelAnimation(tutorialPulse);
+      if (isTopCard) {
+        cancelAnimation(topCardDragX);
+        topCardDragX.value = 0;
+      }
+    };
+  }, [
+    cancelPendingTugHint,
+    delay,
+    isAppActive,
+    isTopCard,
+    reduceMotion,
+    shouldAnimateEntrance,
+    showSwipeTugHint,
+    tutorialPulse,
+    tutorialTugX,
+    tugRestartSeed,
+    topCardDragX,
+  ]);
+
+  React.useEffect(() => {
     if (!hasRestoreInitialized.current) {
       hasRestoreInitialized.current = true;
       return;
@@ -176,28 +274,55 @@ export default function CacheCardUI({
     if (lastSwipeTriggerSeq.current === swipeTrigger.seq) return;
     lastSwipeTriggerSeq.current = swipeTrigger.seq;
 
+    if (deletionLocked && swipeTrigger.direction === 'left') {
+      isPressed.value = false;
+      x.value = withSpring(0, ELEGANT_SPRING);
+      topCardDragX.value = withSpring(0, ELEGANT_SPRING);
+      return;
+    }
+
     const dir = swipeTrigger.direction === 'right' ? 1 : -1;
     const flyTo = width * 2 * dir;
     isPressed.value = true;
     x.value = withSpring(flyTo, ELEGANT_SPRING);
     topCardDragX.value = flyTo;
     runOnJS(commitSwipe)(swipeTrigger.direction);
-  }, [commitSwipe, isTopCard, itemId, isPressed, swipeTrigger, topCardDragX, x]);
+  }, [commitSwipe, deletionLocked, isTopCard, itemId, isPressed, swipeTrigger, topCardDragX, x]);
 
   const pan = Gesture.Pan()
     .enabled(isTopCard)
     .onBegin(() => {
+      cancelAnimation(x);
+      cancelAnimation(tutorialTugX);
+      cancelAnimation(topCardDragX);
+      tutorialTugX.value = 0;
+      topCardDragX.value = 0;
+      runOnJS(cancelPendingTugHint)();
       isPressed.value = true;
     })
     .onUpdate((e) => {
-      x.value = e.translationX;
+      const dragX = clampTutorialCacheDragX(e.translationX, deletionLocked);
+      x.value = dragX;
       if (isTopCard) {
-        topCardDragX.value = e.translationX;
+        topCardDragX.value = dragX;
       }
       y.value = toY + e.translationY;
-      rot.value = targetRot + e.translationX / 20;
+      rot.value = targetRot + dragX / 20;
     })
     .onEnd((e) => {
+      if (deletionLocked && e.translationX < 0) {
+        isPressed.value = false;
+        x.value = withSpring(0, ELEGANT_SPRING);
+        if (isTopCard) {
+          topCardDragX.value = withSpring(0, ELEGANT_SPRING);
+        }
+        y.value = withSpring(toY, ELEGANT_SPRING);
+        rot.value = withSpring(targetRot, ELEGANT_SPRING);
+        if (showSwipeTugHint && isTopCard) {
+          runOnJS(restartTutorialTug)();
+        }
+        return;
+      }
       const trigger = Math.abs(e.velocityX) > 400 || Math.abs(e.translationX) > width * 0.3;
       if (trigger) {
         const dir = e.translationX > 0 ? 1 : -1;
@@ -220,14 +345,19 @@ export default function CacheCardUI({
 
   const animatedStyle = useAnimatedStyle(() => ({
     position: 'absolute',
-    width: width - 80,
-    height: 480,
+    width: width - CACHE_CARD_HORIZONTAL_INSET * 2,
+    height: CACHE_CARD_HEIGHT,
     transform: [
       { translateX: x.value },
+      { translateX: tutorialTugX.value },
       { translateY: y.value },
       { rotateZ: `${rot.value}deg` },
       { scale: scale.value },
     ],
+  }));
+
+  const tutorialBorderStyle = useAnimatedStyle(() => ({
+    opacity: tutorialPulse.value,
   }));
 
   const activeOpacity = useDerivedValue(() => (isPressed.value ? 1 : 0));
@@ -274,6 +404,12 @@ export default function CacheCardUI({
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.shadowWrapper, animatedStyle]}>
         <View style={styles.cardContent}>
+          {showSwipeTugHint && isTopCard ? (
+            <>
+              <Animated.View pointerEvents="none" style={[styles.tutorialBorder, tutorialBorderStyle]} />
+              <MovingTutorialArrow style={styles.swipeTutorialArrow} color="#2D8A56" size={38} />
+            </>
+          ) : null}
           <View style={styles.headerRow}>
             <View style={styles.sourcePill}>
               <Text style={styles.sourcePillText}>{sourceLabel}</Text>
@@ -326,6 +462,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 10,
+  },
+  tutorialBorder: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+    borderRadius: 24,
+    borderWidth: 3,
+    borderColor: '#5CC58A',
+    shadowColor: '#44B979',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+  },
+  swipeTutorialArrow: {
+    position: 'absolute',
+    right: -23,
+    top: '45%',
   },
   headerRow: {
     minHeight: 30,

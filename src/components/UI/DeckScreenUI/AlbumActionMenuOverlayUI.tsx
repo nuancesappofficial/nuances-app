@@ -1,10 +1,12 @@
 import React from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Reanimated, { type SharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import FolderIcon from './FolderIcon';
 import { MenuSymbol } from './AlbumIconItemUI';
 import type { DeckAlbum } from './deckTypes';
+import type { UILanguage } from '../../../services/settings/userSettings';
+import { getDeckAlbumDisplayName } from '../../../features/deck/albums';
 
 type Props = {
   isMenuVisible: SharedValue<boolean>;
@@ -12,6 +14,7 @@ type Props = {
   startY: SharedValue<number>;
   hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
   activeAlbum: DeckAlbum | null;
+  uiLanguage: UILanguage;
   activeLayout: { x: number; y: number; width: number; height: number } | null;
 };
 
@@ -25,9 +28,10 @@ export default function AlbumActionMenuOverlayUI({
   startY,
   hoveredAction,
   activeAlbum,
+  uiLanguage,
   activeLayout,
 }: Props) {
-  const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const AnimatedBlurView = React.useMemo(() => Reanimated.createAnimatedComponent(BlurView), []);
 
   const blurStyle = useAnimatedStyle(() => ({
@@ -82,7 +86,7 @@ export default function AlbumActionMenuOverlayUI({
           ]}
         >
           <FolderIcon
-            title={activeAlbum.name}
+            title={getDeckAlbumDisplayName(activeAlbum, uiLanguage)}
             wordCount={activeAlbum.wordCount}
             latestCards={activeAlbum.latestCards}
             iconEmoji={activeAlbum.emoji}
@@ -92,14 +96,6 @@ export default function AlbumActionMenuOverlayUI({
           />
         </Reanimated.View>
       ) : null}
-
-      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
-        <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
-      </Reanimated.View>
-
-      <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, deleteButtonStyle]}>
-        <MenuSymbol name="trash.fill" color="#FF3B30" fallback="🗑️" />
-      </Reanimated.View>
 
       <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, editButtonStyle]}>
         <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
