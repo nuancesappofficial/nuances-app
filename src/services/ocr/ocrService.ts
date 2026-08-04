@@ -12,6 +12,7 @@ import { callAIAction } from '../ai/edgeAiClient';
 import type { AIPersonalizationOptions } from '../ai/types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { getPreparedOCRVisionLanguageConfig } from './languagePacks';
+import { normalizeOCRText } from './ocrTextNormalization';
 import { pickSentenceContainingWord } from '../../features/createCard/textTransforms';
 
 // ============================================================
@@ -103,7 +104,7 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     const ocrLanguageConfig = await getPreparedOCRVisionLanguageConfig();
     const primaryResult = await recognizeTextWithVision(imageUri, {
       languages: ocrLanguageConfig.visionLanguages,
-      usesLanguageCorrection: false,
+      usesLanguageCorrection: true,
       automaticallyDetectsLanguage: ocrLanguageConfig.automaticallyDetectsLanguage,
     });
     const blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
@@ -232,7 +233,7 @@ function resolveOCRBlockText(block: VisionOCRBlockLike): string {
   if (!rawText) return '';
   const candidate = spacedCandidateForOCRToken(rawText, block.candidates);
   if (candidate) return candidate;
-  return restoreOCRSpacingInText(rawText);
+  return normalizeOCRText(restoreOCRSpacingInText(rawText));
 }
 
 function mapVisionBlocksToOCRBlocks(visionBlocks: VisionOCRBlockLike[]): OCRBlock[] {
@@ -275,7 +276,7 @@ function hasLatin(text: string): boolean {
 function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): string {
   const trimmedRaw = (rawText || '').trim();
   if (trimmedRaw) {
-    return restoreOCRSpacingInText(trimmedRaw);
+    return normalizeOCRText(restoreOCRSpacingInText(trimmedRaw));
   }
 
   const tokens = blocks.map((block) => block.text.trim()).filter(Boolean);
