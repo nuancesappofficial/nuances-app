@@ -4035,13 +4035,14 @@ Deno.serve(async (req: Request) => {
         const payload = body.payload as GenerateCardPayload;
         starterGenerationId = sanitizeText(payload.generationId, 64);
         if (!starterGenerationId) {
-          return jsonResponse(
-            {
-              error: 'Update required to use free starter cards',
-              reason: 'starter_generation_id_required',
-            },
-            409
-          );
+          // 舊版 App 的非串流 generate_card 路徑不會附 generationId。
+          // 伺服器自動補一張唯一號碼牌，讓免費額度照常計數，避免 409 擋住使用者。
+          // 等新版 App（前端已附 generationId）全面上線後，可移除這個補丁。
+          starterGenerationId = createRequestId('starter');
+          logAIDiagnostic('starter_generation_id_backfilled', {
+            userId,
+            action: body.action,
+          }, 'warn');
         }
         const claim = await claimFreeStarterCard({
           supabase,

@@ -6,6 +6,7 @@ import type { AIPersonalizationOptions } from './types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { stringifySemanticRelations } from '../../features/cards/semanticRelations';
 import * as Crypto from 'expo-crypto';
+import { buildGenerateCardPayload } from './generateCardPayload';
 import {
   isValidCollocationForSubject,
   normalizeGeneratedUsagePairs,
@@ -380,6 +381,7 @@ export async function generateCardContent(
     console.log(
       `[Phonetic] generate_card target="${targetWord}" source=${localPhonetic ? 'local' : 'api_fallback'}`
     );
+    const generationId = Crypto.randomUUID();
     const result = await callAIAction<
       {
         targetWord: string;
@@ -388,16 +390,18 @@ export async function generateCardContent(
         replyLanguage?: string;
         sourceLanguage?: string;
         aiBreakdownMode?: string;
+        generationId?: string;
       },
       GenerateCardResult
-    >('generate_card', {
+    >('generate_card', buildGenerateCardPayload({
       targetWord,
       originalSentence,
       includePronunciation: !localPhonetic,
       replyLanguage,
       sourceLanguage,
       aiBreakdownMode,
-    });
+      generationId,
+    }));
 
     return normalizeGeneratedCardResult(result, targetWord, localPhonetic, originalSentence);
   } catch (error) {
