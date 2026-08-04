@@ -462,3 +462,15 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
 export async function stopAzureTtsPlayback(): Promise<void> {
   await stopActiveCloudPlayback();
 }
+
+/**
+ * Cancel any in-flight TTS playback request, including one that is still
+ * downloading its audio. Bumping `latestPlaybackRequestId` makes the pending
+ * `playAudioUri` (and any later `prepareTtsPlaybackMode`) bail out via its
+ * requestId guard, so a download that finishes after recording has started
+ * will not grab the AVAudioSession back into playback mode.
+ */
+export function cancelAllTtsPlayback(): void {
+  latestPlaybackRequestId += 1;
+  void stopActiveCloudPlayback();
+}

@@ -47,7 +47,7 @@ import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
 } from '@services/tts/defaultExperienceSpeech';
-import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
+import { cancelAllTtsPlayback, stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import AppReviewService from '@services/reviews/AppReviewService';
@@ -222,6 +222,15 @@ async function waitForActiveAudioSession(): Promise<void> {
   // The permission promise can resolve just before AVAudioSession becomes
   // activatable again. Give the native scene one short foreground frame.
   await new Promise<void>((resolve) => setTimeout(resolve, AUDIO_SESSION_ACTIVE_SETTLE_MS));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 function triggerWrongAnswerBuzzHaptic() {
@@ -2245,19 +2254,42 @@ export default function ReviewFlow({ navigation, route }: Props) {
           // Stop any in-flight TTS playback before switching to recording mode.
           // iOS AVAudioSession may still be in playback mode and reject the
           // recording switch if a sound is mid-playback or was just released.
+          // cancelAllTtsPlayback also invalidates a TTS request that is still
+          // downloading, so a download finishing after recording starts cannot
+          // grab the AVAudioSession back into playback mode.
           await stopDefaultExperiencePronunciation();
           await stopAzureTtsPlayback();
+          cancelAllTtsPlayback();
           await waitForActiveAudioSession();
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+          await withTimeout(
+            Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true }),
+            5000,
+            'setAudioModeAsync'
+          );
+          // iOS AVAudioSession does not switch from playback to recording
+          // instantaneously. Give the native session one short frame to finish
+          // the transition before preparing the recorder, otherwise
+          // prepareToRecordAsync can throw (e.g. OSStatus 561017449).
+          await new Promise<void>((resolve) => setTimeout(resolve, 250));
           pendingRecording = new Audio.Recording();
-          await pendingRecording.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any);
+          await withTimeout(
+            pendingRecording.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any),
+            5000,
+            'prepareToRecordAsync'
+          ).catch(async (prepareError) => {
+            // The first prepare can race the audio-session transition. Retry
+            // once after a short settle before giving up.
+            await new Promise<void>((resolve) => setTimeout(resolve, 300));
+            await pendingRecording!.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any);
+            return;
+          });
           pendingRecording.setProgressUpdateInterval?.(80);
           pendingRecording.setOnRecordingStatusUpdate((status: any) => {
             if (status?.isRecording) {
               updatePronunciationWaveFromMetering(question.id, status.metering);
             }
           });
-          await pendingRecording.startAsync();
+          await withTimeout(pendingRecording.startAsync(), 5000, 'startAsync');
           pronunciationRecordingRef.current = pendingRecording;
           pendingRecording = null;
           pronunciationRecordingStartedAtRef.current = Date.now();
