@@ -217,10 +217,12 @@ function ProfileStack({
   onSwipeEnabledChange,
   navigationRef,
   onReplayVideoTutorial,
+  onDevAccountDelete,
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
   onReplayVideoTutorial: () => void;
+  onDevAccountDelete?: () => Promise<void>;
 }) {
   const syncSwipeEnabled = React.useCallback(() => {
     if (!navigationRef.isReady()) return;
@@ -249,6 +251,7 @@ function ProfileStack({
               <ProfileMainFlow
                 {...props}
                 onReplayVideoTutorial={onReplayVideoTutorial}
+                onDevAccountDelete={onDevAccountDelete}
               />
             )}
           </ProfileStackNav.Screen>
@@ -266,6 +269,7 @@ type RootNavigatorProps = {
   onReplayVideoTutorial?: () => void;
   startTutorialOnMount?: boolean;
   onTutorialStarted?: () => void;
+  onDevAccountDelete?: () => Promise<void>;
 };
 
 function LiquidTabBar({ selectedTabIndex, onSelectTab, cacheBadgeCount, navBg, navBorder, navIconActive, navIconInactive, navCapsuleBg, navCapsuleBorder }: any) {
@@ -346,6 +350,7 @@ export default function RootNavigator({
   onReplayVideoTutorial,
   startTutorialOnMount = false,
   onTutorialStarted,
+  onDevAccountDelete,
 }: RootNavigatorProps) {
   const appTour = useAppTour();
   const didStartRequestedTutorialRef = React.useRef(false);
@@ -677,6 +682,7 @@ export default function RootNavigator({
               navigationRef={profileNavigationRef}
               onSwipeEnabledChange={handleProfileRootRouteEnabledChange}
               onReplayVideoTutorial={onReplayVideoTutorial || (() => {})}
+              onDevAccountDelete={onDevAccountDelete}
             />
           </Animated.View>
         </View>

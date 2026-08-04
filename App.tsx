@@ -34,6 +34,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import OnboardingFlow from './src/screens/flow/OnboardingFlow';
+import VideoTourFlow from './src/screens/flow/VideoTourFlow';
 import LightPressable from './src/components/UI/shared/LightPressable';
 import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
@@ -54,10 +55,13 @@ import {
   finishFreshTestAccountReset,
   waitForFreshTestAccountReset,
 } from './src/features/auth/freshTestAccountGate';
+import {
+  isDevFreshUserSimulatorEnabled,
+  simulateFreshUser,
+} from './src/features/auth/devFreshUserSimulator';
 import SubscriptionService from './src/services/subscription/SubscriptionService';
 import ReminderNotificationService from './src/services/notifications/ReminderNotificationService';
 import TipNotificationService from './src/services/notifications/TipNotificationService';
-import TrialNotificationService from './src/services/notifications/TrialNotificationService';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
 import { syncIfNeeded } from './src/services/sync';
 import {
@@ -75,6 +79,10 @@ import { installUserMistakeAlertLogger } from './src/services/logging/userMistak
 import { logDiagnosticEvent } from './src/services/logging/diagnosticsLog';
 import { traceFirstRun } from './src/services/logging/firstRunTraceRuntime';
 import { analytics } from './src/services/analytics';
+import {
+  initializeGrowthAnalytics,
+  rememberGrowthAttributionFromUrl,
+} from './src/services/analytics/growthAnalyticsRuntime';
 import { processPendingCardImageUploads } from './src/services/cards/cardImageCloudQueue';
 import { SCREEN_BG, resolveThemeColors } from './src/theme/colors';
 import { tUI } from './src/i18n/uiLanguage';
@@ -85,15 +93,15 @@ import {
   markTourSeenLocally,
 } from './src/features/tour/tourSeen';
 import { clearDefaultExperienceCardSeen } from './src/features/cache/defaultExperienceCard';
-import {
-  INTERNAL_TESTER_TOOLS_ENABLED,
-  VIDEO_TOUR_ENABLED,
-} from './src/features/tour/tourMode';
+import { clearLocalAccountDataForUser } from './src/services/account/AccountDeletionService';
+import { setActiveDevFreshUserId } from './src/features/auth/devFreshUserSimulatorCore';
+import { VIDEO_TOUR_ENABLED } from './src/features/tour/tourMode';
 import {
   advanceFirstRunJourney,
   createFirstRunJourney,
 } from './src/features/tour/firstRunJourney';
 import TourMotionLab from './src/screens/dev/TourMotionLab';
+import TourCompletionGreetingLab from './src/screens/dev/TourCompletionGreetingLab';
 import {
   createHiddenSignInCurtain,
   transitionSignInCurtain,
@@ -105,39 +113,15 @@ installUserMistakeAlertLogger();
 void ReminderNotificationService.configure();
 const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
+const INTERNAL_TESTER_TOOLS_ENABLED =
+  process.env.EXPO_PUBLIC_INTERNAL_TESTER_TOOLS === 'true';
 const DEV_SIGNOUT_URL = `${AUTH_REDIRECT_SCHEME}://dev/signout`;
 const DEV_RESET_ONBOARDING_URL = `${AUTH_REDIRECT_SCHEME}://dev/reset-onboarding`;
 const DEV_SKIP_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/skip-tour`;
 const DEV_TOUR_MOTION_LAB_URL = `${AUTH_REDIRECT_SCHEME}://dev/tour-motion-lab`;
+const DEV_TOUR_COMPLETION_GREETING_URL = `${AUTH_REDIRECT_SCHEME}://dev/tour-completion-greeting`;
 const DEV_REPLAY_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/replay-tour`;
 const DEV_REPLAY_VIDEO_TOUR_URL = `${AUTH_REDIRECT_SCHEME}://dev/replay-video-tour`;
-
-type VideoTourFlowComponent = typeof import('./src/screens/flow/VideoTourFlow').default;
-let loadedVideoTourFlow: VideoTourFlowComponent | null = null;
-let videoTourLoadFailed = false;
-
-function getVideoTourFlow(): VideoTourFlowComponent {
-  if (!loadedVideoTourFlow) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      loadedVideoTourFlow = require('./src/screens/flow/VideoTourFlow').default as VideoTourFlowComponent;
-    } catch (error) {
-      console.warn('[VideoTour] failed to load video tutorial:', error);
-      throw error;
-    }
-  }
-  return loadedVideoTourFlow;
-}
-
-function tryGetVideoTourFlow(): VideoTourFlowComponent | null {
-  if (videoTourLoadFailed) return null;
-  try {
-    return getVideoTourFlow();
-  } catch {
-    videoTourLoadFailed = true;
-    return null;
-  }
-}
 
 function ShareExtensionSync({
   userId,
@@ -524,7 +508,7 @@ function AuthGate({
 
         <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }, authTitleAnimatedStyle]}>
           <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
-          {__DEV__ && onPressTestAccount ? (
+          {(__DEV__ || INTERNAL_TESTER_TOOLS_ENABLED) && onPressTestAccount ? (
             <LightPressable
               style={[styles.devTestAccountButton, loading && styles.googleButtonDisabled]}
               onPress={onPressTestAccount}
@@ -655,6 +639,8 @@ export default function App() {
   );
   const [showVideoTourCurtain, setShowVideoTourCurtain] = useState(false);
   const [showTourMotionLab, setShowTourMotionLab] = useState(false);
+  const [showTourCompletionGreetingLab, setShowTourCompletionGreetingLab] =
+    useState(false);
   const [manualVideoTourRequested, setManualVideoTourRequested] = useState(false);
   const [startTutorialAfterVideoTour, setStartTutorialAfterVideoTour] = useState(false);
   const videoTourEntryOpacity = React.useRef(new Animated.Value(1)).current;
@@ -717,6 +703,7 @@ export default function App() {
       event: 'app_component_mounted',
       context: { initialAppState: AppState.currentState, isExpoGo },
     });
+    void initializeGrowthAnalytics(Linking.getInitialURL);
     initializeApp();
   }, []);
 
@@ -1006,11 +993,6 @@ export default function App() {
                 NATIVE_BRIDGE_TIMEOUT_MS,
                 'cancelTipNotifications(sign-out)'
               ),
-              withTimeout(
-                TrialNotificationService.cancelAll(),
-                NATIVE_BRIDGE_TIMEOUT_MS,
-                'cancelTrialNotifications(sign-out)'
-              ),
             ]);
           } catch (error) {
             console.warn('[App] local auth suspension failed:', error);
@@ -1059,11 +1041,6 @@ export default function App() {
                   TipNotificationService.cancelScheduled(),
                   NATIVE_BRIDGE_TIMEOUT_MS,
                   'cancelTipNotifications(account-switch)'
-                ),
-                withTimeout(
-                  TrialNotificationService.cancelAll(),
-                  NATIVE_BRIDGE_TIMEOUT_MS,
-                  'cancelTrialNotifications(account-switch)'
                 ),
               ]);
               if (isStaleTransition()) return;
@@ -1194,6 +1171,10 @@ export default function App() {
       setShowTourMotionLab(true);
       return true;
     }
+    if (url.startsWith(DEV_TOUR_COMPLETION_GREETING_URL)) {
+      setShowTourCompletionGreetingLab(true);
+      return true;
+    }
     if (url.startsWith(DEV_REPLAY_TOUR_URL)) {
       return true;
     }
@@ -1288,6 +1269,7 @@ export default function App() {
 
   const handleIncomingUrl = React.useCallback(
     async (url: string) => {
+      await rememberGrowthAttributionFromUrl(url);
       await handleDeveloperCommand(url);
     },
     [handleDeveloperCommand]
@@ -1395,37 +1377,68 @@ export default function App() {
   }, []);
 
   const handleTestAccountSignIn = React.useCallback(async () => {
+    const devSimulatorEnabled = isDevFreshUserSimulatorEnabled();
     const email = process.env.EXPO_PUBLIC_TEST_ACCOUNT_EMAIL;
     const password = process.env.EXPO_PUBLIC_TEST_ACCOUNT_PASSWORD;
-    if (!__DEV__ || !email || !password) {
+    if (!__DEV__ && !INTERNAL_TESTER_TOOLS_ENABLED) {
+      Alert.alert('Test account unavailable', 'Dev test account is not available in this build.');
+      return;
+    }
+    if (!devSimulatorEnabled && (!email || !password)) {
       Alert.alert('Test account unavailable', 'Dev test account credentials are not configured.');
       return;
     }
 
-    traceFirstRun('auth', 'sign_in_started', { provider: 'dev_test_account' });
+    traceFirstRun('auth', 'sign_in_started', {
+      provider: devSimulatorEnabled ? 'dev_fresh_user_simulator' : 'dev_test_account',
+    });
     beginFreshTestAccountReset();
     dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
-      const { data, error } = await signIn(email, password);
-      if (error || !data?.session?.access_token) {
-        throw error ?? new Error('Test account did not return a session.');
+      if (devSimulatorEnabled) {
+        // Dev-only: simulate a brand-new user locally without real credentials.
+        const session = await simulateFreshUser();
+        const nextUserId = session.user.id;
+        await withTimeout(
+          setAppGroupActiveUserId(nextUserId),
+          NATIVE_BRIDGE_TIMEOUT_MS,
+          'setAppGroupActiveUserId(dev-fresh-user)'
+        );
+        activeUserIdRef.current = nextUserId;
+        setUserId(nextUserId);
+        setAllowOfflineAccess(false);
+        setNeedsOnboarding(true);
+        setOnboardingChecked(true);
+        setNeedsVideoTour(VIDEO_TOUR_ENABLED);
+        setManualVideoTourRequested(false);
+        setVideoTourChecked(true);
+        setIsReady(true);
+        traceFirstRun('auth', 'dev_fresh_user_simulator_ready', { userId: nextUserId });
+        // The local simulator does not emit Supabase's session-ready event.
+        dispatchSignInCurtain('session-ready');
+        dispatchSignInCurtain('sign-in-returned');
+      } else {
+        const { data, error } = await signIn(email, password);
+        if (error || !data?.session?.access_token) {
+          throw error ?? new Error('Test account did not return a session.');
+        }
+        const reset = await resetFreshTestAccount();
+        await Promise.all([
+          clearTourSeenLocally(reset.user_id),
+          clearDefaultExperienceCardSeen(reset.user_id),
+        ]);
+        traceFirstRun('auth', 'dev_test_account_reset_completed', {
+          userId: reset.user_id,
+        });
+        traceFirstRun('auth', 'provider_returned_session', {
+          provider: 'dev_test_account',
+        });
+        dispatchSignInCurtain('sign-in-returned');
       }
-      const reset = await resetFreshTestAccount();
-      await Promise.all([
-        clearTourSeenLocally(reset.user_id),
-        clearDefaultExperienceCardSeen(reset.user_id),
-      ]);
-      traceFirstRun('auth', 'dev_test_account_reset_completed', {
-        userId: reset.user_id,
-      });
-      traceFirstRun('auth', 'provider_returned_session', {
-        provider: 'dev_test_account',
-      });
-      dispatchSignInCurtain('sign-in-returned');
     } catch (error) {
       traceFirstRun('auth', 'sign_in_failed', {
-        provider: 'dev_test_account',
+        provider: devSimulatorEnabled ? 'dev_fresh_user_simulator' : 'dev_test_account',
         error,
       });
       dispatchSignInCurtain('sign-in-aborted');
@@ -1441,6 +1454,16 @@ export default function App() {
 
   const handleBootCurtainOpened = React.useCallback(() => {
     setShowBootCurtain(false);
+  }, []);
+
+  const handleDevAccountDelete = React.useCallback(async () => {
+    if (!activeUserIdRef.current || !isDevFreshUserSimulatorEnabled()) return;
+    await clearLocalAccountDataForUser(activeUserIdRef.current);
+    await setAppGroupActiveUserId(null);
+    setActiveDevFreshUserId(null);
+    activeUserIdRef.current = null;
+    setUserId(null);
+    setIsReady(true);
   }, []);
 
   const handleSignInCurtainOpened = React.useCallback(() => {
@@ -1469,18 +1492,9 @@ export default function App() {
     !needsOnboarding &&
     (needsVideoTour || manualVideoTourRequested)
   );
-  const VideoTourFlow = shouldRenderVideoTour ? tryGetVideoTourFlow() : null;
   const appSurfaceReady = Boolean(
     isReady && (!userId || (onboardingChecked && videoTourChecked))
   );
-
-  React.useEffect(() => {
-    if (!shouldRenderVideoTour || VideoTourFlow) return;
-    console.warn('[VideoTour] unavailable; continuing without video tutorial.');
-    setNeedsVideoTour(false);
-    setManualVideoTourRequested(false);
-    setVideoTourChecked(true);
-  }, [VideoTourFlow, shouldRenderVideoTour]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -1489,11 +1503,15 @@ export default function App() {
           <ShareExtensionProvider>
             <AppTourProvider>
               <ShareExtensionSync userId={userId}>
-                {showTourMotionLab ? (
+                {showTourCompletionGreetingLab ? (
+                  <TourCompletionGreetingLab
+                    onClose={() => setShowTourCompletionGreetingLab(false)}
+                  />
+                ) : showTourMotionLab ? (
                   <TourMotionLab onClose={() => setShowTourMotionLab(false)} />
                 ) : userId && (!onboardingChecked || !videoTourChecked) ? (
                   <AnimatedSplashV2 ready={false} showLogo={false} />
-                ) : userId && VideoTourFlow ? (
+                ) : shouldRenderVideoTour && userId ? (
                   <Animated.View style={[styles.videoTourEntry, { opacity: videoTourEntryOpacity }]}>
                     <VideoTourFlow
                       userId={userId}
@@ -1540,10 +1558,13 @@ export default function App() {
                   />
                 ) : userId ? (
                   <RootNavigator
-                    key={userId}
+                    key={`${userId}:${
+                      startTutorialAfterVideoTour ? 'interactive-tutorial' : 'app'
+                    }`}
                     isExpoGo={isExpoGo}
                     startTutorialOnMount={startTutorialAfterVideoTour}
                     onTutorialStarted={() => setStartTutorialAfterVideoTour(false)}
+                    onDevAccountDelete={handleDevAccountDelete}
                     onReplayVideoTutorial={() => {
                       if (VIDEO_TOUR_ENABLED) {
                         setManualVideoTourRequested(true);
@@ -1559,11 +1580,7 @@ export default function App() {
                   <AuthGate
                     onPressGoogle={handleGoogleSignIn}
                     onPressApple={handleAppleSignIn}
-                    onPressTestAccount={
-                      INTERNAL_TESTER_TOOLS_ENABLED
-                        ? handleTestAccountSignIn
-                        : undefined
-                    }
+                    onPressTestAccount={handleTestAccountSignIn}
                     loading={authLoading}
                   />
                 )}

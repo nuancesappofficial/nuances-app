@@ -17,7 +17,7 @@ export type DeleteAccountResult = {
   }>;
 };
 
-async function clearLocalAccountData(userId: string): Promise<void> {
+export async function clearLocalAccountDataForUser(userId: string): Promise<void> {
   const tableNames = [
     'review_history',
     'cards',
@@ -105,7 +105,7 @@ export async function deleteCurrentAccount(): Promise<DeleteAccountResult> {
   }
 
   try {
-    await clearLocalAccountData(session.user.id);
+    await clearLocalAccountDataForUser(session.user.id);
   } catch (error) {
     console.warn('[AccountDeletion] local database cleanup failed:', error);
   }
