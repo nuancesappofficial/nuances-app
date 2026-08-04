@@ -1,4 +1,5 @@
 import { getCurrentSession, getCurrentUser } from '@services/supabase/client';
+import { getActiveDevFreshUserId } from '../../features/auth/devFreshUserSimulatorCore';
 
 /**
  * UI-safe identity lookup.
@@ -10,7 +11,7 @@ import { getCurrentSession, getCurrentUser } from '@services/supabase/client';
 export async function getCurrentSessionUserId(): Promise<string | null> {
   const { session, error } = await getCurrentSession();
   if (error) return null;
-  return session?.user?.id ?? null;
+  return session?.user?.id ?? getActiveDevFreshUserId();
 }
 
 /**

@@ -33,12 +33,14 @@ import { deleteCurrentAccount } from '@services/account/AccountDeletionService';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { tUI } from '../../../i18n/uiLanguage';
 import { SUPPORT_EMAIL } from '../../../constants/legalLinks';
+import { isDevFreshUserSimulatorEnabled } from '../../../features/auth/devFreshUserSimulatorCore';
 
 type Props = {
   navigation: any;
   overlayMode?: boolean;
   onRequestClose?: () => void;
   onReplayVideoTutorial?: () => void;
+  onDevAccountDelete?: () => Promise<void>;
 };
 
 function getDateKey(input: Date | string): string {
@@ -249,6 +251,7 @@ export default function ProfileMainFlow({
   overlayMode = false,
   onRequestClose,
   onReplayVideoTutorial,
+  onDevAccountDelete,
 }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const initialSettings = getInitialUserSettings();
@@ -493,7 +496,11 @@ export default function ProfileMainFlow({
     if (isDeletingAccount) return;
     setIsDeletingAccount(true);
     try {
-      await deleteCurrentAccount();
+      if (isDevFreshUserSimulatorEnabled() && onDevAccountDelete) {
+        await onDevAccountDelete();
+      } else {
+        await deleteCurrentAccount();
+      }
     } catch (error) {
       console.error('[Profiles] delete account failed:', error);
       Alert.alert(
@@ -502,7 +509,7 @@ export default function ProfileMainFlow({
       );
       setIsDeletingAccount(false);
     }
-  }, [isDeletingAccount, uiLanguage]);
+  }, [isDeletingAccount, onDevAccountDelete, uiLanguage]);
 
   const handleDeleteAccount = React.useCallback(() => {
     if (isDeletingAccount) return;
