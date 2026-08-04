@@ -47,6 +47,8 @@ import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
 } from '@services/tts/defaultExperienceSpeech';
+import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import AppReviewService from '@services/reviews/AppReviewService';
 import { analytics } from '@services/analytics';
@@ -2220,52 +2222,84 @@ export default function ReviewFlow({ navigation, route }: Props) {
     let pendingRecording: InstanceType<typeof Audio.Recording> | null = null;
 
     try {
-      let microphonePermission = await Audio.getPermissionsAsync();
-      if (!microphonePermission.granted) {
-        microphonePermission = await Audio.requestPermissionsAsync();
-      }
-      if (!microphonePermission.granted) {
-        setPronunciationErrors((prev) => {
-          return {
-            ...prev,
-            [question.id]: tUI(uiLanguage, 'review.micPermissionRequired'),
-          };
-        });
-        setPronunciationRecordingQuestionId(null);
-        pronunciationRecordingRef.current = null;
-        return;
-      }
+      // Hard cap so a hung native call (setAudioModeAsync / prepareToRecordAsync
+      // / startAsync) can never leave the starting ref stuck and block retries.
+      await Promise.race([
+        (async () => {
+          let microphonePermission = await Audio.getPermissionsAsync();
+          if (!microphonePermission.granted) {
+            microphonePermission = await Audio.requestPermissionsAsync();
+          }
+          if (!microphonePermission.granted) {
+            setPronunciationErrors((prev) => {
+              return {
+                ...prev,
+                [question.id]: tUI(uiLanguage, 'review.micPermissionRequired'),
+              };
+            });
+            setPronunciationRecordingQuestionId(null);
+            pronunciationRecordingRef.current = null;
+            return;
+          }
 
-      await waitForActiveAudioSession();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      pendingRecording = new Audio.Recording();
-      await pendingRecording.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any);
-      pendingRecording.setProgressUpdateInterval?.(80);
-      pendingRecording.setOnRecordingStatusUpdate((status: any) => {
-        if (status?.isRecording) {
-          updatePronunciationWaveFromMetering(question.id, status.metering);
-        }
-      });
-      await pendingRecording.startAsync();
-      pronunciationRecordingRef.current = pendingRecording;
-      pendingRecording = null;
-      pronunciationRecordingStartedAtRef.current = Date.now();
-      setPronunciationErrors((prev) => {
-        const next = { ...prev };
-        delete next[question.id];
-        return next;
-      });
-      setPronunciationRecordingQuestionId(question.id);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          // Stop any in-flight TTS playback before switching to recording mode.
+          // iOS AVAudioSession may still be in playback mode and reject the
+          // recording switch if a sound is mid-playback or was just released.
+          await stopDefaultExperiencePronunciation();
+          await stopAzureTtsPlayback();
+          await waitForActiveAudioSession();
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+          pendingRecording = new Audio.Recording();
+          await pendingRecording.prepareToRecordAsync(REVIEW_PRONUNCIATION_RECORDING_OPTIONS as any);
+          pendingRecording.setProgressUpdateInterval?.(80);
+          pendingRecording.setOnRecordingStatusUpdate((status: any) => {
+            if (status?.isRecording) {
+              updatePronunciationWaveFromMetering(question.id, status.metering);
+            }
+          });
+          await pendingRecording.startAsync();
+          pronunciationRecordingRef.current = pendingRecording;
+          pendingRecording = null;
+          pronunciationRecordingStartedAtRef.current = Date.now();
+          setPronunciationErrors((prev) => {
+            const next = { ...prev };
+            delete next[question.id];
+            return next;
+          });
+          setPronunciationRecordingQuestionId(question.id);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Recording start timed out')), 8000)
+        ),
+      ]);
     } catch (error) {
       console.error('[ReviewFlow][Pronunciation] recording failed:', error);
       if (pendingRecording) {
         pendingRecording.setOnRecordingStatusUpdate(null);
         await pendingRecording.stopAndUnloadAsync().catch(() => undefined);
       }
+      const detail =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : JSON.stringify(error ?? 'unknown');
+      void logDiagnosticEvent({
+        severity: 'error',
+        category: 'pronunciation',
+        event: 'recording_failed',
+        message: detail,
+        context: {
+          flow: 'review',
+          questionId: question.id,
+          wasPlaybackActive: pronunciationPlaybackTarget === question.id,
+          wasDownloading: pronunciationDownloadTarget !== null,
+        },
+      });
       setPronunciationErrors((prev) => ({
         ...prev,
-        [question.id]: tUI(uiLanguage, 'review.recordFailed'),
+        [question.id]: `${tUI(uiLanguage, 'review.recordFailed')}\n[DEBUG] ${detail}`,
       }));
       setPronunciationRecordingQuestionId(null);
       pronunciationRecordingRef.current = null;

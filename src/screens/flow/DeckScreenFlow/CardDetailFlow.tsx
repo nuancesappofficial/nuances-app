@@ -60,6 +60,7 @@ import {
 } from '@services/pronunciation/ipaPhonemes';
 import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import { analytics } from '@services/analytics';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
@@ -156,6 +157,15 @@ const CARD_DETAIL_FONT_SCALE = 0.7;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 const albumIdToCategoryTag: Record<string, string> = {
@@ -1046,10 +1056,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
+      await withTimeout(
+        Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        }),
+        5000,
+        'setAudioModeAsync'
+      );
 
       await stopActiveAudio();
 
@@ -1057,8 +1071,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       waveformPointerRef.current = 0;
       waveformValues.forEach((v) => v.setValue(8));
 
-      await recording.prepareToRecordAsync(
-        PRONUNCIATION_RECORDING_OPTIONS as any
+      await withTimeout(
+        recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any),
+        5000,
+        'prepareToRecordAsync'
       );
       recording.setProgressUpdateInterval(120);
       recording.setOnRecordingStatusUpdate((status: any) => {
@@ -1085,7 +1101,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }
       });
 
-      await recording.startAsync();
+      await withTimeout(recording.startAsync(), 5000, 'startAsync');
       recordingRef.current = recording;
       setIsRecording(true);
       pronunciationHardCapTimerRef.current = setTimeout(() => {
@@ -1099,7 +1115,24 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         error
       );
       setIsRecording(false);
-      Alert.alert('錄音失敗', '請再試一次。');
+      const detail =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : JSON.stringify(error ?? 'unknown');
+      void logDiagnosticEvent({
+        severity: 'error',
+        category: 'pronunciation',
+        event: 'recording_failed',
+        message: detail,
+        context: {
+          flow: 'card_detail',
+          cardId: card?.id,
+          wasPlaying: isPlaying,
+        },
+      });
+      Alert.alert('錄音失敗', `請再試一次。\n[DEBUG] ${detail}`);
     } finally {
       recordingTransitionRef.current = false;
     }
