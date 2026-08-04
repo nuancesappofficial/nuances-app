@@ -11,11 +11,10 @@
 // exists solely so the app's existing local bootstrap (local data scope, local
 // onboarding/tour/default-card state) can run against a fresh, isolated id.
 
-import { Q } from '@nozbe/watermelondb';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
-import { database } from '@database/index';
 import { enforceLocalDataScopeForUser } from '@services/auth/localDataScope';
+import { clearLocalAccountDataForUser } from '@services/account/AccountDeletionService';
 import { clearUserSettings } from '@services/settings/userSettings';
 import { loadUserSettings, saveUserSettings } from '@services/settings/userSettings';
 import {
@@ -24,27 +23,6 @@ import {
   isDevFreshUserSimulatorEnabled,
   type DevFreshUserSession,
 } from './devFreshUserSimulatorCore';
-
-async function clearLocalAccountData(userId: string): Promise<void> {
-  const tableNames = [
-    'review_history',
-    'cards',
-    'cached_items',
-    'sync_metadata',
-    'user_settings',
-    'profiles',
-  ];
-
-  await database.write(async () => {
-    for (const tableName of tableNames) {
-      const records = await database
-        .get(tableName)
-        .query(Q.where('user_id', userId))
-        .fetch();
-      await Promise.all(records.map((record) => record.destroyPermanently()));
-    }
-  });
-}
 
 async function removeDirectoryIfExists(uri: string): Promise<void> {
   if (!uri) return;
@@ -109,7 +87,7 @@ export async function simulateFreshUser(): Promise<DevFreshUserSession> {
   // Reset local onboarding / tutorial / default-card / demo-data state so the
   // simulated user starts completely fresh.
   try {
-    await clearLocalAccountData(userId);
+    await clearLocalAccountDataForUser(userId);
   } catch (error) {
     console.warn('[DevFreshUser] local database cleanup failed:', error);
   }
