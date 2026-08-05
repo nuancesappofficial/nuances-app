@@ -452,6 +452,13 @@ class ShareViewController: UIViewController {
                 acceptedCount: acceptedCount,
                 completion: {}
             )
+
+            // Apple Pay 風格的成功觸覺回饋（叩-叩），在關閉選單前一刻觸發。
+            // 通知已設為靜音（sound = nil），避免與此 Haptic 重疊打架。
+            let generator = UINotificationFeedbackGenerator()
+            generator.prepare()
+            generator.notificationOccurred(.success)
+
             self.closeExtension(success: true)
         }
     }
@@ -462,9 +469,9 @@ class ShareViewController: UIViewController {
             NSLog("[NuancesShareExtension] notification authorization status: \(settings.authorizationStatus.rawValue)")
             let schedule: () -> Void = {
                 let content = UNMutableNotificationContent()
-                content.title = "Nuances"
+                content.title = "✓ 截圖已收藏"
                 content.body = message
-                content.sound = .default
+                content.sound = nil
                 content.userInfo = [
                     "kind": "nuances-share-receipt",
                     "cacheCount": acceptedCount,
