@@ -48,6 +48,10 @@ import {
 } from './_shared/aiCostTracking.ts';
 import { CARD_SUBJECT_SELECTION_INSTRUCTION } from './_shared/cardSubjectPrompt.ts';
 import { FREE_STARTER_CARD_LIMIT } from './_shared/freeStarterAllowance.ts';
+import {
+  buildFreemiumQuotaEvent,
+  recordFreemiumQuotaEventInBackground,
+} from './_shared/growthAnalytics.ts';
 import { chooseLearningTerm } from './_shared/learningTermResolution.ts';
 
 declare const Deno: any;
@@ -2217,6 +2221,7 @@ type StarterClaim = {
 async function claimFreeStarterCard(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
+  email?: string | null;
   generationId: string;
 }): Promise<StarterClaim> {
   const { data, error } = await params.supabase.rpc(
@@ -2225,6 +2230,7 @@ async function claimFreeStarterCard(params: {
       p_user_id: params.userId,
       p_generation_id: params.generationId,
       p_limit: FREE_STARTER_CARD_LIMIT,
+      p_email: params.email ?? null,
     }
   );
   const row = Array.isArray(data) ? data[0] : data;
@@ -2244,8 +2250,10 @@ async function claimFreeStarterCard(params: {
 async function finishFreeStarterCard(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
+  email?: string | null;
   generationId: string;
   succeeded: boolean;
+  remaining?: number | null;
 }): Promise<void> {
   const { error } = await params.supabase.rpc(
     'finish_free_starter_card_generation',
@@ -2260,16 +2268,32 @@ async function finishFreeStarterCard(params: {
       user: userLogSuffix(params.userId),
       error: error.message,
     });
+    return;
+  }
+  if (params.succeeded && typeof params.remaining === 'number') {
+    recordFreemiumQuotaEventInBackground(
+      buildFreemiumQuotaEvent({
+        userId: params.userId,
+        generationId: params.generationId,
+        limit: FREE_STARTER_CARD_LIMIT,
+        remaining: params.remaining,
+      })
+    );
   }
 }
 
 async function hasFreeStarterAccess(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
+  email?: string | null;
 }): Promise<boolean | null> {
   const { data, error } = await params.supabase.rpc(
     'get_free_starter_card_allowance',
-    { p_user_id: params.userId, p_limit: FREE_STARTER_CARD_LIMIT }
+    {
+      p_user_id: params.userId,
+      p_limit: FREE_STARTER_CARD_LIMIT,
+      p_email: params.email ?? null,
+    }
   );
   const row = Array.isArray(data) ? data[0] : data;
   if (error || !row) return null;
@@ -4028,6 +4052,7 @@ Deno.serve(async (req: Request) => {
 
       let starterGenerationId: string | null = null;
       let claimedStarterCard = false;
+      let starterCardsRemaining: number | null = null;
       if (
         planType === 'free' &&
         STARTER_CARD_ACTIONS.has(body.action)
@@ -4047,6 +4072,7 @@ Deno.serve(async (req: Request) => {
         const claim = await claimFreeStarterCard({
           supabase,
           userId,
+          email: typeof authUser?.email === 'string' ? authUser.email : null,
           generationId: starterGenerationId,
         });
         if (claim.result === 'unavailable') {
@@ -4072,6 +4098,7 @@ Deno.serve(async (req: Request) => {
           );
         }
         claimedStarterCard = true;
+        starterCardsRemaining = claim.remaining;
       }
 
       let hasStarterAccess = true;
@@ -4080,7 +4107,11 @@ Deno.serve(async (req: Request) => {
         body.action === 'pronunciation_assess' &&
         !claimedDemoPronunciation
       ) {
-        const access = await hasFreeStarterAccess({ supabase, userId });
+        const access = await hasFreeStarterAccess({
+          supabase,
+          userId,
+          email: typeof authUser?.email === 'string' ? authUser.email : null,
+        });
         if (access === null) {
           return jsonResponse(
             {
@@ -4201,8 +4232,10 @@ Deno.serve(async (req: Request) => {
           await finishFreeStarterCard({
             supabase,
             userId,
+            email: typeof authUser?.email === 'string' ? authUser.email : null,
             generationId: starterGenerationId,
             succeeded: false,
+            remaining: starterCardsRemaining,
           });
         }
         if (claimedDemoPronunciation) {
@@ -4229,8 +4262,10 @@ Deno.serve(async (req: Request) => {
         await finishFreeStarterCard({
           supabase,
           userId,
+          email: typeof authUser?.email === 'string' ? authUser.email : null,
           generationId: starterGenerationId,
           succeeded: response.ok,
+          remaining: starterCardsRemaining,
         });
       }
 
@@ -4268,8 +4303,10 @@ Deno.serve(async (req: Request) => {
                 await finishFreeStarterCard({
                   supabase,
                   userId,
+                  email: typeof authUser?.email === 'string' ? authUser.email : null,
                   generationId: starterGenerationId!,
                   succeeded,
+                  remaining: starterCardsRemaining,
                 });
               }
             }

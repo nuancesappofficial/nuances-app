@@ -440,7 +440,11 @@ Deno.serve(async (req: Request) => {
   if (entitlement.planType === 'free' && !isComplimentaryDemo) {
     const { data, error } = await supabase.rpc(
       'get_free_starter_card_allowance',
-      { p_user_id: userId, p_limit: 20 }
+      {
+        p_user_id: userId,
+        p_limit: 20,
+        p_email: typeof authUser?.email === 'string' ? authUser.email : null,
+      }
     );
     const row = Array.isArray(data) ? data[0] : data;
     if (error || !row) {

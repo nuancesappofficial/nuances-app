@@ -104,7 +104,7 @@ if (profileError) throw profileError;
 
 const { data: allowance, error: allowanceError } = await supabase.rpc(
   'get_free_starter_card_allowance',
-  { p_user_id: user.id, p_limit: 20 }
+  { p_user_id: user.id, p_limit: 20, p_email: user.email }
 );
 if (allowanceError) throw allowanceError;
 
