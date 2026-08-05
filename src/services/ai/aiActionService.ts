@@ -5,6 +5,7 @@ import { callAIAction, isAIProxyConfigured, isPremiumFeatureError, streamAIActio
 import type { AIPersonalizationOptions } from './types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { stringifySemanticRelations } from '../../features/cards/semanticRelations';
+import { DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION } from '../../features/cache/defaultExperiencePronunciation';
 import * as Crypto from 'expo-crypto';
 import { buildGenerateCardPayload } from './generateCardPayload';
 import {
@@ -594,7 +595,6 @@ async function buildDefaultExperienceCardContent(
 ): Promise<Awaited<ReturnType<typeof generateCardContent>>> {
   const targetWord = 'nuances';
   const originalSentence = 'The smallest nuances can make the biggest differences.';
-  const localPhonetic = await getLocalPhoneticTranscription(targetWord);
   const copy = DEFAULT_EXPERIENCE_COPY[
     resolveDemoReplyLanguage(replyLanguage)
   ];
@@ -627,7 +627,8 @@ async function buildDefaultExperienceCardContent(
       synonyms: copy.synonyms,
       antonyms: [],
     }),
-    phoneticTranscription: localPhonetic || base.phoneticTranscription || '/ˈnuː.ɑːn.sɪz/',
+    phoneticTranscription:
+      base.phoneticTranscription || DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION,
     tags: ['communication', 'details', 'meaning'],
   };
 }

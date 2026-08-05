@@ -66,6 +66,7 @@ import {
   extractTextFromImage,
   type OCRBlock,
 } from '@services/ocr/ocrService';
+import { joinOCRBlocksByVisualLines } from '@services/ocr/ocrLayout';
 import { supabase } from '@services/supabase/client';
 import { persistLocalCardImage } from '@services/media/localCardImageStore';
 import {
@@ -97,7 +98,9 @@ import {
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { CreateCardGhostPreviewScene as CreateCardPreviewScene } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import {
+  DEMO_GHOST_SAVE_ARROW_DELAY_MS,
   DEMO_GHOST_SCROLL_DURATION_MS,
+  scheduleDemoGhostSaveArrow,
 } from '../../../features/createCard/ghostAnimationTiming';
 import {
   resolveBottomAlignedScrollTarget,
@@ -106,6 +109,10 @@ import {
 import {
   claimUnsavedCards,
 } from '../../../features/createCard/optimisticCardSave';
+import {
+  isRecognizedTextEditingAvailable,
+  resolveRecognizedWordPressAction,
+} from '../../../features/createCard/recognizedTextEditMode';
 import type { CompletedCard, PreviewPhase, PreviewRevealState } from './types';
 import {
   groupSelectedSourceTokens,
@@ -129,7 +136,10 @@ import {
   isEligibleDefaultExperienceGeneration,
   markDefaultExperienceQuizHintPending,
 } from '../../../features/cache/defaultExperienceCard';
-import { resolveTutorialGenerationSource } from '../../../features/tour/tutorialGenerationPolicy';
+import {
+  resolveTutorialGenerationSource,
+  shouldFallbackToCloudGeneration,
+} from '../../../features/tour/tutorialGenerationPolicy';
 import { useAppTour } from '../../../contexts/AppTourContext';
 import {
   CONTAINER_NEON_GLOW,
@@ -825,6 +835,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     shouldUseFreshCroppedOcrOnly,
     sourceText,
   ]);
+  const hardLineBreakTokenIndices = React.useMemo(() => {
+    const breaks = new Set<number>();
+    if (!sourceText.includes('\n')) return breaks;
+    let tokenIndex = 0;
+    for (const line of sourceText.split(/\r?\n/).slice(0, -1)) {
+      tokenIndex += tokenizeSourceText(line).length;
+      breaks.add(tokenIndex);
+    }
+    return breaks;
+  }, [sourceText]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -900,12 +920,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [selectedTokenIndices, setSelectedTokenIndices] = React.useState<
     number[]
   >([]);
+  const [isRecognizedTextEditMode, setIsRecognizedTextEditMode] =
+    React.useState(false);
   const selectedTargets = React.useMemo(
     () =>
       groupSelectedSourceTokens(sourceTokens, selectedTokenIndices, sourceText),
     [selectedTokenIndices, sourceText, sourceTokens]
   );
   const [hasStarted, setHasStarted] = React.useState(false);
+  const [showDefaultExperienceSaveArrow, setShowDefaultExperienceSaveArrow] =
+    React.useState(false);
+  const cancelDefaultExperienceSaveArrowRef = React.useRef<
+    (() => void) | null
+  >(null);
   const [generatingCards, setGeneratingCards] = React.useState<
     GeneratingCard[]
   >([]);
@@ -989,6 +1016,31 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const isPreviewSceneActive =
     Boolean(activePreviewCard || partialGeneratedCard) || isGhostGenerating;
   const shouldHideSourcePanels = hasStarted || completedCards.length > 0;
+
+  React.useEffect(() => {
+    cancelDefaultExperienceSaveArrowRef.current?.();
+    cancelDefaultExperienceSaveArrowRef.current = null;
+    setShowDefaultExperienceSaveArrow(false);
+    if (
+      !isDefaultExperienceTutorial ||
+      hasStarted ||
+      completedCards.length === 0
+    ) {
+      return;
+    }
+
+    const cancel = scheduleDemoGhostSaveArrow(() => {
+      cancelDefaultExperienceSaveArrowRef.current = null;
+      setShowDefaultExperienceSaveArrow(true);
+    }, DEMO_GHOST_SAVE_ARROW_DELAY_MS);
+    cancelDefaultExperienceSaveArrowRef.current = cancel;
+    return () => {
+      cancel();
+      if (cancelDefaultExperienceSaveArrowRef.current === cancel) {
+        cancelDefaultExperienceSaveArrowRef.current = null;
+      }
+    };
+  }, [completedCards.length, hasStarted, isDefaultExperienceTutorial]);
   const allAlbums = React.useMemo(
     () =>
       buildDeckAlbums(allCards, {}, albumPrefs).filter(
@@ -1213,10 +1265,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         const result = await extractTextFromImage(ocrImageUri);
         if (!active) return;
         setOcrBlocks(result.blocks);
-        const textFromBlocks = result.blocks
-          .map((block) => block.text?.trim() || '')
-          .filter(Boolean)
-          .join(' ');
+        const textFromBlocks = joinOCRBlocksByVisualLines(result.blocks);
         const nextText = (result.fullText || '').trim() || textFromBlocks;
         if (nextText) {
           setOcrSourceText(nextText);
@@ -1489,17 +1538,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         let didShowStreamPreview = Boolean(initialGhostCard);
         let generated: Awaited<ReturnType<typeof generateContentForWord>>;
         const aiGenerationStartedAt = Date.now();
+        const isBundledDemoContent = isEligibleDefaultExperienceGeneration({
+          isTutorial: isDefaultExperienceTutorial,
+          targetWord: word,
+          originalSentence: sentenceForCard,
+        });
+        const generationSource = resolveTutorialGenerationSource({
+          isTutorial: isDefaultExperienceTutorial,
+          isBundledDemoContent,
+        });
         try {
-          const isBundledDemoContent =
-            isEligibleDefaultExperienceGeneration({
-              isTutorial: isDefaultExperienceTutorial,
-              targetWord: word,
-              originalSentence: sentenceForCard,
-            });
-          const generationSource = resolveTutorialGenerationSource({
-            isTutorial: isDefaultExperienceTutorial,
-            isBundledDemoContent,
-          });
 
           if (generationSource === 'bundled-fixture') {
             generated = await generateDefaultExperienceCardContent({
@@ -1547,6 +1595,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             );
           }
         } catch (streamError) {
+          if (!shouldFallbackToCloudGeneration(generationSource)) {
+            throw streamError;
+          }
           // Access-control failures are authoritative. Do not hide them behind
           // a second non-stream request; let the outer handler open membership.
           if (isPremiumFeatureError(streamError)) {
@@ -2290,6 +2341,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   }, [completedCards, saving]);
 
   const handleDone = React.useCallback(() => {
+    cancelDefaultExperienceSaveArrowRef.current?.();
+    cancelDefaultExperienceSaveArrowRef.current = null;
+    setShowDefaultExperienceSaveArrow(false);
     goToCacheHome();
     if (
       isDefaultExperienceTutorial ||
@@ -2529,12 +2583,61 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 },
               ]}
             >
-              <Text
-                style={[styles.blockTitle, { color: palette.secondaryText }]}
-              >
-                {tUI(uiLanguage, 'create.originalContext')}
-              </Text>
-              {sourceTokens.length > 0 ? (
+              <View style={styles.sourcePanelHeader}>
+                <Text
+                  style={[
+                    styles.blockTitle,
+                    styles.sourcePanelTitle,
+                    { color: palette.secondaryText },
+                  ]}
+                >
+                  {tUI(uiLanguage, 'create.originalContext')}
+                </Text>
+                {isRecognizedTextEditingAvailable() && sourceTokens.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isRecognizedTextEditMode }}
+                    accessibilityLabel={tUI(
+                      uiLanguage,
+                      isRecognizedTextEditMode
+                        ? 'create.editOcrModeDone'
+                        : 'create.editOcrModeAction'
+                    )}
+                    hitSlop={8}
+                    onPress={() =>
+                      setIsRecognizedTextEditMode((previous) => !previous)
+                    }
+                    style={({ pressed }) => [
+                      styles.ocrEditModeButton,
+                      {
+                        backgroundColor: isRecognizedTextEditMode
+                          ? MODAL_CTA_COLOR
+                          : palette.modalOptionBg,
+                        borderColor: isRecognizedTextEditMode
+                          ? MODAL_CTA_COLOR_BORDER
+                          : palette.modalOptionBorder,
+                        opacity: pressed ? 0.72 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.ocrEditModeButtonText,
+                        {
+                          color: isRecognizedTextEditMode
+                            ? TEXT_ON_CTA
+                            : palette.textOnContainer,
+                        },
+                      ]}
+                    >
+                      {isRecognizedTextEditMode
+                        ? tUI(uiLanguage, 'create.editOcrModeDone')
+                        : `✎ ${tUI(uiLanguage, 'create.editOcrModeAction')}`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {sourceTokens.length > 0 && isRecognizedTextEditMode ? (
                 <Text
                   style={[
                     styles.helperMetaText,
@@ -2542,7 +2645,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     { color: palette.secondaryText },
                   ]}
                 >
-                  {tUI(uiLanguage, 'create.editOcrTokenHint')}
+                  {tUI(uiLanguage, 'create.editOcrModeHint')}
                 </Text>
               ) : null}
               {sourceTokens.length === 0 ? (
@@ -2567,10 +2670,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     const isGroupStart = selectedTarget?.startIndex === idx;
                     const isGroupEnd = selectedTarget?.endIndex === idx;
                     return (
-                      <View
-                        key={`${token}-${idx}`}
-                        style={styles.tutorialTokenWrap}
-                      >
+                      <React.Fragment key={`${token}-${idx}`}>
+                        {hardLineBreakTokenIndices.has(idx) ? (
+                          <View style={styles.ocrHardLineBreak} />
+                        ) : null}
+                        <View style={styles.tutorialTokenWrap}>
                         {isDefaultExperienceTutorial &&
                         !selectedTokenIndices.includes(
                           defaultExperienceTargetIndex
@@ -2593,6 +2697,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                               borderColor: isSelected
                                 ? MODAL_CTA_COLOR_BORDER
                                 : palette.modalOptionBorder,
+                              borderStyle: isRecognizedTextEditMode
+                                ? 'dashed'
+                                : 'solid',
                               borderTopLeftRadius:
                                 isSelected && !isGroupStart ? 4 : 8,
                               borderBottomLeftRadius:
@@ -2604,9 +2711,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                             },
                             pressed ? styles.pressableChipPressed : null,
                           ]}
-                          onPress={() => toggleSourceToken(idx)}
-                          onLongPress={() => editSourceToken(token, idx)}
-                          delayLongPress={220}
+                          onPress={() => {
+                            if (
+                              resolveRecognizedWordPressAction(
+                                isRecognizedTextEditMode
+                              ) === 'edit'
+                            ) {
+                              editSourceToken(token, idx);
+                              return;
+                            }
+                            toggleSourceToken(idx);
+                          }}
                         >
                           <Text
                             style={[
@@ -2622,7 +2737,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                             {token}
                           </Text>
                         </Pressable>
-                      </View>
+                        </View>
+                      </React.Fragment>
                     );
                   })}
                 </View>
@@ -3044,7 +3160,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               ) : null}
               <TutorialSpotlight
                 active={appTour.step === 'STEP_6_GENERATE_SAMPLE'}
-                tooltip={tUI(uiLanguage, 'create.tourGenerateCard')}
                 onSpotlightPress={handleTourGeneratePress}
               >
                 <Pressable
@@ -3262,7 +3377,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               <View style={styles.saveWrap}>
                 <TutorialSpotlight
                   active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
-                  tooltip={tUI(uiLanguage, 'create.tourSave')}
                   onSpotlightPress={handleDone}
                 >
                   <Pressable
@@ -3276,7 +3390,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                       pressed ? styles.pressablePrimaryPressed : null,
                     ]}
                   >
-                    {isDefaultExperienceTutorial ? (
+                    {showDefaultExperienceSaveArrow ? (
                       <MovingTutorialArrow
                         direction="down"
                         color={MODAL_CTA_COLOR}
@@ -3397,10 +3511,36 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     letterSpacing: 0.5,
   },
+  sourcePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  sourcePanelTitle: {
+    marginBottom: 0,
+  },
+  ocrEditModeButton: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ocrEditModeButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   wordsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  ocrHardLineBreak: {
+    width: '100%',
+    height: 0,
   },
   tutorialTokenWrap: {
     position: 'relative',
