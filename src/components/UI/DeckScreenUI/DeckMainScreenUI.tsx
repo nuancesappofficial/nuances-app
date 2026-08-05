@@ -57,6 +57,7 @@ type Props = {
   tourStep?: AppTourStep;
   onTourTargetPress?: () => void;
   showQuickQuizTutorialArrow?: boolean;
+  tutorialLongPressAlbumId?: string | null;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -94,6 +95,7 @@ export default function DeckMainScreenUI({
   tourStep = 'IDLE',
   onTourTargetPress,
   showQuickQuizTutorialArrow = false,
+  tutorialLongPressAlbumId = null,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -125,6 +127,8 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const wordCarouselRef = React.useRef<FlatList<Props['slideshowItems'][number]> | null>(null);
+  const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
+  const didRevealTutorialAlbumRef = React.useRef<string | null>(null);
   const wordSlideDirectionRef = React.useRef<1 | -1>(1);
   const albumsPerPage =
     albumGridCount === 3 || albumGridCount === 6
@@ -242,6 +246,24 @@ export default function DeckMainScreenUI({
   }, [albumPages.length, currentPage]);
 
   React.useEffect(() => {
+    if (!tutorialLongPressAlbumId || tourStep !== 'STEP_13_LONG_PRESS_ALBUM') {
+      didRevealTutorialAlbumRef.current = null;
+      return;
+    }
+    if (didRevealTutorialAlbumRef.current === tutorialLongPressAlbumId) return;
+
+    const pageIndex = albumPages.findIndex((page) =>
+      page.some((album) => album?.id === tutorialLongPressAlbumId)
+    );
+    if (pageIndex < 0) return;
+
+    didRevealTutorialAlbumRef.current = tutorialLongPressAlbumId;
+    requestAnimationFrame(() => {
+      albumPagerRef.current?.scrollToIndex({ index: pageIndex, animated: true });
+    });
+  }, [albumPages, tourStep, tutorialLongPressAlbumId]);
+
+  React.useEffect(() => {
     const itemCount = slideshowItems.length;
     if (itemCount <= 1) return;
     const timer = setTimeout(() => {
@@ -357,6 +379,7 @@ export default function DeckMainScreenUI({
                           <AlbumIconItemUI
                             item={item}
                             uiLanguage={uiLanguage}
+                            showLongPressTutorial={tourStep === 'STEP_13_LONG_PRESS_ALBUM' && item.id === tutorialLongPressAlbumId}
                             onPress={onPressAlbum}
                             isMenuVisible={isMenuVisible}
                             startX={startX}
@@ -395,6 +418,7 @@ export default function DeckMainScreenUI({
       onMenuStart,
       onMenuFinish,
       onActionEnd,
+      tutorialLongPressAlbumId,
       compactGridGap,
     ]
   );
@@ -656,7 +680,6 @@ export default function DeckMainScreenUI({
             {!isSearchExpanded ? (
               <TutorialSpotlight
                 active={tourStep === 'STEP_11_CREATE_ALBUM'}
-                tooltip={tUI(uiLanguage, 'deck.tourCreateAlbum')}
                 onSpotlightPress={handleTourTargetPress}
               >
                 <Pressable
@@ -664,6 +687,12 @@ export default function DeckMainScreenUI({
                   onPress={onOpenCreateAlbum}
                 >
                   <Ionicons name="add" size={38} color={palette.textOnBg} />
+                  {tourStep === 'STEP_11_CREATE_ALBUM' ? (
+                    <MovingTutorialArrow
+                      direction="down"
+                      style={styles.createAlbumTutorialArrow}
+                    />
+                  ) : null}
                 </Pressable>
               </TutorialSpotlight>
             ) : null}
@@ -747,6 +776,7 @@ export default function DeckMainScreenUI({
             ]}
           >
             <FlatList
+              ref={albumPagerRef}
               data={albumPages}
               horizontal
               pagingEnabled
@@ -809,7 +839,6 @@ export default function DeckMainScreenUI({
             <TutorialSpotlight
               active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
               style={styles.todayReviewButtonFill}
-              tooltip={tUI(uiLanguage, 'deck.tourQuizWord')}
               onSpotlightPress={handleTourTargetPress}
             >
               <LightPressable
@@ -868,7 +897,6 @@ export default function DeckMainScreenUI({
               <TutorialSpotlight
                 active={tourStep === 'STEP_10_QUIZ_SAMPLE'}
                 style={styles.todayReviewButtonFill}
-                tooltip={tUI(uiLanguage, 'deck.tourQuizWord')}
                 onSpotlightPress={handleTourTargetPress}
               >
                 <LightPressable
@@ -924,6 +952,14 @@ const styles = StyleSheet.create({
     bottom: -40,
     left: 0,
     right: 0,
+    zIndex: 20,
+  },
+  createAlbumTutorialArrow: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
     zIndex: 20,
   },
   topRightRow: {

@@ -349,7 +349,7 @@ export default function DeckMainFlow({
       allCards.find((card) => {
         const targetWord = (card.targetWord || '').trim().toLowerCase();
         const targetPhrase = (card.targetPhrase || '').trim().toLowerCase();
-        return targetWord === normalizedTarget || targetPhrase === 'wing it';
+        return targetWord === normalizedTarget;
       }) ||
       allCards[0] ||
       null
@@ -380,7 +380,10 @@ export default function DeckMainFlow({
   ]);
 
   React.useEffect(() => {
-    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
+    if (appTour.step !== 'STEP_5_PROCESS_CACHE_CARD') return;
+    console.log(
+      `[FirstRunTrace] deck_main.step5_go_cache tabSwipeContext=${Boolean(tabSwipeContext)} step=${appTour.step}`
+    );
     tabSwipeContext?.goToTab(1, { animation: 'slide', durationMs: 620 });
   }, [appTour.step, tabSwipeContext]);
 
@@ -1218,10 +1221,14 @@ export default function DeckMainFlow({
   React.useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
       DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT,
-      completeTour
+      () => {
+        // The quiz is only the first part of the expanded tutorial. Do NOT
+        // complete the tour / show the greeting here; advance to album creation.
+        appTour.goToStep('STEP_11_CREATE_ALBUM');
+      }
     );
     return () => subscription.remove();
-  }, [completeTour]);
+  }, [appTour]);
 
   React.useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -1337,10 +1344,7 @@ export default function DeckMainFlow({
       setTimeout(() => {
         finishAlbumCreation();
         setTimeout(() => {
-          openAlbumSettings(newAlbum);
-          setTimeout(() => {
-            appTour.goToStep('STEP_13_ALBUM_SETTINGS');
-          }, 420);
+          appTour.goToStep('STEP_13_LONG_PRESS_ALBUM');
         }, 520);
       }, 420);
       return;
@@ -1451,7 +1455,7 @@ export default function DeckMainFlow({
 
   const handleSaveAlbumSettings = React.useCallback(() => {
     const saved = applyAlbumSettings();
-    if (saved && appTour.step === 'STEP_13_ALBUM_SETTINGS') {
+    if (saved && appTour.step === 'STEP_14_ALBUM_SETTINGS') {
       completeTour();
     }
   }, [appTour.step, applyAlbumSettings, completeTour]);
@@ -1539,13 +1543,16 @@ export default function DeckMainFlow({
     (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
       if (action === 'edit') {
         openAlbumSettings(album);
+        if (appTour.step === 'STEP_13_LONG_PRESS_ALBUM') {
+          setTimeout(() => appTour.goToStep('STEP_14_ALBUM_SETTINGS'), 420);
+        }
         return;
       }
       if (action === 'delete') {
         handleDeleteAlbum(album);
       }
     },
-    [handleDeleteAlbum, openAlbumSettings]
+    [appTour, handleDeleteAlbum, openAlbumSettings]
   );
 
   const handleMenuStart = React.useCallback(
@@ -1646,7 +1653,13 @@ export default function DeckMainFlow({
         onClearSearch={() => setSearchQuery('')}
         onPressAvatar={handleAvatarPress}
         onPressCacheFab={handleCacheFabPress}
-        onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
+        onOpenCreateAlbum={() => {
+          if (appTour.step === 'STEP_11_CREATE_ALBUM') {
+            handleTourTargetPress();
+            return;
+          }
+          setIsCreateModalVisible(true);
+        }}
         sortOrder={sortOrder}
         onToggleSort={() =>
           setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
@@ -1662,6 +1675,11 @@ export default function DeckMainFlow({
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
         showQuickQuizTutorialArrow={showDefaultExperienceQuizHint}
+        tutorialLongPressAlbumId={
+          appTour.step === 'STEP_13_LONG_PRESS_ALBUM'
+            ? customAlbums[0]?.id || null
+            : null
+        }
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}
@@ -1702,7 +1720,6 @@ export default function DeckMainFlow({
         uiLanguage={uiLanguage}
         onChangeAlbumName={setNewAlbumName}
         tourConfirmActive={appTour.step === 'STEP_12_CONFIRM_ALBUM'}
-        tourConfirmTooltip={tUI(uiLanguage, 'deck.tourConfirmAlbum')}
         onCancel={() => {
           setIsCreateModalVisible(false);
           setNewAlbumName('');
@@ -1723,8 +1740,7 @@ export default function DeckMainFlow({
         onChangeEmoji={handleChangeSettingsEmoji}
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
-        tourSaveActive={appTour.step === 'STEP_13_ALBUM_SETTINGS'}
-        tourSaveTooltip={tUI(uiLanguage, 'deck.tourSaveSettings')}
+        tourSaveActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
