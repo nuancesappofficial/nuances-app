@@ -983,7 +983,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 999,
     pointerEvents: 'none',
-    transform: [{ translateX: -14 }],
+    marginLeft: -32,
   },
   topRightRow: {
     paddingHorizontal: 16,
