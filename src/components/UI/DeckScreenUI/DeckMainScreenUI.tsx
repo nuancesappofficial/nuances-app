@@ -129,6 +129,12 @@ export default function DeckMainScreenUI({
   const wordCarouselRef = React.useRef<FlatList<Props['slideshowItems'][number]> | null>(null);
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
   const didRevealTutorialAlbumRef = React.useRef<string | null>(null);
+  const [createAlbumBtnLayout, setCreateAlbumBtnLayout] = React.useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const wordSlideDirectionRef = React.useRef<1 | -1>(1);
   const albumsPerPage =
     albumGridCount === 3 || albumGridCount === 6
@@ -685,16 +691,35 @@ export default function DeckMainScreenUI({
                 <Pressable
                   style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
                   onPress={onOpenCreateAlbum}
+                  onLayout={(event) => {
+                    const { x, y, width, height } = event.nativeEvent.layout;
+                    setCreateAlbumBtnLayout((prev) =>
+                      prev &&
+                      prev.x === x &&
+                      prev.y === y &&
+                      prev.width === width &&
+                      prev.height === height
+                        ? prev
+                        : { x, y, width, height }
+                    );
+                  }}
                 >
                   <Ionicons name="add" size={38} color={palette.textOnBg} />
-                  {tourStep === 'STEP_11_CREATE_ALBUM' ? (
-                    <MovingTutorialArrow
-                      direction="down"
-                      style={styles.createAlbumTutorialArrow}
-                    />
-                  ) : null}
                 </Pressable>
               </TutorialSpotlight>
+            ) : null}
+
+            {tourStep === 'STEP_11_CREATE_ALBUM' && createAlbumBtnLayout ? (
+              <MovingTutorialArrow
+                direction="up"
+                style={[
+                  styles.createAlbumFloatingArrow,
+                  {
+                    top: createAlbumBtnLayout.y + createAlbumBtnLayout.height + 6,
+                    left: createAlbumBtnLayout.x + createAlbumBtnLayout.width / 2,
+                  },
+                ]}
+              />
             ) : null}
           </View>
       </View>
@@ -954,13 +979,11 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 20,
   },
-  createAlbumTutorialArrow: {
+  createAlbumFloatingArrow: {
     position: 'absolute',
-    top: 44,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 20,
+    zIndex: 999,
+    pointerEvents: 'none',
+    transform: [{ translateX: -14 }],
   },
   topRightRow: {
     paddingHorizontal: 16,
@@ -969,6 +992,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    zIndex: 30,
   },
   topRightRowExpanded: {
     justifyContent: 'flex-end',
@@ -977,6 +1001,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    position: 'relative',
   },
   topActionsRowExpanded: {
     flex: 1,
