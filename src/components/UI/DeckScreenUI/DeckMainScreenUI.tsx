@@ -276,6 +276,31 @@ export default function DeckMainScreenUI({
     });
   }, [albumPages, tourStep, tutorialLongPressAlbumId]);
 
+  // STEP_13：主動 measure 教學相簿 cell 的螢幕座標，避免依賴 onLayout 在 STEP_13 時重新觸發
+  // （cell 早在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發）
+  React.useEffect(() => {
+    if (tourStep !== 'STEP_13_LONG_PRESS_ALBUM' || !tutorialLongPressAlbumId) {
+      setTutorialAlbumLayout(null);
+      return;
+    }
+    const measure = () => {
+      tutorialAlbumCellRef.current?.measureInWindow((x, y, width, height) => {
+        setTutorialAlbumLayout((prev) =>
+          prev &&
+          prev.x === x &&
+          prev.y === y &&
+          prev.width === width &&
+          prev.height === height
+            ? prev
+            : { x, y, width, height }
+        );
+      });
+    };
+    // 等 scrollToIndex 動畫捲到教學相簿所在頁後再 measure
+    const t = setTimeout(measure, 1200);
+    return () => clearTimeout(t);
+  }, [tourStep, tutorialLongPressAlbumId, albumPages]);
+
   React.useEffect(() => {
     const itemCount = slideshowItems.length;
     if (itemCount <= 1) return;
@@ -396,7 +421,7 @@ export default function DeckMainScreenUI({
                             : undefined
                         }
                         onLayout={
-                          item && item.id === tutorialLongPressAlbumId && tourStep === 'STEP_13_LONG_PRESS_ALBUM'
+                          item && item.id === tutorialLongPressAlbumId
                             ? () => {
                                 requestAnimationFrame(() => {
                                   tutorialAlbumCellRef.current?.measureInWindow(
@@ -765,20 +790,21 @@ export default function DeckMainScreenUI({
           style={[
             styles.longPressTutorialWrap,
             {
-              top: tutorialAlbumLayout.y - insets.top - 52,
-              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width / 2,
+              top: tutorialAlbumLayout.y - insets.top + tutorialAlbumLayout.height / 2 + 20,
+              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width + 8,
             },
           ]}
         >
+          <MovingTutorialArrow
+            direction="left"
+            color="#2D9E66"
+            size={30}
+            motion="spring"
+            style={styles.longPressTutorialArrow}
+          />
           <Text style={styles.longPressTutorialLabel}>
             {uiLanguage === 'zh-TW' || uiLanguage === 'zh-CN' ? '長按' : 'Hold to edit'}
           </Text>
-          <MovingTutorialArrow
-            direction="down"
-            color="#2D9E66"
-            size={30}
-            style={styles.longPressTutorialArrow}
-          />
         </View>
       ) : null}
 
@@ -868,6 +894,18 @@ export default function DeckMainScreenUI({
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               bounces={false}
+              getItemLayout={(_, index) => ({
+                length: albumPageWidth,
+                offset: albumPageWidth * index,
+                index,
+              })}
+              onScrollToIndexFailed={({ index }) => {
+                // 目標頁 item 尚未渲染時 scrollToIndex 會失敗，改用 scrollToOffset 捲過去
+                albumPagerRef.current?.scrollToOffset({
+                  offset: albumPageWidth * index,
+                  animated: true,
+                });
+              }}
               onMomentumScrollEnd={(event) => {
                 const offsetX = event.nativeEvent.contentOffset.x;
                 const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
@@ -1051,14 +1089,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 999,
     pointerEvents: 'none',
+    flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: -15,
+    height: 60,
   },
   longPressTutorialLabel: {
     color: '#2D9E66',
     fontSize: 14,
     fontWeight: '700',
-    marginBottom: 2,
+    marginLeft: 6,
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,

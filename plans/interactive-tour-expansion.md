@@ -109,6 +109,7 @@
 
 ### 尚未完成（下一個 agent 接手）
 
+- **STEP_13 長按箭頭高度調整（進行中，未 commit）**：使用者回報「箭頭太高，沒指向相簿中心」。已做：wrap 改水平排列（箭頭在左、label 在右）、`top: cell中心 - 30`、固定 wrap `height: 60`、measure 延遲 700→1200ms。使用者最新回報「箭頭在 album grid & word pop 中間」（偏上），仍未對準相簿中心。**注意：動畫部分使用者說「動畫我來想辦法」，不要改 spring 動畫，只調箭頭高度/位置**
 - **任務 5（未做）**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）在模擬器上走完整流程做 UI 互動驗證（建卡 → quiz → 建立相簿 → 自動滑到第二頁 → 長按更改 → 換封面 → 歡迎通知）。靜態驗證（tsc + eslint）已通過，但 UI 互動需模擬器手動確認
 
 ---
@@ -123,9 +124,19 @@
 - **任務 4**（本 session）：確認歡迎通知時機正確——`completeTour()` 只在 `handleSaveAlbumSettings` 且 `appTour.step === 'STEP_14_ALBUM_SETTINGS'` 時觸發，`applyAlbumSettings` 先關 modal，effect 在 modal 關閉 450ms 後顯示 `showTourCompletionGreeting()`。無需改動
 - **任務 5 靜態部分**（本 session）：`npx tsc --noEmit` + `npx eslint` 皆通過
 - **STEP_11 箭頭 bug 修復**（本 session，commit `2bf0fe8` + `d2cd24d`）：使用者回報「quiz 後指向建立相簿的箭頭被 word pop 區塊遮擋」。根因：箭頭原本巢狀在「+」按鈕內被其 outline 裁切、且渲染在 word showcase 之前被覆蓋。修正：把箭頭移出「+」按鈕，改為在 [`DeckMainScreenUI.tsx`](src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx) 的 `topActionsRow` 內用 `onLayout` 捕捉「+」按鈕座標，渲染獨立浮動箭頭（`position:'absolute'`、`zIndex:999`、`pointerEvents:'none'`、`direction="up"` 指回按鈕）。後續使用者回報「箭頭同時指向新增與搜尋按鈕」，根因是 `MovingTutorialArrow` 的動畫 `transform` 會覆蓋外部 `transform`，故改用 `marginLeft:-32`（箭頭實際寬度 64/2）水平置中，現已精準對齊「+」按鈕中心
+- **STEP_11 箭頭水平偏移修復**（本 session，commit `ea62fab`）：使用者回報「指向 create album 的箭頭太左了，add button 在右上角」。根因：箭頭 `position:'absolute'` 以 `topActionsRow`（`position:'relative'`）為基準，但「+」按鈕的 `onLayout` 座標是以 `TutorialSpotlight`（位於搜尋區塊之後的普通 View，無定位）為基準，兩者基準不一致 → 箭頭少了搜尋區塊寬度而偏左。修正：把箭頭移進 `TutorialSpotlight` 內、新增 `createAlbumSpotlight` style（`position:'relative'`），使箭頭基準與「+」按鈕 `onLayout` 基準一致；`TutorialSpotlight.tsx` 的 `children` 型別由 `React.ReactElement` 改為 `React.ReactNode`（因現在包兩個 child）
+- **STEP_13 長按箭頭移到最上層 + 加「長按」標籤**（本 session，commit `ea62fab`）：使用者回報「指向新相簿的箭頭移到最上層」→ 先加 `position:'relative'` 到 `styles.albumItem` 修復基準；後續回報「箭頭不在最上層（被裁切）且未提示長按」。根因：`albumGroup` 有 `overflow:'hidden'`（line 1092）裁切向上延伸的箭頭、`albumItem` zIndex 僅 1。採使用者選的**方案 A**：把箭頭移出 `AlbumIconItemUI`，在 [`DeckMainScreenUI.tsx`](src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx) 用 `onLayout` + `measureInWindow` 捕捉教學相簿 cell 的絕對螢幕座標（`tutorialAlbumLayout` state + `tutorialAlbumCellRef`），在 SafeAreaView 內渲染獨立浮動箭頭（`longPressTutorialWrap`：`position:'absolute'`、`zIndex:999`、`pointerEvents:'none'`、`alignItems:'center'`、`marginLeft:-15`），並在箭頭上方加「長按」/「Hold to edit」文字標籤（`longPressTutorialLabel`）。因 `measureInWindow` 的 y 含狀態列、而浮動箭頭以 SafeAreaView 內容為基準，故 `top` 需減 `insets.top`。`AlbumIconItemUI.tsx` 移除 `showLongPressTutorial` prop、箭頭渲染、`longPressTutorialArrow` style 與 `MovingTutorialArrow` import。`uiLanguage === 'zh'` 型別錯誤改為 `uiLanguage === 'zh-TW' || uiLanguage === 'zh-CN'`
+
+**本 session 最後的 STEP_13 箭頭工作（尚未 commit，工作區內 3 個檔案）**：
+- **STEP_13 箭頭不顯示 bug 修復**（[`DeckMainScreenUI.tsx`](src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx)）：根因是 cell 的 `onLayout` 依賴 `tourStep === 'STEP_13'`，但 cell 在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發 → `tutorialAlbumLayout` 保持 null → 箭頭不顯示。修復：cell `onLayout` 移除 tourStep 條件（永遠捕捉座標）+ 新增主動 measure effect（STEP_13 時延遲後 `measureInWindow` 設定 `tutorialAlbumLayout`）+ FlatList 加 `getItemLayout` + `onScrollToIndexFailed`（scrollToIndex 需要 getItemLayout 才能可靠滾到未渲染的 item）
+- **STEP_13 箭頭方向改 left + spring 動畫**（[`MovingTutorialArrow.tsx`](src/components/UI/shared/MovingTutorialArrow.tsx)）：擴展 Props 支援 `direction="left"` 與 `motion="spring"`；spring 用 scaleX/scaleY 做形狀伸縮（彈簧釋放）；`Animated.spring` 不支援 `fromValue`，改用 `Animated.timing(scale, { toValue: 0.35, duration: 0 })` 先設起始值再 spring 到 1。**使用者說「動畫我來想辦法」，不要改 spring 動畫**
+- **STEP_13 箭頭高度調整（進行中）**：wrap 改水平排列（箭頭在左、label 在右）、`top: cell中心 - 30`、固定 wrap `height: 60`、measure 延遲 700→1200ms。使用者最新回報「箭頭在 album grid & word pop 中間」（偏上），仍未對準相簿中心
 
 **下一步（依序）**：
-1. **任務 5（唯一剩餘）**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）在模擬器上走完整流程，確認每個 STEP 的箭頭/引導精準指向目標、歡迎通知在所有步驟完成後才顯示
-2. 若 UI 互動發現箭頭仍偏移或遮擋，沿用 STEP_11 的修法（獨立浮動元素 + onLayout 座標 + marginLeft 置中，避免被 `MovingTutorialArrow` 的 transform 覆蓋）
+1. **先跑 `npx tsc --noEmit` + `npx eslint`** 確認本 session 未 commit 的變更無型別/規範錯誤（本 session 結束前未跑完，使用者要求下一個 chat 跑）
+2. **STEP_13 箭頭高度調整（進行中）**：使用者回報箭頭偏上（在 album grid & word pop 中間），需讓箭頭對準相簿中心。目前 `top = tutorialAlbumLayout.y - insets.top + tutorialAlbumLayout.height / 2 - 30`，wrap 固定 `height: 60`。若仍偏上，把 `top` 的 `- 30` 往下調（減小負偏移，如 `- 20`）。**不要改 spring 動畫**。改完請使用者 reload 實機（`://dev/replay-tour`）確認
+3. **任務 5（最後）**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）在模擬器上走完整流程，確認每個 STEP 的箭頭/引導精準指向目標（尤其 STEP_11 指向「+」、STEP_13 指向教學相簿並顯示「長按」標籤）、歡迎通知在所有步驟完成後才顯示
+4. 若 UI 互動發現箭頭仍偏移或遮擋，沿用 STEP_11/STEP_13 的修法（獨立浮動元素 + onLayout/measureInWindow 座標 + marginLeft 置中，避免被 `MovingTutorialArrow` 的 transform 覆蓋；注意 `overflow:'hidden'` 裁切與 safe-area 偏移）
+5. **commit**：本 session 未 commit 的 3 個檔案（`plans/interactive-tour-expansion.md`、`src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx`、`src/components/UI/shared/MovingTutorialArrow.tsx`）。注意工作區有大量與本任務無關的未提交變更，只 add 本任務相關檔案
 
 **材料**：計畫檔 [`plans/interactive-tour-expansion.md`](plans/interactive-tour-expansion.md)（含流程、程式碼對應、bug 根因、相簿分頁細節）。不要改動影片教學（[`VideoTourFlow.tsx`](src/screens/flow/VideoTourFlow.tsx:433)）。注意：工作區有大量與本任務無關的未提交變更（其他 session 的），commit 時只 add 本任務相關檔案。
