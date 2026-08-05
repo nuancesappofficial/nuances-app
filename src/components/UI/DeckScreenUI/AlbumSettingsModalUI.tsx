@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
+import MovingTutorialArrow from '../shared/MovingTutorialArrow';
 import { tUI } from '../../../i18n/uiLanguage';
 import {
   MODAL_CTA_COLOR,
@@ -41,7 +42,7 @@ type Props = {
   onSave: () => void;
   onDidClose?: () => void;
   tourSaveActive?: boolean;
-  tourSaveTooltip?: string;
+  tourPickCoverActive?: boolean;
   children?: React.ReactNode;
 };
 
@@ -81,7 +82,7 @@ export default function AlbumSettingsModalUI({
   onSave,
   onDidClose,
   tourSaveActive = false,
-  tourSaveTooltip = tUI(uiLanguage, 'deck.tourSaveSettings'),
+  tourPickCoverActive = false,
   children,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -270,6 +271,12 @@ export default function AlbumSettingsModalUI({
                         >
                           {tab === 'classic' ? tUI(uiLanguage, 'create.albumTabClassic') : tUI(uiLanguage, 'create.albumTabImage')}
                         </Text>
+                        {tab === 'image' && tourPickCoverActive && coverTab !== 'image' ? (
+                          <MovingTutorialArrow
+                            direction="down"
+                            style={styles.tourPickCoverTabArrow}
+                          />
+                        ) : null}
                       </Pressable>
                     );
                   })}
@@ -384,6 +391,12 @@ export default function AlbumSettingsModalUI({
                       ]}
                       onPress={onPickCoverImage}
                     >
+                      {tourPickCoverActive && coverTab === 'image' ? (
+                        <MovingTutorialArrow
+                          direction="down"
+                          style={styles.tourPickCoverUploadArrow}
+                        />
+                      ) : null}
                       {coverImageUri ? (
                         <>
                           <View pointerEvents="none" style={styles.coverPreviewImageWrap}>
@@ -432,7 +445,6 @@ export default function AlbumSettingsModalUI({
               </Pressable>
               <TutorialSpotlight
                 active={tourSaveActive}
-                tooltip={tourSaveTooltip}
                 onSpotlightPress={onSave}
                 style={styles.tourButtonWrapper}
               >
@@ -684,6 +696,22 @@ const styles = StyleSheet.create({
   },
   tourButtonWrapper: {
     flex: 1,
+  },
+  tourPickCoverTabArrow: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  tourPickCoverUploadArrow: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 20,
   },
   cancelButton: {
     flex: 1,

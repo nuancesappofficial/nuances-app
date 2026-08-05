@@ -1741,6 +1741,7 @@ export default function DeckMainFlow({
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
         tourSaveActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
+        tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
