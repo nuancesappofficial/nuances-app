@@ -456,14 +456,25 @@ class ShareViewController: UIViewController {
             // Apple Pay 風格的成功觸覺回饋（叩-叩）：兩次快速連續的短震動，
             // 在關閉選單前一刻觸發。通知已設為靜音（sound = nil），避免與此
             // Haptic 重疊打架。
-            let impact = UIImpactFeedbackGenerator(style: .medium)
-            impact.prepare()
-            impact.impactOccurred()
+            //
+            // 使用兩個獨立的 generator 並各自 prepare()，避免單一 generator
+            // 重用時 prepare 預熱失效導致震動被吞掉（「沒有震動」）。
+            // 第二次震動排程在 closeExtension 之前，確保 extension 關閉前
+            // 兩次都播放（避免「單擊」）。
+            let firstImpact = UIImpactFeedbackGenerator(style: .medium)
+            firstImpact.prepare()
+            firstImpact.impactOccurred()
+
+            let secondImpact = UIImpactFeedbackGenerator(style: .medium)
+            secondImpact.prepare()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                impact.impactOccurred()
+                secondImpact.impactOccurred()
             }
 
-            self.closeExtension(success: true)
+            // 延後關閉，讓第二次震動在 completeRequest 前播放完畢。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.closeExtension(success: true)
+            }
         }
     }
 
