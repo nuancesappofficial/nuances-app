@@ -465,11 +465,15 @@ class ShareViewController: UIViewController {
                 completion: {}
             )
 
-            // Apple Pay 風格的成功觸覺回饋（叩-叩），在關閉選單前一刻觸發。
-            // 通知已設為靜音（sound = nil），避免與此 Haptic 重疊打架。
-            let generator = UINotificationFeedbackGenerator()
-            generator.prepare()
-            generator.notificationOccurred(.success)
+            // Apple Pay 風格的成功觸覺回饋（叩-叩）：兩次快速連續的短震動，
+            // 在關閉選單前一刻觸發。通知已設為靜音（sound = nil），避免與此
+            // Haptic 重疊打架。
+            let impact = UIImpactFeedbackGenerator(style: .medium)
+            impact.prepare()
+            impact.impactOccurred()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                impact.impactOccurred()
+            }
 
             self.closeExtension(success: true)
         }
