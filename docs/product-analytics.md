@@ -26,6 +26,7 @@ sent.
 
 | Event | Meaning |
 | --- | --- |
+| `first_app_opened` | First launch on this installation; used as the initial Downloads proxy |
 | `app_opened` | App becomes ready for an authenticated or anonymous user |
 | `onboarding_started` | Onboarding is presented |
 | `onboarding_completed` | Onboarding data is saved successfully |
@@ -36,7 +37,8 @@ sent.
 | `review_completed` | User taps Done on the review summary |
 | `pronunciation_attempted` | A recording is submitted for assessment |
 | `paywall_viewed` | Membership screen is opened |
-| `subscription_started` | RevenueCat entitlement is premium or trial and synced |
+| `freemium_quota_updated` | A successful free card updates quota used and percentage used |
+| `subscription_started` | A synced RevenueCat purchase, classified as weekly, monthly, yearly, or unknown |
 | `subscription_failed` | Purchase fails or entitlement sync remains pending |
 
 Do not add event properties containing user content. The runtime sanitizer
@@ -63,6 +65,30 @@ Create these PostHog insights:
 7. **Retention**
    weekly retention based on `review_completed`
 
+## Growth attribution
+
+Campaign links use these four query parameters:
+
+```text
+nuances://open?manager=content_creation&platform=tiktok&method=remix&campaign_id=interview-01
+```
+
+When all four values are present, they are saved on the installation and added
+to later analytics events as `growth_manager`, `growth_platform`,
+`growth_method`, and `growth_campaign_id`.
+
+Create a **Growth Overview** dashboard with:
+
+1. **Downloads proxy** — unique users with `first_app_opened`
+2. **Freemium quota distribution** — latest `quota_used_percent` from
+   `freemium_quota_updated`
+3. **Paying Users** — unique users with `subscription_started`, broken down by
+   `plan`
+
+Add dashboard filters for the four `growth_*` properties. App Store downloads
+remain the source of truth; `first_app_opened` measures first launches recorded
+after this instrumentation ships.
+
 Use unique users for conversion and retention views. Use total event counts only
 when measuring workload, such as cards created or reviews completed.
 
@@ -73,4 +99,3 @@ the adapter constructed in `src/services/analytics/index.ts`. Product screens
 and the event schema do not need to change. During migration, a composite
 adapter can send the same sanitized events to both systems until their numbers
 match.
-
