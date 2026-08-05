@@ -129,7 +129,14 @@ export default function DeckMainScreenUI({
   const wordCarouselRef = React.useRef<FlatList<Props['slideshowItems'][number]> | null>(null);
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
   const didRevealTutorialAlbumRef = React.useRef<string | null>(null);
+  const tutorialAlbumCellRef = React.useRef<View | null>(null);
   const [createAlbumBtnLayout, setCreateAlbumBtnLayout] = React.useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [tutorialAlbumLayout, setTutorialAlbumLayout] = React.useState<{
     x: number;
     y: number;
     width: number;
@@ -380,12 +387,40 @@ export default function DeckMainScreenUI({
                   {Array.from({ length: albumGridColumns }).map((__, colIndex) => {
                     const item = rowAlbums[colIndex];
                     return (
-                      <View key={`cell-${pageIndex}-${rowIndex}-${colIndex}`} style={{ width: albumCellWidth }}>
+                      <View
+                        key={`cell-${pageIndex}-${rowIndex}-${colIndex}`}
+                        style={{ width: albumCellWidth }}
+                        ref={
+                          item && item.id === tutorialLongPressAlbumId
+                            ? tutorialAlbumCellRef
+                            : undefined
+                        }
+                        onLayout={
+                          item && item.id === tutorialLongPressAlbumId && tourStep === 'STEP_13_LONG_PRESS_ALBUM'
+                            ? () => {
+                                requestAnimationFrame(() => {
+                                  tutorialAlbumCellRef.current?.measureInWindow(
+                                    (x, y, width, height) => {
+                                      setTutorialAlbumLayout((prev) =>
+                                        prev &&
+                                        prev.x === x &&
+                                        prev.y === y &&
+                                        prev.width === width &&
+                                        prev.height === height
+                                          ? prev
+                                          : { x, y, width, height }
+                                      );
+                                    }
+                                  );
+                                });
+                              }
+                            : undefined
+                        }
+                      >
                         {item ? (
                           <AlbumIconItemUI
                             item={item}
                             uiLanguage={uiLanguage}
-                            showLongPressTutorial={tourStep === 'STEP_13_LONG_PRESS_ALBUM' && item.id === tutorialLongPressAlbumId}
                             onPress={onPressAlbum}
                             isMenuVisible={isMenuVisible}
                             startX={startX}
@@ -724,6 +759,29 @@ export default function DeckMainScreenUI({
           </View>
       </View>
 
+      {tourStep === 'STEP_13_LONG_PRESS_ALBUM' && tutorialAlbumLayout ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.longPressTutorialWrap,
+            {
+              top: tutorialAlbumLayout.y - insets.top - 52,
+              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width / 2,
+            },
+          ]}
+        >
+          <Text style={styles.longPressTutorialLabel}>
+            {uiLanguage === 'zh-TW' || uiLanguage === 'zh-CN' ? '長按' : 'Hold to edit'}
+          </Text>
+          <MovingTutorialArrow
+            direction="down"
+            color="#2D9E66"
+            size={30}
+            style={styles.longPressTutorialArrow}
+          />
+        </View>
+      ) : null}
+
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
         <Pressable
           style={[styles.searchBackdropMask, { backgroundColor: palette.searchBackdropMask }]}
@@ -971,6 +1029,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0F172A',
+    position: 'relative',
   },
   quickQuizTutorialArrow: {
     position: 'absolute',
@@ -987,6 +1046,25 @@ const styles = StyleSheet.create({
     zIndex: 999,
     pointerEvents: 'none',
     marginLeft: -32,
+  },
+  longPressTutorialWrap: {
+    position: 'absolute',
+    zIndex: 999,
+    pointerEvents: 'none',
+    alignItems: 'center',
+    marginLeft: -15,
+  },
+  longPressTutorialLabel: {
+    color: '#2D9E66',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  longPressTutorialArrow: {
+    marginLeft: 0,
   },
   topRightRow: {
     paddingHorizontal: 16,

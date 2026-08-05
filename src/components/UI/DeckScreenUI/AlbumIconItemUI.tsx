@@ -13,7 +13,6 @@ import Reanimated, {
   withSpring,
 } from 'react-native-reanimated';
 import FolderIcon from './FolderIcon';
-import MovingTutorialArrow from '../shared/MovingTutorialArrow';
 import type { DeckAlbum } from './deckTypes';
 import LightPressable from '../shared/LightPressable';
 import type { UILanguage } from '../../../services/settings/userSettings';
@@ -31,7 +30,6 @@ type Props = {
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
   onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete' ) => void;
-  showLongPressTutorial?: boolean;
 };
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
@@ -56,7 +54,6 @@ export default function AlbumIconItemUI({
   onMenuStart,
   onMenuFinish,
   onActionEnd,
-  showLongPressTutorial = false,
 }: Props) {
   const cardRef = useAnimatedRef<Reanimated.View>();
   const isActive = useSharedValue(0);
@@ -175,14 +172,6 @@ export default function AlbumIconItemUI({
             style={styles.folderIcon}
           />
         </LightPressable>
-        {showLongPressTutorial ? (
-          <MovingTutorialArrow
-            direction="down"
-            color="#2D9E66"
-            size={30}
-            style={styles.longPressTutorialArrow}
-          />
-        ) : null}
       </Reanimated.View>
     </GestureDetector>
   );
@@ -237,11 +226,5 @@ const styles = StyleSheet.create({
   },
   activeAlbumHidden: {
     opacity: 0,
-  },
-  longPressTutorialArrow: {
-    position: 'absolute',
-    top: -38,
-    left: '50%',
-    marginLeft: -15,
   },
 });
