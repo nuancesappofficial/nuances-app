@@ -1,0 +1,8 @@
+# 必擋的第三方套件與原生編譯垃圾 (防漏水專用)
+node_modules/
+ios/Pods/
+ios/build/
+android/app/build/
+android/.gradle/
+.git/
+*.log

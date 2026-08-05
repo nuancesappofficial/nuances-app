@@ -57,11 +57,15 @@ async function createShareExtensionFiles(projectRoot) {
 
   // 1. ShareViewController.swift (主要邏輯)
   const swiftTemplatePath = path.join(__dirname, 'ShareViewController.swift');
+  const receiptCopyPath = path.join(__dirname, 'ShareReceiptCopy.swift');
   if (!fs.existsSync(swiftTemplatePath)) {
     throw new Error('Missing ShareViewController.swift template for Share Extension');
   }
-  const finalSwiftCode = fs
-    .readFileSync(swiftTemplatePath, 'utf8')
+  if (!fs.existsSync(receiptCopyPath)) {
+    throw new Error('Missing ShareReceiptCopy.swift template for Share Extension');
+  }
+  const finalSwiftCode = `${fs.readFileSync(receiptCopyPath, 'utf8')}\n${fs
+    .readFileSync(swiftTemplatePath, 'utf8')}`
     .replace(/group\.com\.jeffenglishlearning\.nuances\.v2/g, APP_GROUP_ID);
   fs.writeFileSync(path.join(extensionDir, 'ShareViewController.swift'), finalSwiftCode);
 

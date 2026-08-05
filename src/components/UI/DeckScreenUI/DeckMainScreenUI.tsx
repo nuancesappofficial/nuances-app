@@ -687,6 +687,7 @@ export default function DeckMainScreenUI({
               <TutorialSpotlight
                 active={tourStep === 'STEP_11_CREATE_ALBUM'}
                 onSpotlightPress={handleTourTargetPress}
+                style={styles.createAlbumSpotlight}
               >
                 <Pressable
                   style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
@@ -706,20 +707,19 @@ export default function DeckMainScreenUI({
                 >
                   <Ionicons name="add" size={38} color={palette.textOnBg} />
                 </Pressable>
+                {tourStep === 'STEP_11_CREATE_ALBUM' && createAlbumBtnLayout ? (
+                  <MovingTutorialArrow
+                    direction="up"
+                    style={[
+                      styles.createAlbumFloatingArrow,
+                      {
+                        top: createAlbumBtnLayout.y + createAlbumBtnLayout.height + 6,
+                        left: createAlbumBtnLayout.x + createAlbumBtnLayout.width / 2,
+                      },
+                    ]}
+                  />
+                ) : null}
               </TutorialSpotlight>
-            ) : null}
-
-            {tourStep === 'STEP_11_CREATE_ALBUM' && createAlbumBtnLayout ? (
-              <MovingTutorialArrow
-                direction="up"
-                style={[
-                  styles.createAlbumFloatingArrow,
-                  {
-                    top: createAlbumBtnLayout.y + createAlbumBtnLayout.height + 6,
-                    left: createAlbumBtnLayout.x + createAlbumBtnLayout.width / 2,
-                  },
-                ]}
-              />
             ) : null}
           </View>
       </View>
@@ -978,6 +978,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 20,
+  },
+  createAlbumSpotlight: {
+    position: 'relative',
   },
   createAlbumFloatingArrow: {
     position: 'absolute',

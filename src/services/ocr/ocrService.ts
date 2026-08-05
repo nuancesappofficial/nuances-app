@@ -13,6 +13,7 @@ import type { AIPersonalizationOptions } from '../ai/types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { getPreparedOCRVisionLanguageConfig } from './languagePacks';
 import { normalizeOCRText } from './ocrTextNormalization';
+import { joinOCRBlocksByVisualLines } from './ocrLayout';
 import { pickSentenceContainingWord } from '../../features/createCard/textTransforms';
 
 // ============================================================
@@ -334,14 +335,6 @@ function verticalGap(left: OCRBlock, right: OCRBlock): number {
   return 0;
 }
 
-function joinOCRBlocks(blocks: OCRBlock[]): string {
-  const parts = blocks.map((block) => block.text.trim()).filter(Boolean);
-  if (!parts.length) return '';
-  const containsLatin = parts.some((part) => hasLatin(part));
-  const containsCJK = parts.some((part) => hasCJK(part));
-  return containsCJK && !containsLatin ? parts.join('') : parts.join(' ');
-}
-
 /**
  * Reconstructs local OCR context from the text region containing the selected
  * target. Vision already returns geometry for every recognized line; using it
@@ -462,7 +455,7 @@ export function buildTargetAnchoredOCRText(
       (left, right) =>
         left.frame.y - right.frame.y || left.frame.x - right.frame.x
     );
-  const reconstructed = joinOCRBlocks(regionBlocks).trim();
+  const reconstructed = joinOCRBlocksByVisualLines(regionBlocks).trim();
   return reconstructed || null;
 }
 

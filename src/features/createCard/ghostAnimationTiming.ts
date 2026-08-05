@@ -13,4 +13,13 @@ export const DEMO_GHOST_PREVIEW_TYPE_INTERVAL_MS =
 export const DEMO_GHOST_PREVIEW_TYPE_TAIL_MS =
   durationAtDemoGhostSpeed(120);
 export const DEMO_GHOST_SCROLL_DURATION_MS =
-  durationAtDemoGhostSpeed(260);
+  durationAtDemoGhostSpeed(260) * 2;
+export const DEMO_GHOST_SAVE_ARROW_DELAY_MS = 3_000;
+
+export function scheduleDemoGhostSaveArrow(
+  showArrow: () => void,
+  delayMs = DEMO_GHOST_SAVE_ARROW_DELAY_MS
+): () => void {
+  const timeout = setTimeout(showArrow, delayMs);
+  return () => clearTimeout(timeout);
+}

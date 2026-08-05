@@ -33,7 +33,7 @@ import { deleteCurrentAccount } from '@services/account/AccountDeletionService';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { tUI } from '../../../i18n/uiLanguage';
 import { SUPPORT_EMAIL } from '../../../constants/legalLinks';
-import { isDevFreshUserSimulatorEnabled } from '../../../features/auth/devFreshUserSimulatorCore';
+import { resolveAccountDeletionPath } from '../../../features/auth/devFreshUserSimulatorCore';
 
 type Props = {
   navigation: any;
@@ -496,8 +496,17 @@ export default function ProfileMainFlow({
     if (isDeletingAccount) return;
     setIsDeletingAccount(true);
     try {
-      if (isDevFreshUserSimulatorEnabled() && onDevAccountDelete) {
-        await onDevAccountDelete();
+      // Only the active simulated fresh user may use the dev-only local-cleanup
+      // path. A real account signed in on a dev build must still run the real
+      // server-backed deletion, otherwise its cloud cards survive and reappear
+      // on the next sign-in.
+      const currentUserId = await getCurrentSessionUserId();
+      const path = resolveAccountDeletionPath(
+        currentUserId,
+        Boolean(onDevAccountDelete)
+      );
+      if (path === 'dev-simulator') {
+        await onDevAccountDelete!();
       } else {
         await deleteCurrentAccount();
       }

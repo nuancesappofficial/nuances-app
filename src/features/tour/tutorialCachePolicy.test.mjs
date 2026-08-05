@@ -37,7 +37,7 @@ test('cache deletion stays locked while the tutorial transitions into the cache 
   assert.equal(
     shouldBlockTutorialCacheDeletion({
       isTutorialActive: true,
-      tourStep: 'STEP_4_ADD_SAMPLE_TEXT',
+      tourStep: 'STEP_5_PROCESS_CACHE_CARD',
       isDefaultExperienceCard: true,
       direction: 'left',
     }),

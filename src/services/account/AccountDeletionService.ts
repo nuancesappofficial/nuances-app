@@ -43,7 +43,7 @@ async function removeDirectoryIfExists(uri: string): Promise<void> {
   }
 }
 
-async function clearLocalAccountCaches(userId: string): Promise<void> {
+export async function clearLocalAccountCaches(userId: string): Promise<void> {
   const keys = [
     // Legacy unscoped keys
     'card_detail_sticky_notes_v1',

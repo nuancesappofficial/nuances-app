@@ -18,7 +18,7 @@ import {
   purchaseRevenueCatPremium,
   restoreRevenueCatPurchases,
 } from './revenueCat';
-import TrialNotificationService from '../notifications/TrialNotificationService';
+import { canAttemptPronunciationAssessment } from '../../features/subscription/pronunciationAccess';
 
 const DAILY_FREE_VOICE_LIMIT = 3;
 const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
@@ -115,7 +115,7 @@ function buildSnapshot(params: {
     trialEndsAt,
     subscriptionExpiresAt,
     canUseCloudAI: canUseCloudFeatures,
-    canUsePronunciationCoach: canUseCloudFeatures,
+    canUsePronunciationCoach: canAttemptPronunciationAssessment(planType),
     canUseCloudTTS: canUseCloudFeatures,
     canUseAutoCardGeneration: canUseCloudFeatures,
     canUseManualOCRCardCreation: canUseCloudFeatures,
@@ -140,15 +140,6 @@ function buildDevSnapshot(mode: PlanType): EntitlementSnapshot {
     devBypass: true,
     trialEndsAt: devTrialEndsAt,
     subscriptionExpiresAt: mode === 'premium' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
-  });
-}
-
-function reconcileTrialNotification(snapshot: EntitlementSnapshot): void {
-  void TrialNotificationService.reconcile({
-    planType: snapshot.planType,
-    trialEndsAt: snapshot.trialEndsAt,
-  }).catch((error) => {
-    console.warn('[Subscription] trial notification reconcile failed:', error);
   });
 }
 
@@ -384,7 +375,6 @@ export const SubscriptionService = {
         });
       }
       const snapshot = buildDevSnapshot(devOverride);
-      reconcileTrialNotification(snapshot);
       return snapshot;
     }
 
@@ -397,7 +387,6 @@ export const SubscriptionService = {
       }
     }
     const snapshot = await this.getEntitlementSnapshot(userId);
-    reconcileTrialNotification(snapshot);
     return snapshot;
   },
 
@@ -448,12 +437,10 @@ export const SubscriptionService = {
     if (remote) {
       await applyServerSnapshotToSettings(remote);
       const snapshot = await this.getEntitlementSnapshot(userId);
-      reconcileTrialNotification(snapshot);
       emitEntitlementUpdated(snapshot);
       return { ...snapshot, serverSynced: true };
     }
     const snapshot = await this.getEntitlementSnapshot(userId);
-    reconcileTrialNotification(snapshot);
     return { ...snapshot, serverSynced: false };
   },
 
@@ -477,12 +464,10 @@ export const SubscriptionService = {
     if (remote) {
       await applyServerSnapshotToSettings(remote);
       const snapshot = await this.getEntitlementSnapshot(userId);
-      reconcileTrialNotification(snapshot);
       emitEntitlementUpdated(snapshot);
       return { ...snapshot, serverSynced: true };
     }
     const snapshot = await this.getEntitlementSnapshot(userId);
-    reconcileTrialNotification(snapshot);
     return { ...snapshot, serverSynced: false };
   },
 
@@ -508,15 +493,8 @@ export const SubscriptionService = {
 
   async consumeVoiceQuota(userId: string): Promise<ConsumeVoiceQuotaResult> {
     const snapshot = await this.getEntitlementSnapshot(userId);
-    if (snapshot.planType === 'free') {
-      return {
-        allowed: false,
-        consumed: false,
-        snapshot,
-      };
-    }
     return {
-      allowed: true,
+      allowed: canAttemptPronunciationAssessment(snapshot.planType),
       consumed: false,
       snapshot,
     };

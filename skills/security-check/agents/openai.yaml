@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security Check"
+  short_description: "Audit app security and report exploitable risks"
+  default_prompt: "Use $security-check to audit this project for exploitable security risks."

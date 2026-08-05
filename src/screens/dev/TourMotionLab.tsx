@@ -37,7 +37,6 @@ export default function TourMotionLab({ onClose }: { onClose: () => void }) {
       <View style={styles.stage}>
         <TutorialSpotlight
           active={activeTarget === 1}
-          tooltip="Start with a compact action near the top."
           onSpotlightPress={() => setActiveTarget(2)}
         >
           <Pressable style={[styles.target, styles.targetSmall]}>
@@ -48,7 +47,6 @@ export default function TourMotionLab({ onClose }: { onClose: () => void }) {
 
         <TutorialSpotlight
           active={activeTarget === 2}
-          tooltip="The cutout should glide here without flashing or remounting."
           onSpotlightPress={() => setActiveTarget(3)}
         >
           <Pressable style={[styles.target, styles.targetWide]}>
@@ -59,7 +57,6 @@ export default function TourMotionLab({ onClose }: { onClose: () => void }) {
 
         <TutorialSpotlight
           active={activeTarget === 3}
-          tooltip="Finish the target transition."
           onSpotlightPress={onClose}
         >
           <Pressable style={[styles.target, styles.targetRound]}>

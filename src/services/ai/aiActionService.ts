@@ -7,7 +7,11 @@ import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { stringifySemanticRelations } from '../../features/cards/semanticRelations';
 import { DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION } from '../../features/cache/defaultExperiencePronunciation';
 import * as Crypto from 'expo-crypto';
-import { buildGenerateCardPayload } from './generateCardPayload';
+import {
+  buildGenerateCardPayload,
+  buildGenerateCardStreamPayload,
+} from './generateCardPayload';
+import { parseCoreStream } from './parseCoreStream';
 import {
   isValidCollocationForSubject,
   normalizeGeneratedUsagePairs,
@@ -18,6 +22,15 @@ import {
  * 延遲函數
  */
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 產生卡片生成的冪等鍵（generationId）。
+ * 守則 A：Path A（非串流）與 Path B（串流）都必須從這裡取得同一個
+ * generationId 來源，確保兩條路徑永遠不會漏帶冪等鍵。
+ */
+function createGenerationId(): string {
+  return Crypto.randomUUID();
+}
 
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -150,6 +163,22 @@ type GenerateCardResult = {
   ipa?: string | null;
   phonetic?: string | null;
   tags: string[];
+};
+
+// Enrichment stream 回傳的是「扁平」結構：synonyms / antonyms / usagePairs
+// 位於頂層，而非巢狀在 semanticRelations 內。此型別描述 enrichment 的原始
+// 形狀，供後續重新包裝成前端預期的深層結構。
+type EnrichmentResult = Partial<GenerateCardResult> & {
+  synonyms?: Array<{ term?: string; translation?: string }>;
+  antonyms?: Array<{ term?: string; translation?: string }>;
+  usagePairs?: Array<{
+    phrase?: string;
+    collocation?: string;
+    translation?: string;
+    example?: { sentence?: string; translation?: string };
+    exampleSentence?: string;
+    exampleTranslation?: string;
+  }>;
 };
 
 function isMostlyLatinText(value: string): boolean {
@@ -382,7 +411,7 @@ export async function generateCardContent(
     console.log(
       `[Phonetic] generate_card target="${targetWord}" source=${localPhonetic ? 'local' : 'api_fallback'}`
     );
-    const generationId = Crypto.randomUUID();
+    const generationId = createGenerationId();
     const result = await callAIAction<
       {
         targetWord: string;
@@ -633,6 +662,48 @@ async function buildDefaultExperienceCardContent(
   };
 }
 
+type EnrichmentStreamPayload = {
+  generationId: string;
+  targetWord: string;
+  originalSentence: string;
+  canonicalSubject: string;
+  partOfSpeech: string;
+  definition: string;
+  coreSentenceTranslation: string;
+  replyLanguage?: string;
+  sourceLanguage?: string;
+  aiBreakdownMode?: string;
+};
+
+/**
+ * 呼叫 enrichment stream 並在失敗時重試一次。
+ * 抽成獨立 helper，讓 generateCardContentStream 專注於組裝與正規化，
+ * 重試邏輯可單獨測試。
+ */
+async function streamEnrichmentWithRetry(
+  payload: EnrichmentStreamPayload,
+  handlers: { onToken?: (delta: string) => void }
+): Promise<Awaited<ReturnType<typeof streamAIAction>>> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await streamAIAction('generate_card_enrichment_stream', payload, {
+        onToken: handlers.onToken,
+      });
+    } catch (error) {
+      lastError = error;
+      console.warn('[AI][pipeline] enrichment attempt failed', {
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (attempt < 2) await delay(500);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('AI enrichment stream failed');
+}
+
 export async function generateCardContentStream(
   targetWord: string,
   originalSentence: string,
@@ -642,7 +713,7 @@ export async function generateCardContentStream(
     onFirstToken?: () => void;
   } = {}
 ): Promise<Awaited<ReturnType<typeof generateCardContent>>> {
-  const generationId = Crypto.randomUUID();
+  const generationId = createGenerationId();
   const replyLanguage = normalizeOptionalString(personalization?.replyLanguage);
   const aiBreakdownMode = normalizeOptionalString(personalization?.aiBreakdownMode);
   const sourceLanguage = detectSourceLanguage(`${targetWord} ${originalSentence}`);
@@ -667,7 +738,7 @@ export async function generateCardContentStream(
       sourceLanguage?: string;
       aiBreakdownMode?: string;
     }
-  >('generate_card_core_stream', {
+  >('generate_card_core_stream', buildGenerateCardStreamPayload({
     generationId,
     targetWord,
     originalSentence,
@@ -675,53 +746,16 @@ export async function generateCardContentStream(
     replyLanguage,
     sourceLanguage,
     aiBreakdownMode,
-  }, stageHandlers);
+  }), stageHandlers);
 
   const rawCore = coreResult.rawContent || '';
   if (__DEV__) {
     console.log('--- AI RAW CORE OUTPUT ---', rawCore);
   }
 
-  let core: Partial<GenerateCardResult> = {};
-
-  const getRegexText = (raw: string, header: string, nextHeader?: string) => {
-    const cleanRaw = raw.replace(/```(json|text|markdown)?/gi, '').replace(/```/g, '');
-    const getRegex = (value: string) => new RegExp(`==\\s*${value.replace(/=/g, '')}\\s*==`, 'i');
-    const startMatch = cleanRaw.match(getRegex(header));
-    if (!startMatch || startMatch.index === undefined) return '';
-    const contentStart = startMatch.index + startMatch[0].length;
-    let content = cleanRaw.slice(contentStart);
-    if (nextHeader) {
-      const nextMatch = content.match(getRegex(nextHeader));
-      if (nextMatch?.index !== undefined) content = content.slice(0, nextMatch.index);
-    }
-    return content.trim();
+  const core: Partial<GenerateCardResult> = {
+    ...parseCoreStream(rawCore),
   };
-
-  if (rawCore.match(/==\s*(?:DEF|TRANS)\s*==/i)) {
-    const defIndex = rawCore.search(/==\s*DEF\s*==/i);
-    const transIndex = rawCore.search(/==\s*TRANS\s*==/i);
-    const transComesFirst = transIndex >= 0 && defIndex >= 0 && transIndex < defIndex;
-    core = {
-      definition: transComesFirst
-        ? getRegexText(rawCore, '==DEF==', '==WORD==')
-        : getRegexText(rawCore, '==DEF==', '==TRANS=='),
-      sentenceTranslation: transComesFirst
-        ? getRegexText(rawCore, '==TRANS==', '==DEF==')
-        : getRegexText(rawCore, '==TRANS==', '==WORD=='),
-      normalizedTargetWord: getRegexText(rawCore, '==WORD==', '==POS=='),
-      partOfSpeech: getRegexText(rawCore, '==POS==', '==RESOLUTION=='),
-    };
-  } else {
-    const coreJson = extractFirstJsonObject(rawCore);
-    if (coreJson) {
-      try {
-        core = JSON.parse(coreJson) as Partial<GenerateCardResult>;
-      } catch {
-        console.warn('Failed to parse fallback JSON in Core Stream');
-      }
-    }
-  }
 
   if (!core.definition) {
     if (rawCore.trim().length > 0) {
@@ -763,46 +797,27 @@ export async function generateCardContentStream(
   });
 
   handlers.onToken?.('\n');
-  let enrichmentResult: Awaited<ReturnType<typeof streamAIAction>> | null = null;
-  let enrichmentError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      enrichmentResult = await streamAIAction('generate_card_enrichment_stream', {
-        generationId,
-        targetWord,
-        originalSentence: selectedSourceSentence,
-        canonicalSubject,
-        partOfSpeech: core.partOfSpeech || '',
-        definition: core.definition || '',
-        coreSentenceTranslation: core.sentenceTranslation || '',
-        replyLanguage,
-        sourceLanguage,
-        aiBreakdownMode,
-      }, {
-        onToken: handlers.onToken,
-      });
-      break;
-    } catch (error) {
-      enrichmentError = error;
-      console.warn('[AI][pipeline] enrichment attempt failed', {
-        attempt,
-        elapsedMs: Date.now() - pipelineStartedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (attempt < 2) await delay(500);
-    }
-  }
-  if (!enrichmentResult) {
-    throw enrichmentError instanceof Error
-      ? enrichmentError
-      : new Error('AI enrichment stream failed');
-  }
+  const enrichmentResult = await streamEnrichmentWithRetry(
+    {
+      generationId,
+      targetWord,
+      originalSentence: selectedSourceSentence,
+      canonicalSubject,
+      partOfSpeech: core.partOfSpeech || '',
+      definition: core.definition || '',
+      coreSentenceTranslation: core.sentenceTranslation || '',
+      replyLanguage,
+      sourceLanguage,
+      aiBreakdownMode,
+    },
+    { onToken: handlers.onToken }
+  );
 
   const enrichmentJson = extractFirstJsonObject(enrichmentResult.rawContent);
   if (!enrichmentJson) {
     throw new Error('AI enrichment stream did not return a complete JSON object');
   }
-  const enrichment = JSON.parse(enrichmentJson) as any;
+  const enrichment = JSON.parse(enrichmentJson) as EnrichmentResult;
   // Core is the single source of truth for sentence meaning and translation.
   // Enrichment may add learning fields, but it must never reinterpret or replace it.
   delete enrichment.sentenceTranslation;

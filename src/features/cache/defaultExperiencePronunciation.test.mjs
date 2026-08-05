@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION,
   resolvePronunciationAudioSource,
   shouldUseDefaultExperiencePronunciation,
 } from './defaultExperiencePronunciation.ts';
+
+test('tutorial nuances card ships its phonetic transcription in the fixture', () => {
+  assert.equal(DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION, '/ˈnuː.ɑːn.sɪz/');
+});
 
 test('tutorial nuances card detail uses the bundled reference TTS', () => {
   assert.equal(

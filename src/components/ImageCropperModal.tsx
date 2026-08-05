@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Path } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -84,6 +85,19 @@ function createRoundedRectPath(
     `Q ${x} ${y} ${x + r} ${y}`,
     'Z',
   ].join(' ');
+}
+
+async function resolveCropSourceUri(imageUri: string): Promise<string> {
+  if (!/^https?:\/\//i.test(imageUri)) return imageUri;
+
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) return imageUri;
+
+  const targetUri = `${cacheDirectory}crop-source-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.jpg`;
+  const downloaded = await FileSystem.downloadAsync(imageUri, targetUri);
+  return downloaded.uri;
 }
 
 export default function ImageCropperModal({
@@ -720,8 +734,9 @@ export default function ImageCropperModal({
         );
       }
 
+      const cropSourceUri = await resolveCropSourceUri(imageUri);
       const result = await ImageManipulator.manipulateAsync(
-        imageUri,
+        cropSourceUri,
         [{ crop: { originX, originY, width, height } }],
         { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
       );

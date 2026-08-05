@@ -94,8 +94,15 @@ Commit `1a0f2c8` + `aaf8e3c` **仍無法獨立編譯**。已 commit 的 `RootNav
 - **greeting 畫面（含 video）**：`DeckMainFlow`（共用元件）tutorial 完成 → `completeTour`（[`DeckMainFlow.tsx`](src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx:289)）→ `showTourCompletionGreeting`（[`DeckMainFlow.tsx`](src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx:281)）→ `TourCompletionGreetingUI`（含 `useVideoPlayer` + `VideoView`，[`TourCompletionGreetingUI.tsx`](src/components/UI/DeckScreenUI/TourCompletionGreetingUI.tsx:47)）。dev/normal 共用，都會遇到。
 - **環境狀態**：模擬器 iPhone 17 Pro 已 booted，Nuances app 已安裝（`com.jeffenglishlearning.nuances`），Metro 在 8081 跑著。`.env.local` 目前 `EXPO_PUBLIC_INTERNAL_TESTER_TOOLS=true`、`EXPO_PUBLIC_VIDEO_TOUR_ENABLED=true`（Step 3 初始狀態已就緒）。
 
-### ⚠️ 未解決 BUG：dev interactive tutorial 邏輯啟動但 UI 沒顯示（session 3，2026-08-05）
+### ✅ 已解決 BUG：dev interactive tutorial 邏輯啟動但 UI 沒顯示（session 3 發現，session 5 2026-08-05 修復）
 > 用戶在真機跑 dev build（`expo run:ios`），提供 `[FirstRunTrace]` 日誌。**用戶確認 interactive tutorial 真的沒跑**。
+>
+> **Session 5 根因（已由 log 證實，推翻 Session 4 診斷）**：
+> - log 出現兩個不同 userId：`auth.dev_fresh_user_simulator_ready` → `dev-fresh-user-1785902016113`，但 `default_experience_card.ensure_result` / `cache_list.loaded` → `4d7726a4-429c-4885-ad4c-5b915b2ce0ec`（真實 Supabase UUID）。
+> - 機制：dev fresh-user 登入（[`App.tsx`](App.tsx:1399)）只設 React `userId` state + `activeDevFreshUserId`，**未清除 SecureStore 持久化的真實 Supabase session**（`persistSession:true`）。[`getCurrentSessionUserId()`](src/services/auth/userIdentity.ts:11) 原邏輯 `return session?.user?.id ?? getActiveDevFreshUserId()` 因真實 session 存在而回傳真實 UUID，永遠不走到 dev fallback。
+> - 後果：`ensureDefaultExperienceCard` / cache list 全跑在**真實用戶**資料範圍 → `skipped=already_seen`、`count=0`、`stackCards=0 topIsDefault=false` → 預設卡從未為 dev fresh user 建立 → STEP_5 無可見 UI。
+> - **修法（session 5，已 commit 於工作區）**：[`getCurrentSessionUserId()`](src/services/auth/userIdentity.ts:11) 改為 dev fresh user 優先（`getActiveDevFreshUserId()` 有值即回傳，否則才用真實 session）。`tsc --noEmit` 通過。
+> - **待驗證**：重跑 dev build 確認 `ensure_result=created=true`、`cache_stack.render` 的 `stackCards>0 topIsDefault=true`、STEP_5 顯示 swipe tug hint。
 
 **日誌證據（矛盾點）**：
 - `auth.dev_fresh_user_simulator_ready`（userId `dev-fresh-user-...`）→ onboarding 顯示 ✅
@@ -118,6 +125,8 @@ Commit `1a0f2c8` + `aaf8e3c` **仍無法獨立編譯**。已 commit 的 `RootNav
 ---
 
 #### 🔍 Session 4 診斷（2026-08-05，agent 靜態分析，尚未經 UI 驗證）
+
+> ⚠️ **已被 Session 5 推翻**：Session 5 的 `[FirstRunTrace]` log 顯示根因是 `getCurrentSessionUserId()` 回傳真實 session 的 UUID（`4d7726a4-...`）而非 dev fresh user id（`dev-fresh-user-...`），導致預設卡從未為 dev fresh user 建立。下方「預設卡沒建 → STEP_5 無 UI」的結論方向正確，但**機制不是 seen key v1/v3 沒清**，而是 userId 解析錯誤。修法見 §「已解決 BUG」。
 
 **核心診斷**：`STEP_5_PROCESS_CACHE_CARD` 的**唯一可見 UI 是 cache stack 頂部預設體驗卡片的 swipe tug hint**（邊框 + 移動箭頭），由 [`CacheStackUI.tsx`](src/components/UI/CacheScreenUI/CacheStackUI.tsx:229) 的 `showSwipeTugHint={Boolean(item.isDefaultExperienceCard && isTopCard)}` 驅動。而 `TutorialSpotlight`（[`TutorialSpotlight.tsx`](src/components/UI/shared/TutorialSpotlight.tsx:14)）**是 no-op**——它只渲染 children，完全忽略 `active`/`onSpotlightPress`，所以整個 tutorial **沒有任何 spotlight overlay**。
 

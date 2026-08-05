@@ -1,3 +1,15 @@
+enum ShareReceiptCopy {
+    static func message(for language: String) -> String {
+        switch language {
+        case "zh-TW", "zh-CN": return "收到🫡"
+        case "ja": return "またあとで"
+        case "ko": return "이따 봐요"
+        case "es": return "Nos vemos luego"
+        case "fr": return "À plus tard"
+        default: return "Catch you later"
+        }
+    }
+}
 
 import UIKit
 import Social
@@ -12,85 +24,8 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
-    private var shareToastIndex = Int(Date().timeIntervalSince1970) % 20
 
     private let uiLanguageKey = "nuances_ui_language"
-    private let shareSecretaryPhrasesEN = [
-        "Got it 🫡",
-        "No problem",
-        "Leave it to me",
-        "Catch you later",
-        "I’ve got this",
-        "I’ll take care of it",
-        "I’ll hold onto it",
-        "You keep going"
-    ]
-
-    private let shareSecretaryPhrasesZHTW = [
-        "收到🫡",
-        "沒問題",
-        "包在我身上",
-        "晚點見",
-        "交給我",
-        "我來處理",
-        "幫你收著",
-        "你先忙"
-    ]
-
-    private let shareSecretaryPhrasesZHCN = [
-        "收到🫡",
-        "没问题",
-        "包在我身上",
-        "晚点见",
-        "交给我",
-        "我来处理",
-        "帮你收着",
-        "你先忙"
-    ]
-
-    private let shareSecretaryPhrasesJA = [
-        "了解です🫡",
-        "大丈夫です",
-        "お任せください",
-        "またあとで",
-        "こちらで承ります",
-        "対応しておきます",
-        "お預かりします",
-        "先にどうぞ"
-    ]
-
-    private let shareSecretaryPhrasesKO = [
-        "알겠습니다🫡",
-        "문제없어요",
-        "저한테 맡기세요",
-        "이따 봐요",
-        "제가 맡을게요",
-        "제가 처리해 둘게요",
-        "잘 보관해 둘게요",
-        "하시던 일 계속하세요"
-    ]
-
-    private let shareSecretaryPhrasesES = [
-        "Recibido 🫡",
-        "Sin problema",
-        "Déjamelo a mí",
-        "Nos vemos luego",
-        "Yo me encargo",
-        "Me ocupo de ello",
-        "Te lo guardo",
-        "Tú sigue con lo tuyo"
-    ]
-
-    private let shareSecretaryPhrasesFR = [
-        "Bien reçu 🫡",
-        "Pas de souci",
-        "Laisse-moi faire",
-        "À plus tard",
-        "Je m’en charge",
-        "Je m’en occupe",
-        "Je te le garde",
-        "Continue, je m’en charge"
-    ]
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -508,49 +443,8 @@ class ShareViewController: UIViewController {
         return userDefaults.string(forKey: uiLanguageKey) ?? "en"
     }
 
-    private func localizedShareSecretaryPhrases() -> [String] {
-        let language = currentUILanguage()
-        if language == "zh-TW" { return shareSecretaryPhrasesZHTW }
-        if language == "zh-CN" { return shareSecretaryPhrasesZHCN }
-        if language == "ja" { return shareSecretaryPhrasesJA }
-        if language == "ko" { return shareSecretaryPhrasesKO }
-        if language == "es" { return shareSecretaryPhrasesES }
-        if language == "fr" { return shareSecretaryPhrasesFR }
-        return shareSecretaryPhrasesEN
-    }
-
-    private func nextShareSecretaryPhrase() -> String {
-        let phrases = localizedShareSecretaryPhrases()
-        let phrase = phrases[shareToastIndex % phrases.count]
-        shareToastIndex += 1
-        return phrase
-    }
-
-    private func countedShareSecretaryPhrase(acceptedCount: Int) -> String {
-        guard acceptedCount > 1 else {
-            return nextShareSecretaryPhrase()
-        }
-
-        let language = currentUILanguage()
-        if language == "zh-TW" {
-            return "收到，\(acceptedCount) 張都幫你收好了。"
-        }
-        if language == "zh-CN" {
-            return "收到，\(acceptedCount) 张都帮你收好了。"
-        }
-        if language == "ja" {
-            return "\(acceptedCount)件すべて受け取り、保存しました。"
-        }
-        if language == "ko" {
-            return "\(acceptedCount)개 모두 받아서 저장했어요."
-        }
-        if language == "es" {
-            return "Recibimos y guardamos los \(acceptedCount) elementos."
-        }
-        if language == "fr" {
-            return "Les \(acceptedCount) éléments ont bien été enregistrés."
-        }
-        return "Got all \(acceptedCount) notes — saved."
+    private func shareReceiptMessage() -> String {
+        ShareReceiptCopy.message(for: currentUILanguage())
     }
 
     // MARK: - Native receipt notification
@@ -566,7 +460,7 @@ class ShareViewController: UIViewController {
             // extension open while waiting for notification authorization or
             // daemon callbacks.
             self.scheduleNativeReceiptNotification(
-                message: self.countedShareSecretaryPhrase(acceptedCount: acceptedCount),
+                message: self.shareReceiptMessage(),
                 acceptedCount: acceptedCount,
                 completion: {}
             )

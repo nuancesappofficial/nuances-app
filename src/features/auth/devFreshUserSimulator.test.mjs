@@ -8,6 +8,8 @@ import {
   isDevFreshUserId,
   getActiveDevFreshUserId,
   setActiveDevFreshUserId,
+  shouldUseDevAccountDelete,
+  resolveAccountDeletionPath,
 } from './devFreshUserSimulatorCore.ts';
 
 const UUID_V4_RE =
@@ -57,4 +59,39 @@ test('dev fresh identity is available through the shared local identity seam', (
   assert.equal(getActiveDevFreshUserId(), 'dev-fresh-user-test');
   setActiveDevFreshUserId(null);
   assert.equal(getActiveDevFreshUserId(), null);
+});
+
+test('shouldUseDevAccountDelete is true only for the active dev fresh-user id', () => {
+  const devId = createDevFreshUserId();
+  setActiveDevFreshUserId(devId);
+
+  // The active simulated id must use the dev-only local delete path.
+  assert.equal(shouldUseDevAccountDelete(devId), true);
+  // A real account id (even in a dev build) must NOT use the dev-only path.
+  assert.equal(shouldUseDevAccountDelete('real-user-uuid'), false);
+  // No active id / null must not use the dev-only path.
+  assert.equal(shouldUseDevAccountDelete(null), false);
+  assert.equal(shouldUseDevAccountDelete(undefined), false);
+
+  setActiveDevFreshUserId(null);
+  // After clearing the active dev id, even the former dev id is a real path.
+  assert.equal(shouldUseDevAccountDelete(devId), false);
+});
+
+test('resolveAccountDeletionPath routes a real account to the real deletion even in a dev build', () => {
+  const devId = createDevFreshUserId();
+  setActiveDevFreshUserId(devId);
+
+  // A real account signed in on a dev build (dev handler wired up) must still
+  // run the real server-backed deletion — this is the regression this guards.
+  assert.equal(resolveAccountDeletionPath('real-user-uuid', true), 'real-account');
+  // No handler wired up -> real deletion regardless of identity.
+  assert.equal(resolveAccountDeletionPath(devId, false), 'real-account');
+  // The active simulated user with a dev handler uses the dev-only path.
+  assert.equal(resolveAccountDeletionPath(devId, true), 'dev-simulator');
+  // Null / unknown identity never uses the dev-only path.
+  assert.equal(resolveAccountDeletionPath(null, true), 'real-account');
+  assert.equal(resolveAccountDeletionPath(undefined, true), 'real-account');
+
+  setActiveDevFreshUserId(null);
 });

@@ -62,3 +62,6 @@ Thumbs.db
 
 # Reference PDFs (keep in parent folder, not in git)
 *.pdf
+.agents/
+.roo/
+output/

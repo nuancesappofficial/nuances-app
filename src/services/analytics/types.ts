@@ -1,7 +1,21 @@
+import type {
+  BillingPlan,
+  GrowthAttributionProperties,
+} from './growthAnalytics';
+
 export type AnalyticsPrimitive = string | number | boolean;
 
+type WithGrowthAttribution<Properties> = Properties &
+  Partial<GrowthAttributionProperties>;
+
 export type AnalyticsEventProperties = {
-  app_opened: { auth_state: 'authenticated' | 'anonymous' };
+  growth_attribution_captured: GrowthAttributionProperties;
+  first_app_opened: WithGrowthAttribution<{
+    download_source: 'app_first_open';
+  }>;
+  app_opened: WithGrowthAttribution<{
+    auth_state: 'authenticated' | 'anonymous';
+  }>;
   onboarding_started: { ui_language: string };
   onboarding_completed: { ui_language: string };
   card_creation_started: {
@@ -33,9 +47,13 @@ export type AnalyticsEventProperties = {
   paywall_viewed: {
     source: 'settings' | 'create_card' | 'review' | 'unknown';
   };
-  subscription_started: { plan: 'premium' | 'trial' };
+  subscription_started: WithGrowthAttribution<{ plan: BillingPlan }>;
   subscription_failed: { reason: 'purchase_failed' | 'pending_sync' };
+  freemium_quota_updated: WithGrowthAttribution<{
+    quota_limit: number;
+    quota_used: number;
+    quota_used_percent: number;
+  }>;
 };
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;
-

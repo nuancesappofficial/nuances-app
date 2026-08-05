@@ -1,0 +1,4 @@
+interface:
+  display_name: "App Store Screenshot Studio"
+  short_description: "Create and localize premium App Store screenshots"
+  default_prompt: "Use $create-app-store-screenshots to plan, build, validate, and localize my App Store screenshot series."

@@ -6,6 +6,7 @@ import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import type Card from '@database/models/Card';
 import { loadQuizReviewedCardIds } from '../../features/deck/cardDetailSeen';
+import { cancelRetiredNotifications } from '../../features/notifications/retiredNotifications';
 import { getCurrentSessionUserId } from '../auth/userIdentity';
 import { loadUserSettings, saveUserSettings, type AIReplyLanguage } from '../settings/userSettings';
 
@@ -399,6 +400,10 @@ async function updateReminderPreference(enabled: boolean): Promise<void> {
 
 const ReminderNotificationService = {
   async configure(): Promise<void> {
+    await cancelRetiredNotifications((identifier) =>
+      Notifications.cancelScheduledNotificationAsync(identifier)
+    );
+
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: AppState.currentState !== 'active',

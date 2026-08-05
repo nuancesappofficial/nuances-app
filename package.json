@@ -20,7 +20,8 @@
     "screenshots:demo-quiz": "xcrun simctl openurl booted 'nuances://dev/demo-quiz'",
     "screenshots:normal-quiz": "xcrun simctl openurl booted 'nuances://dev/normal-quiz'",
     "sync:app-version-policy": "node scripts/sync-app-version-policy.js",
-    "sync:app-version-policy:dry": "node scripts/sync-app-version-policy.js --dry-run"
+    "sync:app-version-policy:dry": "node scripts/sync-app-version-policy.js --dry-run",
+    "growth:campaigns": "node scripts/growthCampaignClient.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -363,8 +363,12 @@ export default function RootNavigator({
   const cacheSwipeExclusionRangeRef = React.useRef<SwipeExclusionRange | null>(null);
   const swipeLockRef = React.useRef(false);
   const paginationEnabledRef = React.useRef(true);
-  const [selectedTabIndex, setSelectedTabIndex] = React.useState(0);
-  const selectedTabIndexRef = React.useRef(0);
+  // 當 startTutorialOnMount 為 true（影片導覽結束後進入互動教學），
+  // 目標 tab 一定是 cache（getFirstRunTutorialStartTab 回傳 'cache'）。
+  // 直接以 cache 作為初始 tab，避免先顯示 Deck 再延遲切換造成閃爍。
+  const initialTabIndex = startTutorialOnMount ? 1 : 0;
+  const [selectedTabIndex, setSelectedTabIndex] = React.useState(initialTabIndex);
+  const selectedTabIndexRef = React.useRef(initialTabIndex);
   const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({ 0: true, 1: true, 2: true });
   const [tabBarForcedHidden, setTabBarForcedHidden] = React.useState(false);
@@ -372,7 +376,11 @@ export default function RootNavigator({
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const fallbackTranslateY = React.useRef(new Animated.Value(0)).current;
 
-  const tabOpacities = React.useRef([new Animated.Value(1), new Animated.Value(0), new Animated.Value(0)]).current;
+  const tabOpacities = React.useRef(
+    startTutorialOnMount
+      ? [new Animated.Value(0), new Animated.Value(1), new Animated.Value(0)]
+      : [new Animated.Value(1), new Animated.Value(0), new Animated.Value(0)]
+  ).current;
 
   React.useEffect(() => {
     selectedTabIndexRef.current = selectedTabIndex;
@@ -394,6 +402,9 @@ export default function RootNavigator({
     traceFirstRun('tutorial', 'start_requested', {
       startTab: tutorialTab,
     });
+    console.log(
+      `[FirstRunTrace] tutorial.switch_tab target=${tutorialTab === 'cache' ? 1 : 0} selectedTabIndex=${selectedTabIndexRef.current}`
+    );
 
     let secondFrame: number | null = null;
     const firstFrame = requestAnimationFrame(() => {
@@ -401,6 +412,9 @@ export default function RootNavigator({
         traceFirstRun('tutorial', 'started', { startTab: tutorialTab });
         appTour.startTour();
         onTutorialStarted?.();
+        console.log(
+          `[FirstRunTrace] tutorial.started step=${appTour.step} selectedTabIndex=${selectedTabIndexRef.current}`
+        );
       });
     });
 

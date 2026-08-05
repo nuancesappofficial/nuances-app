@@ -9,9 +9,16 @@ import { getActiveDevFreshUserId } from '../../features/auth/devFreshUserSimulat
  * a server request.
  */
 export async function getCurrentSessionUserId(): Promise<string | null> {
+  // Dev fresh-user simulator takes precedence over any persisted Supabase
+  // session. The simulator sets an active dev id but does NOT clear the real
+  // persisted session (SecureStore, persistSession:true), so without this the
+  // entire local data scope (default card seeding, cache list, etc.) would run
+  // against the real user's UUID instead of the simulated fresh user.
+  const devUserId = getActiveDevFreshUserId();
+  if (devUserId) return devUserId;
   const { session, error } = await getCurrentSession();
   if (error) return null;
-  return session?.user?.id ?? getActiveDevFreshUserId();
+  return session?.user?.id ?? null;
 }
 
 /**

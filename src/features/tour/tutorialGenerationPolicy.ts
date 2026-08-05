@@ -8,3 +8,9 @@ export function resolveTutorialGenerationSource(params: {
     ? 'bundled-fixture'
     : 'cloud';
 }
+
+export function shouldFallbackToCloudGeneration(
+  source: TutorialGenerationSource
+): boolean {
+  return source === 'cloud';
+}

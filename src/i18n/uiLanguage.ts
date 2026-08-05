@@ -42,10 +42,6 @@ export type UIStringKey =
   | 'deck.alertDelete'
   | 'deck.tourCompleteTitle'
   | 'deck.tourCompleteBody'
-  | 'deck.tourCreateAlbum'
-  | 'deck.tourQuizWord'
-  | 'deck.tourConfirmAlbum'
-  | 'deck.tourSaveSettings'
   | 'deck.albumAllCards'
   | 'deck.albumFavorites'
   | 'deck.albumInternetSlang'
@@ -79,8 +75,6 @@ export type UIStringKey =
   | 'cardDetail.cardNote'
   | 'cardDetail.notePlaceholder'
   | 'cardDetail.downloading'
-  | 'cardDetail.tourFlip'
-  | 'cardDetail.tourPronunciation'
   | 'cache.create'
   | 'cache.skip'
   | 'cache.adding'
@@ -91,17 +85,15 @@ export type UIStringKey =
   | 'cache.deleteAllConfirm'
   | 'cache.deleteAllFailedTitle'
   | 'cache.deleteAllFailedMessage'
-  | 'cache.tourSwipeRight'
-  | 'cache.tourUploadSentence'
-  | 'cache.tourCopySample'
-  | 'cache.tourAddText'
   | 'create.originalImage'
   | 'create.originalContext'
   | 'create.keywords'
   | 'create.ocrRunning'
   | 'create.ocrNoText'
   | 'create.ocrFailed'
-  | 'create.editOcrTokenHint'
+  | 'create.editOcrModeAction'
+  | 'create.editOcrModeDone'
+  | 'create.editOcrModeHint'
   | 'create.editOcrTokenTitle'
   | 'create.editOcrTokenBody'
   | 'create.editOcrTokenCancel'
@@ -128,9 +120,6 @@ export type UIStringKey =
   | 'create.cards'
   | 'create.card'
   | 'create.addNewCards'
-  | 'create.tourChooseWing'
-  | 'create.tourGenerateCard'
-  | 'create.tourSave'
   | 'create.generateFailedTitle'
   | 'create.generateFailedBody'
   | 'create.retry'
@@ -323,8 +312,6 @@ export type UIStringKey =
   | 'cache.clear'
   | 'cache.paste'
   | 'cache.add'
-  | 'cache.copy'
-  | 'cache.copyAnySentence'
   | 'cache.todayUploads'
   | 'cache.noUploadsToday'
   | 'cropper.title'
@@ -473,10 +460,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.alertDelete': 'Delete',
     'deck.tourCompleteTitle': 'Now it’s your turn',
     'deck.tourCompleteBody': 'Upload something you want to learn, or send text and images to Nuances from the iOS Share Sheet.',
-    'deck.tourCreateAlbum': 'Create a new album.',
-    'deck.tourQuizWord': 'Quiz your new word.',
-    'deck.tourConfirmAlbum': 'Confirm the album.',
-    'deck.tourSaveSettings': 'Save settings to finish.',
     'deck.albumAllCards': 'All cards',
     'deck.albumFavorites': 'My Favorites',
     'deck.albumInternetSlang': 'Internet Slang',
@@ -510,8 +493,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.cardNote': 'Card note',
     'cardDetail.notePlaceholder': 'Write your sticky note...',
     'cardDetail.downloading': 'downloading...',
-    'cardDetail.tourFlip': 'Tap to flip the card.',
-    'cardDetail.tourPronunciation': 'Practice pronunciation.',
     'cache.create': 'Create',
     'cache.skip': 'Skip',
     'cache.adding': 'Adding...',
@@ -524,17 +505,15 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.deleteAllConfirm': 'Delete all',
     'cache.deleteAllFailedTitle': 'Could not delete items',
     'cache.deleteAllFailedMessage': 'Please try again later.',
-    'cache.tourSwipeRight': 'Swipe right to create.',
-    'cache.tourUploadSentence': 'Upload a sentence.',
-    'cache.tourCopySample': 'Copy one. Then paste.',
-    'cache.tourAddText': 'Add it to cache.',
     'create.originalImage': 'Original Image',
     'create.originalContext': 'Original Context',
     'create.keywords': 'Keywords',
     'create.ocrRunning': 'Reading text...',
     'create.ocrNoText': 'No readable text found.',
     'create.ocrFailed': 'Text reading failed. Using original content.',
-    'create.editOcrTokenHint': 'Long-press a word to fix recognized text.',
+    'create.editOcrModeAction': 'Fix text',
+    'create.editOcrModeDone': 'Done',
+    'create.editOcrModeHint': 'Tap a word to correct it.',
     'create.editOcrTokenTitle': 'Fix recognized text',
     'create.editOcrTokenBody': 'Correct the word before generating the card.',
     'create.editOcrTokenCancel': 'Cancel',
@@ -561,9 +540,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.cards': 'Cards',
     'create.card': 'Card',
     'create.addNewCards': 'Create New Cards',
-    'create.tourChooseWing': 'Choose “wing”.',
-    'create.tourGenerateCard': 'Generate the card.',
-    'create.tourSave': 'Save it.',
     'create.generateFailedTitle': 'Could not create',
     'create.generateFailedBody':
       'Unable to generate this card. Please try again.',
@@ -789,8 +765,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.clear': 'Clear',
     'cache.paste': 'Paste',
     'cache.add': 'Add',
-    'cache.copy': 'Copy',
-    'cache.copyAnySentence': 'Copy any sentence',
     'cache.todayUploads': "Today's Uploads",
     'cache.noUploadsToday': 'No uploads today',
     'cropper.title': 'Crop image',
@@ -954,10 +928,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.alertDelete': '刪除',
     'deck.tourCompleteTitle': '現在換你了',
     'deck.tourCompleteBody': '上傳你想學的內容，或從 iOS 分享選單把文字、圖片傳到 Nuances。',
-    'deck.tourCreateAlbum': '建立一個新相簿。',
-    'deck.tourQuizWord': '測一下你的新單字。',
-    'deck.tourConfirmAlbum': '確認相簿。',
-    'deck.tourSaveSettings': '儲存設定完成導覽。',
     'deck.albumAllCards': '所有卡片',
     'deck.albumFavorites': '我的最愛',
     'deck.albumInternetSlang': '網路俚語',
@@ -991,8 +961,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.cardNote': '卡片筆記',
     'cardDetail.notePlaceholder': '寫下你的筆記...',
     'cardDetail.downloading': '下載中...',
-    'cardDetail.tourFlip': '點一下翻面。',
-    'cardDetail.tourPronunciation': '練習發音。',
     'cache.create': '建立',
     'cache.skip': '略過',
     'cache.adding': '新增中…',
@@ -1003,17 +971,15 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.deleteAllConfirm': '全部刪除',
     'cache.deleteAllFailedTitle': '無法刪除',
     'cache.deleteAllFailedMessage': '請稍後再試。',
-    'cache.tourSwipeRight': '向右滑建立卡片。',
-    'cache.tourUploadSentence': '上傳一句話。',
-    'cache.tourCopySample': '複製一句，然後貼上。',
-    'cache.tourAddText': '加入暫存。',
     'create.originalImage': '原始圖片',
     'create.originalContext': '原始內容',
     'create.keywords': '關鍵字',
     'create.ocrRunning': '文字辨識中...',
     'create.ocrNoText': '沒有辨識到可用文字。',
     'create.ocrFailed': '文字辨識失敗，已使用原始內容。',
-    'create.editOcrTokenHint': '長按單字可修正辨識文字。',
+    'create.editOcrModeAction': '修正文字',
+    'create.editOcrModeDone': '完成',
+    'create.editOcrModeHint': '點一下要修正的單字。',
     'create.editOcrTokenTitle': '修正辨識文字',
     'create.editOcrTokenBody': '生成卡片前，先把辨識錯的字改正。',
     'create.editOcrTokenCancel': '取消',
@@ -1040,9 +1006,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.cards': '張卡片',
     'create.card': '張卡片',
     'create.addNewCards': '建立新卡片',
-    'create.tourChooseWing': '選擇「wing」。',
-    'create.tourGenerateCard': '生成卡片。',
-    'create.tourSave': '儲存。',
     'create.generateFailedTitle': '無法建立',
     'create.generateFailedBody': '無法生成這張卡片，請再試一次。',
     'create.retry': '重試',
@@ -1248,8 +1211,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.clear': '清除',
     'cache.paste': '貼上',
     'cache.add': '加入',
-    'cache.copy': '複製',
-    'cache.copyAnySentence': '複製任一句子',
     'cache.todayUploads': '今日上傳',
     'cache.noUploadsToday': '今天尚無上傳',
     'cropper.title': '裁切圖片',
@@ -1399,10 +1360,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.alertDelete': '删除',
     'deck.tourCompleteTitle': '现在换你了',
     'deck.tourCompleteBody': '上传你想学的内容，或从 iOS 分享菜单把文字、图片传到 Nuances。',
-    'deck.tourCreateAlbum': '建立一个新相册。',
-    'deck.tourQuizWord': '测一下你的新单词。',
-    'deck.tourConfirmAlbum': '确认相册。',
-    'deck.tourSaveSettings': '保存设置完成导览。',
     'deck.albumAllCards': '所有卡片',
     'deck.albumFavorites': '我的收藏',
     'deck.albumInternetSlang': '网络俚语',
@@ -1436,8 +1393,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.cardNote': '卡片笔记',
     'cardDetail.notePlaceholder': '写下你的笔记...',
     'cardDetail.downloading': '下载中...',
-    'cardDetail.tourFlip': '点一下翻面。',
-    'cardDetail.tourPronunciation': '练习发音。',
     'cache.create': '建立',
     'cache.skip': '跳过',
     'cache.adding': '新增中…',
@@ -1448,17 +1403,15 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.deleteAllConfirm': '全部删除',
     'cache.deleteAllFailedTitle': '无法删除',
     'cache.deleteAllFailedMessage': '请稍后再试。',
-    'cache.tourSwipeRight': '向右滑建立卡片。',
-    'cache.tourUploadSentence': '上传一句话。',
-    'cache.tourCopySample': '复制一句，然后粘贴。',
-    'cache.tourAddText': '加入暂存。',
     'create.originalImage': '原始图片',
     'create.originalContext': '原始内容',
     'create.keywords': '关键词',
     'create.ocrRunning': '文字识别中...',
     'create.ocrNoText': '没有识别到可用文字。',
     'create.ocrFailed': '文字识别失败，已使用原始内容。',
-    'create.editOcrTokenHint': '长按单词可修正识别文字。',
+    'create.editOcrModeAction': '修正文字',
+    'create.editOcrModeDone': '完成',
+    'create.editOcrModeHint': '点一下要修正的单词。',
     'create.editOcrTokenTitle': '修正辨識文字',
     'create.editOcrTokenBody': '生成卡片前，先把识别错的字改正。',
     'create.editOcrTokenCancel': '取消',
@@ -1485,9 +1438,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.cards': '张卡片',
     'create.card': '张卡片',
     'create.addNewCards': '建立新卡片',
-    'create.tourChooseWing': '选择“wing”。',
-    'create.tourGenerateCard': '生成卡片。',
-    'create.tourSave': '保存。',
     'create.generateFailedTitle': '无法建立',
     'create.generateFailedBody': '无法生成这张卡片，请再试一次。',
     'create.retry': '重试',
@@ -1693,8 +1643,6 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cache.clear': '清除',
     'cache.paste': '粘贴',
     'cache.add': '加入',
-    'cache.copy': '复制',
-    'cache.copyAnySentence': '复制任一句子',
     'cache.todayUploads': '今日上传',
     'cache.noUploadsToday': '今天尚无上传',
     'cropper.title': '裁切图片',

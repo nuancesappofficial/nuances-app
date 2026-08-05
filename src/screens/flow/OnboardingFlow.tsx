@@ -50,6 +50,7 @@ import { prepareOCRLanguagesForLearningLanguages } from '../../services/ocr/lang
 import { analytics } from '../../services/analytics';
 import { tUI, type UIStringKey } from '../../i18n/uiLanguage';
 import { balanceOnboardingQuestion } from '../../features/onboarding/onboardingQuestionLayout';
+import { isDevFreshUserId } from '../../features/auth/devFreshUserSimulatorCore';
 
 type OnboardingStep = 1 | 2 | 3 | 4;
 
@@ -593,7 +594,11 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
   const saveOnboardingData = React.useCallback(
     async (answersToSave: OnboardingAnswers = answers) => {
       const { session } = await getCurrentSession();
-      if (session?.user?.id && session.user.id !== userId) {
+      if (
+        !isDevFreshUserId(userId) &&
+        session?.user?.id &&
+        session.user.id !== userId
+      ) {
         throw new Error('登入帳號已變更，已取消儲存 onboarding 資料');
       }
       const userEmail =
@@ -630,26 +635,28 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
         },
       });
       void prepareOCRLanguagesForLearningLanguages(['en'], 'preferred');
-      const { error } = await supabase.from('profiles').upsert(
-        {
-          id: userId,
-          email: userEmail,
-          target_language: learningLanguages.join(','),
-          native_language: selectedUILanguage,
-          english_level: mapBreakdownDepthToEnglishLevel(
-            answersToSave.breakdownDepth
-          ),
-          learning_goal: mapStumbleContextToLearningGoal(
-            answersToSave.stumbleContext
-          ),
-          ai_breakdown_mode: aiBreakdownMode,
-          onboarding_completed: true,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      );
+      if (!isDevFreshUserId(userId)) {
+        const { error } = await supabase.from('profiles').upsert(
+          {
+            id: userId,
+            email: userEmail,
+            target_language: learningLanguages.join(','),
+            native_language: selectedUILanguage,
+            english_level: mapBreakdownDepthToEnglishLevel(
+              answersToSave.breakdownDepth
+            ),
+            learning_goal: mapStumbleContextToLearningGoal(
+              answersToSave.stumbleContext
+            ),
+            ai_breakdown_mode: aiBreakdownMode,
+            onboarding_completed: true,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
 
-      if (error) throw error;
+        if (error) throw error;
+      }
     },
     [answers, uiLanguage, userId]
   );

@@ -1,0 +1,22 @@
+{
+  "version": "0.1.0",
+  "name": "greenlight",
+  "description": "Pre-submission compliance scanner for Apple App Store",
+  "organization": {
+    "name": "Revyl",
+    "url": "https://revyl.com"
+  },
+  "references": [
+    "https://developer.apple.com/app-store/review/guidelines/",
+    "https://developer.apple.com/design/human-interface-guidelines/",
+    "https://developer.apple.com/documentation/storekit",
+    "https://developer.apple.com/documentation/apptrackingtransparency",
+    "https://developer.apple.com/documentation/localauthentication",
+    "https://developer.apple.com/documentation/networkextension/nevpnmanager",
+    "https://developer.apple.com/help/app-store-connect/"
+  ],
+  "keywords": [
+    "apple", "app-store", "review", "guidelines", "ios", "swift",
+    "react-native", "expo", "compliance", "rejection", "preflight"
+  ]
+}

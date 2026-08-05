@@ -29,6 +29,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import { analytics } from '@services/analytics';
+import { resolveBillingPlan } from '@services/analytics/growthAnalytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
 import { database } from '@database/index';
@@ -1000,6 +1001,9 @@ export default function ProfileSettingOptionsFlow({
       const packageIdentifier =
         membershipPackages.find((item) => item.identifier === membershipPlan)
           ?.identifier || null;
+      const purchasedPackage = membershipPackages.find(
+        (item) => item.identifier === membershipPlan
+      );
       const snapshot = await SubscriptionService.purchasePremium(
         userId,
         packageIdentifier
@@ -1009,7 +1013,18 @@ export default function ProfileSettingOptionsFlow({
         (snapshot.planType === 'premium' || snapshot.planType === 'trial') &&
         snapshot.serverSynced !== false
       ) {
-        analytics.track('subscription_started', { plan: snapshot.planType });
+        analytics.track('subscription_started', {
+          plan: resolveBillingPlan(
+            [
+              purchasedPackage?.packageType,
+              purchasedPackage?.identifier,
+              purchasedPackage?.subscriptionPeriod,
+              purchasedPackage?.productIdentifier,
+            ]
+              .filter(Boolean)
+              .join(' ')
+          ),
+        });
         startPremiumSuccessTransition();
         return;
       }

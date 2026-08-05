@@ -85,6 +85,43 @@ export function isDevFreshUserId(userId: string | null | undefined): boolean {
   return Boolean(userId && activeDevFreshUserId === userId);
 }
 
+/**
+ * Decide whether account deletion should use the dev-only local-cleanup path
+ * (which only clears the simulated user's local data) versus the real
+ * server-backed deletion.
+ *
+ * The dev-only path must be used ONLY when the currently signed-in user IS the
+ * active simulated fresh user. It must NOT be selected merely because the build
+ * is a dev build with internal tester tools enabled — otherwise a real account
+ * signed in on a dev build would "delete" only local data and leave its cloud
+ * cards intact, so they reappear on the next sign-in.
+ */
+export function shouldUseDevAccountDelete(
+  userId: string | null | undefined
+): boolean {
+  return isDevFreshUserId(userId);
+}
+
+export type AccountDeletionPath = 'dev-simulator' | 'real-account';
+
+/**
+ * Decide which account-deletion path to run for the currently signed-in user.
+ *
+ * The dev-only local-cleanup path is selected ONLY when the current user is the
+ * active simulated fresh user AND a dev delete handler is wired up. A real
+ * account signed in on a dev build must always use the real server-backed
+ * deletion, otherwise its cloud cards survive and reappear on the next sign-in.
+ */
+export function resolveAccountDeletionPath(
+  currentUserId: string | null | undefined,
+  hasDevDeleteHandler: boolean
+): AccountDeletionPath {
+  if (hasDevDeleteHandler && shouldUseDevAccountDelete(currentUserId)) {
+    return 'dev-simulator';
+  }
+  return 'real-account';
+}
+
 export function buildDevFreshUserSession(userId: string): DevFreshUserSession {
   return {
     access_token: `dev-fresh-user-token-${userId}`,

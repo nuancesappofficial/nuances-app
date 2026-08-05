@@ -71,3 +71,41 @@
 
 - 在 dev（Metro / Expo Go）實測：進入 onboarding Q2 是否還有 5 秒延遲；進入 video tour 第一個 video 是否立即出現。
 - 跑 `node --test 'src/features/tour/*.test.mjs'` 確認既有測試仍過。
+
+---
+
+# 交接（2026-08-05）：video tour 第一個 video 預載無效 → 改用「隱藏 VideoView 強迫 decode」
+
+## 主目標（end goal，避免無限迴圈）
+
+消除 onboarding → video tour → 建卡 tutorial 序列的兩個殘留延遲：
+1. onboarding 選項圖片延遲（**已解決**：Step 2 放大鏡 + Q2 圖壓縮）
+2. **video tour 第一個 video 延遲（本次修法已實作，待 UI 實測驗證）**
+
+## 本次已完成、不需重查
+
+- **Q2 圖片壓縮**、**Step 2 放大鏡壓縮**：已解決（見上方「已完成」）。
+- **video tour 第一個 video 預載（commit `3982529`）實測無效**：使用者實測仍有 ~3 秒延遲。
+- **根因確認（H1）**：`createVideoPlayer` 建構時就 `replaceCurrentItem` 載入 AVPlayerItem（[`VideoPlayer.swift`](node_modules/expo-video/ios/VideoPlayer.swift:201)），但**未 attach 到 VideoView 時 AVPlayer 不會真正 decode 到 readyToPlay**。`VideoView` 底層是 `AVPlayerViewController`（[`VideoView.swift`](node_modules/expo-video/ios/VideoView.swift:6)），attach player 時才建立 layer 並 decode 到 `isReadyForDisplay`（[`VideoView.swift`](node_modules/expo-video/ios/VideoView.swift:183)）。預載 player 在 onboarding 期間只 createVideoPlayer、沒 attach VideoView → 沒 decode → video tour 出現時才開始 decode → ~3 秒。
+- **修法已實作（未 commit）**：
+  - 新增 [`src/components/UI/shared/FirstTourVideoPreloader.tsx`](src/components/UI/shared/FirstTourVideoPreloader.tsx)：onboarding 期間 mount，建立預載 player + mount 隱藏 VideoView（`width:1, height:1, opacity:0`）強迫 decode。**不負責 release**（所有權轉移給 App 層）。
+  - [`App.tsx`](App.tsx:1574)：onboarding 分支包 fragment，render `<FirstTourVideoPreloader enabled={VIDEO_TOUR_ENABLED} onPlayerReady={handleFirstTourPlayerReady} />`；`handleFirstTourPlayerReady`（[`App.tsx`](App.tsx:656)）用 `useCallback` 存入 `preloadedFirstPlayerRef`；onboarding 完成時若 `nextJourney.stage !== 'video-tour'` 則 release（[`App.tsx`](App.tsx:1592)）；video tour 完成時仍 release（現有邏輯 [`App.tsx`](App.tsx:1565)）。
+  - 清理 import：App.tsx 移除 `createVideoPlayer`、`getFirstTourVideoSource`（改由元件使用）。
+
+## 下一個 agent 要做的事
+
+1. **確認 tsc 通過**：`npx tsc --noEmit`（本次 session 執行中，下一個 agent 需重新跑確認無類型錯誤）。
+2. **跑 tour 測試**：`node --test 'src/features/tour/*.test.mjs'` 確認 21 個測試仍過。
+3. **UI 實測驗證（最重要）**：在 dev（Metro / Expo Go）跑 `npm start`，走完 onboarding → 進入 video tour，確認第一個 video 是否立即出現（不再等 ~3 秒）。若仍有延遲，回報實際秒數。
+4. **若仍無效**：用 diagnosing-bugs 排查。可能原因：
+   - 隱藏 VideoView 用 `width:1, height:1, opacity:0` 可能不足以讓 AVPlayerViewController 建立 layer（需確認是否需實際尺寸/在 window 上）。可試 `position:'absolute'` + 更大尺寸 + `zIndex:-1`。
+   - 或 `.mov` 本身 codec/解析度解碼慢（H3），需檢查影片規格。
+5. **code-review 兩軸**（implement 完成後必跑）。
+6. **commit**：僅 commit 本次相關檔案（`App.tsx`、`src/components/UI/shared/FirstTourVideoPreloader.tsx`）。**注意**：工作區有大量其他 session 的未提交變更，勿混入。
+
+## 相關材料
+
+- 本 plan：[`plans/handoff-tutorial-preload-sequence.md`](plans/handoff-tutorial-preload-sequence.md)
+- 前一個 spec：[`.scratch/video-tour-preload/spec.md`](.scratch/video-tour-preload/spec.md)
+- 新元件：[`src/components/UI/shared/FirstTourVideoPreloader.tsx`](src/components/UI/shared/FirstTourVideoPreloader.tsx)
+- 已 commit 的 `getVisibleTourSlides`：[`src/features/tour/tutorialPresentation.ts`](src/features/tour/tutorialPresentation.ts:32)

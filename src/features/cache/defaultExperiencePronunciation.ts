@@ -2,6 +2,7 @@ export const DEFAULT_EXPERIENCE_CARD_SOURCE = 'Nuances';
 export const DEFAULT_EXPERIENCE_CARD_SENTENCE =
   'The smallest nuances can make the biggest differences.';
 export const DEFAULT_EXPERIENCE_TARGET_WORD = 'nuances';
+export const DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION = '/ˈnuː.ɑːn.sɪz/';
 
 type DefaultExperiencePronunciationCandidate = {
   sourceApp?: string | null;

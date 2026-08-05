@@ -65,6 +65,9 @@ export function useCacheListDataSource(params: Params) {
           .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
         const data = await query.fetch();
         if (cancelled) return;
+        console.log(
+          `[FirstRunTrace] cache_list.loaded userId=${userId} count=${data.length} defaultCard=${data.some((i) => isDefaultExperienceCard(i))}`
+        );
         setCacheItems(data);
         sub = query.observe().subscribe((nextData) => setCacheItems(nextData));
       } catch (error) {

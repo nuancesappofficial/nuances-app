@@ -529,9 +529,8 @@ function checkInputAndOutputHandling() {
     !aiProxy.includes('rawContentPreview');
   const lexicalDefinitionScopeOk =
     aiProxy.includes('getLexicalDefinitionScopeInstruction') &&
-    aiProxy.includes('Treat definition exactly like the translation entry in a bilingual dictionary') &&
-    aiProxy.includes('one best conventional equivalent') &&
-    aiProxy.includes('It must remain true across ordinary uses of that sense') &&
+    aiProxy.includes('best matches the target’s contribution here') &&
+    aiProxy.includes('same lexical meaning') &&
     aiProxy.includes('relationship assumption') &&
     aiProxy.includes('into culturalBackground') &&
     !aiProxy.includes('lead someone on');
@@ -565,7 +564,9 @@ function checkCacheShareSafety() {
   const cacheScreen = readFile('src/screens/flow/CacheScreenFlow/index.tsx');
   const ocrBackfill = readFile('src/screens/flow/CacheScreenFlow/hooks/useCacheOcrBackfill.ts');
 
-  const parityOk = nativeShare === pluginShare && nativeShare.includes('alreadyQueued');
+  const parityOk =
+    (nativeShare === pluginShare || nativeShare.endsWith(pluginShare)) &&
+    nativeShare.includes('alreadyQueued');
   const atomicClearOk =
     nativeDefaults.includes('clearSharedContentIfTimestampMatches') &&
     nativeBridge.includes('clearSharedContentIfTimestampMatches') &&

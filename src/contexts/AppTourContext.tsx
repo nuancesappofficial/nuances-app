@@ -7,9 +7,6 @@ import { markTourSeenLocally } from '../features/tour/tourSeen';
 
 export type AppTourStep =
   | 'IDLE'
-  | 'STEP_2_UPLOAD_SAMPLE'
-  | 'STEP_3_PASTE_SAMPLE_TEXT'
-  | 'STEP_4_ADD_SAMPLE_TEXT'
   | 'STEP_5_PROCESS_CACHE_CARD'
   | 'STEP_5_SELECT_TARGET'
   | 'STEP_6_GENERATE_SAMPLE'
@@ -19,7 +16,8 @@ export type AppTourStep =
   | 'STEP_10_QUIZ_SAMPLE'
   | 'STEP_11_CREATE_ALBUM'
   | 'STEP_12_CONFIRM_ALBUM'
-  | 'STEP_13_ALBUM_SETTINGS'
+  | 'STEP_13_LONG_PRESS_ALBUM'
+  | 'STEP_14_ALBUM_SETTINGS'
   | 'COMPLETED';
 
 type AppTourContextValue = {
@@ -44,12 +42,6 @@ function getNextStep(step: AppTourStep): AppTourStep {
   switch (step) {
     case 'STEP_8_FLICK_CARD':
       return 'STEP_9_COACH_SAMPLE';
-    case 'STEP_2_UPLOAD_SAMPLE':
-      return 'STEP_3_PASTE_SAMPLE_TEXT';
-    case 'STEP_3_PASTE_SAMPLE_TEXT':
-      return 'STEP_4_ADD_SAMPLE_TEXT';
-    case 'STEP_4_ADD_SAMPLE_TEXT':
-      return 'STEP_5_PROCESS_CACHE_CARD';
     case 'STEP_5_PROCESS_CACHE_CARD':
       return 'STEP_5_SELECT_TARGET';
     case 'STEP_5_SELECT_TARGET':
@@ -65,8 +57,10 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_11_CREATE_ALBUM':
       return 'STEP_12_CONFIRM_ALBUM';
     case 'STEP_12_CONFIRM_ALBUM':
-      return 'STEP_13_ALBUM_SETTINGS';
-    case 'STEP_13_ALBUM_SETTINGS':
+      return 'STEP_13_LONG_PRESS_ALBUM';
+    case 'STEP_13_LONG_PRESS_ALBUM':
+      return 'STEP_14_ALBUM_SETTINGS';
+    case 'STEP_14_ALBUM_SETTINGS':
       return 'COMPLETED';
     default:
       return step;
@@ -124,7 +118,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     setIsRunning(true);
     void markTourSeen();
     setSampleCardId(null);
-    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_2_UPLOAD_SAMPLE' : current));
+    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_5_PROCESS_CACHE_CARD' : current));
   }, [markTourSeen]);
 
   const completeTour = React.useCallback(() => {
@@ -157,7 +151,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
         setIsRunning(true);
         setSampleCardId(null);
         void markTourSeen();
-        setStep('STEP_2_UPLOAD_SAMPLE');
+        setStep('STEP_5_PROCESS_CACHE_CARD');
         return;
       }
       if (url.includes(DEV_SKIP_TOUR_PATH)) {

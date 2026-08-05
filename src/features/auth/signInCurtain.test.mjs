@@ -19,6 +19,19 @@ test('first sign-in can reveal the app when the session event arrives before the
   });
 });
 
+test('dev simulator can reveal the app without a Supabase session event', () => {
+  let curtain = createHiddenSignInCurtain();
+
+  curtain = transitionSignInCurtain(curtain, 'sign-in-started');
+  curtain = transitionSignInCurtain(curtain, 'sign-in-returned');
+  curtain = transitionSignInCurtain(curtain, 'session-ready');
+
+  assert.deepEqual(curtain, {
+    visible: true,
+    ready: true,
+  });
+});
+
 test('cancelled or failed sign-in removes the curtain', () => {
   let curtain = createHiddenSignInCurtain();
 

@@ -694,14 +694,14 @@ export default function ProfileMainScreenUI({
 
   const runEdgeBounce = React.useCallback(
     (direction: 'left' | 'right') => {
-      const amplitude = direction === 'left' ? 26 : -26;
+      const horizontalOffset = direction === 'left' ? 26 : -26;
       edgeBounceAnimRef.current?.stop();
       edgePullX.stopAnimation(() => {
         edgePullX.setValue(0);
         requestAnimationFrame(() => {
           const anim = Animated.sequence([
             Animated.timing(edgePullX, {
-              toValue: amplitude,
+              toValue: horizontalOffset,
               duration: 120,
               easing: Easing.out(Easing.cubic),
               useNativeDriver: true,

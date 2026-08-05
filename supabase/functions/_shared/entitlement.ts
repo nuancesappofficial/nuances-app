@@ -236,7 +236,9 @@ export async function resolveServerEntitlement(params: {
     subscriptionExpiresAt,
     canUseCloudAI: planType !== 'free',
     canUseCloudTTS: planType !== 'free',
-    canUsePronunciationCoach: planType !== 'free',
+    // Coach and Quiz share a server-managed pronunciation quota. Free learners
+    // retain access while their Starter Allowance remains active.
+    canUsePronunciationCoach: true,
     canUseAutoCardGeneration: planType !== 'free',
     canUseManualOCRCardCreation: planType !== 'free',
     cacheCardLimit: null,

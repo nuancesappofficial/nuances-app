@@ -6,8 +6,7 @@ import {
 
 type Props = {
   active: boolean;
-  tooltip: string;
-  children: React.ReactElement;
+  children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   onSpotlightPress: () => void;
 };

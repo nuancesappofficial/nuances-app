@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveTutorialGenerationSource } from './tutorialGenerationPolicy.ts';
+import {
+  resolveTutorialGenerationSource,
+  shouldFallbackToCloudGeneration,
+} from './tutorialGenerationPolicy.ts';
 
 test('bundled tutorial content never uses cloud generation', () => {
   assert.equal(
@@ -20,4 +23,9 @@ test('normal card creation continues to use cloud generation', () => {
     }),
     'cloud'
   );
+});
+
+test('bundled tutorial failure never falls back to a cloud request', () => {
+  assert.equal(shouldFallbackToCloudGeneration('bundled-fixture'), false);
+  assert.equal(shouldFallbackToCloudGeneration('cloud'), true);
 });

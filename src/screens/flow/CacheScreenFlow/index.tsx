@@ -44,7 +44,6 @@ import type CachedItem from '@database/models/CachedItem';
 import CacheStackUI from '../../../components/UI/CacheScreenUI/CacheStackUI';
 import CacheInputModalUI from '../../../components/UI/CacheScreenUI/CacheInputModalUI';
 import CameraModalUI from '../../../components/UI/CacheScreenUI/CameraModalUI';
-import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
 import { useCacheOcrBackfill } from './hooks/useCacheOcrBackfill';
 import { useCacheItemCleanup } from './hooks/useCacheItemCleanup';
 import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
@@ -80,13 +79,6 @@ type Props = {
   onRequestClose?: () => void;
   entryAnimationToken?: number;
 };
-
-const TOUR_SAMPLE_SENTENCE = 'I had to wing it during the presentation.';
-const TOUR_SAMPLE_SENTENCES = [
-  TOUR_SAMPLE_SENTENCE,
-  'She had to wing it when the projector broke.',
-  'They asked him to wing it without any rehearsal.',
-];
 
 function toDayKey(input: Date | string): string {
   const date = new Date(input);
@@ -935,6 +927,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         isDefaultExperienceCard: item.isDefaultExperienceCard,
       }));
   }, [cards, visibleCacheIds]);
+  React.useEffect(() => {
+    console.log(
+      `[FirstRunTrace] cache_stack.render isCacheFocused=${isCacheFocused} visibleIds=${visibleCacheIds.length} stackCards=${stackCards.length} defaultInStack=${stackCards.some((c) => c.isDefaultExperienceCard)} topIsDefault=${stackCards[stackCards.length - 1]?.isDefaultExperienceCard ?? false}`
+    );
+  }, [isCacheFocused, stackCards, visibleCacheIds.length]);
   const isTodayUploadObscured = cards.length > 0;
 
   useEffect(() => {
@@ -1078,11 +1075,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       setManualText('');
       setDidPasteIntoTextBox(false);
       setShowAddModal(false);
-      if (appTour.step === 'STEP_4_ADD_SAMPLE_TEXT') {
-        setTimeout(() => {
-          appTour.goToStep('STEP_5_PROCESS_CACHE_CARD');
-        }, 720);
-      }
     } catch (error) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');
@@ -1122,38 +1114,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       ]
     );
   }, [appTour.isActive, cacheItems.length, deleteAllCacheItemsPermanently, uiLanguage]);
-
-  const handleTourPasteSampleText = React.useCallback(async () => {
-    try {
-      const text = (await Clipboard.getStringAsync()).trim();
-      const nextText = text || TOUR_SAMPLE_SENTENCE;
-      setManualText(nextText);
-      setDidPasteIntoTextBox(true);
-      if (appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT') {
-        appTour.nextStep();
-      }
-    } catch (error) {
-      console.error('[AppTour] paste sample text failed:', error);
-      setManualText(TOUR_SAMPLE_SENTENCE);
-      setDidPasteIntoTextBox(true);
-      if (appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT') {
-        appTour.nextStep();
-      }
-    }
-  }, [appTour]);
-
-  const handleTourCopySampleText = React.useCallback(
-    async (sentence: string) => {
-      try {
-        await Clipboard.setStringAsync(sentence);
-        setPasteEnabled(true);
-        void Haptics.selectionAsync();
-      } catch (error) {
-        console.error('[AppTour] copy sample text failed:', error);
-      }
-    },
-    []
-  );
 
   const handlePasteFromNativeClipboard = React.useCallback(async () => {
     try {
@@ -1253,28 +1213,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     [addButtonScale]
   );
 
-  React.useEffect(() => {
-    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
-    setShowAddModal(false);
-  }, [appTour.step]);
-
-  const handleCacheTourTargetPress = React.useCallback(() => {
-    if (appTour.step !== 'STEP_2_UPLOAD_SAMPLE') return;
-    // A React Native Modal cannot be presented while the global spotlight
-    // Modal is still on screen. Briefly suspend the tour, present the real
-    // input modal, then resume once its content can be measured.
-    appTour.resetTourState();
-    setTimeout(() => {
-      setAddTab('text');
-      setManualText('');
-      setDidPasteIntoTextBox(false);
-      setShowAddModal(true);
-      requestAnimationFrame(() => {
-        appTour.goToStep('STEP_3_PASTE_SAMPLE_TEXT');
-      });
-    }, 420);
-  }, [appTour]);
-
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={[styles.vocabSection, { transform: [{ translateY: todayUploadSectionOffset }] }]}>
@@ -1330,16 +1268,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           uiLanguage={uiLanguage}
           deletionLocked={appTour.isActive}
           tourCreateActive={appTour.step === 'STEP_5_PROCESS_CACHE_CARD'}
-          tourCreateTooltip={tUI(uiLanguage, 'cache.tourSwipeRight')}
         />
       </View>
 
-      <TutorialSpotlight
-        active={appTour.step === 'STEP_2_UPLOAD_SAMPLE'}
-        style={[styles.uploadBarButtonWrap, { bottom: Math.max(insets.bottom, 8) + 60 }]}
-        tooltip={tUI(uiLanguage, 'cache.tourUploadSentence')}
-        onSpotlightPress={handleCacheTourTargetPress}
-      >
+      <View style={[styles.uploadBarButtonWrap, { bottom: Math.max(insets.bottom, 8) + 60 }]}>
         <Animated.View
           style={[
             { transform: [{ scale: addButtonScale }] },
@@ -1355,7 +1287,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             <Text style={styles.uploadBarButtonLabel}>＋ {tUI(uiLanguage, 'cache.upload')}</Text>
           </TouchableOpacity>
         </Animated.View>
-      </TutorialSpotlight>
+      </View>
 
       <CacheInputModalUI
         visible={showAddModal}
@@ -1375,14 +1307,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         onPressClearText={handleClearManualText}
         onUploadImage={() => void handleUploadImageDirect()}
         onCaptureImage={handleCaptureImage}
-        tourPasteTextActive={showAddModal && appTour.step === 'STEP_3_PASTE_SAMPLE_TEXT'}
-        tourPasteTextTooltip={tUI(uiLanguage, 'cache.tourCopySample')}
-        onTourPasteTextPress={() => void handleTourPasteSampleText()}
-        tourSampleSentences={TOUR_SAMPLE_SENTENCES}
-        onTourCopySampleText={(sentence) => void handleTourCopySampleText(sentence)}
-        tourAddTextActive={showAddModal && appTour.step === 'STEP_4_ADD_SAMPLE_TEXT'}
-        tourAddTextTooltip={tUI(uiLanguage, 'cache.tourAddText')}
-        onTourAddTextPress={() => void handleQuickAddText()}
         uiLanguage={uiLanguage}
       />
 

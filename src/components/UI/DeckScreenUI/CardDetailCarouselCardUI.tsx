@@ -1323,7 +1323,6 @@ function CardDetailCarouselCardUI({
     <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
       <TutorialSpotlight
         active={tourStep === 'STEP_8_FLICK_CARD' && isActiveCard}
-        tooltip={tUI(uiLanguage, 'cardDetail.tourFlip')}
         onSpotlightPress={handleTourFlipPress}
       >
         <Pressable
@@ -1799,7 +1798,6 @@ function CardDetailCarouselCardUI({
                       active={
                         tourStep === 'STEP_9_COACH_SAMPLE' && isActiveCard
                       }
-                      tooltip={tUI(uiLanguage, 'cardDetail.tourPronunciation')}
                       style={[
                         localStyles.actionIconSlot,
                         localStyles.micActionIconSlot,

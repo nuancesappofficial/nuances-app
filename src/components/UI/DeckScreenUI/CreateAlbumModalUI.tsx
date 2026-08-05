@@ -37,7 +37,6 @@ type Props = {
   onCancel: () => void;
   onConfirm: () => void;
   tourConfirmActive?: boolean;
-  tourConfirmTooltip?: string;
 };
 
 const MODAL_ENTRY_TRANSLATE_Y = 420;
@@ -55,7 +54,6 @@ export default function CreateAlbumModalUI({
   onCancel,
   onConfirm,
   tourConfirmActive = false,
-  tourConfirmTooltip = tUI(uiLanguage, 'deck.tourCreateAlbum'),
 }: Props) {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
@@ -229,7 +227,6 @@ export default function CreateAlbumModalUI({
 
               <TutorialSpotlight
                 active={tourConfirmActive}
-                tooltip={tourConfirmTooltip}
                 onSpotlightPress={onConfirm}
                 style={styles.tourButtonWrapper}
               >

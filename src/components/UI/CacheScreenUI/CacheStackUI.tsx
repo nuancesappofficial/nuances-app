@@ -42,7 +42,6 @@ type Props = {
   uiLanguage: UILanguage;
   deletionLocked?: boolean;
   tourCreateActive?: boolean;
-  tourCreateTooltip?: string;
 };
 
 export default function CacheStackUI({
@@ -57,7 +56,6 @@ export default function CacheStackUI({
   uiLanguage,
   deletionLocked = false,
   tourCreateActive = false,
-  tourCreateTooltip,
 }: Props) {
   const topCardDragX = useSharedValue(0);
   const swipeSeqRef = React.useRef(0);
@@ -237,7 +235,6 @@ export default function CacheStackUI({
           <TutorialSpotlight
             key={`cache-card-${item.id}`}
             active={tourCreateActive && isTopCard}
-            tooltip={tourCreateTooltip || tUI(uiLanguage, 'cache.tourSwipeRight')}
             style={styles.cardSlot}
             onSpotlightPress={handleCreatePress}
           >

@@ -1605,9 +1605,7 @@ export default function App() {
                   </>
                 ) : userId ? (
                   <RootNavigator
-                    key={`${userId}:${
-                      startTutorialAfterVideoTour ? 'interactive-tutorial' : 'app'
-                    }`}
+                    key={userId}
                     isExpoGo={isExpoGo}
                     startTutorialOnMount={startTutorialAfterVideoTour}
                     onTutorialStarted={() => setStartTutorialAfterVideoTour(false)}

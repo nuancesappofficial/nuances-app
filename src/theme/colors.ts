@@ -62,7 +62,7 @@ const LIGHT_THEME_COLORS = {
   destructiveBg: '#FF6B6B',
   destructiveBorder: 'rgba(255,107,107,0.78)',
   destructiveText: '#FFFFFF',
-  albumCoverText: '#0F172A',
+  albumCoverText: '#1F2937',
   albumCoverShadeStart: 'rgba(255,255,255,0)',
   albumCoverShadeMid: 'rgba(255,255,255,0.22)',
   albumCoverShadeEnd: 'rgba(255,255,255,0.48)',
