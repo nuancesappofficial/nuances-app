@@ -481,7 +481,7 @@ class ShareViewController: UIViewController {
             NSLog("[NuancesShareExtension] notification authorization status: \(settings.authorizationStatus.rawValue)")
             let schedule: () -> Void = {
                 let content = UNMutableNotificationContent()
-                content.title = "✓ 截圖已收藏"
+                content.title = "Nuances"
                 content.body = message
                 content.sound = nil
                 content.userInfo = [
