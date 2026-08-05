@@ -23,3 +23,20 @@ export function getGreetingVideoWidth(videoHeight: number): number {
 export function getGreetingVideoContentFit(): 'contain' {
   return 'contain';
 }
+
+/**
+ * Which tour slides must stay mounted. The active slide, any slide currently
+ * transitioning away, and the next slide (so its video player initialises and
+ * buffers early, hiding the switch lag behind the transition).
+ */
+export function getVisibleTourSlides(
+  totalSteps: number,
+  index: number,
+  transitioningFromIndex: number | null
+): number[] {
+  const slides = new Set<number>();
+  slides.add(index);
+  if (transitioningFromIndex !== null) slides.add(transitioningFromIndex);
+  if (index + 1 < totalSteps) slides.add(index + 1);
+  return [...slides].sort((a, b) => a - b);
+}

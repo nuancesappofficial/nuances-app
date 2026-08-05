@@ -24,6 +24,7 @@ import {
   type UILanguage,
 } from '@services/settings/userSettings';
 import { markTourSeenLocally } from '../../features/tour/tourSeen';
+import { getVisibleTourSlides } from '../../features/tour/tutorialPresentation';
 import { resolveThemeColors } from '../../theme/colors';
 import { traceFirstRun } from '../../services/logging/firstRunTraceRuntime';
 
@@ -609,10 +610,11 @@ export default function VideoTourFlow({
 
   const visibleTourSteps = React.useMemo(
     () =>
-      TOUR_STEPS.map((item, slideIndex) => ({ item, slideIndex })).filter(
-        ({ slideIndex }) =>
-          slideIndex === index || slideIndex === transitioningFromIndex
-      ),
+      getVisibleTourSlides(
+        TOUR_STEPS.length,
+        index,
+        transitioningFromIndex
+      ).map((slideIndex) => ({ item: TOUR_STEPS[slideIndex], slideIndex })),
     [index, transitioningFromIndex]
   );
 
