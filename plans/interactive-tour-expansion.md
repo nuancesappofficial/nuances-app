@@ -109,11 +109,7 @@
 
 ### 尚未完成（下一個 agent 接手）
 
-- **任務 3（未做）**：STEP_14 相簿設定內新增「換上自己的相片當封面」引導（沿用 `handlePickAlbumCoverImage`，[`DeckMainFlow.tsx`](src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx:1463)）
-- **任務 4（未做）**：確認歡迎通知在所有步驟完成後才顯示（目前 `completeTour()` 在 STEP_14 儲存後觸發，時機應已正確，需驗證）
-- **任務 5（未做）**：驗證完整流程（建卡 → quiz → 建立相簿 → 自動滑到第二頁 → 長按更改 → 換封面 → 歡迎通知）
-- **TS 檢查**：`npx tsc --noEmit` 尚未跑（被中斷），需確認無類型錯誤
-- **commit**：本次變更尚未 commit
+- **任務 5（未做）**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）在模擬器上走完整流程做 UI 互動驗證（建卡 → quiz → 建立相簿 → 自動滑到第二頁 → 長按更改 → 換封面 → 歡迎通知）。靜態驗證（tsc + eslint）已通過，但 UI 互動需模擬器手動確認
 
 ---
 
@@ -121,13 +117,15 @@
 
 你是互動式教學擴充任務的接續者。主目標：把互動式教學（[`AppTourContext.tsx`](src/contexts/AppTourContext.tsx:8)）擴充成完整流程「建卡 → quiz 3題 → 建立相簿 → 自動滑到第二頁 → 長按更改相簿 → 換上自己的相片當封面 → 歡迎通知」，並把含影片的歡迎通知移到所有步驟完成後顯示。
 
-**已完成的（不需重查）**：quiz 完成後不再直接 completeTour，改為推進到 STEP_11 建立相簿；建立相簿後推進到 STEP_13 長按；長按 edit 後推進到 STEP_14；STEP_11「+」按鈕已接上 handleTourTargetPress 並加箭頭；STEP_13 自動滑到教學相簿所在頁（帶動畫）；STEP_13 長按引導已接上。詳細見 [`plans/interactive-tour-expansion.md`](plans/interactive-tour-expansion.md)。
+**已完成的（不需重查，已 commit）**：
+- **任務 1-2**（前 session）：quiz 完成後不再直接 completeTour，改為推進到 STEP_11 建立相簿；建立相簿後推進到 STEP_13 長按；長按 edit 後推進到 STEP_14；STEP_11「+」按鈕接上 handleTourTargetPress；STEP_13 自動滑到教學相簿所在頁（帶動畫）；STEP_13 長按引導已接上
+- **任務 3**（本 session，commit `9b17547`）：STEP_14 相簿設定 modal 內新增「換上自己的相片當封面」引導。在 [`AlbumSettingsModalUI.tsx`](src/components/UI/DeckScreenUI/AlbumSettingsModalUI.tsx) 新增 `tourPickCoverActive` prop，coverTab 非 image 時在 image tab 按鈕加箭頭、coverTab 為 image 時在 coverUploadTile 加箭頭；[`DeckMainFlow.tsx`](src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx) 傳入 `tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}`
+- **任務 4**（本 session）：確認歡迎通知時機正確——`completeTour()` 只在 `handleSaveAlbumSettings` 且 `appTour.step === 'STEP_14_ALBUM_SETTINGS'` 時觸發，`applyAlbumSettings` 先關 modal，effect 在 modal 關閉 450ms 後顯示 `showTourCompletionGreeting()`。無需改動
+- **任務 5 靜態部分**（本 session）：`npx tsc --noEmit` + `npx eslint` 皆通過
+- **STEP_11 箭頭 bug 修復**（本 session，commit `2bf0fe8` + `d2cd24d`）：使用者回報「quiz 後指向建立相簿的箭頭被 word pop 區塊遮擋」。根因：箭頭原本巢狀在「+」按鈕內被其 outline 裁切、且渲染在 word showcase 之前被覆蓋。修正：把箭頭移出「+」按鈕，改為在 [`DeckMainScreenUI.tsx`](src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx) 的 `topActionsRow` 內用 `onLayout` 捕捉「+」按鈕座標，渲染獨立浮動箭頭（`position:'absolute'`、`zIndex:999`、`pointerEvents:'none'`、`direction="up"` 指回按鈕）。後續使用者回報「箭頭同時指向新增與搜尋按鈕」，根因是 `MovingTutorialArrow` 的動畫 `transform` 會覆蓋外部 `transform`，故改用 `marginLeft:-32`（箭頭實際寬度 64/2）水平置中，現已精準對齊「+」按鈕中心
 
 **下一步（依序）**：
-1. 跑 `npx tsc --noEmit` 確認無類型錯誤（工作區有大量未提交變更，只檢查本次相關檔案）
-2. **任務 3**：在 STEP_14 相簿設定 modal 內，用 `TutorialSpotlight` 引導使用者點「換封面」選自己的相片當封面（沿用 [`handlePickAlbumCoverImage`](src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx:1463)）。注意：不是跳 Profile 換大頭照，也不是新增 STEP_15
-3. **任務 4**：確認歡迎通知（`completeTour()` → 450ms → `showTourCompletionGreeting()`）在 STEP_14 儲存後才顯示
-4. **任務 5**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）走完整流程驗證
-5. commit 本次相關變更（`plans/interactive-tour-expansion.md`、`src/screens/flow/DeckScreenFlow/DeckMainFlow.tsx`、`src/components/UI/DeckScreenUI/DeckMainScreenUI.tsx`、STEP_14 相關檔案）
+1. **任務 5（唯一剩餘）**：用 dev fresh user simulator 或 dev URL scheme（`://dev/replay-tour`、`://dev/reset-onboarding`）在模擬器上走完整流程，確認每個 STEP 的箭頭/引導精準指向目標、歡迎通知在所有步驟完成後才顯示
+2. 若 UI 互動發現箭頭仍偏移或遮擋，沿用 STEP_11 的修法（獨立浮動元素 + onLayout 座標 + marginLeft 置中，避免被 `MovingTutorialArrow` 的 transform 覆蓋）
 
-**材料**：計畫檔 [`plans/interactive-tour-expansion.md`](plans/interactive-tour-expansion.md)（含流程、程式碼對應、bug 根因、相簿分頁細節）。不要改動影片教學（[`VideoTourFlow.tsx`](src/screens/flow/VideoTourFlow.tsx:433)）。
+**材料**：計畫檔 [`plans/interactive-tour-expansion.md`](plans/interactive-tour-expansion.md)（含流程、程式碼對應、bug 根因、相簿分頁細節）。不要改動影片教學（[`VideoTourFlow.tsx`](src/screens/flow/VideoTourFlow.tsx:433)）。注意：工作區有大量與本任務無關的未提交變更（其他 session 的），commit 時只 add 本任務相關檔案。
