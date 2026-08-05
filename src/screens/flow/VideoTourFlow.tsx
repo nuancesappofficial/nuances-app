@@ -14,7 +14,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import {
+  VideoView,
+  useVideoPlayer,
+  createVideoPlayer,
+  type VideoPlayer,
+} from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@services/supabase/client';
 import {
@@ -44,6 +49,8 @@ type Props = {
   userId: string;
   onComplete: () => void;
   markSeenOnComplete?: boolean;
+  /** A player pre-initialised during onboarding so the first video appears instantly. */
+  preloadedFirstPlayer?: VideoPlayer;
 };
 
 const TOUR_CONTINUE_LABELS: Record<UILanguage, string> = {
@@ -231,6 +238,15 @@ const TOUR_STEPS: VideoTourStep[] = [
   },
 ];
 
+/**
+ * The source of the very first tour video. Exposed so the app can pre-initialise
+ * a player for it during onboarding, hiding the first-video decode lag behind
+ * the onboarding screens.
+ */
+export function getFirstTourVideoSource(): number {
+  return TOUR_STEPS[0].videos[0].source;
+}
+
 function copyFor(
   language: UILanguage,
   copy: Record<UILanguage, string>
@@ -244,19 +260,23 @@ function TutorialVideo({
   isPlaybackActive,
   reduceMotionEnabled,
   compact,
+  player: sharedPlayer,
 }: {
   source: number;
   playbackRate: number;
   isPlaybackActive: boolean;
   reduceMotionEnabled: boolean;
   compact?: boolean;
+  /** A player pre-initialised during onboarding; when provided it is reused instead of creating a new one. */
+  player?: VideoPlayer;
 }) {
-  const player = useVideoPlayer(source, (nextPlayer) => {
+  const ownedPlayer = useVideoPlayer(source, (nextPlayer) => {
     nextPlayer.audioMixingMode = 'mixWithOthers';
     nextPlayer.loop = true;
     nextPlayer.muted = true;
     nextPlayer.playbackRate = playbackRate;
   });
+  const player = sharedPlayer ?? ownedPlayer;
 
   React.useEffect(() => {
     player.loop = !reduceMotionEnabled;
@@ -294,6 +314,7 @@ function VideoTourSlide({
   textColor,
   secondaryTextColor,
   reduceMotionEnabled,
+  preloadedFirstPlayer,
 }: {
   step: VideoTourStep;
   slideIndex: number;
@@ -307,6 +328,8 @@ function VideoTourSlide({
   textColor: string;
   secondaryTextColor: string;
   reduceMotionEnabled: boolean;
+  /** Reused for the very first slide's first video so it appears instantly. */
+  preloadedFirstPlayer?: VideoPlayer;
 }) {
   const [copyHeight, setCopyHeight] = React.useState(68);
   const isPlaybackActive =
@@ -377,7 +400,7 @@ function VideoTourSlide({
             : styles.videoSingle
         }
       >
-        {step.videos.map((video) => (
+        {step.videos.map((video, videoIndex) => (
           <View
             key={video.key}
             style={[
@@ -403,6 +426,11 @@ function VideoTourSlide({
               isPlaybackActive={isPlaybackActive}
               reduceMotionEnabled={reduceMotionEnabled}
               compact={isDoubleVideo}
+              player={
+                slideIndex === 0 && videoIndex === 0
+                  ? preloadedFirstPlayer
+                  : undefined
+              }
             />
           </View>
         ))}
@@ -434,6 +462,7 @@ export default function VideoTourFlow({
   userId,
   onComplete,
   markSeenOnComplete = true,
+  preloadedFirstPlayer,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = React.useMemo(
@@ -696,6 +725,7 @@ export default function VideoTourFlow({
                 textColor={theme.textOnBg}
                 secondaryTextColor={theme.secondaryText}
                 reduceMotionEnabled={reduceMotionEnabled || saving}
+                preloadedFirstPlayer={preloadedFirstPlayer}
               />
             ))}
           </View>

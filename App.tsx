@@ -34,7 +34,10 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import OnboardingFlow from './src/screens/flow/OnboardingFlow';
-import VideoTourFlow from './src/screens/flow/VideoTourFlow';
+import VideoTourFlow, {
+  getFirstTourVideoSource,
+} from './src/screens/flow/VideoTourFlow';
+import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import LightPressable from './src/components/UI/shared/LightPressable';
 import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
@@ -66,6 +69,7 @@ import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersio
 import { syncIfNeeded } from './src/services/sync';
 import {
   loadUserSettings,
+  clearUserSettings,
   hasStoredUserSettings,
   getAIReplyLanguageForUILanguage,
   getNativeUILanguageFromDevice,
@@ -93,7 +97,10 @@ import {
   markTourSeenLocally,
 } from './src/features/tour/tourSeen';
 import { clearDefaultExperienceCardSeen } from './src/features/cache/defaultExperienceCard';
-import { clearLocalAccountDataForUser } from './src/services/account/AccountDeletionService';
+import {
+  clearLocalAccountDataForUser,
+  clearLocalAccountCaches,
+} from './src/services/account/AccountDeletionService';
 import { setActiveDevFreshUserId } from './src/features/auth/devFreshUserSimulatorCore';
 import { VIDEO_TOUR_ENABLED } from './src/features/tour/tourMode';
 import {
@@ -644,6 +651,7 @@ export default function App() {
   const [manualVideoTourRequested, setManualVideoTourRequested] = useState(false);
   const [startTutorialAfterVideoTour, setStartTutorialAfterVideoTour] = useState(false);
   const videoTourEntryOpacity = React.useRef(new Animated.Value(1)).current;
+  const preloadedFirstPlayerRef = React.useRef<VideoPlayer | null>(null);
   const promptedVersionKeyRef = React.useRef<string | null>(null);
   const authTransitionIdRef = React.useRef(0);
   const activeUserIdRef = React.useRef<string | null>(null);
@@ -1458,7 +1466,25 @@ export default function App() {
 
   const handleDevAccountDelete = React.useCallback(async () => {
     if (!activeUserIdRef.current || !isDevFreshUserSimulatorEnabled()) return;
-    await clearLocalAccountDataForUser(activeUserIdRef.current);
+    const userId = activeUserIdRef.current;
+    // Mirror the full local cleanup that simulateFreshUser performs, so a
+    // deleted simulated account leaves no AsyncStorage cache or user settings
+    // behind (not just the WatermelonDB rows).
+    try {
+      await clearLocalAccountDataForUser(userId);
+    } catch (error) {
+      console.warn('[DevAccountDelete] local database cleanup failed:', error);
+    }
+    try {
+      await clearLocalAccountCaches(userId);
+    } catch (error) {
+      console.warn('[DevAccountDelete] local cache cleanup failed:', error);
+    }
+    try {
+      await clearUserSettings();
+    } catch (error) {
+      console.warn('[DevAccountDelete] local settings cleanup failed:', error);
+    }
     await setAppGroupActiveUserId(null);
     setActiveDevFreshUserId(null);
     activeUserIdRef.current = null;
@@ -1516,6 +1542,9 @@ export default function App() {
                     <VideoTourFlow
                       userId={userId}
                       markSeenOnComplete={!manualVideoTourRequested}
+                      preloadedFirstPlayer={
+                        preloadedFirstPlayerRef.current ?? undefined
+                      }
                       onComplete={() => {
                         traceFirstRun('video_tour', 'completed');
                         if (!manualVideoTourRequested && !needsOnboarding) {
@@ -1533,6 +1562,8 @@ export default function App() {
                         setNeedsVideoTour(false);
                         setManualVideoTourRequested(false);
                         setVideoTourChecked(true);
+                        preloadedFirstPlayerRef.current?.release();
+                        preloadedFirstPlayerRef.current = null;
                       }}
                     />
                   </Animated.View>
@@ -1554,6 +1585,19 @@ export default function App() {
                         !VIDEO_TOUR_ENABLED
                       );
                       setVideoTourChecked(true);
+                      if (
+                        VIDEO_TOUR_ENABLED &&
+                        nextJourney.stage === 'video-tour' &&
+                        !preloadedFirstPlayerRef.current
+                      ) {
+                        const player = createVideoPlayer(
+                          getFirstTourVideoSource()
+                        );
+                        player.audioMixingMode = 'mixWithOthers';
+                        player.loop = true;
+                        player.muted = true;
+                        preloadedFirstPlayerRef.current = player;
+                      }
                     }}
                   />
                 ) : userId ? (
