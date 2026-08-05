@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import type CachedItem from '@database/models/CachedItem';
 import type { CacheCardRecord } from './useCacheListDataSource';
 import { shouldBlockTutorialCacheDeletion } from '../../../../features/tour/tutorialCachePolicy';
+import { DEFAULT_EXPERIENCE_CARD_IMAGE_SIZE } from '../../../../features/cache/defaultExperienceCard';
 
 type Params = {
   cards: CacheCardRecord[];
@@ -105,7 +106,12 @@ export function useCacheSwipeActions(params: Params) {
           openCropperForSwipeImage({
             item: target.cachedItem,
             imageUri,
-            imageSize: null,
+            // The demo card is a bundled static asset; its size is known at
+            // build time, so skip the slow Image.getSize() asset-URI resolution
+            // that otherwise flashes a spinner in the cropper.
+            imageSize: target.isDefaultExperienceCard
+              ? DEFAULT_EXPERIENCE_CARD_IMAGE_SIZE
+              : null,
           });
           return;
         }

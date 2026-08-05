@@ -22,6 +22,14 @@ export const DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT = 'nuances:default-experience-qu
 export const DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT =
   'nuances:default-experience-tutorial-completed';
 
+// The demo card image is a bundled static asset, so its pixel size is known at
+// build time. Providing it directly lets the image cropper skip the slow
+// Image.getSize() resolution of the asset URI (which flashes a spinner).
+export const DEFAULT_EXPERIENCE_CARD_IMAGE_SIZE = {
+  width: 1254,
+  height: 1254,
+} as const;
+
 const DEFAULT_EXPERIENCE_CARD_VERSION = 'v3';
 const DEFAULT_EXPERIENCE_CARD_IMAGE = require('../../../assets/tutorial/demo-card/smallest-nuances-with-text-v2.png');
 const DEFAULT_EXPERIENCE_CARD_ANNOTATIONS = [{ text: DEFAULT_EXPERIENCE_CARD_SENTENCE }];
@@ -30,10 +38,30 @@ const LEGACY_DEFAULT_EXPERIENCE_CARD_SENTENCES = [
 ];
 const ensureRequests = new Map<string, Promise<string | null>>();
 
-async function resolveDefaultExperienceImageUri(): Promise<string | undefined> {
-  const asset = Asset.fromModule(DEFAULT_EXPERIENCE_CARD_IMAGE);
-  if (!asset.localUri) await asset.downloadAsync();
-  return asset.localUri || asset.uri || undefined;
+/**
+ * Materialises the bundled demo-card image to a real local file. Loading a
+ * bundled asset through its `file://` URI is noticeably slower than loading a
+ * real file (it flashes a blank card / spinner in the cache stack, the cropper
+ * and the create-card screen). `Asset.fromModule().downloadAsync()` downloads
+ * the asset to a real local path (`localUri`) so every consumer loads it as
+ * fast as a picked photo. Idempotent: the resolved URI is cached for the app
+ * session.
+ */
+let persistedDemoCardImageUriPromise: Promise<string | null> | null = null;
+function resolvePersistedDemoCardImageUri(): Promise<string | null> {
+  if (!persistedDemoCardImageUriPromise) {
+    persistedDemoCardImageUriPromise = (async () => {
+      try {
+        const asset = Asset.fromModule(DEFAULT_EXPERIENCE_CARD_IMAGE);
+        if (!asset.localUri) await asset.downloadAsync();
+        return asset.localUri || asset.uri || null;
+      } catch (error) {
+        console.warn('[DefaultExperienceCard] failed to materialise demo image', error);
+        return Asset.fromModule(DEFAULT_EXPERIENCE_CARD_IMAGE).uri || null;
+      }
+    })();
+  }
+  return persistedDemoCardImageUriPromise;
 }
 
 function buildSeenKey(userId: string): string {
@@ -101,7 +129,9 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
     const seenKey = buildSeenKey(normalizedUserId);
     const cacheCollection = database.get<CachedItem>('cached_items');
     const cardCollection = database.get<Card>('cards');
-    const imageUri = await resolveDefaultExperienceImageUri();
+    // Materialise the bundled demo image to a real local file so every consumer
+    // (cache stack, cropper, create-card) loads it as fast as a picked photo.
+    const imageUri = (await resolvePersistedDemoCardImageUri()) ?? undefined;
     const legacyDefaultCards = await cacheCollection
       .query(
         Q.where('user_id', normalizedUserId),
@@ -160,7 +190,12 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
       return currentDefaultCards[0].id;
     }
 
-    if ((await AsyncStorage.getItem(seenKey)) === 'true') return null;
+    if ((await AsyncStorage.getItem(seenKey)) === 'true') {
+      console.log(
+        `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} skipped=already_seen`
+      );
+      return null;
+    }
 
     const [existingCacheCount, existingCardCount] = await Promise.all([
       cacheCollection
@@ -173,6 +208,9 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
 
     if (existingCacheCount > 0 || existingCardCount > 0) {
       await AsyncStorage.setItem(seenKey, 'true');
+      console.log(
+        `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} skipped=not_empty cache=${existingCacheCount} cards=${existingCardCount}`
+      );
       return null;
     }
 
@@ -210,6 +248,9 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
     });
 
     await AsyncStorage.setItem(seenKey, 'true');
+    console.log(
+      `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} created=true`
+    );
     return createdItemId;
   })().finally(() => {
     ensureRequests.delete(normalizedUserId);
