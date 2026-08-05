@@ -19,7 +19,7 @@ import {
   Platform,
   type LayoutChangeEvent,
 } from 'react-native';
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useState } from 'react';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,10 +34,9 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import OnboardingFlow from './src/screens/flow/OnboardingFlow';
-import VideoTourFlow, {
-  getFirstTourVideoSource,
-} from './src/screens/flow/VideoTourFlow';
-import { createVideoPlayer, type VideoPlayer } from 'expo-video';
+import VideoTourFlow from './src/screens/flow/VideoTourFlow';
+import { type VideoPlayer } from 'expo-video';
+import { FirstTourVideoPreloader } from './src/components/UI/shared/FirstTourVideoPreloader';
 import LightPressable from './src/components/UI/shared/LightPressable';
 import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
@@ -652,6 +651,9 @@ export default function App() {
   const [startTutorialAfterVideoTour, setStartTutorialAfterVideoTour] = useState(false);
   const videoTourEntryOpacity = React.useRef(new Animated.Value(1)).current;
   const preloadedFirstPlayerRef = React.useRef<VideoPlayer | null>(null);
+  const handleFirstTourPlayerReady = useCallback((player: VideoPlayer) => {
+    preloadedFirstPlayerRef.current = player;
+  }, []);
   const promptedVersionKeyRef = React.useRef<string | null>(null);
   const authTransitionIdRef = React.useRef(0);
   const activeUserIdRef = React.useRef<string | null>(null);
@@ -1568,38 +1570,39 @@ export default function App() {
                     />
                   </Animated.View>
                 ) : userId && needsOnboarding ? (
-                  <OnboardingFlow
-                    userId={userId}
-                    onComplete={() => {
-                      traceFirstRun('onboarding', 'completed_and_routed');
-                      const nextJourney = advanceFirstRunJourney(
-                        createFirstRunJourney(),
-                        'onboarding-completed'
-                      );
-                      setNeedsOnboarding(false);
-                      setOnboardingChecked(true);
-                      setNeedsVideoTour(
-                        VIDEO_TOUR_ENABLED && nextJourney.stage === 'video-tour'
-                      );
-                      setStartTutorialAfterVideoTour(
-                        !VIDEO_TOUR_ENABLED
-                      );
-                      setVideoTourChecked(true);
-                      if (
-                        VIDEO_TOUR_ENABLED &&
-                        nextJourney.stage === 'video-tour' &&
-                        !preloadedFirstPlayerRef.current
-                      ) {
-                        const player = createVideoPlayer(
-                          getFirstTourVideoSource()
+                  <>
+                    <OnboardingFlow
+                      userId={userId}
+                      onComplete={() => {
+                        traceFirstRun('onboarding', 'completed_and_routed');
+                        const nextJourney = advanceFirstRunJourney(
+                          createFirstRunJourney(),
+                          'onboarding-completed'
                         );
-                        player.audioMixingMode = 'mixWithOthers';
-                        player.loop = true;
-                        player.muted = true;
-                        preloadedFirstPlayerRef.current = player;
-                      }
-                    }}
-                  />
+                        setNeedsOnboarding(false);
+                        setOnboardingChecked(true);
+                        setNeedsVideoTour(
+                          VIDEO_TOUR_ENABLED &&
+                            nextJourney.stage === 'video-tour'
+                        );
+                        setStartTutorialAfterVideoTour(
+                          !VIDEO_TOUR_ENABLED
+                        );
+                        setVideoTourChecked(true);
+                        if (
+                          nextJourney.stage !== 'video-tour' &&
+                          preloadedFirstPlayerRef.current
+                        ) {
+                          preloadedFirstPlayerRef.current.release();
+                          preloadedFirstPlayerRef.current = null;
+                        }
+                      }}
+                    />
+                    <FirstTourVideoPreloader
+                      enabled={VIDEO_TOUR_ENABLED}
+                      onPlayerReady={handleFirstTourPlayerReady}
+                    />
+                  </>
                 ) : userId ? (
                   <RootNavigator
                     key={`${userId}:${
