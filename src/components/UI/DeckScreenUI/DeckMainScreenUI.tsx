@@ -799,12 +799,9 @@ export default function DeckMainScreenUI({
             direction="left"
             color="#2D9E66"
             size={30}
-            motion="spring"
+            motion="longPress"
             style={styles.longPressTutorialArrow}
           />
-          <Text style={styles.longPressTutorialLabel}>
-            {uiLanguage === 'zh-TW' || uiLanguage === 'zh-CN' ? '長按' : 'Hold to edit'}
-          </Text>
         </View>
       ) : null}
 
@@ -1092,15 +1089,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 60,
-  },
-  longPressTutorialLabel: {
-    color: '#2D9E66',
-    fontSize: 14,
-    fontWeight: '700',
-    marginLeft: 6,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   longPressTutorialArrow: {
     marginLeft: 0,
