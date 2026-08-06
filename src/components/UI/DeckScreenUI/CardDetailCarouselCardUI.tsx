@@ -433,7 +433,8 @@ function CardDetailCarouselCardUI({
   const [frontBodyViewportHeight, setFrontBodyViewportHeight] =
     React.useState(0);
   const [frontBodyContentHeight, setFrontBodyContentHeight] = React.useState(0);
-  const [sentenceLineCount, setSentenceLineCount] = React.useState(0);
+  const [sourceLineCount, setSourceLineCount] = React.useState(0);
+  const [translationLineCount, setTranslationLineCount] = React.useState(0);
   const [contextLineCount, setContextLineCount] = React.useState(0);
   const [sentenceMeasuredHeight, setSentenceMeasuredHeight] =
     React.useState(0);
@@ -665,7 +666,8 @@ function CardDetailCarouselCardUI({
         FRONT_CONTEXT_COLLAPSED_LINES);
   const shouldOfferFullSentence =
     sentenceMeasuredHeight > collapsedSentenceHeight + 1 ||
-    sentenceLineCount > FRONT_SENTENCE_COLLAPSED_LINES ||
+    sourceLineCount > FRONT_SENTENCE_COLLAPSED_LINES ||
+    translationLineCount > FRONT_SENTENCE_COLLAPSED_LINES ||
     fullSentenceDisplayText.length > 140 ||
     fullSentenceDisplayText.split(/\n+/).length >
       FRONT_SENTENCE_COLLAPSED_LINES;
@@ -837,7 +839,8 @@ function CardDetailCarouselCardUI({
   ]);
 
   React.useLayoutEffect(() => {
-    setSentenceLineCount(0);
+    setSourceLineCount(0);
+    setTranslationLineCount(0);
     setContextLineCount(0);
     setSentenceMeasuredHeight(0);
     setContextMeasuredHeight(0);
@@ -899,13 +902,17 @@ function CardDetailCarouselCardUI({
     },
     []
   );
-  const handleSentenceTextLayout = React.useCallback((event: any) => {
+  const handleSourceTextLayout = React.useCallback((event: any) => {
     const nextCount = Array.isArray(event?.nativeEvent?.lines)
       ? event.nativeEvent.lines.length
       : 0;
-    setSentenceLineCount((current) =>
-      nextCount > current ? nextCount : current
-    );
+    setSourceLineCount(nextCount);
+  }, []);
+  const handleTranslationTextLayout = React.useCallback((event: any) => {
+    const nextCount = Array.isArray(event?.nativeEvent?.lines)
+      ? event.nativeEvent.lines.length
+      : 0;
+    setTranslationLineCount(nextCount);
   }, []);
   const handleContextTextLayout = React.useCallback((event: any) => {
     const nextCount = Array.isArray(event?.nativeEvent?.lines)
@@ -1523,10 +1530,7 @@ function CardDetailCarouselCardUI({
                       <Animated.View
                         style={
                           shouldOfferFullSentence
-                            ? {
-                                height: sentenceBodyHeightAnim,
-                                overflow: 'hidden',
-                              }
+                            ? { height: sentenceBodyHeightAnim }
                             : undefined
                         }
                       >
@@ -1541,7 +1545,13 @@ function CardDetailCarouselCardUI({
                                 paddingRight: frontTextWrapGuard,
                               },
                             ]}
-                            onTextLayout={handleSentenceTextLayout}
+                            numberOfLines={
+                              shouldOfferFullSentence &&
+                              !isFullSentenceExpanded
+                                ? FRONT_SENTENCE_COLLAPSED_LINES
+                                : undefined
+                            }
+                            onTextLayout={handleSourceTextLayout}
                           >
                             {sourceSentenceText}
                           </Text>
@@ -1557,7 +1567,13 @@ function CardDetailCarouselCardUI({
                               paddingRight: frontTextWrapGuard,
                             },
                           ]}
-                          onTextLayout={handleSentenceTextLayout}
+                          numberOfLines={
+                            shouldOfferFullSentence &&
+                            !isFullSentenceExpanded
+                              ? FRONT_SENTENCE_COLLAPSED_LINES
+                              : undefined
+                          }
+                          onTextLayout={handleTranslationTextLayout}
                         >
                           {translationDisplayText}
                         </Text>
@@ -2655,7 +2671,7 @@ const localStyles = StyleSheet.create({
     opacity: 0.78,
   },
   dualSentenceText: {
-    flexShrink: 1,
+    flexShrink: 0,
     marginTop: 0,
     color: '#F8FAFC',
     fontSize: 20,
