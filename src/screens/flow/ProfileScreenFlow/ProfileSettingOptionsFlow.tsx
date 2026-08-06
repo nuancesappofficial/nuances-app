@@ -78,6 +78,7 @@ import {
 } from '../../../theme/stickerFonts';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
+  getRevenueCatActiveSubscriptionPeriod,
   getRevenueCatOfferingSummary,
   isRevenueCatConfigured,
   PurchaseCancelledError,
@@ -111,6 +112,7 @@ type Props = {
       returnTo?: MembershipReturnTarget;
       source?: MembershipPaywallSource;
       tier?: 'lite' | 'pro';
+      initialTab?: 'lite' | 'pro';
     };
   };
 };
@@ -417,6 +419,7 @@ function MembershipPlanOption({
   monthlyEquivalent,
   showMedalBadge,
   badgeLabel,
+  goldMonthlyEquivalent,
 }: {
   title: string;
   price: string;
@@ -426,6 +429,7 @@ function MembershipPlanOption({
   monthlyEquivalent?: string | null;
   showMedalBadge?: boolean;
   badgeLabel?: string;
+  goldMonthlyEquivalent?: boolean;
 }) {
   const selectedProgress = React.useRef(
     new Animated.Value(selected ? 1 : 0)
@@ -527,7 +531,12 @@ function MembershipPlanOption({
         </Animated.Text>
         {isYearly && monthlyEquivalent ? (
           <Text
-            style={styles.membershipPlanMonthlyEquivalent}
+            style={[
+              styles.membershipPlanMonthlyEquivalent,
+              goldMonthlyEquivalent
+                ? styles.membershipPlanMonthlyEquivalentGold
+                : null,
+            ]}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.7}
@@ -550,6 +559,7 @@ export default function ProfileSettingOptionsFlow({
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const membershipSource = route.params?.source ?? 'settings';
   const requestedMembershipTier = route.params?.tier;
+  const initialMembershipTab = route.params?.initialTab;
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -613,7 +623,9 @@ export default function ProfileSettingOptionsFlow({
     RevenueCatPackageSummary[]
   >([]);
   const [membershipTier, setMembershipTier] = React.useState<'lite' | 'pro'>(
-    requestedMembershipTier ?? 'lite'
+    // 雙規則通用預設值路由：
+    // 規則一（95% 通用預設）→ 'lite'；規則二（額度耗盡例外）→ 由 tier / initialTab 帶入 'pro'。
+    requestedMembershipTier ?? initialMembershipTab ?? 'lite'
   );
   const [membershipPlan, setMembershipPlan] =
     React.useState<MembershipBillingPlan>('monthly');
@@ -621,6 +633,9 @@ export default function ProfileSettingOptionsFlow({
   const [membershipStatus, setMembershipStatus] = React.useState<
     'trial' | 'free' | 'lite' | 'premium'
   >('free');
+  const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] = React.useState<
+    'weekly' | 'monthly' | 'yearly' | null
+  >(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
     React.useState(false);
   const [premiumTransitionReady, setPremiumTransitionReady] =
@@ -701,11 +716,14 @@ export default function ProfileSettingOptionsFlow({
           }
 
           const summary = await getRevenueCatOfferingSummary(userId);
+          const activePeriod =
+            await getRevenueCatActiveSubscriptionPeriod(userId);
           if (!cancelled) {
             setMembershipPriceLabel(summary.priceLabel);
             setMembershipPackages(summary.packages);
             setLitePackages(summary.litePackages);
             setProPackages(summary.proPackages);
+            setActiveSubscriptionPeriod(activePeriod);
             const defaultMonthlyPackage = summary.packages.find((item) => {
               const period =
                 resolveMembershipPeriodLabel(item.packageType) ||
@@ -1867,6 +1885,25 @@ export default function ProfileSettingOptionsFlow({
   if (kind === 'membership') {
     const tierPackages =
       membershipTier === 'lite' ? litePackages : proPackages;
+    const resolvePeriodOf = (item: RevenueCatPackageSummary) =>
+      resolveMembershipPeriodLabel(item.packageType) ||
+      resolveMembershipPeriodLabel(item.identifier) ||
+      resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+      resolveMembershipPeriodLabel(item.title);
+    const selectedPlanPackage = tierPackages.find(
+      (item) => item.identifier === membershipPlan
+    );
+    const selectedPlanPeriod = selectedPlanPackage
+      ? resolvePeriodOf(selectedPlanPackage)
+      : null;
+    // 防呆保護：當使用者點定的方案週期 === 其當前生效中的訂閱方案週期時，
+    // 底部大按鈕應灰階 Disable 並顯示「目前使用中方案」。
+    const isCurrentPlanSelected =
+      (membershipStatus === 'premium' ||
+        membershipStatus === 'trial' ||
+        membershipStatus === 'lite') &&
+      activeSubscriptionPeriod != null &&
+      selectedPlanPeriod === activeSubscriptionPeriod;
     const featureItems =
       membershipTier === 'lite'
         ? [
@@ -2125,6 +2162,7 @@ export default function ProfileSettingOptionsFlow({
                       monthlyEquivalent={
                         plan.isYearly ? plan.monthlyEquivalent : null
                       }
+                      goldMonthlyEquivalent={membershipTier === 'lite'}
                       showMedalBadge={
                         membershipTier === 'lite' && plan.isYearly
                       }
@@ -2152,13 +2190,21 @@ export default function ProfileSettingOptionsFlow({
               <Pressable
                 style={({ pressed }) => [
                   styles.membershipSubscribeButton,
+                  isCurrentPlanSelected
+                    ? styles.membershipSubscribeButtonDisabled
+                    : null,
                   pressed || savingMembership ? styles.pressed : null,
                 ]}
                 onPress={() => void handlePurchaseMembership()}
-                disabled={savingMembership}
+                disabled={savingMembership || isCurrentPlanSelected}
               >
                 <Text
-                  style={styles.membershipSubscribeText}
+                  style={[
+                    styles.membershipSubscribeText,
+                    isCurrentPlanSelected
+                      ? styles.membershipSubscribeTextDisabled
+                      : null,
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.5}
@@ -2166,13 +2212,18 @@ export default function ProfileSettingOptionsFlow({
                 >
                   {savingMembership
                     ? tUI(settings.uiLanguage, 'settings.membership.updating')
-                    : membershipStatus === 'premium' ||
-                        membershipStatus === 'trial'
-                      ? tUI(settings.uiLanguage, 'settings.membership.active')
-                      : tUI(
+                    : isCurrentPlanSelected
+                      ? tUI(
                           settings.uiLanguage,
-                          'settings.membership.subscribe'
-                        )}
+                          'settings.membership.currentPlan'
+                        )
+                      : membershipStatus === 'premium' ||
+                          membershipStatus === 'trial'
+                        ? tUI(settings.uiLanguage, 'settings.membership.active')
+                        : tUI(
+                            settings.uiLanguage,
+                            'settings.membership.subscribe'
+                          )}
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -3392,7 +3443,7 @@ const styles = StyleSheet.create({
   },
   membershipPlanBadge: {
     position: 'absolute',
-    top: -11,
+    top: -16,
     alignSelf: 'center',
     backgroundColor: '#F59E0B',
     paddingHorizontal: 10,
@@ -3461,7 +3512,7 @@ const styles = StyleSheet.create({
   membershipPlanPrice: {
     alignSelf: 'stretch',
     flexShrink: 1,
-    marginTop: 8,
+    marginTop: 4,
     fontSize: 17,
     lineHeight: 23,
     fontWeight: '900',
@@ -3477,6 +3528,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: 'rgba(255,255,255,0.72)',
     paddingHorizontal: 1,
+  },
+  membershipPlanMonthlyEquivalentGold: {
+    color: '#FDE68A',
+    textShadowColor: 'rgba(245,158,11,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   membershipDisclosureBlock: {
     gap: 4,
@@ -3512,6 +3569,15 @@ const styles = StyleSheet.create({
     fontSize: BUTTON_TOKENS.text.strong,
     fontWeight: BUTTON_TOKENS.weight.regular,
     letterSpacing: 0.2,
+  },
+  membershipSubscribeButtonDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.16)',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  membershipSubscribeTextDisabled: {
+    color: 'rgba(255,255,255,0.42)',
   },
   membershipManageButton: {
     alignSelf: 'center',
