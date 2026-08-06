@@ -2060,6 +2060,7 @@ export default function ProfileSettingOptionsFlow({
               { paddingBottom: Math.max(insets.bottom + 132, 156) },
             ]}
             showsVerticalScrollIndicator={false}
+            scrollEnabled={false}
           >
             <View
               style={[
@@ -2182,15 +2183,6 @@ export default function ProfileSettingOptionsFlow({
                   );
                 })}
               </View>
-              <View style={styles.membershipDisclosureBlock}>
-                <Text style={styles.membershipDisclosureText}>
-                  {tUI(
-                    settings.uiLanguage,
-                    'settings.membership.renewalDisclosure'
-                  )}
-                </Text>
-              </View>
-
               <Pressable
                 style={({ pressed }) => [
                   styles.membershipSubscribeButton,
@@ -2252,13 +2244,21 @@ export default function ProfileSettingOptionsFlow({
                   </Text>
                 </Pressable>
               ) : null}
+              <View style={styles.membershipDisclosureBlock}>
+                <Text style={styles.membershipDisclosureText}>
+                  {tUI(
+                    settings.uiLanguage,
+                    'settings.membership.renewalDisclosure'
+                  )}
+                </Text>
+              </View>
             </View>
           </ScrollView>
 
           <PaywallFooter
             style={[
               styles.membershipFooterLinks,
-              { bottom: Math.max(insets.bottom, 8) },
+              { bottom: Math.max(insets.bottom - 20, 8) },
             ]}
             uiLanguage={settings.uiLanguage}
           />
@@ -3365,7 +3365,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     overflow: 'visible',
     paddingHorizontal: 16,
-    paddingBottom: 90,
+    paddingBottom: 60,
   },
   membershipHeroIcon: {
     position: 'absolute',
