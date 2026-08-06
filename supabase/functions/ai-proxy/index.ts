@@ -49,6 +49,11 @@ import {
 import { CARD_SUBJECT_SELECTION_INSTRUCTION } from './_shared/cardSubjectPrompt.ts';
 import { FREE_STARTER_CARD_LIMIT } from './_shared/freeStarterAllowance.ts';
 import {
+  getPlanPeriodQuota,
+  getPlanQuota,
+  type PlanType as QuotaPlanType,
+} from '../_shared/planQuotas.ts';
+import {
   buildFreemiumQuotaEvent,
   recordFreemiumQuotaEventInBackground,
 } from './_shared/growthAnalytics.ts';
@@ -1720,13 +1725,27 @@ function getSubscriptionCadence(productId: unknown): 'weekly' | 'monthly' {
 
 function getPeriodQuota(params: {
   feature: 'ai_generation' | 'pronunciation';
+  planType: QuotaPlanType;
   productId?: unknown;
 }): { bucket: 'week' | 'month'; limit: number; bucketLabel: string; resetCopy: string } {
   const cadence = getSubscriptionCadence(params.productId);
   if (params.feature === 'ai_generation') {
+    // Free users reaching this point have starter access (their recurring
+    // billable allowance is 0 in planQuotas). Keep their legacy starter AI
+    // window quotas so the free starter flow is unchanged.
+    const limit =
+      params.planType === 'free'
+        ? cadence === 'weekly'
+          ? AI_WEEKLY_GENERATION_QUOTA
+          : AI_MONTHLY_GENERATION_QUOTA
+        : getPlanPeriodQuota({
+            planType: params.planType,
+            feature: 'ai_generation',
+            cadence,
+          });
     return cadence === 'weekly'
-      ? { bucket: 'week', limit: AI_WEEKLY_GENERATION_QUOTA, bucketLabel: 'weekly', resetCopy: 'next week' }
-      : { bucket: 'month', limit: AI_MONTHLY_GENERATION_QUOTA, bucketLabel: 'monthly', resetCopy: 'next month' };
+      ? { bucket: 'week', limit, bucketLabel: 'weekly', resetCopy: 'next week' }
+      : { bucket: 'month', limit, bucketLabel: 'monthly', resetCopy: 'next month' };
   }
   return cadence === 'weekly'
     ? { bucket: 'week', limit: PRONUNCIATION_WEEKLY_QUOTA, bucketLabel: 'weekly', resetCopy: 'next week' }
@@ -1736,9 +1755,10 @@ function getPeriodQuota(params: {
 async function enforceBillableActionLimits(params: {
   userId: string;
   action: Action;
+  planType: QuotaPlanType;
   productId?: unknown;
 }): Promise<Response | null> {
-  const { userId, action, productId } = params;
+  const { userId, action, planType, productId } = params;
   const isAIAction =
     action === 'generate_card' ||
     action === 'generate_card_stream' ||
@@ -1808,7 +1828,7 @@ async function enforceBillableActionLimits(params: {
     }
 
     const feature = isAIAction ? 'ai_generation' : 'pronunciation';
-    const period = getPeriodQuota({ feature, productId });
+    const period = getPeriodQuota({ feature, planType, productId });
     const periodCount = await increment(
       `${feature}_${period.bucket}`,
       period.bucket === 'week' ? weekBucket : monthBucket,
@@ -1853,12 +1873,12 @@ async function enforceBillableActionLimits(params: {
 async function consumePronunciationDailyQuota(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
-  planType: 'trial' | 'free' | 'premium';
+  planType: QuotaPlanType;
 }): Promise<Response | null> {
   const { supabase, userId, planType } = params;
   const dailyLimit = planType === 'free'
     ? FREE_PRONUNCIATION_DAILY_QUOTA
-    : PREMIUM_PRONUNCIATION_DAILY_QUOTA;
+    : getPlanQuota(planType, 'pronunciation');
   const { data, error } = await supabase.rpc('consume_pronunciation_quota', {
     p_user_id: userId,
     p_daily_limit: dailyLimit,
@@ -4146,6 +4166,7 @@ Deno.serve(async (req: Request) => {
         const limitsError = await enforceBillableActionLimits({
           userId,
           action: body.action,
+          planType,
           productId: (entitlement as { productId?: unknown }).productId,
         });
         if (limitsError) {

@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { resolvePlanTypeFromProductId } from './planQuotas.ts';
 
-export type PlanType = 'trial' | 'free' | 'premium';
+export type PlanType = 'trial' | 'free' | 'lite' | 'premium';
 
 type AuthenticatedUserLike = {
   user_metadata?: Record<string, unknown> | null;
@@ -177,10 +178,14 @@ export async function syncRevenueCatSubscriptionToSupabase(params: {
     { onConflict: 'user_id,provider,entitlement_id' }
   );
 
+  const tier = entitlement.isActive
+    ? resolvePlanTypeFromProductId(entitlement.productId)
+    : 'free';
+
   await supabase
     .from('profiles')
     .update({
-      subscription_tier: entitlement.isActive ? 'pro' : 'free',
+      subscription_tier: tier,
       subscription_expires_at: entitlement.expiresAt,
       trial_started_at: null,
       trial_ends_at: null,
@@ -218,8 +223,6 @@ export async function resolveServerEntitlement(params: {
   const rawSubscriber = subscription?.raw_event ?? null;
   const rawEntitlement = (rawSubscriber as any)?.entitlements?.[REVENUECAT_ENTITLEMENT_ID] ?? null;
   const isTrial = hasPremium && isRevenueCatTrialPeriod(rawEntitlement);
-  const planType: PlanType = hasPremium ? (isTrial ? 'trial' : 'premium') : 'free';
-  const trialEndsAt = isTrial ? subscriptionExpiresAt : null;
   const productId =
     typeof subscription?.product_id === 'string' && subscription.product_id.trim()
       ? subscription.product_id.trim()
@@ -228,6 +231,12 @@ export async function resolveServerEntitlement(params: {
         : typeof rawEntitlement?.productIdentifier === 'string'
           ? rawEntitlement.productIdentifier
           : null;
+  const planType: PlanType = hasPremium
+    ? isTrial
+      ? 'trial'
+      : resolvePlanTypeFromProductId(productId)
+    : 'free';
+  const trialEndsAt = isTrial ? subscriptionExpiresAt : null;
 
   return {
     planType,

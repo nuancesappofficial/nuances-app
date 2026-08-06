@@ -1,5 +1,10 @@
 import { getAuthenticatedUserFromAuthorization } from '../ai-proxy/auth/resolveUserFromBearerToken.ts';
 import { createServiceRoleClient, resolveServerEntitlement } from '../_shared/entitlement.ts';
+import {
+  getPlanPeriodQuota,
+  getPlanQuota,
+  type PlanType as QuotaPlanType,
+} from '../_shared/planQuotas.ts';
 import { incrementPostgresRateLimitCounter } from '../_shared/rateLimitStore.ts';
 import {
   DependencyUnavailableError,
@@ -284,19 +289,40 @@ function getUtcWeekBucket(now: Date): string {
   return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function getTtsPeriodQuota(productId: unknown): {
+function getTtsPeriodQuota(params: {
+  planType: QuotaPlanType;
+  productId?: unknown;
+}): {
   bucket: 'week' | 'month';
   limit: number;
   bucketLabel: string;
   resetCopy: string;
 } {
-  const value = typeof productId === 'string' ? productId.toLowerCase() : '';
-  return value.includes('weekly')
-    ? { bucket: 'week', limit: TTS_WEEKLY_QUOTA, bucketLabel: 'weekly', resetCopy: 'next week' }
-    : { bucket: 'month', limit: TTS_MONTHLY_QUOTA, bucketLabel: 'monthly', resetCopy: 'next month' };
+  const value = typeof params.productId === 'string' ? params.productId.toLowerCase() : '';
+  const cadence = value.includes('weekly') ? 'weekly' : 'monthly';
+  // Free users reaching this point have starter access (the free tier has no
+  // recurring billable TTS allowance in planQuotas). Keep their legacy
+  // starter TTS window quotas so the free starter flow is unchanged.
+  const limit =
+    params.planType === 'free'
+      ? cadence === 'weekly'
+        ? TTS_WEEKLY_QUOTA
+        : TTS_MONTHLY_QUOTA
+      : getPlanPeriodQuota({
+          planType: params.planType,
+          feature: 'tts',
+          cadence,
+        });
+  return cadence === 'weekly'
+    ? { bucket: 'week', limit, bucketLabel: 'weekly', resetCopy: 'next week' }
+    : { bucket: 'month', limit, bucketLabel: 'monthly', resetCopy: 'next month' };
 }
 
-async function enforceTtsLimits(userId: string, productId?: unknown): Promise<Response | null> {
+async function enforceTtsLimits(
+  userId: string,
+  planType: QuotaPlanType,
+  productId?: unknown
+): Promise<Response | null> {
   const kv = await getKvClient();
   const now = new Date();
   const minuteBucket = now.toISOString().slice(0, 16);
@@ -341,17 +367,21 @@ async function enforceTtsLimits(userId: string, productId?: unknown): Promise<Re
       );
     }
 
+    // Free users reaching this point have starter access; keep their legacy
+    // starter daily TTS quota instead of the (zero) free planQuotas value.
+    const ttsDailyQuota =
+      planType === 'free' ? TTS_DAILY_QUOTA : getPlanQuota(planType, 'tts');
     const dayCount = await increment(
       'day',
       dayBucket,
       2 * 24 * 60 * 60 * 1000
     );
-    if (dayCount > TTS_DAILY_QUOTA) {
+    if (dayCount > ttsDailyQuota) {
       return jsonResponse(
         {
           error: 'Daily quota exceeded',
           reason: 'daily_quota_exceeded',
-          limit: TTS_DAILY_QUOTA,
+          limit: ttsDailyQuota,
           bucket: 'day',
           message: "You've used today's natural voice limit. You can still create cards and study; new voice generation resets tomorrow.",
         },
@@ -359,7 +389,7 @@ async function enforceTtsLimits(userId: string, productId?: unknown): Promise<Re
       );
     }
 
-    const period = getTtsPeriodQuota(productId);
+    const period = getTtsPeriodQuota({ planType, productId });
     const periodCount = await increment(
       `tts_${period.bucket}`,
       period.bucket === 'week' ? weekBucket : monthBucket,
@@ -433,7 +463,7 @@ Deno.serve(async (req: Request) => {
   const devPlan = (req.headers.get('x-nuances-dev-plan') ?? '').trim().toLowerCase();
   const entitlement =
     canUseDevEntitlementBypass() && devPlan === 'premium'
-      ? { planType: 'premium' }
+      ? { planType: 'premium' as const }
       : await resolveServerEntitlement({ supabase, userId, user: authUser });
   const isComplimentaryDemo = isComplimentaryDemoTtsRequest(payload);
   let hasStarterAccess = false;
@@ -537,6 +567,7 @@ Deno.serve(async (req: Request) => {
     if (!isComplimentaryDemo) {
       const limitsError = await enforceTtsLimits(
         userId,
+        entitlement.planType,
         (entitlement as { productId?: unknown }).productId
       );
       if (limitsError) {
