@@ -90,6 +90,7 @@ import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import type {
   MembershipPaywallSource,
+  MembershipPaywallTriggerSource,
   MembershipReturnTarget,
 } from '../../../contexts/TabSwipeContext';
 import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
@@ -113,6 +114,7 @@ type Props = {
       source?: MembershipPaywallSource;
       tier?: 'lite' | 'pro';
       initialTab?: 'lite' | 'pro';
+      triggerSource?: MembershipPaywallTriggerSource;
     };
   };
 };
@@ -558,6 +560,7 @@ export default function ProfileSettingOptionsFlow({
   const kind = requestedKind === 'main' ? 'theme' : requestedKind;
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const membershipSource = route.params?.source ?? 'settings';
+  const membershipTriggerSource = route.params?.triggerSource ?? 'user_initiated';
   const requestedMembershipTier = route.params?.tier;
   const initialMembershipTab = route.params?.initialTab;
   const colorScheme = useColorScheme();
@@ -585,8 +588,9 @@ export default function ProfileSettingOptionsFlow({
         membershipSource === 'settings'
           ? membershipSource
           : 'unknown',
+      trigger_source: membershipTriggerSource,
     });
-  }, [kind, membershipSource]);
+  }, [kind, membershipSource, membershipTriggerSource]);
   const [stickerScaleSliderWidth, setStickerScaleSliderWidth] =
     React.useState(0);
   const pendingStickerScaleRef = React.useRef(

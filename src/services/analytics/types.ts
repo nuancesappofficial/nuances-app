@@ -44,8 +44,19 @@ export type AnalyticsEventProperties = {
     is_tutorial: boolean;
   };
   pronunciation_attempted: { context: 'review' | 'card_detail' };
+  pronunciation_free_starter_exhausted: {
+    context: 'review' | 'card_detail';
+  };
+  pronunciation_monthly_quota_exceeded: {
+    context: 'review' | 'card_detail';
+  };
   paywall_viewed: {
-    source: 'settings' | 'create_card' | 'review' | 'unknown';
+    source: 'settings' | 'create_card' | 'review' | 'card_detail' | 'unknown';
+    trigger_source:
+      | 'free_pronunciation_cap'
+      | 'lite_pronunciation_cap'
+      | 'lite_card_cap'
+      | 'user_initiated';
   };
   subscription_started: WithGrowthAttribution<{ plan: BillingPlan }>;
   subscription_failed: { reason: 'purchase_failed' | 'pending_sync' };

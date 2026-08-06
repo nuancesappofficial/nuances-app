@@ -47,6 +47,12 @@ import {
   detectPronunciationLocale,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
+import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
+import {
+  getErrorCode,
+  showTranslatedError,
+} from '@services/errors/showTranslatedError';
+import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import {
@@ -1226,11 +1232,29 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Vibration.vibrate(20);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : '無法完成發音分析，請稍後再試。';
-      setPronunciationAnalysisError(message);
+      if (isPremiumFeatureError(error)) {
+        // MODULE 3c: 依錯誤碼觸發對應漏斗事件並帶入 paywall trigger_source。
+        const errorCode = getErrorCode(error);
+        if (errorCode === 'free_starter_exhausted') {
+          analytics.track('pronunciation_free_starter_exhausted', { context: 'card_detail' });
+        } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
+          analytics.track('pronunciation_monthly_quota_exceeded', { context: 'card_detail' });
+        }
+        const triggerSource = resolvePronunciationTriggerSource(errorCode);
+        showTranslatedError(error, {
+          openPaywall: (tier) =>
+            tabSwipeContext?.openMembershipPaywall({
+              source: 'card_detail',
+              tier,
+              triggerSource,
+            }),
+        });
+      } else {
+        showTranslatedError(error);
+      }
+      setPronunciationAnalysisError(
+        error instanceof Error ? error.message : '無法完成發音分析，請稍後再試。'
+      );
       setShowFeedback(false);
       setPronunciationRevealStep(3);
     } finally {

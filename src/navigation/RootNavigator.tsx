@@ -23,7 +23,11 @@ import DeckMainFlow from '../screens/flow/DeckScreenFlow/DeckMainFlow';
 import ProfileMainFlow from '../screens/flow/ProfileScreenFlow/ProfileMainFlow';
 import ProfileSettingsFlow from '../screens/flow/ProfileScreenFlow/ProfileSettingsFlow';
 import ProfileSettingOptionsFlow from '../screens/flow/ProfileScreenFlow/ProfileSettingOptionsFlow';
-import { TabSwipeContext, type SwipeExclusionRange } from '../contexts/TabSwipeContext';
+import {
+  TabSwipeContext,
+  type MembershipPaywallTriggerSource,
+  type SwipeExclusionRange,
+} from '../contexts/TabSwipeContext';
 import { database } from '../database';
 import type CachedItem from '../database/models/CachedItem';
 import { resolveThemeColors } from '../theme/colors';
@@ -429,22 +433,28 @@ export default function RootNavigator({
     switchTabImmediately,
   ]);
 
-  const openMembershipPaywall = React.useCallback((options?: {
-    returnTo?: 'settings' | 'create-card';
-    source?: 'settings' | 'create_card' | 'review' | 'unknown';
-    tier?: 'lite' | 'pro';
-  }) => {
+  const openMembershipPaywall = React.useCallback((options?:
+    | {
+        returnTo?: 'settings' | 'create-card';
+        source?: 'settings' | 'create_card' | 'review' | 'card_detail' | 'unknown';
+        tier?: 'lite' | 'pro';
+        triggerSource?: MembershipPaywallTriggerSource;
+      }
+    | 'lite'
+    | 'pro') => {
+    const normalizedOptions =
+      typeof options === 'string' ? { tier: options } : options;
     if (SubscriptionService.isPremiumBypassEnabled()) {
       traceFirstRun('paywall', 'suppressed_by_dev_bypass', {
-        source: options?.source ?? 'unknown',
+        source: normalizedOptions?.source ?? 'unknown',
       });
       console.log('[Membership] Premium bypass active; paywall suppressed.');
       return;
     }
 
     traceFirstRun('paywall', 'open_requested', {
-      source: options?.source ?? 'unknown',
-      returnTo: options?.returnTo ?? 'settings',
+      source: normalizedOptions?.source ?? 'unknown',
+      returnTo: normalizedOptions?.returnTo ?? 'settings',
     });
 
     setTabBarForcedHidden(false);
@@ -463,12 +473,14 @@ export default function RootNavigator({
       }
       profileNavigationRef.navigate('ProfileSettingOptions', {
         kind: 'membership',
-        returnTo: options?.returnTo ?? 'settings',
-        source: options?.source ?? 'unknown',
-        tier: options?.tier,
+        returnTo: normalizedOptions?.returnTo ?? 'settings',
+        source: normalizedOptions?.source ?? 'unknown',
+        tier: normalizedOptions?.tier,
+        initialTab: normalizedOptions?.tier,
+        triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
       });
       traceFirstRun('paywall', 'screen_navigated', {
-        source: options?.source ?? 'unknown',
+        source: normalizedOptions?.source ?? 'unknown',
       });
     };
 

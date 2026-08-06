@@ -5,6 +5,7 @@ import {
   normalizeAnalyticsIdentityProperties,
   type AnalyticsIdentityProperties,
 } from './identity';
+import type { UserProfileAttributes } from './profileAttributes';
 import type { AnalyticsEventName, AnalyticsEventProperties } from './types';
 
 const apiKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY?.trim() || '';
@@ -37,6 +38,12 @@ export class PostHogAnalyticsAdapter implements AnalyticsAdapter {
   identify(userId: string, properties?: AnalyticsIdentityProperties): void {
     if (!client || !userId) return;
     client.identify(userId, normalizeAnalyticsIdentityProperties(properties));
+  }
+
+  setProfileAttributes(attributes: UserProfileAttributes): void {
+    if (!client) return;
+    // PostHog 以 $set 事件更新 profile 屬性。
+    client.capture('$set', sanitizeAnalyticsProperties(attributes));
   }
 
   reset(): void {

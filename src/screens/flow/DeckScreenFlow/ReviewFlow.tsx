@@ -49,6 +49,11 @@ import {
 } from '@services/tts/defaultExperienceSpeech';
 import { cancelAllTtsPlayback, stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
 import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
+import {
+  getErrorCode,
+  showTranslatedError,
+} from '@services/errors/showTranslatedError';
+import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
 import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import AppReviewService from '@services/reviews/AppReviewService';
 import { analytics } from '@services/analytics';
@@ -2147,12 +2152,27 @@ export default function ReviewFlow({ navigation, route }: Props) {
           delete next[question.id];
           return next;
         });
-        tabSwipeContext?.openMembershipPaywall({ source: 'review' });
+        // MODULE 3c: 依錯誤碼觸發對應漏斗事件並帶入 paywall trigger_source。
+        const errorCode = getErrorCode(error);
+        if (errorCode === 'free_starter_exhausted') {
+          analytics.track('pronunciation_free_starter_exhausted', { context: 'review' });
+        } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
+          analytics.track('pronunciation_monthly_quota_exceeded', { context: 'review' });
+        }
+        const triggerSource = resolvePronunciationTriggerSource(errorCode);
+        showTranslatedError(error, {
+          openPaywall: (tier) =>
+            tabSwipeContext?.openMembershipPaywall({
+              source: 'review',
+              tier,
+              triggerSource,
+            }),
+        });
         return;
       }
       console.error('[ReviewFlow][Pronunciation] assess failed:', error);
-      const message = error instanceof Error ? error.message : tUI(uiLanguage, 'review.assessFailed');
-      setPronunciationErrors((prev) => ({ ...prev, [question.id]: message }));
+      showTranslatedError(error);
+      setPronunciationErrors((prev) => ({ ...prev, [question.id]: tUI(uiLanguage, 'review.assessFailed') }));
       setPronunciationScores((prev) => {
         const next = { ...prev };
         delete next[question.id];

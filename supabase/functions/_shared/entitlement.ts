@@ -23,6 +23,11 @@ const REVENUECAT_SECRET_KEY = (Deno.env.get('REVENUECAT_SECRET_KEY') ?? '').trim
 const REVENUECAT_ENTITLEMENT_ID = (Deno.env.get('REVENUECAT_ENTITLEMENT_ID') ?? 'premium').trim();
 const REVENUECAT_API_BASE = (Deno.env.get('REVENUECAT_API_BASE') ?? 'https://api.revenuecat.com/v1').replace(/\/+$/, '');
 
+// Lifetime Free Starter Allowance caps. Kept in sync with
+// supabase/functions/ai-proxy/_shared/freeStarterAllowance.ts.
+const FREE_STARTER_CARD_LIMIT = 20;
+const FREE_STARTER_PRONUNCIATION_LIMIT = 20;
+
 function parseIso(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const timestamp = Date.parse(value);
@@ -238,6 +243,32 @@ export async function resolveServerEntitlement(params: {
     : 'free';
   const trialEndsAt = isTrial ? subscriptionExpiresAt : null;
 
+  // Free Starter Allowance progress (lifetime caps, independent of plan).
+  // Both RPCs are service_role-only and return { used, remaining, exhausted }.
+  const freeStarterCard = await supabase
+    .rpc('get_free_starter_card_allowance', { p_user_id: userId, p_limit: FREE_STARTER_CARD_LIMIT })
+    .maybeSingle();
+  const freeStarterPronunciation = await supabase
+    .rpc('get_free_starter_pronunciation_allowance', {
+      p_user_id: userId,
+      p_limit: FREE_STARTER_PRONUNCIATION_LIMIT,
+      p_email: null,
+    })
+    .maybeSingle();
+
+  if (freeStarterCard.error) {
+    console.warn('[entitlement] free starter card allowance lookup failed', {
+      user: userId.slice(-8),
+      error: freeStarterCard.error.message,
+    });
+  }
+  if (freeStarterPronunciation.error) {
+    console.warn('[entitlement] free starter pronunciation allowance lookup failed', {
+      user: userId.slice(-8),
+      error: freeStarterPronunciation.error.message,
+    });
+  }
+
   return {
     planType,
     productId,
@@ -251,5 +282,7 @@ export async function resolveServerEntitlement(params: {
     canUseAutoCardGeneration: planType !== 'free',
     canUseManualOCRCardCreation: planType !== 'free',
     cacheCardLimit: null,
+    freeStarterCardClaimed: freeStarterCard.data?.used ?? 0,
+    freeStarterPronunciationClaimed: freeStarterPronunciation.data?.used ?? 0,
   };
 }

@@ -4,6 +4,7 @@ import type {
   AnalyticsPrimitive,
 } from './types';
 import type { AnalyticsIdentityProperties } from './identity';
+import type { UserProfileAttributes } from './profileAttributes';
 
 export type SanitizedAnalyticsProperties = Record<string, AnalyticsPrimitive>;
 
@@ -13,6 +14,8 @@ export interface AnalyticsAdapter {
     properties: AnalyticsEventProperties[EventName]
   ): void;
   identify(userId: string, properties?: AnalyticsIdentityProperties): void;
+  /** 同步標準用戶資料屬性（PostHog $set）。 */
+  setProfileAttributes(attributes: UserProfileAttributes): void;
   reset(): void;
   flush(): Promise<void>;
 }

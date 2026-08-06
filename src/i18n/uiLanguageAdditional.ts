@@ -320,6 +320,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.membership.subscribe': '購読する',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': 'プレミアムアクティブ',
+    'settings.membership.currentPlan': '現在のプラン',
     'settings.membership.welcomeTitle': 'プレミアムへようこそ',
     'settings.membership.welcomeBody':
       'Nuancesプロの準備が整いました。 AI カード、音声、コーチングのロックが解除されます。',
@@ -806,6 +807,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.membership.subscribe': '구독하다',
     'settings.membership.updating': '업데이트 중...',
     'settings.membership.active': '프리미엄 액티브',
+    'settings.membership.currentPlan': '현재 사용 중인 플랜',
     'settings.membership.welcomeTitle': '프리미엄에 오신 것을 환영합니다',
     'settings.membership.welcomeBody':
       'Nuances 프로가 준비되었습니다. AI 카드, 음성, 코칭이 잠금 해제됩니다.',
@@ -1303,6 +1305,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.membership.subscribe': 'Suscribir',
     'settings.membership.updating': 'Actualizando...',
     'settings.membership.active': 'Prima activa',
+    'settings.membership.currentPlan': 'Plan actual',
     'settings.membership.welcomeTitle': 'Bienvenido a Premium',
     'settings.membership.welcomeBody':
       'Nuances Pro está listo. Las tarjetas de IA, las voces y el entrenamiento están desbloqueados.',
@@ -1805,6 +1808,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.membership.subscribe': "S'abonner",
     'settings.membership.updating': 'Mise à jour...',
     'settings.membership.active': 'Actif premium',
+    'settings.membership.currentPlan': 'Formule actuelle',
     'settings.membership.welcomeTitle': 'Bienvenue sur Premium',
     'settings.membership.welcomeBody':
       'Nuances Pro est prêt. Les cartes IA, les voix et le coaching sont débloqués.',

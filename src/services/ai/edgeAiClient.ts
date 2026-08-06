@@ -74,7 +74,11 @@ export function isPremiumFeatureError(error: unknown): boolean {
     lower.includes('premium_required') ||
     lower.includes('premium or active trial required') ||
     lower.includes('"paywalltype"') ||
-    lower.includes('需要試用版或 premium')
+    lower.includes('需要試用版或 premium') ||
+    // 發音月額度封頂（ai-proxy 回傳 reason: pronunciation_monthly_quota_exceeded，
+    // 訊息為 "Monthly pronunciation quota exceeded"，不含 premium_required/paywallType）。
+    lower.includes('pronunciation_monthly_quota_exceeded') ||
+    lower.includes('monthly pronunciation quota exceeded')
   );
 }
 

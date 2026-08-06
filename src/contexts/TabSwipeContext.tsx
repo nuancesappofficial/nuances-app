@@ -10,7 +10,13 @@ export type MembershipPaywallSource =
   | 'settings'
   | 'create_card'
   | 'review'
+  | 'card_detail'
   | 'unknown';
+export type MembershipPaywallTriggerSource =
+  | 'free_pronunciation_cap'
+  | 'lite_pronunciation_cap'
+  | 'lite_card_cap'
+  | 'user_initiated';
 
 export type TabSwipeContextValue = {
   setCacheSwipeExclusionRange: (range: SwipeExclusionRange | null) => void;
@@ -18,11 +24,15 @@ export type TabSwipeContextValue = {
   setPaginationEnabled: (enabled: boolean) => void;
   setPagerScrollEnabled: (enabled: boolean) => void;
   goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => void;
-  openMembershipPaywall: (options?: {
-    returnTo?: MembershipReturnTarget;
-    source?: MembershipPaywallSource;
-    tier?: 'lite' | 'pro';
-  }) => void;
+  openMembershipPaywall: (options?:
+    | {
+        returnTo?: MembershipReturnTarget;
+        source?: MembershipPaywallSource;
+        tier?: 'lite' | 'pro';
+        triggerSource?: MembershipPaywallTriggerSource;
+      }
+    | 'lite'
+    | 'pro') => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

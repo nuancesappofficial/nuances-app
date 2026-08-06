@@ -274,6 +274,7 @@ export type UIStringKey =
   | 'settings.membership.subscribe'
   | 'settings.membership.updating'
   | 'settings.membership.active'
+  | 'settings.membership.currentPlan'
   | 'settings.membership.welcomeTitle'
   | 'settings.membership.welcomeBody'
   | 'settings.membership.notSignedInTitle'
@@ -735,6 +736,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.subscribe': 'Subscribe',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
+    'settings.membership.currentPlan': 'Current plan',
     'settings.membership.welcomeTitle': 'Welcome to Premium',
     'settings.membership.welcomeBody':
       'Nuances Pro is ready. AI cards, voices, and coaching are unlocked.',
@@ -1196,6 +1198,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.subscribe': '訂閱',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
+    'settings.membership.currentPlan': '目前使用中方案',
     'settings.membership.welcomeTitle': '歡迎使用進階版',
     'settings.membership.welcomeBody':
       'Nuances Pro 已就緒，AI 卡片、語音與教練功能已解鎖。',
@@ -1641,6 +1644,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.subscribe': '订阅',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
+    'settings.membership.currentPlan': '当前使用中方案',
     'settings.membership.welcomeTitle': '欢迎使用进阶版',
     'settings.membership.welcomeBody':
       'Nuances Pro 已就绪，AI 卡片、语音与教练功能已解锁。',

@@ -1487,6 +1487,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         returnTo: 'create-card',
         source: 'create_card',
         tier,
+        triggerSource: 'lite_card_cap',
       });
     },
     [tabSwipeContext]

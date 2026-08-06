@@ -310,6 +310,32 @@ export async function configureRevenueCat(appUserId?: string | null): Promise<bo
   return ensureConfigured(appUserId);
 }
 
+/**
+ * 同步標準用戶資料屬性到 RevenueCat（setAttributes）。
+ * RevenueCat 的屬性值需為 string，因此將 number/boolean 轉為字串。
+ * 僅含匿名非 PII 屬性（tier / 配額 / free_starter 進度）。
+ */
+export async function setRevenueCatAttributes(
+  attributes: Record<string, string | number | boolean>,
+  appUserId?: string | null
+): Promise<void> {
+  const ready = await ensureConfigured(appUserId);
+  if (!ready) return;
+  try {
+    const stringified: Record<string, string> = {};
+    for (const [key, value] of Object.entries(attributes)) {
+      stringified[key] = String(value);
+    }
+    await Purchases.setAttributes(stringified);
+  } catch (error) {
+    if (isRevenueCatInvalidApiKeyError(error)) {
+      warnRevenueCatInvalidApiKey('setAttributes', error);
+      return;
+    }
+    console.warn('[RevenueCat] setAttributes failed:', error);
+  }
+}
+
 export async function getRevenueCatCustomerInfo(appUserId?: string | null): Promise<CustomerInfo | null> {
   const ready = await ensureConfigured(appUserId);
   if (!ready) return null;
@@ -397,6 +423,49 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
       litePackages: [],
       proPackages: [],
     };
+  }
+}
+
+/**
+ * 解析目前「生效中訂閱」的計費週期（'weekly' | 'monthly' | 'yearly'）。
+ * 透過 active entitlement 的 productIdentifier 對應到 offering 中相同產品的
+ * subscriptionPeriod，再正規化成週期標籤。若無生效訂閱或無法對應則回傳 null。
+ */
+export async function getRevenueCatActiveSubscriptionPeriod(
+  appUserId?: string | null
+): Promise<'weekly' | 'monthly' | 'yearly' | null> {
+  const ready = await ensureConfigured(appUserId);
+  if (!ready) return null;
+  try {
+    const info = await Purchases.getCustomerInfo();
+    const productId = getActiveProductId(info);
+    if (!productId) return null;
+    const offerings = await Purchases.getOfferings();
+    const availablePackages = offerings.current?.availablePackages || [];
+    const match = availablePackages.find(
+      (item) => item.product.identifier === productId
+    );
+    const period = match?.product?.subscriptionPeriod || null;
+    if (!period) return null;
+    const normalized = period.toLowerCase();
+    if (normalized.includes('p1w') || normalized.includes('week'))
+      return 'weekly';
+    if (normalized.includes('p1m') || normalized.includes('month'))
+      return 'monthly';
+    if (
+      normalized.includes('p1y') ||
+      normalized.includes('year') ||
+      normalized.includes('annual')
+    )
+      return 'yearly';
+    return null;
+  } catch (error) {
+    if (isRevenueCatInvalidApiKeyError(error)) {
+      warnRevenueCatInvalidApiKey('getActiveSubscriptionPeriod', error);
+      return null;
+    }
+    console.warn('[RevenueCat] getActiveSubscriptionPeriod failed:', error);
+    return null;
   }
 }
 

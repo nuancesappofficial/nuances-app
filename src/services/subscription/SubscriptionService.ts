@@ -19,6 +19,7 @@ import {
   restoreRevenueCatPurchases,
 } from './revenueCat';
 import { canAttemptPronunciationAssessment } from '../../features/subscription/pronunciationAccess';
+import { syncUserProfileAttributes } from '@services/analytics/profileSync';
 
 const DAILY_FREE_VOICE_LIMIT = 3;
 const DEV_BYPASS_ENABLED = String(process.env.EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS || '').toLowerCase() === 'true';
@@ -75,6 +76,8 @@ type RemoteEntitlementPayload = {
   canUseAutoCardGeneration?: boolean;
   canUseManualOCRCardCreation?: boolean;
   cacheCardLimit?: number | null;
+  freeStarterCardClaimed?: number;
+  freeStarterPronunciationClaimed?: number;
 };
 
 function toDateKey(date: Date = new Date()): string {
@@ -384,6 +387,15 @@ export const SubscriptionService = {
       const remote = await invokeSyncEntitlementEndpoint();
       if (remote) {
         await applyServerSnapshotToSettings(remote);
+        // MODULE 3a: 同步標準用戶資料屬性到 PostHog / RevenueCat。
+        void syncUserProfileAttributes({
+          planType: remote.planType ?? 'free',
+          freeStarterPronunciationClaimed: remote.freeStarterPronunciationClaimed,
+          freeStarterCardClaimed: remote.freeStarterCardClaimed,
+          appUserId: userId,
+        }).catch((error) => {
+          console.warn('[Subscription] profile attribute sync failed:', error);
+        });
       }
     }
     const snapshot = await this.getEntitlementSnapshot(userId);

@@ -2,6 +2,7 @@ import type { AnalyticsAdapter } from './adapter';
 import type { AnalyticsIdentityProperties } from './identity';
 import { PostHogAnalyticsAdapter } from './posthogAdapter';
 import type { AnalyticsEventName, AnalyticsEventProperties } from './types';
+import type { UserProfileAttributes } from './profileAttributes';
 import {
   withGrowthAttribution,
   type GrowthAttributionProperties,
@@ -35,6 +36,10 @@ export const analytics = {
     });
   },
 
+  setProfileAttributes(attributes: UserProfileAttributes): void {
+    adapter.setProfileAttributes(attributes);
+  },
+
   reset(): void {
     adapter.reset();
   },
@@ -54,6 +59,7 @@ export type {
   AnalyticsEventProperties,
 };
 export type { AnalyticsIdentityProperties } from './identity';
+export type { UserProfileAttributes } from './profileAttributes';
 export type {
   BillingPlan,
   GrowthAttributionProperties,

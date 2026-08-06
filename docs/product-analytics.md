@@ -36,7 +36,9 @@ sent.
 | `review_started` | A non-empty review session is built |
 | `review_completed` | User taps Done on the review summary |
 | `pronunciation_attempted` | A recording is submitted for assessment |
-| `paywall_viewed` | Membership screen is opened |
+| `pronunciation_free_starter_exhausted` | Free-starter pronunciation allowance is exhausted (20 lifetime) |
+| `pronunciation_monthly_quota_exceeded` | Monthly pronunciation quota is exceeded (lite/pro) |
+| `paywall_viewed` | Membership screen is opened; `source` is the entry screen, `trigger_source` is the reason (`free_pronunciation_cap`, `lite_pronunciation_cap`, `lite_card_cap`, or `user_initiated`) |
 | `freemium_quota_updated` | A successful free card updates quota used and percentage used |
 | `subscription_started` | A synced RevenueCat purchase, classified as weekly, monthly, yearly, or unknown |
 | `subscription_failed` | Purchase fails or entitlement sync remains pending |
