@@ -9,8 +9,8 @@ import {
 } from './planQuotas.ts';
 
 // ---------------------------------------------------------------------------
-// Scenario 1: Lite member — monthly cadence, 200-card monthly cap.
-// The 200th card is allowed; the 201st exceeds the quota.
+// Scenario 1: Lite member — pure monthly caps. 200 cards + 300 pronunciation.
+// Daily/weekly windows are gone; only the monthly ceiling applies.
 // ---------------------------------------------------------------------------
 test('lite monthly AI generation cap is 200 (200th allowed, 201st exceeds)', () => {
   const monthlyLimit = getPlanPeriodQuota({
@@ -26,20 +26,28 @@ test('lite monthly AI generation cap is 200 (200th allowed, 201st exceeds)', () 
   assert.equal(201 > monthlyLimit, true, '201st card must be rejected');
 });
 
-test('lite weekly AI generation cap is 50 and daily cap is 30', () => {
+test('lite AI generation has no daily or weekly cap (pure monthly 200)', () => {
+  // Weekly cadence resolves to the same monthly cap — no separate weekly window.
   assert.equal(
     getPlanPeriodQuota({ planType: 'lite', feature: 'ai_generation', cadence: 'weekly' }),
-    50
+    200
   );
-  assert.equal(getPlanQuota('lite', 'ai_generation'), 30);
+  assert.equal(getPlanQuota('lite', 'ai_generation'), 200);
 });
 
-test('lite pronunciation daily quota is 15', () => {
-  assert.equal(getPlanQuota('lite', 'pronunciation'), 15);
+test('lite pronunciation monthly cap is 300 (no daily cap)', () => {
+  assert.equal(getPlanQuota('lite', 'pronunciation'), 300);
+  assert.equal(
+    getPlanPeriodQuota({ planType: 'lite', feature: 'pronunciation', cadence: 'monthly' }),
+    300
+  );
+  // A lite member can do 50 pronunciations in a single day without a daily block.
+  assert.equal(50 > 300, false, '50 pronunciations in a day must be allowed');
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 2: Pro / Premium member keeps the high cap — monthly 800.
+// Scenario 2: Pro / Premium member keeps the high cap — monthly 800 cards +
+// 1200 pronunciation.
 // ---------------------------------------------------------------------------
 test('premium monthly AI generation cap is 800 (exceeds 200, capped at 800)', () => {
   const monthlyLimit = getPlanPeriodQuota({
@@ -55,16 +63,22 @@ test('premium monthly AI generation cap is 800 (exceeds 200, capped at 800)', ()
   assert.equal(801 > monthlyLimit, true, '801st card must be rejected for premium');
 });
 
-test('premium weekly AI generation cap is 200 and daily cap is 100', () => {
+test('premium AI generation has no daily or weekly cap (pure monthly 800)', () => {
   assert.equal(
     getPlanPeriodQuota({ planType: 'premium', feature: 'ai_generation', cadence: 'weekly' }),
-    200
+    800
   );
-  assert.equal(getPlanQuota('premium', 'ai_generation'), 100);
+  assert.equal(getPlanQuota('premium', 'ai_generation'), 800);
 });
 
-test('premium pronunciation daily quota is 60', () => {
-  assert.equal(getPlanQuota('premium', 'pronunciation'), 60);
+test('premium pronunciation monthly cap is 1200 (no daily cap)', () => {
+  assert.equal(getPlanQuota('premium', 'pronunciation'), 1200);
+  assert.equal(
+    getPlanPeriodQuota({ planType: 'premium', feature: 'pronunciation', cadence: 'monthly' }),
+    1200
+  );
+  // A premium member can do 100 pronunciations in a single day without a daily block.
+  assert.equal(100 > 1200, false, '100 pronunciations in a day must be allowed');
 });
 
 // ---------------------------------------------------------------------------
@@ -85,7 +99,7 @@ test('free starter card allowance stays at 20 and is not defined in planQuotas',
   // planQuotas deliberately does not own the starter allowance; it must not
   // accidentally define a free recurring quota that would shadow it.
   assert.equal(PLAN_QUOTAS.free.aiGeneration.monthly, 0);
-  assert.equal(PLAN_QUOTAS.free.aiGeneration.daily, 0);
+  assert.equal(PLAN_QUOTAS.free.pronunciation.monthly, 0);
 });
 
 // ---------------------------------------------------------------------------

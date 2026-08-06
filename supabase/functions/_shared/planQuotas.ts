@@ -24,14 +24,14 @@ export type PlanType = 'trial' | 'free' | 'lite' | 'premium';
 export type QuotaFeature = 'ai_generation' | 'pronunciation' | 'tts';
 
 export type PlanQuota = {
+  // Cards & pronunciation are pure monthly caps (no daily/weekly windows).
   aiGeneration: {
-    daily: number;
-    weekly: number;
     monthly: number;
   };
   pronunciation: {
-    daily: number;
+    monthly: number;
   };
+  // TTS keeps its daily/weekly/monthly windows (unchanged by this refactor).
   tts: {
     daily: number;
     weekly: number;
@@ -42,39 +42,41 @@ export type PlanQuota = {
 // Lite (輕量版): a lighter recurring allowance than Pro.
 // Pro / Premium: the existing high allowance.
 // Trial: treated like premium while the trial is active.
-// Free: no recurring billable allowance (starter cards are handled elsewhere).
+// Free: no recurring billable allowance (starter cards & pronunciation are
+// handled by the lifetime starter allowance elsewhere).
 export const PLAN_QUOTAS: Record<PlanType, PlanQuota> = {
   lite: {
-    aiGeneration: { daily: 30, weekly: 50, monthly: 200 },
-    pronunciation: { daily: 15 },
+    aiGeneration: { monthly: 200 },
+    pronunciation: { monthly: 300 },
     tts: { daily: 100, weekly: 150, monthly: 500 },
   },
   premium: {
-    aiGeneration: { daily: 100, weekly: 200, monthly: 800 },
-    pronunciation: { daily: 60 },
+    aiGeneration: { monthly: 800 },
+    pronunciation: { monthly: 1200 },
     tts: { daily: 100, weekly: 150, monthly: 500 },
   },
   trial: {
-    aiGeneration: { daily: 100, weekly: 200, monthly: 800 },
-    pronunciation: { daily: 60 },
+    aiGeneration: { monthly: 800 },
+    pronunciation: { monthly: 1200 },
     tts: { daily: 100, weekly: 150, monthly: 500 },
   },
   free: {
-    aiGeneration: { daily: 0, weekly: 0, monthly: 0 },
-    pronunciation: { daily: 0 },
+    aiGeneration: { monthly: 0 },
+    pronunciation: { monthly: 0 },
     tts: { daily: 0, weekly: 0, monthly: 0 },
   },
 };
 
 export function getPlanQuota(planType: PlanType, feature: QuotaFeature): number {
   const quota = PLAN_QUOTAS[planType];
-  if (feature === 'ai_generation') return quota.aiGeneration.daily;
-  if (feature === 'pronunciation') return quota.pronunciation.daily;
+  if (feature === 'ai_generation') return quota.aiGeneration.monthly;
+  if (feature === 'pronunciation') return quota.pronunciation.monthly;
   return quota.tts.daily;
 }
 
 // Resolve the recurring window quota for a given plan and feature.
-// `cadence` mirrors the subscription product cadence (weekly vs monthly).
+// Cards & pronunciation are pure monthly caps regardless of `cadence`; only TTS
+// still distinguishes weekly vs monthly.
 export function getPlanPeriodQuota(params: {
   planType: PlanType;
   feature: 'ai_generation' | 'pronunciation' | 'tts';
@@ -83,12 +85,10 @@ export function getPlanPeriodQuota(params: {
   const { planType, feature, cadence } = params;
   const quota = PLAN_QUOTAS[planType];
   if (feature === 'ai_generation') {
-    return cadence === 'weekly' ? quota.aiGeneration.weekly : quota.aiGeneration.monthly;
+    return quota.aiGeneration.monthly;
   }
-  if (feature === 'tts') {
-    return cadence === 'weekly' ? quota.tts.weekly : quota.tts.monthly;
+  if (feature === 'pronunciation') {
+    return quota.pronunciation.monthly;
   }
-  // pronunciation has no weekly/monthly window in the current model; fall back
-  // to the daily figure so callers always get a sane number.
-  return quota.pronunciation.daily;
+  return cadence === 'weekly' ? quota.tts.weekly : quota.tts.monthly;
 }

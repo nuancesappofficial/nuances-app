@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   FREE_STARTER_CARD_LIMIT,
+  FREE_STARTER_PRONUNCIATION_LIMIT,
   getFreeStarterActionDecision,
 } from './freeStarterAllowance.ts';
 
@@ -50,6 +51,71 @@ test('premium users bypass starter allowance accounting', () => {
       action: 'generate_card_core_stream',
       successfulOrProcessingCards: 20,
       generationAlreadyReserved: false,
+    }),
+    'allow'
+  );
+});
+
+test('a free user can use the first 20 pronunciation assessments', () => {
+  assert.equal(FREE_STARTER_PRONUNCIATION_LIMIT, 20);
+  assert.equal(
+    getFreeStarterActionDecision({
+      planType: 'free',
+      action: 'pronunciation_assess',
+      successfulOrProcessingCards: 0,
+      generationAlreadyReserved: false,
+      pronunciationUsed: 19,
+    }),
+    'allow'
+  );
+});
+
+test('the 21st free pronunciation assessment is paywalled', () => {
+  assert.equal(
+    getFreeStarterActionDecision({
+      planType: 'free',
+      action: 'pronunciation_assess',
+      successfulOrProcessingCards: 0,
+      generationAlreadyReserved: false,
+      pronunciationUsed: 20,
+    }),
+    'paywall'
+  );
+});
+
+test('free pronunciation cap is independent of the card cap', () => {
+  // Even with 0 cards used, pronunciation is paywalled once its own cap is hit.
+  assert.equal(
+    getFreeStarterActionDecision({
+      planType: 'free',
+      action: 'pronunciation_assess',
+      successfulOrProcessingCards: 0,
+      generationAlreadyReserved: false,
+      pronunciationUsed: 20,
+    }),
+    'paywall'
+  );
+  // And cards are paywalled independently of pronunciation usage.
+  assert.equal(
+    getFreeStarterActionDecision({
+      planType: 'free',
+      action: 'generate_card_core_stream',
+      successfulOrProcessingCards: 20,
+      generationAlreadyReserved: false,
+      pronunciationUsed: 0,
+    }),
+    'paywall'
+  );
+});
+
+test('premium users bypass free pronunciation cap', () => {
+  assert.equal(
+    getFreeStarterActionDecision({
+      planType: 'premium',
+      action: 'pronunciation_assess',
+      successfulOrProcessingCards: 0,
+      generationAlreadyReserved: false,
+      pronunciationUsed: 20,
     }),
     'allow'
   );

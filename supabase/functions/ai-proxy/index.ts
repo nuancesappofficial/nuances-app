@@ -47,7 +47,10 @@ import {
   wrapAICostTrackedSSE,
 } from './_shared/aiCostTracking.ts';
 import { CARD_SUBJECT_SELECTION_INSTRUCTION } from './_shared/cardSubjectPrompt.ts';
-import { FREE_STARTER_CARD_LIMIT } from './_shared/freeStarterAllowance.ts';
+import {
+  FREE_STARTER_CARD_LIMIT,
+  FREE_STARTER_PRONUNCIATION_LIMIT,
+} from './_shared/freeStarterAllowance.ts';
 import {
   getPlanPeriodQuota,
   getPlanQuota,
@@ -1727,29 +1730,32 @@ function getPeriodQuota(params: {
   feature: 'ai_generation' | 'pronunciation';
   planType: QuotaPlanType;
   productId?: unknown;
-}): { bucket: 'week' | 'month'; limit: number; bucketLabel: string; resetCopy: string } {
-  const cadence = getSubscriptionCadence(params.productId);
+}): { bucket: 'month'; limit: number; bucketLabel: string; resetCopy: string } {
   if (params.feature === 'ai_generation') {
-    // Free users reaching this point have starter access (their recurring
-    // billable allowance is 0 in planQuotas). Keep their legacy starter AI
-    // window quotas so the free starter flow is unchanged.
+    // Cards are a pure monthly cap. Free users reaching this point have
+    // starter access (their recurring billable allowance is 0 in planQuotas);
+    // keep their legacy starter monthly window so the free starter flow is
+    // unchanged.
     const limit =
       params.planType === 'free'
-        ? cadence === 'weekly'
-          ? AI_WEEKLY_GENERATION_QUOTA
-          : AI_MONTHLY_GENERATION_QUOTA
+        ? AI_MONTHLY_GENERATION_QUOTA
         : getPlanPeriodQuota({
             planType: params.planType,
             feature: 'ai_generation',
-            cadence,
+            cadence: 'monthly',
           });
-    return cadence === 'weekly'
-      ? { bucket: 'week', limit, bucketLabel: 'weekly', resetCopy: 'next week' }
-      : { bucket: 'month', limit, bucketLabel: 'monthly', resetCopy: 'next month' };
+    return { bucket: 'month', limit, bucketLabel: 'monthly', resetCopy: 'next month' };
   }
-  return cadence === 'weekly'
-    ? { bucket: 'week', limit: PRONUNCIATION_WEEKLY_QUOTA, bucketLabel: 'weekly', resetCopy: 'next week' }
-    : { bucket: 'month', limit: PRONUNCIATION_MONTHLY_QUOTA, bucketLabel: 'monthly', resetCopy: 'next month' };
+  // Pronunciation is a pure monthly cap too.
+  const limit =
+    params.planType === 'free'
+      ? PRONUNCIATION_MONTHLY_QUOTA
+      : getPlanPeriodQuota({
+          planType: params.planType,
+          feature: 'pronunciation',
+          cadence: 'monthly',
+        });
+  return { bucket: 'month', limit, bucketLabel: 'monthly', resetCopy: 'next month' };
 }
 
 async function enforceBillableActionLimits(params: {
@@ -1770,9 +1776,7 @@ async function enforceBillableActionLimits(params: {
   const kv = await getKvClient();
   const now = new Date();
   const minuteBucket = `${now.toISOString().slice(0, 16)}`;
-  const dayBucket = now.toISOString().slice(0, 10);
   const monthBucket = now.toISOString().slice(0, 7);
-  const weekBucket = getUtcWeekBucket(now);
   const increment = async (bucket: string, bucketKey: string, expireInMs: number) => {
     if (kv) {
       return incrementCounter(kv, ['ai-rate', userId, bucket, bucketKey], expireInMs);
@@ -1807,34 +1811,12 @@ async function enforceBillableActionLimits(params: {
       );
     }
 
-    if (isAIAction) {
-      const dayCount = await increment(
-        'ai_generation_day',
-        dayBucket,
-        2 * 24 * 60 * 60 * 1000
-      );
-      if (dayCount > AI_DAILY_GENERATION_QUOTA) {
-        return jsonResponse(
-          {
-            error: 'Daily AI generation quota exceeded',
-            reason: 'ai_generation_daily_quota_exceeded',
-            limit: AI_DAILY_GENERATION_QUOTA,
-            bucket: 'day',
-            message: "You've used today's AI card generation limit. You can still review existing cards and use features that do not need new AI generation; this resets tomorrow.",
-          },
-          429
-        );
-      }
-    }
-
     const feature = isAIAction ? 'ai_generation' : 'pronunciation';
     const period = getPeriodQuota({ feature, planType, productId });
     const periodCount = await increment(
       `${feature}_${period.bucket}`,
-      period.bucket === 'week' ? weekBucket : monthBucket,
-      period.bucket === 'week'
-        ? 8 * 24 * 60 * 60 * 1000
-        : 33 * 24 * 60 * 60 * 1000
+      monthBucket,
+      33 * 24 * 60 * 60 * 1000
     );
     if (periodCount > period.limit) {
       const reason = isAIAction
@@ -1870,18 +1852,16 @@ async function enforceBillableActionLimits(params: {
   }
 }
 
-async function consumePronunciationDailyQuota(params: {
+async function consumePronunciationMonthlyQuota(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
   planType: QuotaPlanType;
 }): Promise<Response | null> {
   const { supabase, userId, planType } = params;
-  const dailyLimit = planType === 'free'
-    ? FREE_PRONUNCIATION_DAILY_QUOTA
-    : getPlanQuota(planType, 'pronunciation');
+  const monthlyLimit = getPlanQuota(planType, 'pronunciation');
   const { data, error } = await supabase.rpc('consume_pronunciation_quota', {
     p_user_id: userId,
-    p_daily_limit: dailyLimit,
+    p_monthly_limit: monthlyLimit,
   });
 
   if (error) {
@@ -1913,19 +1893,19 @@ async function consumePronunciationDailyQuota(params: {
   }
   const allowed = Boolean(quota?.allowed);
   const used = Number(quota?.used ?? 0);
-  const limit = Number(quota?.daily_limit ?? dailyLimit);
-  const resetDate = typeof quota?.reset_date === 'string' ? quota.reset_date : new Date().toISOString().slice(0, 10);
+  const limit = Number(quota?.monthly_limit ?? monthlyLimit);
+  const resetMonth = typeof quota?.reset_month === 'string' ? quota.reset_month : new Date().toISOString().slice(0, 7);
 
   if (!allowed) {
     return jsonResponse(
       {
-        error: 'Daily pronunciation quota exceeded',
-        reason: 'pronunciation_daily_quota_exceeded',
+        error: 'Monthly pronunciation quota exceeded',
+        reason: 'pronunciation_monthly_quota_exceeded',
         planType,
         used,
         limit,
-        resetDate,
-        message: "You've used today's pronunciation check limit. You can still create cards and study; pronunciation scoring resets tomorrow.",
+        resetMonth,
+        message: "You've used this month's pronunciation check limit. You can still create cards and study; pronunciation scoring resets next month.",
       },
       429
     );
@@ -2302,22 +2282,33 @@ async function finishFreeStarterCard(params: {
   }
 }
 
-async function hasFreeStarterAccess(params: {
+// Atomically claim one lifetime free pronunciation. Free pronunciation has its
+// own 20-count cap, independent of the 20-card starter allowance.
+async function claimFreeStarterPronunciation(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   userId: string;
   email?: string | null;
-}): Promise<boolean | null> {
+}): Promise<{ result: 'claimed' | 'exhausted' | 'unavailable'; remaining: number }> {
   const { data, error } = await params.supabase.rpc(
-    'get_free_starter_card_allowance',
+    'claim_free_starter_pronunciation',
     {
       p_user_id: params.userId,
-      p_limit: FREE_STARTER_CARD_LIMIT,
+      p_limit: FREE_STARTER_PRONUNCIATION_LIMIT,
       p_email: params.email ?? null,
     }
   );
   const row = Array.isArray(data) ? data[0] : data;
-  if (error || !row) return null;
-  return row.exhausted !== true;
+  if (error || !row) {
+    console.error('[ai-proxy] free pronunciation allowance claim failed', {
+      user: userLogSuffix(params.userId),
+      error: error?.message ?? 'missing row',
+    });
+    return { result: 'unavailable', remaining: 0 };
+  }
+  return {
+    result: row.result as 'claimed' | 'exhausted',
+    remaining: Number(row.remaining ?? 0),
+  };
 }
 
 async function claimDemoPronunciationAssessment(params: {
@@ -4073,6 +4064,8 @@ Deno.serve(async (req: Request) => {
       let starterGenerationId: string | null = null;
       let claimedStarterCard = false;
       let starterCardsRemaining: number | null = null;
+      let claimedStarterPronunciation = false;
+      let starterPronunciationsRemaining: number | null = null;
       if (
         planType === 'free' &&
         STARTER_CARD_ACTIONS.has(body.action)
@@ -4121,18 +4114,20 @@ Deno.serve(async (req: Request) => {
         starterCardsRemaining = claim.remaining;
       }
 
-      let hasStarterAccess = true;
       if (
         planType === 'free' &&
         body.action === 'pronunciation_assess' &&
         !claimedDemoPronunciation
       ) {
-        const access = await hasFreeStarterAccess({
+        // Free pronunciation has its own lifetime 20-count cap, independent of
+        // the 20-card starter allowance. claimFreeStarterPronunciation atomically
+        // checks AND consumes one lifetime pronunciation.
+        const claim = await claimFreeStarterPronunciation({
           supabase,
           userId,
           email: typeof authUser?.email === 'string' ? authUser.email : null,
         });
-        if (access === null) {
+        if (claim.result === 'unavailable') {
           return jsonResponse(
             {
               error: 'Starter allowance is temporarily unavailable',
@@ -4141,7 +4136,21 @@ Deno.serve(async (req: Request) => {
             503
           );
         }
-        hasStarterAccess = access;
+        if (claim.result === 'exhausted') {
+          return jsonResponse(
+            {
+              error: 'Free starter pronunciations used',
+              reason: 'premium_required',
+              planType,
+              paywallType: 'pronunciation',
+              starterPronunciationLimit: FREE_STARTER_PRONUNCIATION_LIMIT,
+              starterPronunciationsRemaining: 0,
+            },
+            403
+          );
+        }
+        claimedStarterPronunciation = true;
+        starterPronunciationsRemaining = claim.remaining;
       }
 
       if (
@@ -4149,7 +4158,7 @@ Deno.serve(async (req: Request) => {
         BILLABLE_ACTIONS.has(body.action) &&
         !claimedDemoPronunciation &&
         !claimedStarterCard &&
-        !hasStarterAccess
+        !claimedStarterPronunciation
       ) {
         return jsonResponse(
           {
@@ -4186,8 +4195,14 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      if (body.action === 'pronunciation_assess' && !claimedDemoPronunciation) {
-        const pronunciationQuotaError = await consumePronunciationDailyQuota({
+      // Free users consume pronunciation via claimFreeStarterPronunciation above
+      // (lifetime 20-count). Paid users consume the monthly pronunciation quota.
+      if (
+        body.action === 'pronunciation_assess' &&
+        !claimedDemoPronunciation &&
+        planType !== 'free'
+      ) {
+        const pronunciationQuotaError = await consumePronunciationMonthlyQuota({
           supabase,
           userId,
           planType,
@@ -4197,7 +4212,7 @@ Deno.serve(async (req: Request) => {
             userId,
             action: body.action,
             status: 'rate_limited',
-            meta: { reason: 'pronunciation_daily_quota_exceeded', planType },
+            meta: { reason: 'pronunciation_monthly_quota_exceeded', planType },
           });
           return pronunciationQuotaError;
         }
