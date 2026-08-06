@@ -869,7 +869,6 @@ function CardDetailCarouselCardUI({
     setBackBodyViewportHeight(0);
     setBackBodyContentHeight(0);
     setExamplesMeasuredHeight(0);
-    hasMeasuredExamplesRef.current = false;
     examplesBodyHeightAnim.setValue(
       resolveCardDetailSectionLayout(520).examples
     );
@@ -2147,15 +2146,10 @@ function CardDetailCarouselCardUI({
                               {renderExampleRows()}
                             </View>
                             <Animated.View
-                              style={
-                                isExamplesExpanded &&
-                                examplesMeasuredHeight <= 0
-                                  ? { overflow: 'visible' }
-                                  : {
-                                      height: examplesBodyHeightAnim,
-                                      overflow: 'hidden',
-                                    }
-                              }
+                              style={{
+                                height: examplesBodyHeightAnim,
+                                overflow: 'hidden',
+                              }}
                             >
                               <View onLayout={handleFullExamplesLayout}>
                                 {renderExampleRows()}

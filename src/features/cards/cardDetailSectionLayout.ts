@@ -28,21 +28,18 @@ export function resolveExamplePreviewLayout(
   const hasOverflow = measured > allocation + 1;
 
   return {
-    height: isExpanded && hasOverflow ? measured : allocation,
+    height: isExpanded ? Math.max(allocation, measured) : allocation,
     hasOverflow,
   };
 }
 
 export function shouldOfferExampleExpansion(
-  exampleCount: number,
+  _exampleCount: number,
   measuredHeight: number,
   allocatedHeight: number
 ): boolean {
-  return (
-    exampleCount > 1 ||
-    resolveExamplePreviewLayout(allocatedHeight, measuredHeight, false)
-      .hasOverflow
-  );
+  return resolveExamplePreviewLayout(allocatedHeight, measuredHeight, false)
+    .hasOverflow;
 }
 
 export function resolveCardDetailSectionLayout(
