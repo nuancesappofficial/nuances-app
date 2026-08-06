@@ -448,6 +448,12 @@ export default function AlbumSettingsModalUI({
                 onSpotlightPress={onSave}
                 style={styles.tourButtonWrapper}
               >
+                {tourSaveActive ? (
+                  <MovingTutorialArrow
+                    direction="down"
+                    style={styles.tourSaveArrow}
+                  />
+                ) : null}
                 <Pressable
                   style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
                   onPress={onSave}
@@ -699,7 +705,7 @@ const styles = StyleSheet.create({
   },
   tourPickCoverTabArrow: {
     position: 'absolute',
-    top: 44,
+    top: -76,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -707,7 +713,15 @@ const styles = StyleSheet.create({
   },
   tourPickCoverUploadArrow: {
     position: 'absolute',
-    top: 8,
+    top: -2,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  tourSaveArrow: {
+    position: 'absolute',
+    top: -40,
     left: 0,
     right: 0,
     alignItems: 'center',

@@ -407,7 +407,7 @@ export default function CacheCardUI({
           {showSwipeTugHint && isTopCard ? (
             <>
               <Animated.View pointerEvents="none" style={[styles.tutorialBorder, tutorialBorderStyle]} />
-              <MovingTutorialArrow style={styles.swipeTutorialArrow} color="#2D8A56" size={38} />
+              <MovingTutorialArrow style={styles.swipeTutorialArrow} color="#4EAFF4" size={38} />
             </>
           ) : null}
           <View style={styles.headerRow}>

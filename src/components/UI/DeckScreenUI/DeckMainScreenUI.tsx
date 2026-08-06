@@ -804,7 +804,7 @@ export default function DeckMainScreenUI({
         >
           <MovingTutorialArrow
             direction="left"
-            color="#2D9E66"
+            color="#4EAFF4"
             size={30}
             motion="longPress"
             style={styles.longPressTutorialArrow}
@@ -957,7 +957,7 @@ export default function DeckMainScreenUI({
             {showQuickQuizTutorialArrow ? (
               <MovingTutorialArrow
                 direction="up"
-                color="#2D9E66"
+                color="#4EAFF4"
                 size={30}
                 style={styles.quickQuizTutorialArrow}
               />

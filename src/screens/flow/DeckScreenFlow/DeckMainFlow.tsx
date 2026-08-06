@@ -172,6 +172,8 @@ export default function DeckMainFlow({
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
   const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] =
     React.useState<string | null>(null);
+  // STEP_14 教學：使用者是否已換完封面（換完後才顯示指向儲存按鈕的箭頭）
+  const [tourCoverPicked, setTourCoverPicked] = React.useState(false);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{
     x: number;
@@ -1752,7 +1754,9 @@ export default function DeckMainFlow({
         onChangeEmoji={handleChangeSettingsEmoji}
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
-        tourSaveActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
+        tourSaveActive={
+          appTour.step === 'STEP_14_ALBUM_SETTINGS' && tourCoverPicked
+        }
         tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
         onCancel={() => {
           setSettingsVisible(false);
@@ -1777,6 +1781,8 @@ export default function DeckMainFlow({
           onConfirm={(croppedUri) => {
             setSettingsCoverImageUri(croppedUri);
             setPendingAlbumCoverCropUri(null);
+            // 換完封面 → 顯示指向儲存按鈕的箭頭
+            setTourCoverPicked(true);
             void persistAlbumCoverImage(croppedUri)
               .then((stableUri) => {
                 setSettingsCoverImageUri(stableUri);

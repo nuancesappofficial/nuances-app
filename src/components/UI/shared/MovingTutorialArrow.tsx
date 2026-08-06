@@ -21,7 +21,7 @@ type Props = {
 
 export default function MovingTutorialArrow({
   direction = 'right',
-  color = '#2D8A56',
+  color = '#4EAFF4',
   size = 32,
   style,
   motion = 'bounce',

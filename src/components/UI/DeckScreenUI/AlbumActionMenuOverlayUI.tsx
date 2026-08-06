@@ -122,7 +122,7 @@ export default function AlbumActionMenuOverlayUI({
         >
           <MovingTutorialArrow
             direction="down"
-            color="#2D9E66"
+            color="#4EAFF4"
             size={30}
             motion="bounce"
           />
