@@ -702,51 +702,51 @@ export default function DeckMainScreenUI({
                   </Animated.View>
                 </Pressable>
               </Animated.View>
-
-              {isSearchExpanded && searchQuery.trim().length > 0 ? (
-                <View
-                  style={[
-                    styles.searchResultsWrap,
-                    {
-                      backgroundColor: palette.searchDropdownBg,
-                      borderColor: palette.searchDropdownBorder,
-                      shadowOpacity: isLight ? 0.16 : 0.42,
-                    },
-                  ]}
-                >
-                  <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
-                    {searchResults.length > 0 ? (
-                      searchResults.map((item) => (
-                        <Pressable
-                          key={`${item.cardId}-${item.text}`}
-                          style={({ pressed }) => [
-                            styles.searchResultItem,
-                            { borderBottomColor: palette.searchDropdownDivider },
-                            pressed ? styles.deckMediumButtonPressed : null,
-                          ]}
-                          onPress={() => onPressSearchResult(item)}
-                        >
-                          <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
-                            {item.text}
-                          </Text>
-                          {item.translation ? (
-                            <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
-                              {item.translation}
-                            </Text>
-                          ) : null}
-                        </Pressable>
-                      ))
-                    ) : (
-                      <View style={styles.searchResultEmpty}>
-                        <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
-                          {tUI(uiLanguage, 'deck.searchNoMatches')}
-                        </Text>
-                      </View>
-                    )}
-                  </ScrollView>
-                </View>
-              ) : null}
             </Animated.View>
+
+            {isSearchExpanded && searchQuery.trim().length > 0 ? (
+              <View
+                style={[
+                  styles.searchResultsWrap,
+                  {
+                    backgroundColor: palette.searchDropdownBg,
+                    borderColor: palette.searchDropdownBorder,
+                    shadowOpacity: isLight ? 0.16 : 0.42,
+                  },
+                ]}
+              >
+                <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
+                  {searchResults.length > 0 ? (
+                    searchResults.map((item) => (
+                      <Pressable
+                        key={`${item.cardId}-${item.text}`}
+                        style={({ pressed }) => [
+                          styles.searchResultItem,
+                          { borderBottomColor: palette.searchDropdownDivider },
+                          pressed ? styles.deckMediumButtonPressed : null,
+                        ]}
+                        onPress={() => onPressSearchResult(item)}
+                      >
+                        <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
+                          {item.text}
+                        </Text>
+                        {item.translation ? (
+                          <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
+                            {item.translation}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    ))
+                  ) : (
+                    <View style={styles.searchResultEmpty}>
+                      <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
+                        {tUI(uiLanguage, 'deck.searchNoMatches')}
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            ) : null}
 
             {!isSearchExpanded ? (
               <TutorialSpotlight
@@ -1113,6 +1113,9 @@ const styles = StyleSheet.create({
   },
   topRightRowExpanded: {
     justifyContent: 'flex-end',
+    // 展開時 brandIcon（60 高）被移除，若只靠 minHeight:52 會讓整列縮矮，
+    // 導致下方元件往上位移。固定高度與未展開時一致（60 + paddingTop 8 = 68）。
+    height: 68,
   },
   topActionsRow: {
     flexDirection: 'row',
