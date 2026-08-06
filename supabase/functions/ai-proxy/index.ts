@@ -303,12 +303,7 @@ const STARTER_CARD_ACTIONS = new Set<Action>([
   'generate_card_core_stream',
   'generate_card_enrichment_stream',
 ]);
-const FREE_PRONUNCIATION_DAILY_QUOTA = Number(Deno.env.get('FREE_PRONUNCIATION_DAILY_QUOTA') ?? '5');
-const PREMIUM_PRONUNCIATION_DAILY_QUOTA = Number(Deno.env.get('PREMIUM_PRONUNCIATION_DAILY_QUOTA') ?? '60');
-const AI_DAILY_GENERATION_QUOTA = Number(Deno.env.get('AI_DAILY_GENERATION_QUOTA') ?? '100');
-const AI_WEEKLY_GENERATION_QUOTA = Number(Deno.env.get('AI_WEEKLY_GENERATION_QUOTA') ?? '200');
 const AI_MONTHLY_GENERATION_QUOTA = Number(Deno.env.get('AI_MONTHLY_GENERATION_QUOTA') ?? '800');
-const PRONUNCIATION_WEEKLY_QUOTA = Number(Deno.env.get('PRONUNCIATION_WEEKLY_QUOTA') ?? '100');
 const PRONUNCIATION_MONTHLY_QUOTA = Number(Deno.env.get('PRONUNCIATION_MONTHLY_QUOTA') ?? '300');
 const LOG_AI_DIAGNOSTICS =
   String(Deno.env.get('AI_LOG_DIAGNOSTICS') ?? 'false').toLowerCase() === 'true';
