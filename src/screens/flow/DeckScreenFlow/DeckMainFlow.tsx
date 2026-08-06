@@ -303,7 +303,7 @@ export default function DeckMainFlow({
     const timer = setTimeout(() => {
       setTourCompletionGreetingPending(false);
       showTourCompletionGreeting();
-    }, 450);
+    }, 1000);
     return () => clearTimeout(timer);
   }, [
     settingsVisible,
