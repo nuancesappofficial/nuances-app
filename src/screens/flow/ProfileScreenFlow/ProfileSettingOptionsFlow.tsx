@@ -414,16 +414,18 @@ function MembershipPlanOption({
   selected,
   onPress,
   isYearly,
-  badgeLabel,
   monthlyEquivalent,
+  showMedalBadge,
+  badgeLabel,
 }: {
   title: string;
   price: string;
   selected: boolean;
   onPress: () => void;
   isYearly?: boolean;
-  badgeLabel?: string;
   monthlyEquivalent?: string | null;
+  showMedalBadge?: boolean;
+  badgeLabel?: string;
 }) {
   const selectedProgress = React.useRef(
     new Animated.Value(selected ? 1 : 0)
@@ -497,9 +499,13 @@ function MembershipPlanOption({
       onPressOut={() => animatePress(0)}
     >
       <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
-        {isYearly && badgeLabel ? (
+        {showMedalBadge && badgeLabel ? (
           <View style={styles.membershipPlanBadge}>
-            <Text style={styles.membershipPlanBadgeText} numberOfLines={1}>
+            <Text
+              style={styles.membershipPlanBadgeText}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1}
+            >
               {badgeLabel}
             </Text>
           </View>
@@ -1169,6 +1175,25 @@ export default function ProfileSettingOptionsFlow({
       setSavingMembership(false);
     }
   }, [savingMembership, settings.uiLanguage, startPremiumSuccessTransition]);
+
+  const handleSelectTier = React.useCallback(
+    (tier: 'lite' | 'pro') => {
+      setMembershipTier(tier);
+      const packages = tier === 'lite' ? litePackages : proPackages;
+      const monthlyPackage = packages.find((item) => {
+        const period =
+          resolveMembershipPeriodLabel(item.packageType) ||
+          resolveMembershipPeriodLabel(item.identifier) ||
+          resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+          resolveMembershipPeriodLabel(item.title);
+        return period === 'monthly';
+      });
+      setMembershipPlan(
+        monthlyPackage?.identifier || packages[0]?.identifier || 'monthly'
+      );
+    },
+    [litePackages, proPackages]
+  );
 
   const handleManageSubscription = React.useCallback(async () => {
     try {
@@ -1883,6 +1908,7 @@ export default function ProfileSettingOptionsFlow({
       title: string;
       price: string;
       isYearly: boolean;
+      isMonthly: boolean;
       monthlyEquivalent: string | null;
     }> =
       sortedTierPackages.length > 0
@@ -1893,6 +1919,12 @@ export default function ProfileSettingOptionsFlow({
               resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
                 'yearly' ||
               resolveMembershipPeriodLabel(item.title) === 'yearly';
+            const isMonthly =
+              resolveMembershipPeriodLabel(item.packageType) === 'monthly' ||
+              resolveMembershipPeriodLabel(item.identifier) === 'monthly' ||
+              resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
+                'monthly' ||
+              resolveMembershipPeriodLabel(item.title) === 'monthly';
             return {
               key: item.identifier,
               title: resolveMembershipPlanTitle(item, settings.uiLanguage),
@@ -1902,6 +1934,7 @@ export default function ProfileSettingOptionsFlow({
                 settings.uiLanguage
               ),
               isYearly,
+              isMonthly,
               monthlyEquivalent: isYearly
                 ? resolveMonthlyEquivalent(
                     item.priceLabel,
@@ -1918,6 +1951,7 @@ export default function ProfileSettingOptionsFlow({
                 membershipPriceLabel ||
                 tUI(settings.uiLanguage, 'common.premium'),
               isYearly: false,
+              isMonthly: true,
               monthlyEquivalent: null,
             },
           ];
@@ -2031,7 +2065,7 @@ export default function ProfileSettingOptionsFlow({
                         active ? styles.membershipTierOptionActive : null,
                         pressed ? styles.pressed : null,
                       ]}
-                      onPress={() => setMembershipTier(option.key)}
+                      onPress={() => handleSelectTier(option.key)}
                     >
                       <Text
                         style={[
@@ -2076,7 +2110,10 @@ export default function ProfileSettingOptionsFlow({
                   );
                   const selected =
                     membershipPlan === plan.key ||
-                    (!hasSelectedPlan && index === 0);
+                    (!hasSelectedPlan && plan.isMonthly) ||
+                    (!hasSelectedPlan &&
+                      !planItems.some((item) => item.isMonthly) &&
+                      index === 0);
                   return (
                     <MembershipPlanOption
                       key={plan.key}
@@ -2086,7 +2123,10 @@ export default function ProfileSettingOptionsFlow({
                       onPress={() => setMembershipPlan(plan.key)}
                       isYearly={plan.isYearly}
                       monthlyEquivalent={
-                        membershipTier === 'lite' ? plan.monthlyEquivalent : null
+                        plan.isYearly ? plan.monthlyEquivalent : null
+                      }
+                      showMedalBadge={
+                        membershipTier === 'lite' && plan.isYearly
                       }
                       badgeLabel={
                         membershipTier === 'lite' && plan.isYearly
@@ -3352,19 +3392,28 @@ const styles = StyleSheet.create({
   },
   membershipPlanBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: MODAL_CTA_COLOR,
-    borderRadius: 7,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    zIndex: 2,
+    top: -11,
+    alignSelf: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    zIndex: 10,
   },
   membershipPlanBadgeText: {
-    color: TEXT_ON_CTA,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
+    color: '#451A03',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 0.5,
   },
   membershipFeatureList: {
     gap: 14,
@@ -3400,7 +3449,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 12,
-    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
   },
