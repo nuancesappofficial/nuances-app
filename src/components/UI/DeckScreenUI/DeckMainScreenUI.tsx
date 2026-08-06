@@ -58,6 +58,8 @@ type Props = {
   onTourTargetPress?: () => void;
   showQuickQuizTutorialArrow?: boolean;
   tutorialLongPressAlbumId?: string | null;
+  /** STEP_13 教學：長按選單是否開啟（開啟時隱藏長按箭頭，改由選單 overlay 顯示指向 edit 的箭頭） */
+  isTourMenuOpen?: boolean;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -96,6 +98,7 @@ export default function DeckMainScreenUI({
   onTourTargetPress,
   showQuickQuizTutorialArrow = false,
   tutorialLongPressAlbumId = null,
+  isTourMenuOpen = false,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -784,7 +787,9 @@ export default function DeckMainScreenUI({
           </View>
       </View>
 
-      {tourStep === 'STEP_13_LONG_PRESS_ALBUM' && tutorialAlbumLayout ? (
+      {tourStep === 'STEP_13_LONG_PRESS_ALBUM' &&
+      tutorialAlbumLayout &&
+      !isTourMenuOpen ? (
         <View
           pointerEvents="none"
           style={[

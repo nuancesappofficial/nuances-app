@@ -219,6 +219,8 @@ export default function DeckMainFlow({
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
+  // STEP_13 教學：長按選單是否開啟（JS state，供 UI 切換長按箭頭 / 指向 edit 的箭頭）
+  const [isTourMenuOpen, setIsTourMenuOpen] = React.useState(false);
   const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -1284,6 +1286,13 @@ export default function DeckMainFlow({
 
   const handleAlbumPress = React.useCallback(
     (album: DeckAlbum) => {
+      // STEP_13 教學：暫時鎖定單點進入教學相簿，強迫使用者練習長按
+      if (
+        appTour.step === 'STEP_13_LONG_PRESS_ALBUM' &&
+        customAlbums[0]?.id === album.id
+      ) {
+        return;
+      }
       const albumCardIdSet = new Set(album.cardIds);
       const optimisticCards =
         album.id === ALL_CARDS_ALBUM_ID || album.id === 'all-cards'
@@ -1305,7 +1314,7 @@ export default function DeckMainFlow({
       });
       navigation.navigate('AlbumView', { album, isDefault: album.isDefault });
     },
-    [allCards, cardImageMap, navigation, seenCardIds]
+    [allCards, appTour, cardImageMap, customAlbums, navigation, seenCardIds]
   );
 
   const openAlbumSettings = React.useCallback(
@@ -1562,6 +1571,7 @@ export default function DeckMainFlow({
     ) => {
       setActiveAlbum(album);
       setActiveLayout(layout);
+      setIsTourMenuOpen(true);
     },
     []
   );
@@ -1569,6 +1579,7 @@ export default function DeckMainFlow({
   const handleMenuFinish = React.useCallback(() => {
     setActiveAlbum(null);
     setActiveLayout(null);
+    setIsTourMenuOpen(false);
   }, []);
 
   const handleAvatarPress = React.useCallback(() => {
@@ -1697,6 +1708,7 @@ export default function DeckMainFlow({
         onMenuStart={handleMenuStart}
         onMenuFinish={handleMenuFinish}
         onActionEnd={handleActionEnd}
+        isTourMenuOpen={isTourMenuOpen}
       />
 
       <ReviewTuningModalUI
@@ -1807,6 +1819,8 @@ export default function DeckMainFlow({
         activeAlbum={activeAlbum}
         uiLanguage={uiLanguage}
         activeLayout={activeLayout}
+        tourStep={appTour.step}
+        isTourMenuOpen={isTourMenuOpen}
       />
     </>
   );
