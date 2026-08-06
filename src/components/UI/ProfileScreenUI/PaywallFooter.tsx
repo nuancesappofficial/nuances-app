@@ -21,9 +21,6 @@ export default function PaywallFooter({ style, uiLanguage }: Props) {
 
   return (
     <View style={[styles.container, style]}>
-      <Text style={styles.fairUseText}>
-        {tUI(uiLanguage, 'settings.membership.fairUseFooter')}
-      </Text>
       <View style={styles.linkRow}>
         <Pressable
           accessibilityRole="link"
@@ -59,13 +56,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 3,
     paddingHorizontal: 18,
-  },
-  fairUseText: {
-    color: 'rgba(142,142,147,0.92)',
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '600',
-    textAlign: 'center',
   },
   linkRow: {
     flexDirection: 'row',
