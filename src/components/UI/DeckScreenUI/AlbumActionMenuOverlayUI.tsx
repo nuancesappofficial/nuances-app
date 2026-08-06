@@ -67,8 +67,8 @@ export default function AlbumActionMenuOverlayUI({
   // STEP_13 教學：長按選單開啟時，指向 edit 按鈕的普通箭頭（edit 在左側，箭頭從正上方往下指）
   const editTutorialArrowStyle = useAnimatedStyle(() => ({
     opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
-    left: startX.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE + 25 - 25,
-    top: startY.value - MENU_BUTTON_HALF_SIZE - 88,
+    left: startX.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE + 25 - 25 - 5,
+    top: startY.value - MENU_BUTTON_HALF_SIZE - 88 + 10,
   }));
 
   const cloneStyle = useAnimatedStyle(() => ({

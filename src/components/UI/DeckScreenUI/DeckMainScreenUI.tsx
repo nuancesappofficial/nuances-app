@@ -281,28 +281,30 @@ export default function DeckMainScreenUI({
 
   // STEP_13：主動 measure 教學相簿 cell 的螢幕座標，避免依賴 onLayout 在 STEP_13 時重新觸發
   // （cell 早在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發）
+  // 用 onMomentumScrollEnd（grid slide 動畫真正結束）觸發 measure，讓箭頭在滑動一結束就立刻出現
+  const measureTutorialAlbum = React.useCallback(() => {
+    if (tourStep !== 'STEP_13_LONG_PRESS_ALBUM' || !tutorialLongPressAlbumId) return;
+    tutorialAlbumCellRef.current?.measureInWindow((x, y, width, height) => {
+      setTutorialAlbumLayout((prev) =>
+        prev &&
+        prev.x === x &&
+        prev.y === y &&
+        prev.width === width &&
+        prev.height === height
+          ? prev
+          : { x, y, width, height }
+      );
+    });
+  }, [tourStep, tutorialLongPressAlbumId]);
+
   React.useEffect(() => {
     if (tourStep !== 'STEP_13_LONG_PRESS_ALBUM' || !tutorialLongPressAlbumId) {
       setTutorialAlbumLayout(null);
       return;
     }
-    const measure = () => {
-      tutorialAlbumCellRef.current?.measureInWindow((x, y, width, height) => {
-        setTutorialAlbumLayout((prev) =>
-          prev &&
-          prev.x === x &&
-          prev.y === y &&
-          prev.width === width &&
-          prev.height === height
-            ? prev
-            : { x, y, width, height }
-        );
-      });
-    };
-    // 等 scrollToIndex 動畫捲到教學相簿所在頁後再 measure
-    const t = setTimeout(measure, 1200);
-    return () => clearTimeout(t);
-  }, [tourStep, tutorialLongPressAlbumId, albumPages]);
+    // 進入 STEP_13 時先 measure 一次（若教學相簿已在目前頁，無需等滑動）
+    measureTutorialAlbum();
+  }, [tourStep, tutorialLongPressAlbumId, albumPages, measureTutorialAlbum]);
 
   React.useEffect(() => {
     const itemCount = slideshowItems.length;
@@ -795,8 +797,8 @@ export default function DeckMainScreenUI({
           style={[
             styles.longPressTutorialWrap,
             {
-              top: tutorialAlbumLayout.y - insets.top + tutorialAlbumLayout.height / 2 + 20,
-              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width + 8,
+              top: tutorialAlbumLayout.y - insets.top + tutorialAlbumLayout.height / 2 + 30,
+              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width - 7,
             },
           ]}
         >
@@ -912,6 +914,8 @@ export default function DeckMainScreenUI({
                 const offsetX = event.nativeEvent.contentOffset.x;
                 const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
                 setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
+                // grid slide 動畫結束 → 立刻 measure 教學相簿，讓長按箭頭馬上出現
+                measureTutorialAlbum();
               }}
               renderItem={({ item, index }) => renderAlbumPage(item, index)}
               contentContainerStyle={{
