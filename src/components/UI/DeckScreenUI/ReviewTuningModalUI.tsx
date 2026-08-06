@@ -253,12 +253,10 @@ export default function ReviewTuningModalUI({
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <View style={styles.root}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-          <Animated.View
-            style={[styles.backdrop, { opacity: backdropOpacity }]}
-          />
-        </Pressable>
+      <Pressable style={styles.root} onPress={onClose}>
+        <Animated.View
+          style={[styles.backdrop, { opacity: backdropOpacity }]}
+        />
         <Animated.View
           style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}
         >
@@ -671,7 +669,7 @@ export default function ReviewTuningModalUI({
             </Pressable>
           </Pressable>
         </Animated.View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }

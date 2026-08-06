@@ -704,50 +704,6 @@ export default function DeckMainScreenUI({
               </Animated.View>
             </Animated.View>
 
-            {isSearchExpanded && searchQuery.trim().length > 0 ? (
-              <View
-                style={[
-                  styles.searchResultsWrap,
-                  {
-                    backgroundColor: palette.searchDropdownBg,
-                    borderColor: palette.searchDropdownBorder,
-                    shadowOpacity: isLight ? 0.16 : 0.42,
-                  },
-                ]}
-              >
-                <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
-                  {searchResults.length > 0 ? (
-                    searchResults.map((item) => (
-                      <Pressable
-                        key={`${item.cardId}-${item.text}`}
-                        style={({ pressed }) => [
-                          styles.searchResultItem,
-                          { borderBottomColor: palette.searchDropdownDivider },
-                          pressed ? styles.deckMediumButtonPressed : null,
-                        ]}
-                        onPress={() => onPressSearchResult(item)}
-                      >
-                        <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
-                          {item.text}
-                        </Text>
-                        {item.translation ? (
-                          <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
-                            {item.translation}
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                    ))
-                  ) : (
-                    <View style={styles.searchResultEmpty}>
-                      <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
-                        {tUI(uiLanguage, 'deck.searchNoMatches')}
-                      </Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-            ) : null}
-
             {!isSearchExpanded ? (
               <TutorialSpotlight
                 active={tourStep === 'STEP_11_CREATE_ALBUM'}
@@ -809,6 +765,52 @@ export default function DeckMainScreenUI({
             motion="longPress"
             style={styles.longPressTutorialArrow}
           />
+        </View>
+      ) : null}
+
+      {isSearchExpanded && searchQuery.trim().length > 0 ? (
+        <View
+          style={[
+            styles.searchResultsWrap,
+            {
+              top: insets.top + 65,
+              width: maxSearchWidth,
+              backgroundColor: palette.searchDropdownBg,
+              borderColor: palette.searchDropdownBorder,
+              shadowOpacity: isLight ? 0.16 : 0.42,
+            },
+          ]}
+        >
+          <ScrollView style={styles.searchResultsList} contentContainerStyle={styles.searchResultsContent}>
+            {searchResults.length > 0 ? (
+              searchResults.map((item) => (
+                <Pressable
+                  key={`${item.cardId}-${item.text}`}
+                  style={({ pressed }) => [
+                    styles.searchResultItem,
+                    { borderBottomColor: palette.searchDropdownDivider },
+                    pressed ? styles.deckMediumButtonPressed : null,
+                  ]}
+                  onPress={() => onPressSearchResult(item)}
+                >
+                  <Text style={[styles.searchResultWord, { color: palette.textOnContainer }]} numberOfLines={1}>
+                    {item.text}
+                  </Text>
+                  {item.translation ? (
+                    <Text style={[styles.searchResultTranslation, { color: searchSecondaryTextColor }]} numberOfLines={1}>
+                      {item.translation}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))
+            ) : (
+              <View style={styles.searchResultEmpty}>
+                <Text style={[styles.searchResultEmptyText, { color: searchSecondaryTextColor }]}>
+                  {tUI(uiLanguage, 'deck.searchNoMatches')}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
         </View>
       ) : null}
 
@@ -1109,7 +1111,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    zIndex: 30,
+    zIndex: 120,
   },
   topRightRowExpanded: {
     justifyContent: 'flex-end',
@@ -1449,8 +1451,7 @@ const styles = StyleSheet.create({
   },
   searchResultsWrap: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    right: 16,
     top: 46,
     zIndex: 120,
     borderRadius: 20,

@@ -18,6 +18,7 @@ import {
   View,
   type ImageStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
   Easing,
@@ -2499,13 +2500,35 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: palette.containerBg }]}
+      style={[styles.container, { backgroundColor: palette.screenBg }]}
       edges={['top']}
     >
       <KeyboardAvoidingView
         style={[styles.container, { backgroundColor: palette.screenBg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={tUI(uiLanguage, 'common.back')}
+            hitSlop={8}
+            onPress={goToCacheHome}
+            style={({ pressed }) => [
+              styles.backButton,
+              {
+                backgroundColor: palette.modalOptionBg,
+                borderColor: palette.modalOptionBorder,
+                opacity: pressed ? 0.72 : 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={isLight ? '#0D0D0D' : '#F4EDE6'}
+            />
+          </Pressable>
+        </View>
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
@@ -3438,10 +3461,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F7F9',
   },
   header: {
-    borderBottomWidth: 1,
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -3450,17 +3472,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backButtonText: {
-    fontSize: 24,
-    color: '#0D0D0D',
-    marginTop: -2,
   },
   headerTitle: {
     fontSize: 18,
