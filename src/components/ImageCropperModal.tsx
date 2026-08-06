@@ -1116,7 +1116,7 @@ export default function ImageCropperModal({
           <View style={styles.confirmTutorialTarget}>
             {showConfirmTutorialArrow && !processing ? (
               <MovingTutorialArrow
-                direction="right"
+                direction="up"
                 color="#4EAFF4"
                 size={28}
                 style={styles.confirmTutorialArrow}
@@ -1178,9 +1178,9 @@ const styles = StyleSheet.create({
   },
   confirmTutorialArrow: {
     position: 'absolute',
-    right: '100%',
-    marginRight: 10,
-    top: -9,
+    top: '100%',
+    marginTop: 10,
+    alignSelf: 'center',
   },
   pressableChipPressed: {
     opacity: 0.9,
