@@ -100,6 +100,7 @@ export default function AlbumSettingsModalUI({
     ? MODAL_CTA_COLOR_BORDER
     : '#85C7EF';
   const [shouldRender, setShouldRender] = React.useState(visible);
+  const [entryDone, setEntryDone] = React.useState(false);
   const [coverTab, setCoverTab] = React.useState<'classic' | 'image'>(hasCoverImage ? 'image' : 'classic');
   const [tabContentWidth, setTabContentWidth] = React.useState(0);
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
@@ -144,10 +145,13 @@ export default function AlbumSettingsModalUI({
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) setEntryDone(true);
+      });
       return;
     }
 
+    setEntryDone(false);
     if (!shouldRender) return;
     Animated.parallel([
       Animated.timing(entranceY, {
@@ -271,7 +275,10 @@ export default function AlbumSettingsModalUI({
                         >
                           {tab === 'classic' ? tUI(uiLanguage, 'create.albumTabClassic') : tUI(uiLanguage, 'create.albumTabImage')}
                         </Text>
-                        {tab === 'image' && tourPickCoverActive && coverTab !== 'image' ? (
+                        {tab === 'image' &&
+                        tourPickCoverActive &&
+                        entryDone &&
+                        coverTab !== 'image' ? (
                           <MovingTutorialArrow
                             direction="down"
                             style={styles.tourPickCoverTabArrow}
@@ -391,7 +398,7 @@ export default function AlbumSettingsModalUI({
                       ]}
                       onPress={onPickCoverImage}
                     >
-                      {tourPickCoverActive && coverTab === 'image' ? (
+                      {tourPickCoverActive && coverTab === 'image' && !coverImageUri ? (
                         <MovingTutorialArrow
                           direction="down"
                           style={styles.tourPickCoverUploadArrow}
@@ -721,7 +728,7 @@ const styles = StyleSheet.create({
   },
   tourSaveArrow: {
     position: 'absolute',
-    top: -40,
+    top: -65,
     left: 0,
     right: 0,
     alignItems: 'center',
