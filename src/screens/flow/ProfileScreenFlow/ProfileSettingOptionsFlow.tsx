@@ -391,6 +391,23 @@ function resolveMembershipPriceLabel(
   return formatMembershipPriceLabel(price, item.currencyCode);
 }
 
+function resolveMonthlyEquivalent(
+  priceLabel: string,
+  uiLanguage: UILanguage
+): string | null {
+  const match = priceLabel.match(/([\d,]+(?:\.\d+)?)/);
+  if (!match) return null;
+  const amount = parseFloat(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const monthly = Math.round(amount / 12);
+  const currency = priceLabel.replace(/[\d,]+(?:\.\d+)?/g, '').trim();
+  const template = tUI(
+    uiLanguage,
+    'settings.membership.plan.monthlyEquivalent'
+  );
+  return template.replace('{amount}', `${currency}${monthly.toLocaleString()}`);
+}
+
 function MembershipPlanOption({
   title,
   price,
@@ -398,6 +415,7 @@ function MembershipPlanOption({
   onPress,
   isYearly,
   badgeLabel,
+  monthlyEquivalent,
 }: {
   title: string;
   price: string;
@@ -405,6 +423,7 @@ function MembershipPlanOption({
   onPress: () => void;
   isYearly?: boolean;
   badgeLabel?: string;
+  monthlyEquivalent?: string | null;
 }) {
   const selectedProgress = React.useRef(
     new Animated.Value(selected ? 1 : 0)
@@ -500,6 +519,17 @@ function MembershipPlanOption({
         >
           {price}
         </Animated.Text>
+        {isYearly && monthlyEquivalent ? (
+          <Text
+            style={styles.membershipPlanMonthlyEquivalent}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            maxFontSizeMultiplier={1}
+          >
+            {monthlyEquivalent}
+          </Text>
+        ) : null}
       </Animated.View>
     </Pressable>
   );
@@ -577,7 +607,7 @@ export default function ProfileSettingOptionsFlow({
     RevenueCatPackageSummary[]
   >([]);
   const [membershipTier, setMembershipTier] = React.useState<'lite' | 'pro'>(
-    requestedMembershipTier ?? 'pro'
+    requestedMembershipTier ?? 'lite'
   );
   const [membershipPlan, setMembershipPlan] =
     React.useState<MembershipBillingPlan>('monthly');
@@ -670,8 +700,19 @@ export default function ProfileSettingOptionsFlow({
             setMembershipPackages(summary.packages);
             setLitePackages(summary.litePackages);
             setProPackages(summary.proPackages);
+            const defaultMonthlyPackage = summary.packages.find((item) => {
+              const period =
+                resolveMembershipPeriodLabel(item.packageType) ||
+                resolveMembershipPeriodLabel(item.identifier) ||
+                resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+                resolveMembershipPeriodLabel(item.title);
+              return period === 'monthly';
+            });
             setMembershipPlan(
-              summary.packageId || summary.packages[0]?.identifier || 'monthly'
+              defaultMonthlyPackage?.identifier ||
+                summary.packageId ||
+                summary.packages[0]?.identifier ||
+                'monthly'
             );
           }
         } catch (error) {
@@ -1842,23 +1883,33 @@ export default function ProfileSettingOptionsFlow({
       title: string;
       price: string;
       isYearly: boolean;
+      monthlyEquivalent: string | null;
     }> =
       sortedTierPackages.length > 0
-        ? sortedTierPackages.map((item) => ({
-            key: item.identifier,
-            title: resolveMembershipPlanTitle(item, settings.uiLanguage),
-            price: resolveMembershipPriceLabel(
-              item,
-              membershipPriceLabel,
-              settings.uiLanguage
-            ),
-            isYearly:
+        ? sortedTierPackages.map((item) => {
+            const isYearly =
               resolveMembershipPeriodLabel(item.packageType) === 'yearly' ||
               resolveMembershipPeriodLabel(item.identifier) === 'yearly' ||
               resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
                 'yearly' ||
-              resolveMembershipPeriodLabel(item.title) === 'yearly',
-          }))
+              resolveMembershipPeriodLabel(item.title) === 'yearly';
+            return {
+              key: item.identifier,
+              title: resolveMembershipPlanTitle(item, settings.uiLanguage),
+              price: resolveMembershipPriceLabel(
+                item,
+                membershipPriceLabel,
+                settings.uiLanguage
+              ),
+              isYearly,
+              monthlyEquivalent: isYearly
+                ? resolveMonthlyEquivalent(
+                    item.priceLabel,
+                    settings.uiLanguage
+                  )
+                : null,
+            };
+          })
         : [
             {
               key: 'current',
@@ -1867,6 +1918,7 @@ export default function ProfileSettingOptionsFlow({
                 membershipPriceLabel ||
                 tUI(settings.uiLanguage, 'common.premium'),
               isYearly: false,
+              monthlyEquivalent: null,
             },
           ];
     const tierOptions: Array<{ key: 'lite' | 'pro'; label: string }> = [
@@ -2007,14 +2059,16 @@ export default function ProfileSettingOptionsFlow({
                       size={22}
                       color={MODAL_CTA_COLOR}
                     />
-                    <Text style={styles.membershipFeatureText}>{item}</Text>
+                    <Text
+                      style={styles.membershipFeatureText}
+                      numberOfLines={1}
+                      maxFontSizeMultiplier={1}
+                    >
+                      {item}
+                    </Text>
                   </View>
                 ))}
               </View>
-              <Text style={styles.membershipFairUseText}>
-                {tUI(settings.uiLanguage, 'settings.membership.fairUseSummary')}
-              </Text>
-
               <View style={styles.membershipPlanGrid}>
                 {planItems.map((plan, index) => {
                   const hasSelectedPlan = planItems.some(
@@ -2031,8 +2085,11 @@ export default function ProfileSettingOptionsFlow({
                       selected={selected}
                       onPress={() => setMembershipPlan(plan.key)}
                       isYearly={plan.isYearly}
+                      monthlyEquivalent={
+                        membershipTier === 'lite' ? plan.monthlyEquivalent : null
+                      }
                       badgeLabel={
-                        plan.isYearly
+                        membershipTier === 'lite' && plan.isYearly
                           ? tUI(
                               settings.uiLanguage,
                               'settings.membership.badge.save'
@@ -3213,7 +3270,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     overflow: 'visible',
     paddingHorizontal: 16,
-    paddingBottom: 92,
+    paddingBottom: 90,
   },
   membershipHeroIcon: {
     position: 'absolute',
@@ -3232,7 +3289,7 @@ const styles = StyleSheet.create({
   },
   membershipHeadlineBlock: {
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 15,
     paddingHorizontal: 18,
   },
   membershipBrandLine: {
@@ -3266,7 +3323,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 18,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   membershipTierOption: {
     flex: 1,
@@ -3310,14 +3367,15 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   membershipFeatureList: {
-    gap: 9,
-    paddingHorizontal: 18,
-    marginBottom: 8,
+    gap: 14,
+    paddingHorizontal: 6,
+    marginBottom: -12,
   },
   membershipFeatureRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    height: 30,
   },
   membershipFeatureText: {
     flex: 1,
@@ -3326,19 +3384,11 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: '800',
   },
-  membershipFairUseText: {
-    color: 'rgba(255,255,255,0.74)',
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-    paddingHorizontal: 18,
-    marginBottom: 12,
-  },
   membershipPlanGrid: {
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 4,
+    marginTop: 30,
   },
   membershipPlanPressable: {
     flex: 1,
@@ -3368,6 +3418,16 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     fontWeight: '900',
     textAlign: 'center',
+    paddingHorizontal: 1,
+  },
+  membershipPlanMonthlyEquivalent: {
+    alignSelf: 'stretch',
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.72)',
     paddingHorizontal: 1,
   },
   membershipDisclosureBlock: {
