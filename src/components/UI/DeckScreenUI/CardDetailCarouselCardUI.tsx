@@ -17,6 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import Reanimated, {
+  cancelAnimation,
   Easing,
   Extrapolation,
   interpolate,
@@ -141,17 +142,21 @@ function CollapsibleBackField({
 }: CollapsibleBackFieldProps) {
   const [contentHeight, setContentHeight] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const heightAnim = React.useRef(new Animated.Value(collapsedHeight)).current;
+  const heightAnim = useSharedValue(collapsedHeight);
   const arrowProgress = React.useRef(new Animated.Value(0)).current;
   const hasMeasuredRef = React.useRef(false);
   const reduceMotion = useReducedMotion();
   const hasOverflow = contentHeight > collapsedHeight + 1;
+  const bodyStyle = useAnimatedStyle(() => ({
+    height: heightAnim.value,
+    overflow: 'hidden',
+  }));
 
   React.useEffect(() => {
     setContentHeight(0);
     setIsExpanded(false);
     hasMeasuredRef.current = false;
-    heightAnim.setValue(collapsedHeight);
+    heightAnim.value = collapsedHeight;
     arrowProgress.setValue(0);
     onExpandedChange(fieldKey, false);
   }, [
@@ -171,18 +176,16 @@ function CollapsibleBackField({
         : collapsedHeight
       : contentHeight;
 
-    heightAnim.stopAnimation();
+    cancelAnimation(heightAnim);
     if (!hasMeasuredRef.current) {
-      heightAnim.setValue(targetHeight);
+      heightAnim.value = targetHeight;
       hasMeasuredRef.current = true;
       return;
     }
-    Animated.timing(heightAnim, {
-      toValue: targetHeight,
+    heightAnim.value = withTiming(targetHeight, {
       duration: reduceMotion ? 0 : 240,
-      easing: RNEasing.bezier(0.2, 0, 0, 1),
-      useNativeDriver: false,
-    }).start();
+      easing: Easing.bezier(0.2, 0, 0, 1),
+    });
   }, [
     collapsedHeight,
     contentHeight,
@@ -202,12 +205,8 @@ function CollapsibleBackField({
 
   return (
     <>
-      <Animated.View
-        style={
-          contentHeight > 0
-            ? { height: heightAnim, overflow: 'hidden' }
-            : undefined
-        }
+      <Reanimated.View
+        style={contentHeight > 0 ? bodyStyle : undefined}
       >
         <View
           onLayout={(event) => {
@@ -221,7 +220,7 @@ function CollapsibleBackField({
         >
           {children}
         </View>
-      </Animated.View>
+      </Reanimated.View>
       {hasOverflow ? (
         <Pressable
           style={({ pressed }) => [
@@ -622,15 +621,22 @@ function CardDetailCarouselCardUI({
   const examplesCollapsedLimit = collapsedBackSectionLayout.examples;
   const personalNotesCollapsedLimit =
     collapsedBackSectionLayout.personalNotes;
-  const sentenceBodyHeightAnim = React.useRef(
-    new Animated.Value(collapsedSentenceHeight)
-  ).current;
-  const contextBodyHeightAnim = React.useRef(
-    new Animated.Value(collapsedContextHeight)
-  ).current;
-  const examplesBodyHeightAnim = React.useRef(
-    new Animated.Value(resolveCardDetailSectionLayout(520).examples)
-  ).current;
+  const sentenceBodyHeightAnim = useSharedValue(collapsedSentenceHeight);
+  const contextBodyHeightAnim = useSharedValue(collapsedContextHeight);
+  const examplesBodyHeightAnim = useSharedValue(
+    resolveCardDetailSectionLayout(520).examples
+  );
+  const sentenceBodyStyle = useAnimatedStyle(() => ({
+    height: sentenceBodyHeightAnim.value,
+  }));
+  const contextBodyStyle = useAnimatedStyle(() => ({
+    height: contextBodyHeightAnim.value,
+    overflow: 'hidden',
+  }));
+  const examplesBodyStyle = useAnimatedStyle(() => ({
+    height: examplesBodyHeightAnim.value,
+    overflow: 'hidden',
+  }));
   const hasMeasuredExamplesRef = React.useRef(false);
   const handleBackFieldExpandedChange = React.useCallback(
     (fieldKey: string, expanded: boolean) => {
@@ -758,15 +764,16 @@ function CardDetailCarouselCardUI({
   }, [contextExpandProgress, isContextExpanded]);
 
   React.useEffect(() => {
-    sentenceBodyHeightAnim.stopAnimation();
-    Animated.timing(sentenceBodyHeightAnim, {
-      toValue: isFullSentenceExpanded
+    cancelAnimation(sentenceBodyHeightAnim);
+    sentenceBodyHeightAnim.value = withTiming(
+      isFullSentenceExpanded
         ? Math.max(collapsedSentenceHeight, sentenceMeasuredHeight)
         : collapsedSentenceHeight,
-      duration: reduceMotion ? 0 : 240,
-      easing: RNEasing.bezier(0.2, 0, 0, 1),
-      useNativeDriver: false,
-    }).start();
+      {
+        duration: reduceMotion ? 0 : 240,
+        easing: Easing.bezier(0.2, 0, 0, 1),
+      }
+    );
   }, [
     collapsedSentenceHeight,
     isFullSentenceExpanded,
@@ -776,15 +783,16 @@ function CardDetailCarouselCardUI({
   ]);
 
   React.useEffect(() => {
-    contextBodyHeightAnim.stopAnimation();
-    Animated.timing(contextBodyHeightAnim, {
-      toValue: isContextExpanded
+    cancelAnimation(contextBodyHeightAnim);
+    contextBodyHeightAnim.value = withTiming(
+      isContextExpanded
         ? Math.max(collapsedContextHeight, contextMeasuredHeight)
         : collapsedContextHeight,
-      duration: reduceMotion ? 0 : 240,
-      easing: RNEasing.bezier(0.2, 0, 0, 1),
-      useNativeDriver: false,
-    }).start();
+      {
+        duration: reduceMotion ? 0 : 240,
+        easing: Easing.bezier(0.2, 0, 0, 1),
+      }
+    );
   }, [
     collapsedContextHeight,
     contextBodyHeightAnim,
@@ -800,21 +808,19 @@ function CardDetailCarouselCardUI({
       isExamplesExpanded
     ).height;
 
-    examplesBodyHeightAnim.stopAnimation();
+    cancelAnimation(examplesBodyHeightAnim);
     if (!hasMeasuredExamplesRef.current) {
-      examplesBodyHeightAnim.setValue(targetHeight);
+      examplesBodyHeightAnim.value = targetHeight;
       if (examplesMeasuredHeight > 0) {
         hasMeasuredExamplesRef.current = true;
       }
       return;
     }
 
-    Animated.timing(examplesBodyHeightAnim, {
-      toValue: targetHeight,
+    examplesBodyHeightAnim.value = withTiming(targetHeight, {
       duration: reduceMotion ? 0 : 240,
-      easing: RNEasing.bezier(0.2, 0, 0, 1),
-      useNativeDriver: false,
-    }).start();
+      easing: Easing.bezier(0.2, 0, 0, 1),
+    });
   }, [
     examplesBodyHeightAnim,
     examplesCollapsedLimit,
@@ -869,9 +875,7 @@ function CardDetailCarouselCardUI({
     setBackBodyViewportHeight(0);
     setBackBodyContentHeight(0);
     setExamplesMeasuredHeight(0);
-    examplesBodyHeightAnim.setValue(
-      resolveCardDetailSectionLayout(520).examples
-    );
+    examplesBodyHeightAnim.value = resolveCardDetailSectionLayout(520).examples;
     sentenceExpandProgress.setValue(0);
     contextExpandProgress.setValue(0);
     examplesExpandProgress.setValue(0);
@@ -1526,11 +1530,9 @@ function CardDetailCarouselCardUI({
                           </Text>
                         </View>
                       ) : null}
-                      <Animated.View
+                      <Reanimated.View
                         style={
-                          shouldOfferFullSentence
-                            ? { height: sentenceBodyHeightAnim }
-                            : undefined
+                          shouldOfferFullSentence ? sentenceBodyStyle : undefined
                         }
                       >
                         {!contextSections.isStructured ? (
@@ -1576,7 +1578,7 @@ function CardDetailCarouselCardUI({
                         >
                           {translationDisplayText}
                         </Text>
-                      </Animated.View>
+                      </Reanimated.View>
                       {shouldOfferFullContent ? (
                         <Pressable
                           style={({ pressed }) => [
@@ -1701,13 +1703,10 @@ function CardDetailCarouselCardUI({
                           </Text>
                         </View>
                       ) : null}
-                      <Animated.View
+                      <Reanimated.View
                         style={
                           isCulturalBackgroundCompacted
-                            ? {
-                                height: contextBodyHeightAnim,
-                                overflow: 'hidden',
-                              }
+                            ? contextBodyStyle
                             : undefined
                         }
                       >
@@ -1726,7 +1725,7 @@ function CardDetailCarouselCardUI({
                           {culturalBackgroundText ||
                             tUI(uiLanguage, 'cardDetail.noContext')}
                         </Text>
-                      </Animated.View>
+                      </Reanimated.View>
                       {isCulturalBackgroundCompacted ? (
                         <Pressable
                           style={({ pressed }) => [
@@ -2145,16 +2144,11 @@ function CardDetailCarouselCardUI({
                             >
                               {renderExampleRows()}
                             </View>
-                            <Animated.View
-                              style={{
-                                height: examplesBodyHeightAnim,
-                                overflow: 'hidden',
-                              }}
-                            >
+                            <Reanimated.View style={examplesBodyStyle}>
                               <View onLayout={handleFullExamplesLayout}>
                                 {renderExampleRows()}
                               </View>
-                            </Animated.View>
+                            </Reanimated.View>
                             {shouldOfferFullExamples ? (
                               <Pressable
                                 style={({ pressed }) => [
