@@ -1,4 +1,4 @@
-export type PronunciationPlanType = 'free' | 'trial' | 'premium';
+export type PronunciationPlanType = 'free' | 'trial' | 'lite' | 'premium';
 
 /**
  * Pronunciation usage is metered by the server across Coach and Quiz.

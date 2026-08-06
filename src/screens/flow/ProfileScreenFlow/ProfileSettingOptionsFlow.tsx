@@ -80,6 +80,7 @@ import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   getRevenueCatOfferingSummary,
   isRevenueCatConfigured,
+  PurchaseCancelledError,
   type RevenueCatPackageSummary,
 } from '@services/subscription/revenueCat';
 import SubscriptionService from '@services/subscription/SubscriptionService';
@@ -109,6 +110,7 @@ type Props = {
       kind?: SettingOptionKind;
       returnTo?: MembershipReturnTarget;
       source?: MembershipPaywallSource;
+      tier?: 'lite' | 'pro';
     };
   };
 };
@@ -394,11 +396,15 @@ function MembershipPlanOption({
   price,
   selected,
   onPress,
+  isYearly,
+  badgeLabel,
 }: {
   title: string;
   price: string;
   selected: boolean;
   onPress: () => void;
+  isYearly?: boolean;
+  badgeLabel?: string;
 }) {
   const selectedProgress = React.useRef(
     new Animated.Value(selected ? 1 : 0)
@@ -472,6 +478,13 @@ function MembershipPlanOption({
       onPressOut={() => animatePress(0)}
     >
       <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
+        {isYearly && badgeLabel ? (
+          <View style={styles.membershipPlanBadge}>
+            <Text style={styles.membershipPlanBadgeText} numberOfLines={1}>
+              {badgeLabel}
+            </Text>
+          </View>
+        ) : null}
         <Animated.Text
           style={[styles.membershipPlanTitle, animatedTextStyle]}
           numberOfLines={1}
@@ -500,6 +513,7 @@ export default function ProfileSettingOptionsFlow({
   const kind = requestedKind === 'main' ? 'theme' : requestedKind;
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const membershipSource = route.params?.source ?? 'settings';
+  const requestedMembershipTier = route.params?.tier;
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -556,11 +570,20 @@ export default function ProfileSettingOptionsFlow({
   const [membershipPackages, setMembershipPackages] = React.useState<
     RevenueCatPackageSummary[]
   >([]);
+  const [litePackages, setLitePackages] = React.useState<
+    RevenueCatPackageSummary[]
+  >([]);
+  const [proPackages, setProPackages] = React.useState<
+    RevenueCatPackageSummary[]
+  >([]);
+  const [membershipTier, setMembershipTier] = React.useState<'lite' | 'pro'>(
+    requestedMembershipTier ?? 'pro'
+  );
   const [membershipPlan, setMembershipPlan] =
     React.useState<MembershipBillingPlan>('monthly');
   const [savingMembership, setSavingMembership] = React.useState(false);
   const [membershipStatus, setMembershipStatus] = React.useState<
-    'trial' | 'free' | 'premium'
+    'trial' | 'free' | 'lite' | 'premium'
   >('free');
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
     React.useState(false);
@@ -645,6 +668,8 @@ export default function ProfileSettingOptionsFlow({
           if (!cancelled) {
             setMembershipPriceLabel(summary.priceLabel);
             setMembershipPackages(summary.packages);
+            setLitePackages(summary.litePackages);
+            setProPackages(summary.proPackages);
             setMembershipPlan(
               summary.packageId || summary.packages[0]?.identifier || 'monthly'
             );
@@ -1037,6 +1062,10 @@ export default function ProfileSettingOptionsFlow({
         tUI(settings.uiLanguage, 'settings.membership.purchasePendingSyncBody')
       );
     } catch (error) {
+      if (error instanceof PurchaseCancelledError) {
+        // 使用者主動取消購買：靜默處理，不顯示錯誤、不追蹤失敗。
+        return;
+      }
       console.error('[ProfileSettingOptions] purchase premium failed:', error);
       analytics.track('subscription_failed', { reason: 'purchase_failed' });
       Alert.alert(
@@ -1770,18 +1799,52 @@ export default function ProfileSettingOptionsFlow({
   );
 
   if (kind === 'membership') {
-    const featureItems = [
-      tUI(settings.uiLanguage, 'settings.membership.feature.aiCards'),
-      tUI(settings.uiLanguage, 'settings.membership.feature.voiceCache'),
-      tUI(settings.uiLanguage, 'settings.membership.feature.pronunciation'),
-    ];
+    const tierPackages =
+      membershipTier === 'lite' ? litePackages : proPackages;
+    const featureItems =
+      membershipTier === 'lite'
+        ? [
+            tUI(settings.uiLanguage, 'settings.membership.feature.lite.aiCards'),
+            tUI(
+              settings.uiLanguage,
+              'settings.membership.feature.lite.voiceCache'
+            ),
+            tUI(settings.uiLanguage, 'settings.membership.feature.lite.review'),
+          ]
+        : [
+            tUI(settings.uiLanguage, 'settings.membership.feature.pro.aiCards'),
+            tUI(
+              settings.uiLanguage,
+              'settings.membership.feature.pro.voiceCache'
+            ),
+            tUI(settings.uiLanguage, 'settings.membership.feature.pro.speed'),
+          ];
+    const periodRank = (
+      period: 'weekly' | 'monthly' | 'yearly' | null
+    ): number =>
+      period === 'weekly'
+        ? 0
+        : period === 'monthly'
+          ? 1
+          : period === 'yearly'
+            ? 2
+            : 3;
+    const sortedTierPackages = [...tierPackages].sort((a, b) => {
+      const periodOf = (item: RevenueCatPackageSummary) =>
+        resolveMembershipPeriodLabel(item.packageType) ||
+        resolveMembershipPeriodLabel(item.identifier) ||
+        resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
+        resolveMembershipPeriodLabel(item.title);
+      return periodRank(periodOf(a)) - periodRank(periodOf(b));
+    });
     const planItems: Array<{
       key: MembershipBillingPlan;
       title: string;
       price: string;
+      isYearly: boolean;
     }> =
-      membershipPackages.length > 0
-        ? membershipPackages.map((item) => ({
+      sortedTierPackages.length > 0
+        ? sortedTierPackages.map((item) => ({
             key: item.identifier,
             title: resolveMembershipPlanTitle(item, settings.uiLanguage),
             price: resolveMembershipPriceLabel(
@@ -1789,6 +1852,12 @@ export default function ProfileSettingOptionsFlow({
               membershipPriceLabel,
               settings.uiLanguage
             ),
+            isYearly:
+              resolveMembershipPeriodLabel(item.packageType) === 'yearly' ||
+              resolveMembershipPeriodLabel(item.identifier) === 'yearly' ||
+              resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
+                'yearly' ||
+              resolveMembershipPeriodLabel(item.title) === 'yearly',
           }))
         : [
             {
@@ -1797,8 +1866,19 @@ export default function ProfileSettingOptionsFlow({
               price:
                 membershipPriceLabel ||
                 tUI(settings.uiLanguage, 'common.premium'),
+              isYearly: false,
             },
           ];
+    const tierOptions: Array<{ key: 'lite' | 'pro'; label: string }> = [
+      {
+        key: 'lite',
+        label: tUI(settings.uiLanguage, 'settings.membership.tier.lite'),
+      },
+      {
+        key: 'pro',
+        label: tUI(settings.uiLanguage, 'settings.membership.tier.pro'),
+      },
+    ];
 
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
@@ -1881,9 +1961,42 @@ export default function ProfileSettingOptionsFlow({
                 <View style={styles.membershipBrandLine}>
                   <Text style={styles.membershipBrandName}>Nuances</Text>
                   <View style={styles.membershipProChip}>
-                    <Text style={styles.membershipProChipText}>PRO</Text>
+                    <Text style={styles.membershipProChipText}>
+                      {membershipTier === 'lite' ? 'LITE' : 'PRO'}
+                    </Text>
                   </View>
                 </View>
+              </View>
+
+              <View style={styles.membershipTierSelector}>
+                {tierOptions.map((option) => {
+                  const active = membershipTier === option.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      style={({ pressed }) => [
+                        styles.membershipTierOption,
+                        active ? styles.membershipTierOptionActive : null,
+                        pressed ? styles.pressed : null,
+                      ]}
+                      onPress={() => setMembershipTier(option.key)}
+                    >
+                      <Text
+                        style={[
+                          styles.membershipTierOptionText,
+                          active
+                            ? styles.membershipTierOptionTextActive
+                            : null,
+                        ]}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.7}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <View style={styles.membershipFeatureList}>
@@ -1917,6 +2030,15 @@ export default function ProfileSettingOptionsFlow({
                       price={plan.price}
                       selected={selected}
                       onPress={() => setMembershipPlan(plan.key)}
+                      isYearly={plan.isYearly}
+                      badgeLabel={
+                        plan.isYearly
+                          ? tUI(
+                              settings.uiLanguage,
+                              'settings.membership.badge.save'
+                            )
+                          : undefined
+                      }
                     />
                   );
                 })}
@@ -3139,6 +3261,53 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '900',
     letterSpacing: 0.8,
+  },
+  membershipTierSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 18,
+    marginBottom: 14,
+  },
+  membershipTierOption: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipTierOptionActive: {
+    borderColor: MODAL_CTA_COLOR,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  membershipTierOptionText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  membershipTierOptionTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  membershipPlanBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: MODAL_CTA_COLOR,
+    borderRadius: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    zIndex: 2,
+  },
+  membershipPlanBadgeText: {
+    color: TEXT_ON_CTA,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
   },
   membershipFeatureList: {
     gap: 9,

@@ -41,7 +41,10 @@ import {
   generateContentForWordStream,
   generateDefaultExperienceCardContent,
 } from '@services/ai';
-import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
+import {
+  isLiteQuotaExceededError,
+  isPremiumFeatureError,
+} from '@services/ai/edgeAiClient';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
 import SubscriptionService, {
@@ -1477,13 +1480,17 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     [sourceTokens, uiLanguage]
   );
 
-  const openMembershipPaywall = React.useCallback(() => {
-    traceFirstRun('paywall', 'create_card_limit_reached');
-    tabSwipeContext?.openMembershipPaywall({
-      returnTo: 'create-card',
-      source: 'create_card',
-    });
-  }, [tabSwipeContext]);
+  const openMembershipPaywall = React.useCallback(
+    (tier?: 'lite' | 'pro') => {
+      traceFirstRun('paywall', 'create_card_limit_reached');
+      tabSwipeContext?.openMembershipPaywall({
+        returnTo: 'create-card',
+        source: 'create_card',
+        tier,
+      });
+    },
+    [tabSwipeContext]
+  );
 
   const processWord = React.useCallback(
     async (target: SelectedSourceTarget) => {
@@ -1793,7 +1800,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               tourStep: appTour.step,
             })
           ) {
-            openMembershipPaywall();
+            if (
+              isLiteQuotaExceededError(error, entitlementSnapshot?.planType)
+            ) {
+              openMembershipPaywall('pro');
+            } else {
+              openMembershipPaywall();
+            }
           }
           return { status: 'blocked' as const };
         }

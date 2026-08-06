@@ -243,6 +243,18 @@ export type UIStringKey =
   | 'settings.membership.feature.aiCards'
   | 'settings.membership.feature.voiceCache'
   | 'settings.membership.feature.pronunciation'
+  | 'settings.membership.tier.lite'
+  | 'settings.membership.tier.pro'
+  | 'settings.membership.feature.lite.aiCards'
+  | 'settings.membership.feature.lite.voiceCache'
+  | 'settings.membership.feature.lite.review'
+  | 'settings.membership.feature.pro.aiCards'
+  | 'settings.membership.feature.pro.voiceCache'
+  | 'settings.membership.feature.pro.speed'
+  | 'settings.membership.badge.save'
+  | 'settings.membership.upsell.title'
+  | 'settings.membership.upsell.body'
+  | 'settings.membership.upsell.cta'
   | 'settings.membership.fairUseSummary'
   | 'settings.membership.fairUseFooter'
   | 'settings.membership.trialReminder'
@@ -686,6 +698,18 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.aiCards': 'AI card generation',
     'settings.membership.feature.voiceCache': 'Premium voice cache',
     'settings.membership.feature.pronunciation': 'Pronunciation scoring',
+    'settings.membership.tier.lite': 'Nuances LITE',
+    'settings.membership.tier.pro': 'Nuances PRO',
+    'settings.membership.feature.lite.aiCards': 'AI card generation (200 cards / month)',
+    'settings.membership.feature.lite.voiceCache': 'Regular learning with basic voice cache',
+    'settings.membership.feature.lite.review': 'Full review & memory algorithm',
+    'settings.membership.feature.pro.aiCards': 'High-volume AI card generation (800 cards / month)',
+    'settings.membership.feature.pro.voiceCache': 'Advanced pronunciation scoring & voice cache',
+    'settings.membership.feature.pro.speed': 'Priority AI speed & full access',
+    'settings.membership.badge.save': 'Save 35% · Best value',
+    'settings.membership.upsell.title': 'You hit your LITE limit',
+    'settings.membership.upsell.body': 'Upgrade to PRO for 4× more AI cards, advanced pronunciation, and priority speed.',
+    'settings.membership.upsell.cta': 'Upgrade to PRO',
     'settings.membership.fairUseSummary':
       'Fair-use access to AI, voice, and pronunciation.',
     'settings.membership.fairUseFooter':
@@ -1136,6 +1160,18 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.aiCards': 'AI 建卡',
     'settings.membership.feature.voiceCache': '進階語音快取',
     'settings.membership.feature.pronunciation': '發音評分',
+    'settings.membership.tier.lite': 'Nuances LITE',
+    'settings.membership.tier.pro': 'Nuances PRO',
+    'settings.membership.feature.lite.aiCards': 'AI 建卡額度（每月 200 張）',
+    'settings.membership.feature.lite.voiceCache': '規律學習與基礎語音快取',
+    'settings.membership.feature.lite.review': '完整複習記憶演算法',
+    'settings.membership.feature.pro.aiCards': '高用量衝刺 AI 建卡額度（每月 800 張）',
+    'settings.membership.feature.pro.voiceCache': '進階發音評分與語音快取',
+    'settings.membership.feature.pro.speed': '優先 AI 產生速度與完整權限',
+    'settings.membership.badge.save': '省 35% · 最划算',
+    'settings.membership.upsell.title': '你已用盡 LITE 額度',
+    'settings.membership.upsell.body': '升級 PRO 可享有 4 倍 AI 建卡額度、進階發音評分與優先產生速度。',
+    'settings.membership.upsell.cta': '升級進階 PRO',
     'settings.membership.fairUseSummary':
       'AI、語音與發音功能適用合理使用額度。',
     'settings.membership.fairUseFooter': 'AI、語音與發音功能適用合理使用限制。',
@@ -1568,6 +1604,18 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.aiCards': 'AI 建卡',
     'settings.membership.feature.voiceCache': '进阶语音快取',
     'settings.membership.feature.pronunciation': '发音评分',
+    'settings.membership.tier.lite': 'Nuances LITE',
+    'settings.membership.tier.pro': 'Nuances PRO',
+    'settings.membership.feature.lite.aiCards': 'AI 建卡额度（每月 200 张）',
+    'settings.membership.feature.lite.voiceCache': '规律学习与基础语音快取',
+    'settings.membership.feature.lite.review': '完整复习记忆算法',
+    'settings.membership.feature.pro.aiCards': '高用量冲刺 AI 建卡额度（每月 800 张）',
+    'settings.membership.feature.pro.voiceCache': '进阶发音评分与语音快取',
+    'settings.membership.feature.pro.speed': '优先 AI 产生速度与完整权限',
+    'settings.membership.badge.save': '省 35% · 最划算',
+    'settings.membership.upsell.title': '你已用尽 LITE 额度',
+    'settings.membership.upsell.body': '升级 PRO 可享有 4 倍 AI 建卡额度、进阶发音评分与优先产生速度。',
+    'settings.membership.upsell.cta': '升级进阶 PRO',
     'settings.membership.fairUseSummary':
       'AI、语音与发音功能适用合理使用额度。',
     'settings.membership.fairUseFooter': 'AI、语音与发音功能适用合理使用限制。',

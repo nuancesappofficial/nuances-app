@@ -432,6 +432,7 @@ export default function RootNavigator({
   const openMembershipPaywall = React.useCallback((options?: {
     returnTo?: 'settings' | 'create-card';
     source?: 'settings' | 'create_card' | 'review' | 'unknown';
+    tier?: 'lite' | 'pro';
   }) => {
     if (SubscriptionService.isPremiumBypassEnabled()) {
       traceFirstRun('paywall', 'suppressed_by_dev_bypass', {
@@ -464,6 +465,7 @@ export default function RootNavigator({
         kind: 'membership',
         returnTo: options?.returnTo ?? 'settings',
         source: options?.source ?? 'unknown',
+        tier: options?.tier,
       });
       traceFirstRun('paywall', 'screen_navigated', {
         source: options?.source ?? 'unknown',

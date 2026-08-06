@@ -39,6 +39,10 @@ export type RevenueCatOfferingSummary = {
   packageId: string | null;
   offeringIdentifier: string | null;
   packages: RevenueCatPackageSummary[];
+  /** Lite 軌的產品包（identifier / packageType 含 'lite' 關鍵字）。 */
+  litePackages: RevenueCatPackageSummary[];
+  /** Pro 軌的產品包（其餘非 lite 的產品包）。 */
+  proPackages: RevenueCatPackageSummary[];
 };
 
 export type RevenueCatPackageSummary = {
@@ -96,6 +100,16 @@ function getActiveEntitlement(info: CustomerInfo | null | undefined) {
   if (!info) return null;
   const active = info.entitlements?.active || {};
   return active[REVENUECAT_ENTITLEMENT_ID] || null;
+}
+
+function getActiveProductId(info: CustomerInfo | null | undefined): string | null {
+  const entitlement = getActiveEntitlement(info) as Record<string, unknown> | null;
+  const productId =
+    entitlement?.productIdentifier ??
+    entitlement?.product_identifier ??
+    entitlement?.productId ??
+    null;
+  return typeof productId === 'string' && productId.trim() ? productId : null;
 }
 
 function getEntitlementPeriodType(info: CustomerInfo | null | undefined): string {
@@ -246,6 +260,23 @@ function summarizePackage(
   };
 }
 
+function isLitePackage(item: RevenueCatPackageSummary): boolean {
+  const haystack = `${item.identifier} ${item.packageType} ${item.productIdentifier}`.toLowerCase();
+  return haystack.includes('lite');
+}
+
+function splitPackagesByTier(
+  packages: RevenueCatPackageSummary[]
+): { litePackages: RevenueCatPackageSummary[]; proPackages: RevenueCatPackageSummary[] } {
+  const litePackages: RevenueCatPackageSummary[] = [];
+  const proPackages: RevenueCatPackageSummary[] = [];
+  for (const item of packages) {
+    if (isLitePackage(item)) litePackages.push(item);
+    else proPackages.push(item);
+  }
+  return { litePackages, proPackages };
+}
+
 export function isRevenueCatConfigured(): boolean {
   return Boolean(getRevenueCatApiKey());
 }
@@ -265,7 +296,9 @@ export function hasRevenueCatPremium(info: CustomerInfo | null | undefined): boo
 export function getRevenueCatPlanType(info: CustomerInfo | null | undefined): PlanType {
   if (!hasRevenueCatPremium(info)) return 'free';
   const periodType = getEntitlementPeriodType(info);
-  return periodType.includes('trial') || periodType.includes('intro') ? 'trial' : 'premium';
+  if (periodType.includes('trial') || periodType.includes('intro')) return 'trial';
+  const productId = getActiveProductId(info);
+  return productId && productId.toLowerCase().includes('lite') ? 'lite' : 'premium';
 }
 
 export function getRevenueCatExpiration(info: CustomerInfo | null | undefined): string | null {
@@ -299,6 +332,8 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
       packageId: null,
       offeringIdentifier: null,
       packages: [],
+      litePackages: [],
+      proPackages: [],
     };
   }
 
@@ -332,11 +367,14 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
     const packages = availablePackages.map((item) =>
       summarizePackage(item, freeTrialEligibility)
     );
+    const { litePackages, proPackages } = splitPackagesByTier(packages);
     return {
       priceLabel: chosen?.product.priceString || null,
       packageId: chosen?.identifier || null,
       offeringIdentifier: offerings.current?.identifier || null,
       packages,
+      litePackages,
+      proPackages,
     };
   } catch (error) {
     if (isRevenueCatInvalidApiKeyError(error)) {
@@ -346,6 +384,8 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
         packageId: null,
         offeringIdentifier: null,
         packages: [],
+        litePackages: [],
+        proPackages: [],
       };
     }
     console.warn('[RevenueCat] getOfferings failed:', error);
@@ -354,8 +394,27 @@ export async function getRevenueCatOfferingSummary(appUserId?: string | null): P
       packageId: null,
       offeringIdentifier: null,
       packages: [],
+      litePackages: [],
+      proPackages: [],
     };
   }
+}
+
+/** 使用者主動取消購買流程時拋出，上層應靜默處理（不顯示「購買失敗」）。 */
+export class PurchaseCancelledError extends Error {
+  constructor(message = 'Purchase cancelled by user') {
+    super(message);
+    this.name = 'PurchaseCancelledError';
+  }
+}
+
+function isUserCancelledError(error: unknown): boolean {
+  if (error instanceof PurchaseCancelledError) return true;
+  const candidate = error as { userCancelled?: unknown; code?: unknown } | null;
+  if (candidate?.userCancelled === true) return true;
+  const code = String(candidate?.code ?? '');
+  // RevenueCat 取消購買的錯誤碼（iOS / Android 通用）。
+  return code === '1' || code === 'USER_CANCELLED' || code === 'PurchaseCancelledError';
 }
 
 export async function purchaseRevenueCatPremium(
@@ -376,8 +435,15 @@ export async function purchaseRevenueCatPremium(
     throw new Error('目前找不到可購買的 Premium 方案，請確認 RevenueCat Offering 設定。');
   }
 
-  const result = await Purchases.purchasePackage(chosen);
-  return result.customerInfo;
+  try {
+    const result = await Purchases.purchasePackage(chosen);
+    return result.customerInfo;
+  } catch (error) {
+    if (isUserCancelledError(error)) {
+      throw new PurchaseCancelledError();
+    }
+    throw error;
+  }
 }
 
 export async function restoreRevenueCatPurchases(appUserId?: string | null): Promise<CustomerInfo> {

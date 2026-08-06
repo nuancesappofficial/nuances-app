@@ -8,8 +8,8 @@ import { setAppGroupUILanguage } from '../../native/SharedDefaultsModule';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 
 export type ClipboardMode = 'active' | 'passive';
-export type EntitlementMode = 'trial' | 'free' | 'premium' | 'guest';
-export type PlanType = 'trial' | 'free' | 'premium';
+export type EntitlementMode = 'trial' | 'free' | 'lite' | 'premium' | 'guest';
+export type PlanType = 'trial' | 'free' | 'lite' | 'premium';
 export type AIReplyLanguage =
   | 'zh-TW'
   | 'zh-CN'
@@ -188,7 +188,13 @@ export function createMainScreenEmptyAlbumSlot(): string {
 export function normalizeEntitlementMode(
   mode: EntitlementMode | PlanType | null | undefined
 ): PlanType {
-  if (mode === 'premium' || mode === 'trial' || mode === 'free') return mode;
+  if (
+    mode === 'premium' ||
+    mode === 'trial' ||
+    mode === 'lite' ||
+    mode === 'free'
+  )
+    return mode;
   return 'free';
 }
 

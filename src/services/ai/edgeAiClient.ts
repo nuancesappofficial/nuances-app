@@ -1,5 +1,6 @@
 import { supabase } from '@services/supabase/client';
 import SubscriptionService from '@services/subscription/SubscriptionService';
+import type { PlanType } from '@services/settings/userSettings';
 
 type AIProvider = 'openai' | 'gemini';
 type AIFeatureAction =
@@ -74,6 +75,30 @@ export function isPremiumFeatureError(error: unknown): boolean {
     lower.includes('premium or active trial required') ||
     lower.includes('"paywalltype"') ||
     lower.includes('需要試用版或 premium')
+  );
+}
+
+/**
+ * 判斷是否為「Lite 用量封頂」錯誤，僅在當前用戶為 lite 且 API 回傳用量封頂
+ * （403 / Quota Exceeded / ai_generation quota）時回傳 true。
+ * 此判定與 isPremiumFeatureError 完全獨立，不會影響免費使用者的 paywall 分流。
+ */
+export function isLiteQuotaExceededError(
+  error: unknown,
+  currentPlanType: PlanType | string | null | undefined
+): boolean {
+  if (currentPlanType !== 'lite') return false;
+  const message = error instanceof Error ? error.message : String(error || '');
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('403') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('quota_exceeded') ||
+    lower.includes('ai_generation_month_quota_exceeded') ||
+    lower.includes('ai_generation_week_quota_exceeded') ||
+    lower.includes('ai_generation_daily_quota_exceeded') ||
+    lower.includes('ai card generation limit') ||
+    lower.includes('ai card generation fair-use limit')
   );
 }
 

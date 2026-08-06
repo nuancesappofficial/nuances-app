@@ -21,6 +21,7 @@ export type TabSwipeContextValue = {
   openMembershipPaywall: (options?: {
     returnTo?: MembershipReturnTarget;
     source?: MembershipPaywallSource;
+    tier?: 'lite' | 'pro';
   }) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
