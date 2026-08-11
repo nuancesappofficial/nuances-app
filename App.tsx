@@ -101,6 +101,7 @@ import {
   clearLocalAccountCaches,
 } from './src/services/account/AccountDeletionService';
 import { setActiveDevFreshUserId } from './src/features/auth/devFreshUserSimulatorCore';
+import { isDevTestAccountEntryEnabled } from './src/features/auth/devEntryPolicy';
 import { VIDEO_TOUR_ENABLED } from './src/features/tour/tourMode';
 import {
   advanceFirstRunJourney,
@@ -514,7 +515,7 @@ function AuthGate({
 
         <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }, authTitleAnimatedStyle]}>
           <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
-          {(__DEV__ || INTERNAL_TESTER_TOOLS_ENABLED) && onPressTestAccount ? (
+          {isDevTestAccountEntryEnabled() && onPressTestAccount ? (
             <LightPressable
               style={[styles.devTestAccountButton, loading && styles.googleButtonDisabled]}
               onPress={onPressTestAccount}
