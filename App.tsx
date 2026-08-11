@@ -969,11 +969,8 @@ export default function App() {
           hasUser: Boolean(session?.user?.id),
         },
       });
-      const transitionId = authTransitionIdRef.current + 1;
-      authTransitionIdRef.current = transitionId;
-      const isStaleTransition = () => authTransitionIdRef.current !== transitionId;
-
       if (!session?.access_token) {
+        authTransitionIdRef.current += 1;
         // Hide the previous account immediately. Cleanup may touch many local
         // rows/files and must not leave the old navigator interactive.
         setAllowOfflineAccess(false);
@@ -1017,6 +1014,9 @@ export default function App() {
       ) {
         return;
       }
+      const transitionId = authTransitionIdRef.current + 1;
+      authTransitionIdRef.current = transitionId;
+      const isStaleTransition = () => authTransitionIdRef.current !== transitionId;
       const isAccountSwitch = Boolean(
         activeUserIdRef.current && activeUserIdRef.current !== incomingUserId
       );
