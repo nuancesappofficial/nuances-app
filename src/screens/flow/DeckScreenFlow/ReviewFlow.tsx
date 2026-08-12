@@ -44,7 +44,10 @@ import AnimatedGlowPressable from '../../../components/UI/shared/AnimatedGlowPre
 import PronunciationPhonemeSectionUI from '../../../components/UI/DeckScreenUI/PronunciationPhonemeSectionUI';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
-import { calculateKeyboardLift } from '../../../features/deck/reviewKeyboardLift';
+import {
+  calculateKeyboardLift,
+  getReviewKeyboardEvents,
+} from '../../../features/deck/reviewKeyboardLift';
 import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
@@ -1606,8 +1609,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
   );
   const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
   const spellingInputRefs = React.useRef<Map<string, TextInput | null>>(new Map());
+  const spellingPanelLayoutRefs = React.useRef<Map<string, View | null>>(new Map());
   const spellingKeyboardLift = React.useRef(new Animated.Value(0)).current;
-  const spellingKeyboardLiftValueRef = React.useRef(0);
   const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
   const celebrationValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
   const pronunciationRecordingRef = React.useRef<any | null>(null);
@@ -1921,7 +1924,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
     let active = true;
 
     const animateLift = (toValue: number, duration = 180) => {
-      spellingKeyboardLiftValueRef.current = toValue;
       Animated.timing(spellingKeyboardLift, {
         toValue,
         duration: Math.max(120, duration),
@@ -1940,13 +1942,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
       requestAnimationFrame(() => {
         if (!active) return;
-        const input = spellingInputRefs.current.get(activeSpellingQuestionId);
-        input?.measureInWindow((_x, y, _width, height) => {
+        const panel = spellingPanelLayoutRefs.current.get(activeSpellingQuestionId);
+        panel?.measureInWindow((_x, y, _width, height) => {
           if (!active) return;
-          const inputBottomWithoutLift =
-            y + height + spellingKeyboardLiftValueRef.current;
+          const groupBottom = y + height;
           const nextLift = calculateKeyboardLift({
-            inputBottom: inputBottomWithoutLift,
+            groupBottom,
             keyboardTop,
             gap: SPELLING_KEYBOARD_GAP,
           });
@@ -1956,16 +1957,13 @@ export default function ReviewFlow({ navigation, route }: Props) {
     };
 
     const resetLift = (event: KeyboardEvent) => animateLift(0, event.duration);
-    const subscriptions = Platform.OS === 'ios'
-      ? [
-          Keyboard.addListener('keyboardWillShow', updateLift),
-          Keyboard.addListener('keyboardDidShow', updateLift),
-          Keyboard.addListener('keyboardWillHide', resetLift),
-        ]
-      : [
-          Keyboard.addListener('keyboardDidShow', updateLift),
-          Keyboard.addListener('keyboardDidHide', resetLift),
-        ];
+    const keyboardEvents = getReviewKeyboardEvents(
+      Platform.OS === 'ios' ? 'ios' : 'android'
+    );
+    const subscriptions = [
+      Keyboard.addListener(keyboardEvents.show, updateLift),
+      Keyboard.addListener(keyboardEvents.hide, resetLift),
+    ];
 
     return () => {
       active = false;
@@ -2943,12 +2941,19 @@ export default function ReviewFlow({ navigation, route }: Props) {
             )}
 
             {isSpellingQuestion ? (
-              <Animated.View
-                style={[
-                  styles.spellingPanel,
-                  { transform: [{ translateY: Animated.multiply(spellingKeyboardLift, -1) }] },
-                ]}
+              <View
+                ref={(panel) => {
+                  spellingPanelLayoutRefs.current.set(question.id, panel);
+                }}
+                collapsable={false}
+                style={styles.spellingPanelLayout}
               >
+                <Animated.View
+                  style={[
+                    styles.spellingPanel,
+                    { transform: [{ translateY: Animated.multiply(spellingKeyboardLift, -1) }] },
+                  ]}
+                >
                 <AnimatedGlowPressable
                   accessibilityRole="button"
                   accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
@@ -3026,7 +3031,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
                     {tUI(uiLanguage, 'review.submitSpelling')}
                   </Text>
                 </Pressable>
-              </Animated.View>
+                </Animated.View>
+              </View>
             ) : isPronunciationQuestion ? (
               <View style={styles.pronunciationQuizPanel}>
                 <AnimatedGlowPressable
@@ -3818,9 +3824,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 19,
   },
+  spellingPanelLayout: {
+    marginTop: 'auto',
+  },
   spellingPanel: {
     gap: 12,
-    marginTop: 'auto',
   },
   spellingPronunciationButton: {
     alignSelf: 'center',
