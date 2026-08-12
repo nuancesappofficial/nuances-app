@@ -5,7 +5,8 @@ import {
   AppState,
   DeviceEventEmitter,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
+  type KeyboardEvent,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -43,6 +44,7 @@ import AnimatedGlowPressable from '../../../components/UI/shared/AnimatedGlowPre
 import PronunciationPhonemeSectionUI from '../../../components/UI/DeckScreenUI/PronunciationPhonemeSectionUI';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { calculateKeyboardLift } from '../../../features/deck/reviewKeyboardLift';
 import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
@@ -168,6 +170,7 @@ const AUDIO_SESSION_ACTIVE_TIMEOUT_MS = 8000;
 const AUDIO_SESSION_ACTIVE_SETTLE_MS = 180;
 const REVIEW_SESSION_BUILD_TIMEOUT_MS = 8000;
 const CLOZE_BLANK = '＿＿＿＿＿';
+const SPELLING_KEYBOARD_GAP = 12;
 const DEFAULT_EXPERIENCE_IPA_PHONEMES = ['n', 'u', 'ɑ', 'n', 's', 'ɪ', 'z'];
 const DEFAULT_EXPERIENCE_MOCK_PRONUNCIATION_SCORE = 92;
 const DEFAULT_EXPERIENCE_MOCK_PHONEMES: CloudPhonemeFeedback[] = [
@@ -1603,6 +1606,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
   );
   const listRef = React.useRef<FlatList<ReviewSlide> | null>(null);
   const spellingInputRefs = React.useRef<Map<string, TextInput | null>>(new Map());
+  const spellingKeyboardLift = React.useRef(new Animated.Value(0)).current;
+  const spellingKeyboardLiftValueRef = React.useRef(0);
   const flipValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
   const celebrationValuesRef = React.useRef<Map<string, Animated.Value>>(new Map());
   const pronunciationRecordingRef = React.useRef<any | null>(null);
@@ -1903,6 +1908,70 @@ export default function ReviewFlow({ navigation, route }: Props) {
     () => [...questions.map((question) => ({ id: question.id, type: 'question', question }) as const), { id: 'summary', type: 'summary' }],
     [questions]
   );
+
+  const activeSpellingQuestionId = React.useMemo(() => {
+    const activeSlide = slides[currentIndex];
+    if (activeSlide?.type !== 'question') return null;
+    if (activeSlide.question.questionType !== 'spelling') return null;
+    if (selectedAnswers[activeSlide.question.id]) return null;
+    return activeSlide.question.id;
+  }, [currentIndex, selectedAnswers, slides]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const animateLift = (toValue: number, duration = 180) => {
+      spellingKeyboardLiftValueRef.current = toValue;
+      Animated.timing(spellingKeyboardLift, {
+        toValue,
+        duration: Math.max(120, duration),
+        useNativeDriver: true,
+      }).start();
+    };
+
+    if (!activeSpellingQuestionId) {
+      animateLift(0);
+      return;
+    }
+
+    const updateLift = (event: KeyboardEvent) => {
+      const keyboardTop = event.endCoordinates?.screenY;
+      if (!Number.isFinite(keyboardTop)) return;
+
+      requestAnimationFrame(() => {
+        if (!active) return;
+        const input = spellingInputRefs.current.get(activeSpellingQuestionId);
+        input?.measureInWindow((_x, y, _width, height) => {
+          if (!active) return;
+          const inputBottomWithoutLift =
+            y + height + spellingKeyboardLiftValueRef.current;
+          const nextLift = calculateKeyboardLift({
+            inputBottom: inputBottomWithoutLift,
+            keyboardTop,
+            gap: SPELLING_KEYBOARD_GAP,
+          });
+          animateLift(nextLift, event.duration);
+        });
+      });
+    };
+
+    const resetLift = (event: KeyboardEvent) => animateLift(0, event.duration);
+    const subscriptions = Platform.OS === 'ios'
+      ? [
+          Keyboard.addListener('keyboardWillShow', updateLift),
+          Keyboard.addListener('keyboardDidShow', updateLift),
+          Keyboard.addListener('keyboardWillHide', resetLift),
+        ]
+      : [
+          Keyboard.addListener('keyboardDidShow', updateLift),
+          Keyboard.addListener('keyboardDidHide', resetLift),
+        ];
+
+    return () => {
+      active = false;
+      subscriptions.forEach((subscription) => subscription.remove());
+    };
+  }, [activeSpellingQuestionId, spellingKeyboardLift]);
 
   React.useEffect(() => {
     const activeSlide = slides[currentIndex];
@@ -2856,12 +2925,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
               },
             ]}
           >
-            <KeyboardAvoidingView
-              style={styles.questionContentAvoider}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
-              enabled={isSpellingQuestion}
-            >
+            <View style={styles.questionContentAvoider}>
             <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>{question.prompt.toUpperCase()}</Text>
             {isFillBlankQuestion || isSpellingQuestion ? (
               <View style={styles.fillBlankSentenceBlock}>
@@ -2879,7 +2943,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
             )}
 
             {isSpellingQuestion ? (
-              <View style={styles.spellingPanel}>
+              <Animated.View
+                style={[
+                  styles.spellingPanel,
+                  { transform: [{ translateY: Animated.multiply(spellingKeyboardLift, -1) }] },
+                ]}
+              >
                 <AnimatedGlowPressable
                   accessibilityRole="button"
                   accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
@@ -2957,7 +3026,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
                     {tUI(uiLanguage, 'review.submitSpelling')}
                   </Text>
                 </Pressable>
-              </View>
+              </Animated.View>
             ) : isPronunciationQuestion ? (
               <View style={styles.pronunciationQuizPanel}>
                 <AnimatedGlowPressable
@@ -3091,7 +3160,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
               })}
             </View>
             )}
-            </KeyboardAvoidingView>
+            </View>
           </Animated.View>
 
           <Animated.View
@@ -3317,6 +3386,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
     results,
     selectedAnswers,
     spellingDrafts,
+    spellingKeyboardLift,
     togglePronunciationQuestionRecording,
     uiLanguage,
     width,
