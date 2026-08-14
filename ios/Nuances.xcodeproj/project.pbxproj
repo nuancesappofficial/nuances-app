@@ -422,9 +422,9 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/React",
-				"${PODS_ROOT}/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework/ios-arm64/ReactNativeDependencies.framework/ReactNativeDependencies",
-				"${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework/React",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework/hermes",
 			);
 			name = "Generate React Native prebuilt dSYMs";
 			outputPaths = (
@@ -434,7 +434,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [[ \"$PLATFORM_NAME\" != \"iphoneos\" ]]; then\n  exit 0\nfi\n\nif [[ -z \"$DWARF_DSYM_FOLDER_PATH\" ]]; then\n  exit 0\nfi\n\nmkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\n\ngenerate_dsym() {\n  local binary_path=\"$1\"\n  local dsym_name=\"$2\"\n  local output_path=\"$DWARF_DSYM_FOLDER_PATH/$dsym_name\"\n\n  if [[ ! -f \"$binary_path\" ]]; then\n    echo \"warning: Missing binary for dSYM generation: $binary_path\"\n    return 0\n  fi\n\n  echo \"Generating $dsym_name from $binary_path\"\n  /usr/bin/dsymutil \"$binary_path\" -o \"$output_path\" || true\n}\n\ngenerate_dsym \"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/React\" \"React.framework.dSYM\"\ngenerate_dsym \"${PODS_ROOT}/ReactNativeDependencies/framework/packages/react-native/ReactNativeDependencies.xcframework/ios-arm64/ReactNativeDependencies.framework/ReactNativeDependencies\" \"ReactNativeDependencies.framework.dSYM\"\ngenerate_dsym \"${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes\" \"hermes.framework.dSYM\"\n";
+			shellScript = "set -e\n\nif [[ \"$PLATFORM_NAME\" != \"iphoneos\" ]]; then\n  exit 0\nfi\n\nif [[ -z \"$DWARF_DSYM_FOLDER_PATH\" ]]; then\n  exit 0\nfi\n\nmkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\n\ngenerate_dsym() {\n  local binary_path=\"$1\"\n  local dsym_name=\"$2\"\n  local output_path=\"$DWARF_DSYM_FOLDER_PATH/$dsym_name\"\n\n  if [[ ! -f \"$binary_path\" ]]; then\n    echo \"error: Missing embedded binary for dSYM generation: $binary_path\"\n    return 1\n  fi\n\n  echo \"Generating $dsym_name from embedded binary $binary_path\"\n  /usr/bin/dsymutil \"$binary_path\" -o \"$output_path\"\n}\n\ngenerate_dsym \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework/React\" \"React.framework.dSYM\"\ngenerate_dsym \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework/ReactNativeDependencies\" \"ReactNativeDependencies.framework.dSYM\"\ngenerate_dsym \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework/hermes\" \"hermes.framework.dSYM\"\n";
 			showEnvVarsInLog = 0;
 		};
 		ED321F9333B5C39FBE6ADED9 /* [CP] Embed Pods Frameworks */ = {

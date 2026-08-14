@@ -26,7 +26,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useResponsiveLayout } from '../../../hooks/useResponsiveLayout';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import { analytics } from '@services/analytics';
@@ -573,10 +572,6 @@ export default function ProfileSettingOptionsFlow({
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const responsive = useResponsiveLayout();
-  const settingsPageWidth = responsive.isCompact
-    ? responsive.contentMaxWidth
-    : responsive.settingsMaxWidth;
   const palette = React.useMemo(
     () => resolveThemeColors(colorScheme),
     [colorScheme]
@@ -2023,7 +2018,7 @@ export default function ProfileSettingOptionsFlow({
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
+          <View style={styles.header}>
             <Pressable
               style={({ pressed }) => [
                 styles.backButton,
@@ -2070,7 +2065,6 @@ export default function ProfileSettingOptionsFlow({
             style={styles.mainScroll}
             contentContainerStyle={[
               styles.membershipScrollContent,
-              { width: settingsPageWidth, alignSelf: 'center' },
               { paddingBottom: Math.max(insets.bottom + 132, 156) },
             ]}
             showsVerticalScrollIndicator={false}
@@ -2293,7 +2287,7 @@ export default function ProfileSettingOptionsFlow({
     return (
       <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
+          <View style={styles.header}>
             <Pressable
               style={({ pressed }) => [
                 styles.backButton,
@@ -2318,7 +2312,7 @@ export default function ProfileSettingOptionsFlow({
 
           <ScrollView
             style={styles.mainScroll}
-            contentContainerStyle={[styles.mainScrollContent, { width: settingsPageWidth, alignSelf: 'center' }]}
+            contentContainerStyle={styles.mainScrollContent}
             scrollEnabled={!draggingAlbumId}
             showsVerticalScrollIndicator={false}
           >
@@ -2880,7 +2874,7 @@ export default function ProfileSettingOptionsFlow({
   return (
     <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
+        <View style={styles.header}>
           <Pressable
             style={({ pressed }) => [
               styles.backButton,
@@ -2902,7 +2896,7 @@ export default function ProfileSettingOptionsFlow({
         {kind === 'language' ? (
           <ScrollView
             style={styles.languageScroll}
-            contentContainerStyle={[styles.languageScrollContent, { width: settingsPageWidth, alignSelf: 'center' }]}
+            contentContainerStyle={styles.languageScrollContent}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.languageSectionHeader}>
