@@ -202,11 +202,12 @@ async function ensureConfigured(appUserId?: string | null): Promise<boolean> {
 async function getCurrentPackageFromOfferings(offerings: PurchasesOfferings): Promise<PurchasesPackage | null> {
   const current = offerings.current;
   if (!current) return null;
-  if (REVENUECAT_PACKAGE_ID) {
-    const exact = current.availablePackages.find((item) => item.identifier === REVENUECAT_PACKAGE_ID);
-    if (exact) return exact;
-  }
-  return current.availablePackages[0] || null;
+  if (!REVENUECAT_PACKAGE_ID) return null;
+  return (
+    current.availablePackages.find(
+      (item) => item.identifier === REVENUECAT_PACKAGE_ID
+    ) || null
+  );
 }
 
 function getPackageByIdentifierFromOfferings(
@@ -216,15 +217,11 @@ function getPackageByIdentifierFromOfferings(
   const current = offerings.current;
   if (!current) return null;
   const requested = packageIdentifier?.trim();
-  if (requested) {
-    const exact = current.availablePackages.find((item) => item.identifier === requested);
-    if (exact) return exact;
-  }
-  if (REVENUECAT_PACKAGE_ID) {
-    const configured = current.availablePackages.find((item) => item.identifier === REVENUECAT_PACKAGE_ID);
-    if (configured) return configured;
-  }
-  return current.availablePackages[0] || null;
+  if (!requested) return null;
+  return (
+    current.availablePackages.find((item) => item.identifier === requested) ||
+    null
+  );
 }
 
 function summarizePackage(

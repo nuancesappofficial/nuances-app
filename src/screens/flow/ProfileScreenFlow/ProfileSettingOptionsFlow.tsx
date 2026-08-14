@@ -94,6 +94,12 @@ import type {
   MembershipReturnTarget,
 } from '../../../contexts/TabSwipeContext';
 import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
+import {
+  getMembershipPackagesForTier,
+  resolveMembershipPackageIdentifier,
+  resolveMembershipPeriod,
+  selectDefaultMembershipPackage,
+} from '../../../features/subscription/membershipPackageSelection';
 
 type SettingOptionKind =
   | 'language'
@@ -341,24 +347,6 @@ function ThemeModePicker({
   );
 }
 
-function resolveMembershipPeriodLabel(
-  value?: string | null
-): 'weekly' | 'monthly' | 'yearly' | null {
-  const normalized = (value || '').toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes('p1w') || normalized.includes('week'))
-    return 'weekly';
-  if (normalized.includes('p1m') || normalized.includes('month'))
-    return 'monthly';
-  if (
-    normalized.includes('p1y') ||
-    normalized.includes('year') ||
-    normalized.includes('annual')
-  )
-    return 'yearly';
-  return null;
-}
-
 function resolveMembershipPlanPeriodLabel(
   uiLanguage: UILanguage,
   period: 'weekly' | 'monthly' | 'yearly'
@@ -375,10 +363,10 @@ function resolveMembershipPlanTitle(
   uiLanguage: UILanguage
 ): string {
   const period =
-    resolveMembershipPeriodLabel(item.packageType) ||
-    resolveMembershipPeriodLabel(item.identifier) ||
-    resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-    resolveMembershipPeriodLabel(item.title);
+    resolveMembershipPeriod(item.packageType) ||
+    resolveMembershipPeriod(item.identifier) ||
+    resolveMembershipPeriod(item.subscriptionPeriod) ||
+    resolveMembershipPeriod(item.title);
   return (
     (period ? resolveMembershipPlanPeriodLabel(uiLanguage, period) : null) ||
     tUI(uiLanguage, 'common.premium')
@@ -560,9 +548,12 @@ export default function ProfileSettingOptionsFlow({
   const kind = requestedKind === 'main' ? 'theme' : requestedKind;
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const membershipSource = route.params?.source ?? 'settings';
-  const membershipTriggerSource = route.params?.triggerSource ?? 'user_initiated';
+  const membershipTriggerSource =
+    route.params?.triggerSource ?? 'user_initiated';
   const requestedMembershipTier = route.params?.tier;
   const initialMembershipTab = route.params?.initialTab;
+  const initialMembershipTier =
+    requestedMembershipTier ?? initialMembershipTab ?? 'lite';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -617,9 +608,6 @@ export default function ProfileSettingOptionsFlow({
   const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<
     string | null
   >(null);
-  const [membershipPackages, setMembershipPackages] = React.useState<
-    RevenueCatPackageSummary[]
-  >([]);
   const [litePackages, setLitePackages] = React.useState<
     RevenueCatPackageSummary[]
   >([]);
@@ -629,17 +617,17 @@ export default function ProfileSettingOptionsFlow({
   const [membershipTier, setMembershipTier] = React.useState<'lite' | 'pro'>(
     // 雙規則通用預設值路由：
     // 規則一（95% 通用預設）→ 'lite'；規則二（額度耗盡例外）→ 由 tier / initialTab 帶入 'pro'。
-    requestedMembershipTier ?? initialMembershipTab ?? 'lite'
+    initialMembershipTier
   );
+  const membershipTierRef = React.useRef(membershipTier);
   const [membershipPlan, setMembershipPlan] =
-    React.useState<MembershipBillingPlan>('monthly');
+    React.useState<MembershipBillingPlan | null>(null);
   const [savingMembership, setSavingMembership] = React.useState(false);
   const [membershipStatus, setMembershipStatus] = React.useState<
     'trial' | 'free' | 'lite' | 'premium'
   >('free');
-  const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] = React.useState<
-    'weekly' | 'monthly' | 'yearly' | null
-  >(null);
+  const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
+    React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
     React.useState(false);
   const [premiumTransitionReady, setPremiumTransitionReady] =
@@ -714,8 +702,12 @@ export default function ProfileSettingOptionsFlow({
           }
 
           if (!isRevenueCatConfigured()) {
-            if (!cancelled) setMembershipPriceLabel(null);
-            if (!cancelled) setMembershipPackages([]);
+            if (!cancelled) {
+              setMembershipPriceLabel(null);
+              setLitePackages([]);
+              setProPackages([]);
+              setMembershipPlan(null);
+            }
             return;
           }
 
@@ -724,23 +716,15 @@ export default function ProfileSettingOptionsFlow({
             await getRevenueCatActiveSubscriptionPeriod(userId);
           if (!cancelled) {
             setMembershipPriceLabel(summary.priceLabel);
-            setMembershipPackages(summary.packages);
             setLitePackages(summary.litePackages);
             setProPackages(summary.proPackages);
             setActiveSubscriptionPeriod(activePeriod);
-            const defaultMonthlyPackage = summary.packages.find((item) => {
-              const period =
-                resolveMembershipPeriodLabel(item.packageType) ||
-                resolveMembershipPeriodLabel(item.identifier) ||
-                resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-                resolveMembershipPeriodLabel(item.title);
-              return period === 'monthly';
-            });
             setMembershipPlan(
-              defaultMonthlyPackage?.identifier ||
-                summary.packageId ||
-                summary.packages[0]?.identifier ||
-                'monthly'
+              selectDefaultMembershipPackage(
+                membershipTierRef.current,
+                summary.litePackages,
+                summary.proPackages
+              )
             );
           }
         } catch (error) {
@@ -1092,12 +1076,25 @@ export default function ProfileSettingOptionsFlow({
         );
         return;
       }
-      const packageIdentifier =
-        membershipPackages.find((item) => item.identifier === membershipPlan)
-          ?.identifier || null;
-      const purchasedPackage = membershipPackages.find(
-        (item) => item.identifier === membershipPlan
+      const tierPackages = getMembershipPackagesForTier(
+        membershipTier,
+        litePackages,
+        proPackages
       );
+      const packageIdentifier = resolveMembershipPackageIdentifier(
+        membershipTier,
+        membershipPlan,
+        litePackages,
+        proPackages
+      );
+      const purchasedPackage = tierPackages.find(
+        (item) => item.identifier === packageIdentifier
+      );
+      if (!packageIdentifier || !purchasedPackage) {
+        throw new Error(
+          'The selected subscription plan is not available for this tier.'
+        );
+      }
       const snapshot = await SubscriptionService.purchasePremium(
         userId,
         packageIdentifier
@@ -1147,8 +1144,10 @@ export default function ProfileSettingOptionsFlow({
       setSavingMembership(false);
     }
   }, [
-    membershipPackages,
+    litePackages,
     membershipPlan,
+    membershipTier,
+    proPackages,
     savingMembership,
     settings.uiLanguage,
     startPremiumSuccessTransition,
@@ -1200,18 +1199,10 @@ export default function ProfileSettingOptionsFlow({
 
   const handleSelectTier = React.useCallback(
     (tier: 'lite' | 'pro') => {
+      membershipTierRef.current = tier;
       setMembershipTier(tier);
-      const packages = tier === 'lite' ? litePackages : proPackages;
-      const monthlyPackage = packages.find((item) => {
-        const period =
-          resolveMembershipPeriodLabel(item.packageType) ||
-          resolveMembershipPeriodLabel(item.identifier) ||
-          resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-          resolveMembershipPeriodLabel(item.title);
-        return period === 'monthly';
-      });
       setMembershipPlan(
-        monthlyPackage?.identifier || packages[0]?.identifier || 'monthly'
+        selectDefaultMembershipPackage(tier, litePackages, proPackages)
       );
     },
     [litePackages, proPackages]
@@ -1887,13 +1878,16 @@ export default function ProfileSettingOptionsFlow({
   );
 
   if (kind === 'membership') {
-    const tierPackages =
-      membershipTier === 'lite' ? litePackages : proPackages;
+    const tierPackages = getMembershipPackagesForTier(
+      membershipTier,
+      litePackages,
+      proPackages
+    );
     const resolvePeriodOf = (item: RevenueCatPackageSummary) =>
-      resolveMembershipPeriodLabel(item.packageType) ||
-      resolveMembershipPeriodLabel(item.identifier) ||
-      resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-      resolveMembershipPeriodLabel(item.title);
+      resolveMembershipPeriod(item.packageType) ||
+      resolveMembershipPeriod(item.identifier) ||
+      resolveMembershipPeriod(item.subscriptionPeriod) ||
+      resolveMembershipPeriod(item.title);
     const selectedPlanPackage = tierPackages.find(
       (item) => item.identifier === membershipPlan
     );
@@ -1908,10 +1902,14 @@ export default function ProfileSettingOptionsFlow({
         membershipStatus === 'lite') &&
       activeSubscriptionPeriod != null &&
       selectedPlanPeriod === activeSubscriptionPeriod;
+    const isMembershipPackageUnavailable = selectedPlanPackage == null;
     const featureItems =
       membershipTier === 'lite'
         ? [
-            tUI(settings.uiLanguage, 'settings.membership.feature.lite.aiCards'),
+            tUI(
+              settings.uiLanguage,
+              'settings.membership.feature.lite.aiCards'
+            ),
             tUI(
               settings.uiLanguage,
               'settings.membership.feature.lite.voiceCache'
@@ -1938,10 +1936,10 @@ export default function ProfileSettingOptionsFlow({
             : 3;
     const sortedTierPackages = [...tierPackages].sort((a, b) => {
       const periodOf = (item: RevenueCatPackageSummary) =>
-        resolveMembershipPeriodLabel(item.packageType) ||
-        resolveMembershipPeriodLabel(item.identifier) ||
-        resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-        resolveMembershipPeriodLabel(item.title);
+        resolveMembershipPeriod(item.packageType) ||
+        resolveMembershipPeriod(item.identifier) ||
+        resolveMembershipPeriod(item.subscriptionPeriod) ||
+        resolveMembershipPeriod(item.title);
       return periodRank(periodOf(a)) - periodRank(periodOf(b));
     });
     const planItems: Array<{
@@ -1949,53 +1947,27 @@ export default function ProfileSettingOptionsFlow({
       title: string;
       price: string;
       isYearly: boolean;
-      isMonthly: boolean;
       monthlyEquivalent: string | null;
-    }> =
-      sortedTierPackages.length > 0
-        ? sortedTierPackages.map((item) => {
-            const isYearly =
-              resolveMembershipPeriodLabel(item.packageType) === 'yearly' ||
-              resolveMembershipPeriodLabel(item.identifier) === 'yearly' ||
-              resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
-                'yearly' ||
-              resolveMembershipPeriodLabel(item.title) === 'yearly';
-            const isMonthly =
-              resolveMembershipPeriodLabel(item.packageType) === 'monthly' ||
-              resolveMembershipPeriodLabel(item.identifier) === 'monthly' ||
-              resolveMembershipPeriodLabel(item.subscriptionPeriod) ===
-                'monthly' ||
-              resolveMembershipPeriodLabel(item.title) === 'monthly';
-            return {
-              key: item.identifier,
-              title: resolveMembershipPlanTitle(item, settings.uiLanguage),
-              price: resolveMembershipPriceLabel(
-                item,
-                membershipPriceLabel,
-                settings.uiLanguage
-              ),
-              isYearly,
-              isMonthly,
-              monthlyEquivalent: isYearly
-                ? resolveMonthlyEquivalent(
-                    item.priceLabel,
-                    settings.uiLanguage
-                  )
-                : null,
-            };
-          })
-        : [
-            {
-              key: 'current',
-              title: tUI(settings.uiLanguage, 'common.premium'),
-              price:
-                membershipPriceLabel ||
-                tUI(settings.uiLanguage, 'common.premium'),
-              isYearly: false,
-              isMonthly: true,
-              monthlyEquivalent: null,
-            },
-          ];
+    }> = sortedTierPackages.map((item) => {
+      const isYearly =
+        resolveMembershipPeriod(item.packageType) === 'yearly' ||
+        resolveMembershipPeriod(item.identifier) === 'yearly' ||
+        resolveMembershipPeriod(item.subscriptionPeriod) === 'yearly' ||
+        resolveMembershipPeriod(item.title) === 'yearly';
+      return {
+        key: item.identifier,
+        title: resolveMembershipPlanTitle(item, settings.uiLanguage),
+        price: resolveMembershipPriceLabel(
+          item,
+          membershipPriceLabel,
+          settings.uiLanguage
+        ),
+        isYearly,
+        monthlyEquivalent: isYearly
+          ? resolveMonthlyEquivalent(item.priceLabel, settings.uiLanguage)
+          : null,
+      };
+    });
     const tierOptions: Array<{ key: 'lite' | 'pro'; label: string }> = [
       {
         key: 'lite',
@@ -2112,9 +2084,7 @@ export default function ProfileSettingOptionsFlow({
                       <Text
                         style={[
                           styles.membershipTierOptionText,
-                          active
-                            ? styles.membershipTierOptionTextActive
-                            : null,
+                          active ? styles.membershipTierOptionTextActive : null,
                         ]}
                         numberOfLines={1}
                         adjustsFontSizeToFit
@@ -2146,16 +2116,8 @@ export default function ProfileSettingOptionsFlow({
                 ))}
               </View>
               <View style={styles.membershipPlanGrid}>
-                {planItems.map((plan, index) => {
-                  const hasSelectedPlan = planItems.some(
-                    (item) => item.key === membershipPlan
-                  );
-                  const selected =
-                    membershipPlan === plan.key ||
-                    (!hasSelectedPlan && plan.isMonthly) ||
-                    (!hasSelectedPlan &&
-                      !planItems.some((item) => item.isMonthly) &&
-                      index === 0);
+                {planItems.map((plan) => {
+                  const selected = membershipPlan === plan.key;
                   return (
                     <MembershipPlanOption
                       key={plan.key}
@@ -2186,18 +2148,22 @@ export default function ProfileSettingOptionsFlow({
               <Pressable
                 style={({ pressed }) => [
                   styles.membershipSubscribeButton,
-                  isCurrentPlanSelected
+                  isCurrentPlanSelected || isMembershipPackageUnavailable
                     ? styles.membershipSubscribeButtonDisabled
                     : null,
                   pressed || savingMembership ? styles.pressed : null,
                 ]}
                 onPress={() => void handlePurchaseMembership()}
-                disabled={savingMembership || isCurrentPlanSelected}
+                disabled={
+                  savingMembership ||
+                  isCurrentPlanSelected ||
+                  isMembershipPackageUnavailable
+                }
               >
                 <Text
                   style={[
                     styles.membershipSubscribeText,
-                    isCurrentPlanSelected
+                    isCurrentPlanSelected || isMembershipPackageUnavailable
                       ? styles.membershipSubscribeTextDisabled
                       : null,
                   ]}
