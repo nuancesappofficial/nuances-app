@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useResponsiveLayout } from '../../../hooks/useResponsiveLayout';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import { analytics } from '@services/analytics';
@@ -94,6 +95,10 @@ import type {
   MembershipReturnTarget,
 } from '../../../contexts/TabSwipeContext';
 import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
+import {
+  resolveMembershipPackageIdentifier,
+  selectDefaultMembershipPackage,
+} from '../../../features/subscription/membershipPackageSelection';
 
 type SettingOptionKind =
   | 'language'
@@ -563,9 +568,15 @@ export default function ProfileSettingOptionsFlow({
   const membershipTriggerSource = route.params?.triggerSource ?? 'user_initiated';
   const requestedMembershipTier = route.params?.tier;
   const initialMembershipTab = route.params?.initialTab;
+  const initialMembershipTier =
+    requestedMembershipTier ?? initialMembershipTab ?? 'lite';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
+  const responsive = useResponsiveLayout();
+  const settingsPageWidth = responsive.isCompact
+    ? responsive.contentMaxWidth
+    : responsive.settingsMaxWidth;
   const palette = React.useMemo(
     () => resolveThemeColors(colorScheme),
     [colorScheme]
@@ -617,9 +628,6 @@ export default function ProfileSettingOptionsFlow({
   const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<
     string | null
   >(null);
-  const [membershipPackages, setMembershipPackages] = React.useState<
-    RevenueCatPackageSummary[]
-  >([]);
   const [litePackages, setLitePackages] = React.useState<
     RevenueCatPackageSummary[]
   >([]);
@@ -629,8 +637,9 @@ export default function ProfileSettingOptionsFlow({
   const [membershipTier, setMembershipTier] = React.useState<'lite' | 'pro'>(
     // 雙規則通用預設值路由：
     // 規則一（95% 通用預設）→ 'lite'；規則二（額度耗盡例外）→ 由 tier / initialTab 帶入 'pro'。
-    requestedMembershipTier ?? initialMembershipTab ?? 'lite'
+    initialMembershipTier
   );
+  const membershipTierRef = React.useRef(membershipTier);
   const [membershipPlan, setMembershipPlan] =
     React.useState<MembershipBillingPlan>('monthly');
   const [savingMembership, setSavingMembership] = React.useState(false);
@@ -715,7 +724,6 @@ export default function ProfileSettingOptionsFlow({
 
           if (!isRevenueCatConfigured()) {
             if (!cancelled) setMembershipPriceLabel(null);
-            if (!cancelled) setMembershipPackages([]);
             return;
           }
 
@@ -724,23 +732,15 @@ export default function ProfileSettingOptionsFlow({
             await getRevenueCatActiveSubscriptionPeriod(userId);
           if (!cancelled) {
             setMembershipPriceLabel(summary.priceLabel);
-            setMembershipPackages(summary.packages);
             setLitePackages(summary.litePackages);
             setProPackages(summary.proPackages);
             setActiveSubscriptionPeriod(activePeriod);
-            const defaultMonthlyPackage = summary.packages.find((item) => {
-              const period =
-                resolveMembershipPeriodLabel(item.packageType) ||
-                resolveMembershipPeriodLabel(item.identifier) ||
-                resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-                resolveMembershipPeriodLabel(item.title);
-              return period === 'monthly';
-            });
             setMembershipPlan(
-              defaultMonthlyPackage?.identifier ||
-                summary.packageId ||
-                summary.packages[0]?.identifier ||
-                'monthly'
+              selectDefaultMembershipPackage(
+                membershipTierRef.current,
+                summary.litePackages,
+                summary.proPackages
+              ) || 'monthly'
             );
           }
         } catch (error) {
@@ -1092,12 +1092,22 @@ export default function ProfileSettingOptionsFlow({
         );
         return;
       }
-      const packageIdentifier =
-        membershipPackages.find((item) => item.identifier === membershipPlan)
-          ?.identifier || null;
-      const purchasedPackage = membershipPackages.find(
-        (item) => item.identifier === membershipPlan
+      const tierPackages =
+        membershipTier === 'lite' ? litePackages : proPackages;
+      const packageIdentifier = resolveMembershipPackageIdentifier(
+        membershipTier,
+        membershipPlan,
+        litePackages,
+        proPackages
       );
+      const purchasedPackage = tierPackages.find(
+        (item) => item.identifier === packageIdentifier
+      );
+      if (!packageIdentifier || !purchasedPackage) {
+        throw new Error(
+          'The selected subscription plan is not available for this tier.'
+        );
+      }
       const snapshot = await SubscriptionService.purchasePremium(
         userId,
         packageIdentifier
@@ -1147,8 +1157,10 @@ export default function ProfileSettingOptionsFlow({
       setSavingMembership(false);
     }
   }, [
-    membershipPackages,
+    litePackages,
     membershipPlan,
+    membershipTier,
+    proPackages,
     savingMembership,
     settings.uiLanguage,
     startPremiumSuccessTransition,
@@ -1200,6 +1212,7 @@ export default function ProfileSettingOptionsFlow({
 
   const handleSelectTier = React.useCallback(
     (tier: 'lite' | 'pro') => {
+      membershipTierRef.current = tier;
       setMembershipTier(tier);
       const packages = tier === 'lite' ? litePackages : proPackages;
       const monthlyPackage = packages.find((item) => {
@@ -2010,7 +2023,7 @@ export default function ProfileSettingOptionsFlow({
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <View style={styles.header}>
+          <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
             <Pressable
               style={({ pressed }) => [
                 styles.backButton,
@@ -2057,6 +2070,7 @@ export default function ProfileSettingOptionsFlow({
             style={styles.mainScroll}
             contentContainerStyle={[
               styles.membershipScrollContent,
+              { width: settingsPageWidth, alignSelf: 'center' },
               { paddingBottom: Math.max(insets.bottom + 132, 156) },
             ]}
             showsVerticalScrollIndicator={false}
@@ -2279,7 +2293,7 @@ export default function ProfileSettingOptionsFlow({
     return (
       <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <View style={styles.header}>
+          <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
             <Pressable
               style={({ pressed }) => [
                 styles.backButton,
@@ -2304,7 +2318,7 @@ export default function ProfileSettingOptionsFlow({
 
           <ScrollView
             style={styles.mainScroll}
-            contentContainerStyle={styles.mainScrollContent}
+            contentContainerStyle={[styles.mainScrollContent, { width: settingsPageWidth, alignSelf: 'center' }]}
             scrollEnabled={!draggingAlbumId}
             showsVerticalScrollIndicator={false}
           >
@@ -2866,7 +2880,7 @@ export default function ProfileSettingOptionsFlow({
   return (
     <View style={[styles.root, { backgroundColor: palette.screenBg }]}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
+        <View style={[styles.header, { width: settingsPageWidth, alignSelf: 'center' }]}>
           <Pressable
             style={({ pressed }) => [
               styles.backButton,
@@ -2888,7 +2902,7 @@ export default function ProfileSettingOptionsFlow({
         {kind === 'language' ? (
           <ScrollView
             style={styles.languageScroll}
-            contentContainerStyle={styles.languageScrollContent}
+            contentContainerStyle={[styles.languageScrollContent, { width: settingsPageWidth, alignSelf: 'center' }]}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.languageSectionHeader}>
