@@ -18,6 +18,8 @@ export type AnalyticsEventProperties = {
   }>;
   onboarding_started: { ui_language: string };
   onboarding_completed: { ui_language: string };
+  video_tutorial_completed: Record<string, never>;
+  interactive_tutorial_completed: Record<string, never>;
   card_creation_started: {
     source_type: 'image' | 'text';
     selected_card_count: number;

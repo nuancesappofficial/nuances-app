@@ -414,7 +414,7 @@ export default function RootNavigator({
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         traceFirstRun('tutorial', 'started', { startTab: tutorialTab });
-        appTour.startTour();
+        appTour.startTour('first_run');
         onTutorialStarted?.();
         console.log(
           `[FirstRunTrace] tutorial.started step=${appTour.step} selectedTabIndex=${selectedTabIndexRef.current}`

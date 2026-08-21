@@ -1,5 +1,7 @@
 import React from 'react';
 import { traceFirstRun } from '../../../services/logging/firstRunTraceRuntime';
+import { analytics } from '../../../services/analytics';
+import { trackFirstRunMilestone } from '../../../services/analytics/firstRunMilestones';
 import { Alert, DeviceEventEmitter, Linking } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
@@ -292,6 +294,11 @@ export default function DeckMainFlow({
 
   const completeTour = React.useCallback(() => {
     traceFirstRun('tutorial', 'completed');
+    trackFirstRunMilestone(
+      'interactive_tutorial_completed',
+      (event) => analytics.track(event, {}),
+      appTour.launchSource === 'first_run'
+    );
     traceFirstRun('greeting', 'scheduled');
     setTourCompletionGreetingPending(true);
     appTour.completeTour();
@@ -498,7 +505,7 @@ export default function DeckMainFlow({
           data?.onboarding_completed === true &&
           data?.has_seen_tour !== true
         ) {
-          appTour.startTour();
+          appTour.startTour('first_run');
         }
       } catch (error) {
         console.warn('[AppTour] check tour status failed:', error);

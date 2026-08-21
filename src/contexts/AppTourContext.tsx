@@ -20,11 +20,14 @@ export type AppTourStep =
   | 'STEP_14_ALBUM_SETTINGS'
   | 'COMPLETED';
 
+export type AppTourLaunchSource = 'first_run' | 'replay';
+
 type AppTourContextValue = {
   step: AppTourStep;
   isActive: boolean;
+  launchSource: AppTourLaunchSource | null;
   sampleCardId: string | null;
-  startTour: () => void;
+  startTour: (source: AppTourLaunchSource) => void;
   goToStep: (step: AppTourStep) => void;
   nextStep: () => void;
   setSampleCardId: (cardId: string | null) => void;
@@ -78,6 +81,9 @@ function triggerTourCompleteHaptic() {
 export function AppTourProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = React.useState<AppTourStep>('IDLE');
   const [isRunning, setIsRunning] = React.useState(false);
+  const [launchSource, setLaunchSource] = React.useState<AppTourLaunchSource | null>(
+    null
+  );
   const [sampleCardId, setSampleCardId] = React.useState<string | null>(null);
   const didMarkTourSeenRef = React.useRef(false);
 
@@ -113,8 +119,9 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const startTour = React.useCallback(() => {
+  const startTour = React.useCallback((source: AppTourLaunchSource) => {
     didMarkTourSeenRef.current = false;
+    setLaunchSource(source);
     setIsRunning(true);
     void markTourSeen();
     setSampleCardId(null);
@@ -148,6 +155,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
       }
       if (url.includes(DEV_REPLAY_TOUR_PATH)) {
         didMarkTourSeenRef.current = false;
+        setLaunchSource('replay');
         setIsRunning(true);
         setSampleCardId(null);
         void markTourSeen();
@@ -165,6 +173,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
   }, [markTourSeen, skipTour]);
 
   const resetTourState = React.useCallback(() => {
+    setLaunchSource(null);
     setStep('IDLE');
   }, []);
 
@@ -172,6 +181,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     () => ({
       step,
       isActive: isRunning,
+      launchSource,
       sampleCardId,
       startTour,
       goToStep,
@@ -184,6 +194,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       completeTour,
+      launchSource,
       goToStep,
       nextStep,
       resetTourState,

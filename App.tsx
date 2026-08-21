@@ -82,6 +82,7 @@ import { installUserMistakeAlertLogger } from './src/services/logging/userMistak
 import { logDiagnosticEvent } from './src/services/logging/diagnosticsLog';
 import { traceFirstRun } from './src/services/logging/firstRunTraceRuntime';
 import { analytics } from './src/services/analytics';
+import { trackFirstRunMilestone } from './src/services/analytics/firstRunMilestones';
 import {
   initializeGrowthAnalytics,
   rememberGrowthAttributionFromUrl,
@@ -1550,6 +1551,11 @@ export default function App() {
                       }
                       onComplete={() => {
                         traceFirstRun('video_tour', 'completed');
+                        trackFirstRunMilestone(
+                          'video_tutorial_completed',
+                          (event) => analytics.track(event, {}),
+                          !manualVideoTourRequested
+                        );
                         if (!manualVideoTourRequested && !needsOnboarding) {
                           setShowVideoTourCurtain(true);
                         }

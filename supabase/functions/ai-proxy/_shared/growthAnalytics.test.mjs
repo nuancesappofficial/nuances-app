@@ -23,3 +23,24 @@ test('a claimed starter card creates a PostHog quota event', () => {
     }
   );
 });
+
+test('marks the twentieth starter card as a fully used freemium quota', () => {
+  assert.deepEqual(
+    buildFreemiumQuotaEvent({
+      userId: 'user-123',
+      generationId: 'generation-20',
+      limit: 20,
+      remaining: 0,
+    }),
+    {
+      event: 'freemium_quota_updated',
+      distinctId: 'user-123',
+      insertId: 'starter-generation-generation-20',
+      properties: {
+        quota_limit: 20,
+        quota_used: 20,
+        quota_used_percent: 100,
+      },
+    }
+  );
+});

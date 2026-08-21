@@ -30,6 +30,8 @@ sent.
 | `app_opened` | App becomes ready for an authenticated or anonymous user |
 | `onboarding_started` | Onboarding is presented |
 | `onboarding_completed` | Onboarding data is saved successfully |
+| `video_tutorial_completed` | First-run Video Tour is completed; manual replays are excluded |
+| `interactive_tutorial_completed` | Interactive first-run Tutorial is completed |
 | `card_creation_started` | User starts saving selected generated cards |
 | `card_creation_succeeded` | Cards are saved locally and queued for sync |
 | `card_creation_failed` | Card save fails or requires premium |
@@ -48,12 +50,32 @@ blocks keys associated with text, prompts, OCR, transcripts, media, credentials,
 payment data, email addresses, user IDs, and card IDs. Strings are capped at 80
 characters.
 
+## Current status (2026-08-21)
+
+- The app-side instrumentation for the new freemium journey is implemented and
+  tested.
+- The updated App has not been released yet, so PostHog has not received the
+  new `video_tutorial_completed` or `interactive_tutorial_completed` events.
+- The PostHog insights described below are specifications only; the graphs have
+  not been created or saved in PostHog yet.
+- After the updated App is released and a fresh user completes the flow, create
+  the funnel and quota table below, then verify that the event names and
+  property filters are populated.
+
 ## Launch dashboard
 
 Create these PostHog insights:
 
-1. **Activation funnel**
-   `onboarding_completed` → `card_creation_succeeded` → `review_completed`
+1. **Freemium User Journey funnel**
+   `onboarding_completed` → `video_tutorial_completed` →
+   `interactive_tutorial_completed` → `freemium_quota_updated` →
+   `paywall_viewed`
+
+   Configure the fourth step with `quota_used = 20`. Configure the final step
+   with `source = create_card` and `trigger_source = lite_card_cap`. Use unique
+   users, ordered steps, and a 30-day conversion window. This measures where a
+   freemium learner stops between setup, the two tutorials, using the full
+   Starter Allowance, and seeing the upgrade prompt.
 2. **Onboarding completion**
    `onboarding_started` → `onboarding_completed`
 3. **Card creation reliability**
@@ -66,6 +88,36 @@ Create these PostHog insights:
    `paywall_viewed` → `subscription_started`, broken down by `source`
 7. **Retention**
    weekly retention based on `review_completed`
+
+## Freemium quota usage table
+
+Use the latest `freemium_quota_updated` event for each user so a learner is
+counted once at their current quota level, rather than once for every card they
+generated:
+
+```sql
+select
+  latest_quota_used as quota_used,
+  latest_quota_used_percent as quota_used_percent,
+  count() as unique_users
+from (
+  select
+    distinct_id,
+    argMax(toInt(properties.quota_used), timestamp) as latest_quota_used,
+    argMax(toInt(properties.quota_used_percent), timestamp) as latest_quota_used_percent
+  from events
+  where event = 'freemium_quota_updated'
+    and toInt(properties.quota_limit) = 20
+  group by distinct_id
+)
+group by latest_quota_used, latest_quota_used_percent
+order by latest_quota_used;
+```
+
+This table includes learners with at least one successful Starter Allowance
+card. Learners who have used zero cards do not emit `freemium_quota_updated`
+yet and require a separate zero-usage snapshot if they must appear in the
+table.
 
 ## Growth attribution
 
