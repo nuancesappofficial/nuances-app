@@ -54,13 +54,13 @@ characters.
 
 - The app-side instrumentation for the new freemium journey is implemented and
   tested.
-- The updated App has not been released yet, so PostHog has not received the
-  new `video_tutorial_completed` or `interactive_tutorial_completed` events.
+- App version `1.2.3 (91)` is now available in the App Store, and the remote
+  update policy has been synced to require that version for iOS.
 - The PostHog insights described below are specifications only; the graphs have
   not been created or saved in PostHog yet.
-- After the updated App is released and a fresh user completes the flow, create
-  the funnel and quota table below, then verify that the event names and
-  property filters are populated.
+- Install the released App and complete the first-run flow with a fresh user;
+  then create the funnel and quota table below and verify that the event names
+  and property filters are populated.
 
 ## Launch dashboard
 
