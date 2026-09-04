@@ -232,6 +232,7 @@ export default function DeckMainFlow({
   const didCheckTourRef = React.useRef(false);
   const didCompleteTourRef = React.useRef(false);
   const didShowTourCompletionGreetingRef = React.useRef(false);
+  const didTrackTutorialCompletedRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
   const didOpenTourQuizRef = React.useRef(false);
   const openedTourCardIdRef = React.useRef<string | null>(null);
@@ -284,21 +285,27 @@ export default function DeckMainFlow({
     }
   }, []);
 
-  const showTourCompletionGreeting = React.useCallback(() => {
-    if (!didShowTourCompletionGreetingRef.current) {
-      didShowTourCompletionGreetingRef.current = true;
-      traceFirstRun('greeting', 'shown');
-      setTourCompletionGreetingVisible(true);
-    }
-  }, []);
-
-  const completeTour = React.useCallback(() => {
+  const trackTutorialCompleted = React.useCallback(() => {
+    if (didTrackTutorialCompletedRef.current) return;
+    didTrackTutorialCompletedRef.current = true;
     traceFirstRun('tutorial', 'completed');
     trackFirstRunMilestone(
       'interactive_tutorial_completed',
       (event) => analytics.track(event, {}),
-      appTour.launchSource === 'first_run'
+      appTour.launchSource !== 'replay'
     );
+  }, [appTour.launchSource]);
+
+  const showTourCompletionGreeting = React.useCallback(() => {
+    if (!didShowTourCompletionGreetingRef.current) {
+      didShowTourCompletionGreetingRef.current = true;
+      traceFirstRun('greeting', 'shown');
+      trackTutorialCompleted();
+      setTourCompletionGreetingVisible(true);
+    }
+  }, [trackTutorialCompleted]);
+
+  const completeTour = React.useCallback(() => {
     traceFirstRun('greeting', 'scheduled');
     setTourCompletionGreetingPending(true);
     appTour.completeTour();

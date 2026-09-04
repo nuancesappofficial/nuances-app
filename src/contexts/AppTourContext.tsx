@@ -81,9 +81,8 @@ function triggerTourCompleteHaptic() {
 export function AppTourProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = React.useState<AppTourStep>('IDLE');
   const [isRunning, setIsRunning] = React.useState(false);
-  const [launchSource, setLaunchSource] = React.useState<AppTourLaunchSource | null>(
-    null
-  );
+  const [launchSource, setLaunchSource] =
+    React.useState<AppTourLaunchSource | null>(null);
   const [sampleCardId, setSampleCardId] = React.useState<string | null>(null);
   const didMarkTourSeenRef = React.useRef(false);
 
@@ -119,14 +118,21 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const startTour = React.useCallback((source: AppTourLaunchSource) => {
-    didMarkTourSeenRef.current = false;
-    setLaunchSource(source);
-    setIsRunning(true);
-    void markTourSeen();
-    setSampleCardId(null);
-    setStep((current) => (current === 'IDLE' || current === 'COMPLETED' ? 'STEP_5_PROCESS_CACHE_CARD' : current));
-  }, [markTourSeen]);
+  const startTour = React.useCallback(
+    (source: AppTourLaunchSource) => {
+      didMarkTourSeenRef.current = false;
+      setLaunchSource(source);
+      setIsRunning(true);
+      void markTourSeen();
+      setSampleCardId(null);
+      setStep((current) =>
+        current === 'IDLE' || current === 'COMPLETED'
+          ? 'STEP_5_PROCESS_CACHE_CARD'
+          : current
+      );
+    },
+    [markTourSeen]
+  );
 
   const completeTour = React.useCallback(() => {
     triggerTourCompleteHaptic();
@@ -173,7 +179,6 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
   }, [markTourSeen, skipTour]);
 
   const resetTourState = React.useCallback(() => {
-    setLaunchSource(null);
     setStep('IDLE');
   }, []);
 
@@ -206,9 +211,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AppTourContext.Provider value={value}>
-      {children}
-    </AppTourContext.Provider>
+    <AppTourContext.Provider value={value}>{children}</AppTourContext.Provider>
   );
 }
 
