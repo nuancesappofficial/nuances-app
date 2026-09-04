@@ -24,26 +24,24 @@ sent.
 
 ## Event contract
 
-| Event | Meaning |
-| --- | --- |
-| `first_app_opened` | First launch on this installation; used as the initial Downloads proxy |
-| `app_opened` | App becomes ready for an authenticated or anonymous user |
-| `onboarding_started` | Onboarding is presented |
-| `onboarding_completed` | Onboarding data is saved successfully |
-| `video_tutorial_completed` | First-run Video Tour is completed; manual replays are excluded |
-| `interactive_tutorial_completed` | Interactive first-run Tutorial is completed |
-| `card_creation_started` | User starts saving selected generated cards |
-| `card_creation_succeeded` | Cards are saved locally and queued for sync |
-| `card_creation_failed` | Card save fails or requires premium |
-| `review_started` | A non-empty review session is built |
-| `review_completed` | User taps Done on the review summary |
-| `pronunciation_attempted` | A recording is submitted for assessment |
-| `pronunciation_free_starter_exhausted` | Free-starter pronunciation allowance is exhausted (20 lifetime) |
-| `pronunciation_monthly_quota_exceeded` | Monthly pronunciation quota is exceeded (lite/pro) |
-| `paywall_viewed` | Membership screen is opened; `source` is the entry screen, `trigger_source` is the reason (`free_pronunciation_cap`, `lite_pronunciation_cap`, `lite_card_cap`, or `user_initiated`) |
-| `freemium_quota_updated` | A successful free card updates quota used and percentage used |
-| `subscription_started` | A synced RevenueCat purchase, classified as weekly, monthly, yearly, or unknown |
-| `subscription_failed` | Purchase fails or entitlement sync remains pending |
+| Event                                  | Meaning                                                                                                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `first_app_opened`                     | First launch on this installation; used as the initial Downloads proxy                                                                                                               |
+| `app_opened`                           | App becomes ready for an authenticated or anonymous user                                                                                                                             |
+| `onboarding_started`                   | Onboarding is presented                                                                                                                                                              |
+| `onboarding_completed`                 | Onboarding data is saved successfully                                                                                                                                                |
+| `video_tutorial_completed`             | First-run Video Tour is completed; manual replays are excluded                                                                                                                       |
+| `interactive_tutorial_completed`       | Interactive first-run Tutorial is completed                                                                                                                                          |
+| `card_creation_started`                | User starts saving selected generated cards                                                                                                                                          |
+| `card_creation_succeeded`              | Cards are saved locally and queued for sync                                                                                                                                          |
+| `card_creation_failed`                 | Card save fails or requires premium                                                                                                                                                  |
+| `review_started`                       | A non-empty review session is built                                                                                                                                                  |
+| `review_completed`                     | User taps Done on the review summary                                                                                                                                                 |
+| `pronunciation_attempted`              | A recording is submitted for assessment                                                                                                                                              |
+| `pronunciation_free_starter_exhausted` | Free-starter pronunciation allowance is exhausted (20 lifetime)                                                                                                                      |
+| `pronunciation_monthly_quota_exceeded` | Monthly pronunciation quota is exceeded (lite/pro)                                                                                                                                   |
+| `paywall_viewed`                       | Membership screen is opened; `source` is the entry screen, `trigger_source` is the reason (`free_pronunciation_cap`, `lite_pronunciation_cap`, `lite_card_cap`, or `user_initiated`) |
+| `freemium_quota_updated`               | A successful free card updates quota used and percentage used                                                                                                                        |
 
 Do not add event properties containing user content. The runtime sanitizer
 blocks keys associated with text, prompts, OCR, transcripts, media, credentials,
@@ -76,6 +74,7 @@ Create these PostHog insights:
    users, ordered steps, and a 30-day conversion window. This measures where a
    freemium learner stops between setup, the two tutorials, using the full
    Starter Allowance, and seeing the upgrade prompt.
+
 2. **Onboarding completion**
    `onboarding_started` → `onboarding_completed`
 3. **Card creation reliability**
@@ -84,9 +83,7 @@ Create these PostHog insights:
    unique users with `review_started` and `review_completed`
 5. **Pronunciation adoption**
    unique users with `pronunciation_attempted`, broken down by `context`
-6. **Subscription funnel**
-   `paywall_viewed` → `subscription_started`, broken down by `source`
-7. **Retention**
+6. **Retention**
    weekly retention based on `review_completed`
 
 ## Freemium quota usage table
@@ -136,8 +133,6 @@ Create a **Growth Overview** dashboard with:
 1. **Downloads proxy** — unique users with `first_app_opened`
 2. **Freemium quota distribution** — latest `quota_used_percent` from
    `freemium_quota_updated`
-3. **Paying Users** — unique users with `subscription_started`, broken down by
-   `plan`
 
 Add dashboard filters for the four `growth_*` properties. App Store downloads
 remain the source of truth; `first_app_opened` measures first launches recorded

@@ -29,7 +29,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import { analytics } from '@services/analytics';
-import { resolveBillingPlan } from '@services/analytics/growthAnalytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
 import { database } from '@database/index';
@@ -564,7 +563,8 @@ export default function ProfileSettingOptionsFlow({
   const kind = requestedKind === 'main' ? 'theme' : requestedKind;
   const membershipReturnTo = route.params?.returnTo ?? 'settings';
   const membershipSource = route.params?.source ?? 'settings';
-  const membershipTriggerSource = route.params?.triggerSource ?? 'user_initiated';
+  const membershipTriggerSource =
+    route.params?.triggerSource ?? 'user_initiated';
   const requestedMembershipTier = route.params?.tier;
   const initialMembershipTab = route.params?.initialTab;
   const initialMembershipTier =
@@ -641,9 +641,8 @@ export default function ProfileSettingOptionsFlow({
   const [membershipStatus, setMembershipStatus] = React.useState<
     'trial' | 'free' | 'lite' | 'premium'
   >('free');
-  const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] = React.useState<
-    'weekly' | 'monthly' | 'yearly' | null
-  >(null);
+  const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
+    React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
     React.useState(false);
   const [premiumTransitionReady, setPremiumTransitionReady] =
@@ -1109,25 +1108,14 @@ export default function ProfileSettingOptionsFlow({
       );
       setMembershipStatus(snapshot.planType);
       if (
-        (snapshot.planType === 'premium' || snapshot.planType === 'trial') &&
+        (snapshot.planType === 'premium' ||
+          snapshot.planType === 'trial' ||
+          snapshot.planType === 'lite') &&
         snapshot.serverSynced !== false
       ) {
-        analytics.track('subscription_started', {
-          plan: resolveBillingPlan(
-            [
-              purchasedPackage?.packageType,
-              purchasedPackage?.identifier,
-              purchasedPackage?.subscriptionPeriod,
-              purchasedPackage?.productIdentifier,
-            ]
-              .filter(Boolean)
-              .join(' ')
-          ),
-        });
         startPremiumSuccessTransition();
         return;
       }
-      analytics.track('subscription_failed', { reason: 'pending_sync' });
       Alert.alert(
         tUI(
           settings.uiLanguage,
@@ -1141,7 +1129,6 @@ export default function ProfileSettingOptionsFlow({
         return;
       }
       console.error('[ProfileSettingOptions] purchase premium failed:', error);
-      analytics.track('subscription_failed', { reason: 'purchase_failed' });
       Alert.alert(
         tUI(settings.uiLanguage, 'settings.membership.purchaseFailedTitle'),
         error instanceof Error
@@ -1895,8 +1882,7 @@ export default function ProfileSettingOptionsFlow({
   );
 
   if (kind === 'membership') {
-    const tierPackages =
-      membershipTier === 'lite' ? litePackages : proPackages;
+    const tierPackages = membershipTier === 'lite' ? litePackages : proPackages;
     const resolvePeriodOf = (item: RevenueCatPackageSummary) =>
       resolveMembershipPeriodLabel(item.packageType) ||
       resolveMembershipPeriodLabel(item.identifier) ||
@@ -1919,7 +1905,10 @@ export default function ProfileSettingOptionsFlow({
     const featureItems =
       membershipTier === 'lite'
         ? [
-            tUI(settings.uiLanguage, 'settings.membership.feature.lite.aiCards'),
+            tUI(
+              settings.uiLanguage,
+              'settings.membership.feature.lite.aiCards'
+            ),
             tUI(
               settings.uiLanguage,
               'settings.membership.feature.lite.voiceCache'
@@ -1985,10 +1974,7 @@ export default function ProfileSettingOptionsFlow({
               isYearly,
               isMonthly,
               monthlyEquivalent: isYearly
-                ? resolveMonthlyEquivalent(
-                    item.priceLabel,
-                    settings.uiLanguage
-                  )
+                ? resolveMonthlyEquivalent(item.priceLabel, settings.uiLanguage)
                 : null,
             };
           })
@@ -2120,9 +2106,7 @@ export default function ProfileSettingOptionsFlow({
                       <Text
                         style={[
                           styles.membershipTierOptionText,
-                          active
-                            ? styles.membershipTierOptionTextActive
-                            : null,
+                          active ? styles.membershipTierOptionTextActive : null,
                         ]}
                         numberOfLines={1}
                         adjustsFontSizeToFit

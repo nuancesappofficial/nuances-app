@@ -1,7 +1,4 @@
-import type {
-  BillingPlan,
-  GrowthAttributionProperties,
-} from './growthAnalytics';
+import type { GrowthAttributionProperties } from './growthAnalytics';
 
 export type AnalyticsPrimitive = string | number | boolean;
 
@@ -60,8 +57,6 @@ export type AnalyticsEventProperties = {
       | 'lite_card_cap'
       | 'user_initiated';
   };
-  subscription_started: WithGrowthAttribution<{ plan: BillingPlan }>;
-  subscription_failed: { reason: 'purchase_failed' | 'pending_sync' };
   freemium_quota_updated: WithGrowthAttribution<{
     quota_limit: number;
     quota_used: number;

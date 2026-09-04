@@ -1,5 +1,3 @@
-export type BillingPlan = 'weekly' | 'monthly' | 'yearly' | 'unknown';
-
 export type GrowthAttributionProperties = {
   growth_manager: string;
   growth_platform: string;
@@ -29,29 +27,19 @@ export async function trackFirstAppOpenOnce(
   storage: FirstOpenStorage,
   capture: FirstOpenCapture
 ): Promise<boolean> {
-  if ((await storage.getItem(FIRST_APP_OPEN_STORAGE_KEY)) === 'true') return false;
+  if ((await storage.getItem(FIRST_APP_OPEN_STORAGE_KEY)) === 'true')
+    return false;
 
   capture('first_app_opened', { download_source: 'app_first_open' });
   await storage.setItem(FIRST_APP_OPEN_STORAGE_KEY, 'true');
   return true;
 }
 
-export function resolveBillingPlan(value?: string | null): BillingPlan {
-  const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized.includes('p1w') || normalized.includes('week')) return 'weekly';
-  if (normalized.includes('p1m') || normalized.includes('month')) return 'monthly';
-  if (
-    normalized.includes('p1y') ||
-    normalized.includes('year') ||
-    normalized.includes('annual')
-  ) {
-    return 'yearly';
-  }
-  return 'unknown';
-}
-
 function cleanAttributionValue(value: string | null): string | null {
-  const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_');
   return normalized ? normalized.slice(0, 80) : null;
 }
 
@@ -76,10 +64,13 @@ export function parseGrowthAttributionUrl(
         decodeURIComponent(value.replace(/\+/g, ' '));
       query.set(decode(rawKey), decode(rawValue));
     }
-    const entries = Object.entries(ATTRIBUTION_KEYS).map(([queryKey, propertyKey]) => [
-      propertyKey,
-      cleanAttributionValue(query.get(queryKey) ?? null),
-    ] as const);
+    const entries = Object.entries(ATTRIBUTION_KEYS).map(
+      ([queryKey, propertyKey]) =>
+        [
+          propertyKey,
+          cleanAttributionValue(query.get(queryKey) ?? null),
+        ] as const
+    );
     if (entries.some(([, value]) => !value)) return null;
     return Object.fromEntries(entries) as GrowthAttributionProperties;
   } catch {
@@ -87,7 +78,9 @@ export function parseGrowthAttributionUrl(
   }
 }
 
-export function withGrowthAttribution<Properties extends Record<string, unknown>>(
+export function withGrowthAttribution<
+  Properties extends Record<string, unknown>,
+>(
   attribution: GrowthAttributionProperties | null,
   properties: Properties
 ): Properties & Partial<GrowthAttributionProperties> {

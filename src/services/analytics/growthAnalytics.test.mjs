@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import {
   parseGrowthAttributionUrl,
-  resolveBillingPlan,
   trackFirstAppOpenOnce,
   withGrowthAttribution,
 } from './growthAnalytics.ts';
@@ -20,15 +19,11 @@ test('first app open is captured only once for an installation', async () => {
   assert.equal(await trackFirstAppOpenOnce(storage, capture), true);
   assert.equal(await trackFirstAppOpenOnce(storage, capture), false);
   assert.deepEqual(events, [
-    { event: 'first_app_opened', properties: { download_source: 'app_first_open' } },
+    {
+      event: 'first_app_opened',
+      properties: { download_source: 'app_first_open' },
+    },
   ]);
-});
-
-test('billing identifiers normalize to the three paid plans', () => {
-  assert.equal(resolveBillingPlan('$rc_weekly'), 'weekly');
-  assert.equal(resolveBillingPlan('premium_monthly'), 'monthly');
-  assert.equal(resolveBillingPlan('annual_p1y'), 'yearly');
-  assert.equal(resolveBillingPlan('premium'), 'unknown');
 });
 
 test('growth attribution is read from a campaign link', () => {

@@ -49,18 +49,13 @@ export const analytics = {
   },
 };
 
-export function setAnalyticsAdapterForTesting(nextAdapter: AnalyticsAdapter): void {
+export function setAnalyticsAdapterForTesting(
+  nextAdapter: AnalyticsAdapter
+): void {
   adapter = nextAdapter;
 }
 
-export type {
-  AnalyticsAdapter,
-  AnalyticsEventName,
-  AnalyticsEventProperties,
-};
+export type { AnalyticsAdapter, AnalyticsEventName, AnalyticsEventProperties };
 export type { AnalyticsIdentityProperties } from './identity';
 export type { UserProfileAttributes } from './profileAttributes';
-export type {
-  BillingPlan,
-  GrowthAttributionProperties,
-} from './growthAnalytics';
+export type { GrowthAttributionProperties } from './growthAnalytics';
