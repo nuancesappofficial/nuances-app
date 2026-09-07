@@ -60,7 +60,11 @@ import {
   buildFreemiumQuotaEvent,
   recordFreemiumQuotaEventInBackground,
 } from './_shared/growthAnalytics.ts';
-import { chooseLearningTerm } from './_shared/learningTermResolution.ts';
+import {
+  isPhrasePartOfSpeech,
+  resolveContextualLearningTerm,
+} from './_shared/learningTermResolution.ts';
+
 
 declare const Deno: any;
 
@@ -2652,8 +2656,12 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     const candidatePromotesPhrase =
       parseBooleanLike(candidate?.isPartOfPhrase) ||
       normalizeLexicalSequence(candidate?.normalizedTargetWord || '').split(/\s+/).filter(Boolean).length > 1;
+    const hasPhrasePartOfSpeech = isPhrasePartOfSpeech(
+      candidate?.partOfSpeech || candidate?.['part of speech'] || candidate?.pos
+    );
     const proposedUnverifiedPhrase =
       candidatePromotesPhrase &&
+      !hasPhrasePartOfSpeech &&
       (
         !isConfirmedDetectedPhrase(originalSentence, targetWord, candidateDetectedPhrase, {
           phraseType: candidate?.phraseType,
@@ -2968,16 +2976,18 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     confidence > 0 &&
     confidence < 0.78;
 
+  const parsedPartOfSpeech =
+    parsed.partOfSpeech || parsed['part of speech'] || parsed['pos'] || '';
+  const hasPhrasePartOfSpeech = isPhrasePartOfSpeech(parsedPartOfSpeech);
   let safeNormalizedTargetWord = baseSafeNormalizedTargetWord;
   if (
     !requestedCardSubject &&
     normalizeLexicalSequence(baseSafeNormalizedTargetWord).split(/\s+/).filter(Boolean).length > 1 &&
-    !confirmedDetectedPhrase
+    !confirmedDetectedPhrase &&
+    !hasPhrasePartOfSpeech
   ) {
     safeNormalizedTargetWord = normalizeHeadword(targetWord, targetWord);
   }
-  const parsedPartOfSpeech =
-    parsed.partOfSpeech || parsed['part of speech'] || parsed['pos'] || '';
   if (
     isLikelyTypo &&
     typoCorrection &&
@@ -3001,15 +3011,24 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
       isPlausibleEnglishLemma(targetWord, proposedLemma)
         ? proposedLemma
         : normalizeHeadword(targetWord, targetWord);
-    safeNormalizedTargetWord = chooseLearningTerm({
+    const learningTermDecision = resolveContextualLearningTerm({
       originalTarget: targetWord,
       lemma: safeLemma,
+      partOfSpeech: parsedPartOfSpeech,
+      originalSentence,
+      candidates: [normalizedTargetWord, detectedPhrase],
       lemmaMeaningPreserved: hasLemmaMeaningVerdict
         ? lemmaMeaningPreserved
         : true,
-      canonicalPhrase: normalizedTargetWord,
       phraseConfirmed: confirmedDetectedPhrase,
-    }).learningTerm;
+    });
+    safeNormalizedTargetWord = learningTermDecision.learningTerm;
+    if (learningTermDecision.confirmedPhrase) {
+      confirmedDetectedPhrase = true;
+      if (!detectedPhrase) {
+        detectedPhrase = safeNormalizedTargetWord;
+      }
+    }
   }
   if (
     requestedCardSubject &&
@@ -3430,18 +3449,20 @@ function resolveCoreSubject(
       isPlausibleEnglishLemma(originalTarget, proposedLemma)
         ? proposedLemma
         : originalTarget;
-    const decision = chooseLearningTerm({
+    const decision = resolveContextualLearningTerm({
       originalTarget,
       lemma: safeLemma,
+      partOfSpeech: visiblePartOfSpeech,
+      originalSentence,
+      candidates: [proposedCanonical, detectedPhrase, visibleWord],
       lemmaMeaningPreserved: hasLemmaMeaningVerdict
         ? lemmaMeaningPreserved
         : true,
-      canonicalPhrase: proposedCanonical,
       phraseConfirmed,
     });
     canonicalSubject = decision.learningTerm;
     normalizationKind = decision.kind;
-    confirmedPhrase = decision.kind === 'phrase';
+    confirmedPhrase = decision.confirmedPhrase;
   }
   const wordHeader = /==\s*WORD\s*==/i.exec(visibleRaw);
   const posHeader = /==\s*POS\s*==/i.exec(visibleRaw);
@@ -3464,8 +3485,8 @@ function resolveCoreSubject(
       canonicalSubject,
       normalizationKind,
       isPartOfPhrase: confirmedPhrase,
-      detectedPhrase: confirmedPhrase ? detectedPhrase : undefined,
-      phraseConfidence: confirmedPhrase ? phraseConfidence : undefined,
+      detectedPhrase: confirmedPhrase ? (detectedPhrase || canonicalSubject) : undefined,
+      phraseConfidence: confirmedPhrase ? (phraseConfidence || 0.95) : undefined,
       phraseMeaningDiffers: confirmedPhrase ? true : undefined,
       isLikelyTypo: confirmedTypo || hasPlausibleTypoSuggestion,
       correctedTargetWord:
