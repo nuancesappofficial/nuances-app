@@ -50,6 +50,7 @@ import { useCacheQuickAddFlow } from './hooks/useCacheQuickAddFlow';
 import { useCacheListDataSource } from './hooks/useCacheListDataSource';
 import { useCacheSwipeActions } from './hooks/useCacheSwipeActions';
 import type { TodayUploadSticker } from './hooks/useCacheListDataSource';
+import { resolveCacheCardTransition, areIdListsEqual } from '../../../features/cache/cacheEntranceAnimationPolicy';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { DEFAULT_STICKER_FONT_KEY, resolveStickerFont, type StickerFontKey } from '../../../theme/stickerFonts';
 import {
@@ -739,6 +740,14 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   );
   const [enteringCardIds, setEnteringCardIds] = useState<string[]>([]);
   const [visibleCacheIds, setVisibleCacheIds] = useState<string[]>([]);
+  const visibleCacheIdsRef = useRef(visibleCacheIds);
+  visibleCacheIdsRef.current = visibleCacheIds;
+  const enteringCardIdsRef = useRef(enteringCardIds);
+  enteringCardIdsRef.current = enteringCardIds;
+  const animationSeedRef = useRef(animationSeed);
+  animationSeedRef.current = animationSeed;
+  const restoreSeedRef = useRef(restoreSeed);
+  restoreSeedRef.current = restoreSeed;
 
   const hideCacheCardFromStack = React.useCallback((itemId: string) => {
     setVisibleCacheIds((prev) => prev.filter((id) => id !== itemId));
@@ -938,63 +947,52 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     if (!isCacheFocused) return;
 
     const currentIds = cards.map((card) => card.id);
-    const seenIds = lastSeenStackCardIdsRef.current;
-    const pendingBatchIds = pendingBatchEnterIds;
+    const transition = resolveCacheCardTransition({
+      currentIds,
+      state: {
+        visibleCardIds: visibleCacheIdsRef.current,
+        enteringCardIds: enteringCardIdsRef.current,
+        lastSeenCardIds: lastSeenStackCardIdsRef.current,
+        pendingBatchEnterIds,
+        hasSeenCacheOnce: hasSeenCacheOnceRef.current,
+        animationSeed: animationSeedRef.current,
+        restoreSeed: restoreSeedRef.current,
+      },
+      isCacheFocused,
+      showAddModal,
+    });
 
-    if (enteringCardIds.length > 0) {
-      lastSeenStackCardIdsRef.current = currentIds;
+    if (transition.transitionType === 'noop') {
+      lastSeenStackCardIdsRef.current = transition.nextLastSeenCardIds;
       return;
     }
 
-    if (pendingBatchIds.length > 0) {
-      if (showAddModal) return;
+    lastSeenStackCardIdsRef.current = transition.nextLastSeenCardIds;
+    hasSeenCacheOnceRef.current = transition.nextHasSeenCacheOnce;
 
-      const readyIds = pendingBatchIds.filter((id) => currentIds.includes(id));
-      if (readyIds.length !== pendingBatchIds.length) return;
-
-      setPendingBatchEnterIds([]);
-      setVisibleCacheIds(currentIds);
-      setEnteringCardIds(readyIds);
-      setAnimationSeed((prev) => prev + 1);
-      hasSeenCacheOnceRef.current = true;
-      lastSeenStackCardIdsRef.current = currentIds;
-      return;
+    if (transition.nextPendingBatchEnterIds !== pendingBatchEnterIds) {
+      setPendingBatchEnterIds(transition.nextPendingBatchEnterIds);
     }
-
-    if (!hasSeenCacheOnceRef.current) {
-      if (currentIds.length > 0) {
-        setVisibleCacheIds(currentIds);
-        setEnteringCardIds(currentIds);
-        setAnimationSeed((prev) => prev + 1);
-      } else {
-        setVisibleCacheIds([]);
-      }
-      hasSeenCacheOnceRef.current = true;
-      lastSeenStackCardIdsRef.current = currentIds;
-      return;
+    if (!areIdListsEqual(transition.nextVisibleCardIds, visibleCacheIdsRef.current)) {
+      setVisibleCacheIds(transition.nextVisibleCardIds);
     }
-
-    const seenSet = new Set(seenIds);
-    const newlyAdded = currentIds.filter((id) => !seenSet.has(id));
-
-    if (newlyAdded.length > 0) {
-      if (showAddModal) return;
-      setVisibleCacheIds(currentIds);
-      setEnteringCardIds(newlyAdded);
-      setAnimationSeed((prev) => prev + 1);
-    } else {
-      setVisibleCacheIds(currentIds);
-      setRestoreSeed((prev) => prev + 1);
+    if (!areIdListsEqual(transition.nextEnteringCardIds, enteringCardIdsRef.current)) {
+      setEnteringCardIds(transition.nextEnteringCardIds);
     }
-
-    lastSeenStackCardIdsRef.current = currentIds;
+    if (transition.nextAnimationSeed !== animationSeedRef.current) {
+      setAnimationSeed(transition.nextAnimationSeed);
+    }
+    if (transition.nextRestoreSeed !== restoreSeedRef.current) {
+      setRestoreSeed(transition.nextRestoreSeed);
+    }
   }, [cards, enteringCardIds.length, isCacheFocused, pendingBatchEnterIds, showAddModal]);
 
   useEffect(() => {
     if (enteringCardIds.length === 0) return;
+    const duration = Math.max(1800, enteringCardIds.length * 110 + 1500);
     const timer = setTimeout(() => {
       setEnteringCardIds([]);
-    }, 1800);
+    }, duration);
     return () => clearTimeout(timer);
   }, [enteringCardIds]);
 

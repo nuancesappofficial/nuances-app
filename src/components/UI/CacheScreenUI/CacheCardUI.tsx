@@ -100,13 +100,11 @@ export default function CacheCardUI({
   const targetRot = React.useMemo(() => getStableCardRotation(itemId), [itemId]);
   const delay = (entranceOrder >= 0 ? entranceOrder : 0) * 110;
 
-  const isDropMode = animationSeed % 2 === 0;
-  const side = (entranceOrder >= 0 ? entranceOrder : index) % 2 === 0 ? 1 : -1;
   const startsInEntrancePose = shouldAnimateEntrance && entranceOrder >= 0;
 
-  const x = useSharedValue(startsInEntrancePose && !isDropMode ? side * (width + 200) : 0);
-  const y = useSharedValue(startsInEntrancePose && isDropMode ? -920 : toY);
-  const scale = useSharedValue(startsInEntrancePose && isDropMode ? 1.5 : 1);
+  const x = useSharedValue(0);
+  const y = useSharedValue(startsInEntrancePose ? -920 : toY);
+  const scale = useSharedValue(startsInEntrancePose ? 1.5 : 1);
   const rot = useSharedValue(startsInEntrancePose ? 0 : targetRot);
   const isPressed = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
@@ -150,6 +148,11 @@ export default function CacheCardUI({
     isPressed.value = false;
 
     if (!shouldRunEntrance) {
+      if (shouldAnimateEntrance) {
+        // Entrance animation is ALREADY in progress for this card.
+        // Background OCR updates or re-renders must not interrupt or snap the in-flight drop animation.
+        return;
+      }
       x.value = withSpring(0, ELEGANT_SPRING);
       y.value = withSpring(toY, ELEGANT_SPRING);
       scale.value = withSpring(1, ELEGANT_SPRING);
@@ -157,29 +160,21 @@ export default function CacheCardUI({
       return;
     }
 
-    if (isDropMode) {
-      x.value = 0;
-      y.value = -920;
-      scale.value = 1.5;
-      y.value = withDelay(delay, withSpring(toY, ELEGANT_SPRING));
-      scale.value = withDelay(delay, withSpring(1, ELEGANT_SPRING));
-    } else {
-      x.value = side * (width + 200);
-      y.value = toY;
-      scale.value = 1;
-      x.value = withDelay(delay, withSpring(0, ELEGANT_SPRING));
-    }
+    x.value = 0;
+    y.value = -920;
+    scale.value = 1.5;
+    rot.value = 0;
+    y.value = withDelay(delay, withSpring(toY, ELEGANT_SPRING));
+    scale.value = withDelay(delay, withSpring(1, ELEGANT_SPRING));
     rot.value = withDelay(delay, withSpring(targetRot, ELEGANT_SPRING));
   }, [
     animationSeed,
     delay,
-    isDropMode,
     isPressed,
     itemId,
     rot,
     scale,
     shouldAnimateEntrance,
-    side,
     targetRot,
     toY,
     x,
@@ -258,6 +253,9 @@ export default function CacheCardUI({
       hasRestoreInitialized.current = true;
       return;
     }
+    if (shouldAnimateEntrance) {
+      return;
+    }
     isPressed.value = false;
     x.value = 0;
     if (isTopCard) {
@@ -266,7 +264,7 @@ export default function CacheCardUI({
     y.value = toY;
     scale.value = 1;
     rot.value = targetRot;
-  }, [isTopCard, restoreSeed, isPressed, rot, scale, targetRot, toY, topCardDragX, x, y]);
+  }, [isTopCard, restoreSeed, isPressed, rot, scale, targetRot, toY, topCardDragX, x, y, shouldAnimateEntrance]);
 
   React.useEffect(() => {
     if (!isTopCard || !swipeTrigger) return;

@@ -62,7 +62,12 @@ export function useCacheListDataSource(params: Params) {
         await ensureDefaultExperienceCard(userId);
         const query = database
           .get<CachedItem>('cached_items')
-          .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc));
+          .query(
+            Q.where('user_id', userId),
+            Q.where('deleted_at', null),
+            Q.sortBy('created_at', Q.desc),
+            Q.sortBy('id', Q.desc)
+          );
         const data = await query.fetch();
         if (cancelled) return;
         console.log(

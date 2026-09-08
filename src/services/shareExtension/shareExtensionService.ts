@@ -253,56 +253,12 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
         meta: { userId, itemCount: items.length, timestamp: snapshot?.timestamp ?? 0 },
       });
 
-      let totalCount = 0;
-      let blockedCount = 0;
-      let remainingCapacity = await getRemainingCacheCapacity(userId);
-
-      for (const item of items) {
-        await assertActiveAccount(userId);
-        if (item.type === 'text' && item.content) {
-          if (remainingCapacity <= 0) {
-            blockedCount += 1;
-            continue;
-          }
-          const created = await saveTextToCache(userId, item.content);
-          if (created) {
-            totalCount += 1;
-            remainingCapacity -= 1;
-          }
-          await appendShareIngestEvent({
-            level: 'info',
-            stage: created ? 'ingest_text_ok' : 'ingest_text_duplicate',
-            message: created
-              ? 'Saved shared text item to cache'
-              : 'Skipped shared text already present in cache',
-            meta: { userId, textLength: item.content.length },
-          });
-        } else if (item.type === 'image' && item.images && item.images.length > 0) {
-          const acceptedPaths = item.images.slice(0, remainingCapacity);
-          const createdCount = await saveImagesToCache(userId, acceptedPaths);
-          totalCount += createdCount;
-          remainingCapacity -= createdCount;
-          blockedCount += Math.max(0, item.images.length - acceptedPaths.length);
-          await appendShareIngestEvent({
-            level: 'info',
-            stage: 'ingest_image_ok',
-            message: 'Saved shared image items to cache',
-            meta: {
-              userId,
-              imageCount: item.images.length,
-              acceptedImageCount: createdCount,
-              blockedImageCount: Math.max(0, item.images.length - createdCount),
-            },
-          });
-        } else {
-          await appendShareIngestEvent({
-            level: 'warn',
-            stage: 'ingest_item_skipped',
-            message: 'Skipped unsupported or empty shared item',
-            meta: { userId, itemType: item?.type ?? 'unknown' },
-          });
-        }
-      }
+      const remainingCapacity = await getRemainingCacheCapacity(userId);
+      const { totalCount, blockedCount } = await saveBatchSharedContentToCache(
+        userId,
+        items,
+        remainingCapacity
+      );
 
       await assertActiveAccount(userId);
       const cleared = await clearAppGroupSharedContentIfUnchanged(snapshot?.timestamp ?? 0);
@@ -512,61 +468,126 @@ async function saveAndroidImagesToCache(userId: string, imageUris: string[]): Pr
 }
 
 /**
- * 儲存圖片到 Cache
- * 圖片已在 Share Extension 進行過壓縮與轉檔
- * 來源：App Group 共享容器 (Swift 寫入)
- * 目標：App documentDirectory/SharedImages/
+ * 批次儲存多個共享內容到 Cache（iOS Share Extension 專用）
+ * 一次性複製檔案，並在單一 database.write 中原子性寫入所有卡片，
+ * 確保 UI 僅收到一次通知，所有卡片完整進入進場動畫隊列。
  */
-async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<number> {
+async function saveBatchSharedContentToCache(
+  userId: string,
+  items: SharedContentItem[],
+  initialCapacity: number
+): Promise<{ totalCount: number; blockedCount: number }> {
+  await assertActiveAccount(userId);
   const appDocumentDir = getAppDocumentDirectory();
   const dirPath = `${appDocumentDir}${SHARED_IMAGES_SUBDIR}/${userId}/`;
-  const validatedPaths = imagePaths
-    .slice(0, MAX_IMAGES_PER_SHARED_ITEM)
-    .map(getValidatedSharedImagePath)
-    .filter((path): path is string => Boolean(path));
 
-  try {
-    await assertActiveAccount(userId);
-    if (validatedPaths.length === 0) return 0;
-    // 確保目標目錄存在（在迴圈外建立，避免重複檢查）
+  let remainingCapacity = initialCapacity;
+  let blockedCount = 0;
+
+  const validTextItems: string[] = [];
+  const validImageItems: string[] = [];
+
+  for (const item of items) {
+    if (item.type === 'text' && item.content) {
+      if (remainingCapacity <= 0) {
+        blockedCount += 1;
+        continue;
+      }
+      const trimmed = item.content.trim();
+      if (!trimmed) {
+        blockedCount += 1;
+        continue;
+      }
+      const textToSave =
+        trimmed.length > MAX_TEXT_LENGTH ? trimmed.substring(0, MAX_TEXT_LENGTH) : trimmed;
+      validTextItems.push(textToSave);
+      remainingCapacity -= 1;
+    } else if (item.type === 'image' && Array.isArray(item.images) && item.images.length > 0) {
+      const validatedPaths = item.images
+        .slice(0, MAX_IMAGES_PER_SHARED_ITEM)
+        .map(getValidatedSharedImagePath)
+        .filter((path): path is string => Boolean(path));
+
+      const accepted = validatedPaths.slice(0, Math.max(0, remainingCapacity));
+      validImageItems.push(...accepted);
+      remainingCapacity -= accepted.length;
+      blockedCount += Math.max(0, item.images.length - accepted.length);
+    } else {
+      blockedCount += 1;
+      await appendShareIngestEvent({
+        level: 'warn',
+        stage: 'ingest_item_skipped',
+        message: 'Skipped unsupported or empty shared item',
+        meta: { userId, itemType: item?.type ?? 'unknown' },
+      });
+    }
+  }
+
+  const copiedMediaUris: string[] = [];
+  if (validImageItems.length > 0) {
     const dirInfo = await FileSystem.getInfoAsync(dirPath);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
     }
 
-    const copiedMediaUris: string[] = [];
-
-    for (const sharedPath of validatedPaths) {
-      // 正規化來源路徑（Swift 可能回傳純 path 或 file:// URI）
+    for (const sharedPath of validImageItems) {
       const fromUri = toFileUri(sharedPath);
       const fileName = sharedPath.split('/').pop();
       if (!fileName) continue;
       const targetPath = `${dirPath}${fileName}`;
 
-      // 複製檔案：從 App Group 容器到 App 的 document 目錄
       await FileSystem.copyAsync({
         from: fromUri,
         to: targetPath,
       });
 
-      // 驗證複製後檔案存在
       const targetInfo = await FileSystem.getInfoAsync(targetPath);
       if (!targetInfo.exists) {
         throw new Error(`Copy failed: target file not found at ${targetPath}`);
       }
 
-      // 先收集成功複製的檔案，稍後一次批量寫入 DB，避免逐筆寫入造成 UI 多次重排閃現
       const mediaUri = targetPath.startsWith('file://') ? targetPath : toFileUri(targetPath);
       copiedMediaUris.push(mediaUri);
-
     }
+  }
 
-    let createdCount = 0;
-    if (copiedMediaUris.length > 0) {
-      await assertActiveAccount(userId);
-      await database.write(async () => {
-        const collection = database.get<CachedItem>('cached_items');
-        const existingItems = await collection
+  let totalCount = 0;
+  if (validTextItems.length > 0 || copiedMediaUris.length > 0) {
+    await assertActiveAccount(userId);
+    await database.write(async () => {
+      const collection = database.get<CachedItem>('cached_items');
+
+      if (validTextItems.length > 0) {
+        const existingTextItems = await collection
+          .query(
+            Q.where('user_id', userId),
+            Q.where('content_type', 'text'),
+            Q.where('deleted_at', null),
+            Q.where('content_text', Q.oneOf(validTextItems))
+          )
+          .fetch();
+        const existingTexts = new Set(existingTextItems.map((i) => i.contentText).filter(Boolean));
+
+        for (const text of validTextItems) {
+          if (existingTexts.has(text)) continue;
+          await collection.create((item) => {
+            item.userId = userId;
+            item.type = 'text';
+            item.contentType = 'text';
+            item.contentText = text;
+            item.sourceApp = 'share_sheet';
+            item.aiAnalysisCompleted = false;
+            item.convertedToCard = false;
+            const expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+            item.expiresAt = expiresAt;
+          });
+          totalCount += 1;
+        }
+      }
+
+      if (copiedMediaUris.length > 0) {
+        const existingImageItems = await collection
           .query(
             Q.where('user_id', userId),
             Q.where('content_type', 'image'),
@@ -578,8 +599,9 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
           )
           .fetch();
         const existingUris = new Set(
-          existingItems.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean)
+          existingImageItems.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean)
         );
+
         for (const mediaUri of copiedMediaUris) {
           if (existingUris.has(mediaUri)) continue;
           await collection.create((item) => {
@@ -588,7 +610,7 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
             item.contentType = 'image';
             item.mediaUri = mediaUri;
             item.imageStoragePath = mediaUri;
-            item.contentText = undefined; // OCR 會在後續流程填入
+            item.contentText = undefined;
             item.sourceApp = 'share_sheet';
             item.aiAnalysisCompleted = false;
             item.convertedToCard = false;
@@ -596,25 +618,25 @@ async function saveImagesToCache(userId: string, imagePaths: string[]): Promise<
             expiresAt.setMinutes(expiresAt.getMinutes() + 10);
             item.expiresAt = expiresAt;
           });
-          createdCount += 1;
+          totalCount += 1;
         }
-      });
-    }
-
-    return createdCount;
-  } catch (error) {
-    await appendShareIngestEvent({
-      level: 'error',
-      stage: 'save_images_error',
-      message: 'Failed to save shared images to cache',
-      meta: {
-        userId,
-        imageCount: validatedPaths.length,
-        errorName: getSafeErrorName(error),
-      },
+      }
     });
-    throw error;
   }
+
+  await appendShareIngestEvent({
+    level: 'info',
+    stage: 'ingest_batch_ok',
+    message: 'Processed batch shared content',
+    meta: {
+      userId,
+      itemCount: items.length,
+      createdCount: totalCount,
+      blockedCount,
+    },
+  });
+
+  return { totalCount, blockedCount };
 }
 
 /**
