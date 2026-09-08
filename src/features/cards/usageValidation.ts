@@ -238,9 +238,67 @@ function pairFromUsageObject(value: unknown): NormalizedUsagePair {
   };
 }
 
+export function isProperNounPartOfSpeech(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return (
+    /\b(?:proper\s*noun|propernoun|proper_noun)\b/i.test(normalized) ||
+    /專有名詞|专有名词|固有名詞|고유\s*명사|nombre\s*propio|nom\s*propre/u.test(normalized)
+  );
+}
+
+export function isProperNounSubject(
+  options?:
+    | {
+        partOfSpeech?: string | null;
+        definition?: string | null;
+      }
+    | string
+    | null
+): boolean {
+  const partOfSpeech = typeof options === 'string' ? options : options?.partOfSpeech;
+  if (isProperNounPartOfSpeech(partOfSpeech)) {
+    return true;
+  }
+
+  const definition = typeof options === 'object' ? options?.definition : undefined;
+  if (typeof definition === 'string') {
+    const normalizedDef = definition.trim();
+    if (
+      /專有名詞|專有詞|社群平台|社交網路|社交平台|社群網站|網路服務|軟體平台|品牌名稱|品牌/u.test(
+        normalizedDef
+      ) ||
+      /\b(?:proper\s*noun|social\s*network(?:ing)?|social\s*media|online\s*platform|web\s*platform|defunct\s*(?:social\s*)?(?:network|service|platform)|brand)\b/i.test(
+        normalizedDef
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function resolveNormalizedPartOfSpeech(
+  partOfSpeech?: string | null,
+  definition?: string | null
+): string {
+  if (isProperNounSubject({ partOfSpeech, definition })) {
+    return 'proper noun';
+  }
+  return (partOfSpeech || '').trim();
+}
+
+export type NormalizeGeneratedUsageOptions = {
+  partOfSpeech?: string | null;
+  definition?: string | null;
+  allowEmptyCollocations?: boolean;
+};
+
 export function normalizeGeneratedUsagePairs(
   input: GeneratedUsageInput,
-  subject: string
+  subject: string,
+  options?: NormalizeGeneratedUsageOptions
 ): {
   frequentCollocations: NormalizedUsagePair['collocation'][];
   example: NormalizedUsagePair['example'][];
@@ -273,14 +331,39 @@ export function normalizeGeneratedUsagePairs(
       )
     );
 
-  if (validPairs.length === 0) {
-    throw new Error(
-      `Card enrichment missing valid collocation and example pairs for "${subject}"`
-    );
+  // If we have valid pairs (both collocation and example match), use them
+  if (validPairs.length > 0) {
+    return {
+      frequentCollocations: validPairs.map(({ collocation }) => collocation),
+      example: validPairs.map(({ example }) => example),
+    };
   }
 
-  return {
-    frequentCollocations: validPairs.map(({ collocation }) => collocation),
-    example: validPairs.map(({ example }) => example),
-  };
+  const isProperNoun = isProperNounSubject(options);
+  const allowEmptyCollocations = isProperNoun || Boolean(options?.allowEmptyCollocations);
+
+  if (allowEmptyCollocations) {
+    const validExamples = candidates
+      .map(({ example }) => example)
+      .filter((example) =>
+        Boolean(
+          example.sentence &&
+          containsLexicalAnchors(example.sentence, subject)
+        )
+      );
+
+    if (validExamples.length === 0) {
+      throw new Error(`Card enrichment missing valid example for "${subject}"`);
+    }
+
+    return {
+      frequentCollocations: [],
+      example: validExamples,
+    };
+  }
+
+  throw new Error(
+    `Card enrichment missing valid collocation and example pairs for "${subject}"`
+  );
 }
+

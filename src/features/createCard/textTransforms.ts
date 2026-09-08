@@ -280,9 +280,9 @@ const NON_TERMINAL_ABBREVIATIONS = new Set([
   'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'vs', 'etc',
   'e.g', 'i.e', 'a.m', 'p.m', 'u.s', 'u.k',
 ]);
-const MAX_SOURCE_WORDS = 30;
-const MAX_SOURCE_CHARS = 220;
-const MIN_CONTEXT_WORDS = 4;
+const MAX_SOURCE_WORDS = 45;
+const MAX_SOURCE_CHARS = 320;
+const MIN_CONTEXT_WORDS = 12;
 
 function normalizeSourceText(text: string): string {
   const normalized = (text || '')

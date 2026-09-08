@@ -127,7 +127,10 @@ import {
   type SelectedSourceTarget,
 } from '../../../features/createCard/textTransforms';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
-import { filterUsageTextPairs } from '../../../features/cards/usageValidation';
+import {
+  filterUsageTextPairs,
+  resolveNormalizedPartOfSpeech,
+} from '../../../features/cards/usageValidation';
 import {
   COMPLETE_PREVIEW_REVEAL,
   EMPTY_PREVIEW_REVEAL,
@@ -565,7 +568,8 @@ function buildPartialGhostCard(params: {
     displayWord,
     typoSuggestion,
     typoReason: fields.typoReason || undefined,
-    partOfSpeech: fields.partOfSpeech || '',
+    partOfSpeech:
+      resolveNormalizedPartOfSpeech(fields.partOfSpeech, cleanDefinition) || '',
     definition: cleanDefinition,
     cultural,
     collocationsText: usagePairs.collocations,
@@ -1692,7 +1696,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               resolvedDisplayWord.toLowerCase()
               ? resolvedTargetPhrase
               : undefined,
-          partOfSpeech: generated.partOfSpeech || 'noun',
+          partOfSpeech:
+            resolveNormalizedPartOfSpeech(
+              generated.partOfSpeech,
+              generated.definition
+            ) || 'noun',
           definition:
             generated.definition ||
             `${resolvedDisplayWord} (${tUI(uiLanguage, 'create.definitionFallback')})`,

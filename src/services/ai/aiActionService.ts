@@ -13,8 +13,10 @@ import {
 } from './generateCardPayload';
 import { parseCoreStream } from './parseCoreStream';
 import {
+  isProperNounSubject,
   isValidCollocationForSubject,
   normalizeGeneratedUsagePairs,
+  resolveNormalizedPartOfSpeech,
   sourceTextFromUsageLine,
 } from '../../features/cards/usageValidation';
 
@@ -325,15 +327,21 @@ function normalizeGeneratedCardResult(
   result: GenerateCardResult,
   targetWord: string,
   localPhonetic: string | null,
-  originalSentence: string
+  originalSentence: string,
+  options?: { allowEmptyCollocations?: boolean }
 ) {
   const resolvedHeadword = resolveContextualHeadword(result, targetWord);
+  const isProperNoun = isProperNounSubject({
+    partOfSpeech: result.partOfSpeech || result['part of speech'],
+    definition: result.definition,
+  });
+  const allowEmpty = isProperNoun || Boolean(options?.allowEmptyCollocations);
   const example = stringifyExamples(result.example || result.exampleSentence);
   const frequentCollocations = stringifyCollocations(
     result.frequentCollocations || result['Frequent collocations'],
     resolvedHeadword
   );
-  if (!example || !frequentCollocations) {
+  if (!example || (!allowEmpty && !frequentCollocations)) {
     throw new Error(
       `Generated card missing valid collocation and example pairs for "${resolvedHeadword}"`
     );
@@ -349,7 +357,10 @@ function normalizeGeneratedCardResult(
     detectedPhrase: normalizeOptionalString(result.detectedPhrase),
     definition: normalizeDirectDefinition(result.definition),
     partOfSpeech:
-      result.partOfSpeech || result['part of speech'] || '',
+      resolveNormalizedPartOfSpeech(
+        result.partOfSpeech || result['part of speech'],
+        result.definition
+      ) || '',
     contextualExplanation: buildContextualExplanation(result, originalSentence),
     example,
     frequentCollocations,
@@ -433,7 +444,13 @@ export async function generateCardContent(
       generationId,
     }));
 
-    return normalizeGeneratedCardResult(result, targetWord, localPhonetic, originalSentence);
+    return normalizeGeneratedCardResult(
+      result,
+      targetWord,
+      localPhonetic,
+      originalSentence,
+      { allowEmptyCollocations: true }
+    );
   } catch (error) {
     if (!isPremiumFeatureError(error)) {
       console.error('[AI] Error in generateCardContent:', error);
@@ -676,32 +693,87 @@ type EnrichmentStreamPayload = {
 };
 
 /**
- * 呼叫 enrichment stream 並在失敗時重試一次。
- * 抽成獨立 helper，讓 generateCardContentStream 專注於組裝與正規化，
- * 重試邏輯可單獨測試。
+ * 呼叫 enrichment stream 並在失敗或驗證不通過時重試最多 3 次。
+ * - proper noun 首次即允許空搭配詞（只要有例句）。
+ * - 一般字詞第 1、2 次嘗試要求嚴格具備搭配詞與例句。
+ * - 若重試至第 3 次依然缺少搭配詞，則放寬通過（只要有例句），避免使用者看到錯誤。
  */
-async function streamEnrichmentWithRetry(
+async function streamAndNormalizeEnrichmentWithRetry(
   payload: EnrichmentStreamPayload,
+  canonicalSubject: string,
+  core: Partial<GenerateCardResult>,
   handlers: { onToken?: (delta: string) => void }
-): Promise<Awaited<ReturnType<typeof streamAIAction>>> {
+): Promise<{ enrichment: EnrichmentResult; ttfbMs?: number; model?: string }> {
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await streamAIAction('generate_card_enrichment_stream', payload, {
-        onToken: handlers.onToken,
+      const enrichmentResult = await streamAIAction(
+        'generate_card_enrichment_stream',
+        payload,
+        { onToken: handlers.onToken }
+      );
+
+      if (__DEV__) {
+        console.log(
+          `--- AI RAW ENRICHMENT OUTPUT (attempt ${attempt}) ---`,
+          enrichmentResult.rawContent
+        );
+      }
+
+      const enrichmentJson = extractFirstJsonObject(enrichmentResult.rawContent);
+      if (!enrichmentJson) {
+        throw new Error('AI enrichment stream did not return a complete JSON object');
+      }
+
+      const enrichment = JSON.parse(enrichmentJson) as EnrichmentResult;
+      // Core is the single source of truth for sentence meaning and translation.
+      // Enrichment may add learning fields, but it must never reinterpret or replace it.
+      delete enrichment.sentenceTranslation;
+
+      // Proper nouns always allow empty collocations from attempt 1.
+      // Normal words allow empty collocations on the 3rd attempt to prevent user errors.
+      const normalizedUsage = normalizeGeneratedUsagePairs(enrichment, canonicalSubject, {
+        partOfSpeech: core.partOfSpeech,
+        definition: core.definition,
+        allowEmptyCollocations: attempt === maxAttempts,
       });
+
+      enrichment.frequentCollocations = normalizedUsage.frequentCollocations;
+      enrichment.example = normalizedUsage.example;
+      delete enrichment.usagePairs;
+
+      // 🟢 手動把扁平的陣列，重新包裝回前端預期的深層結構
+      if (enrichment.synonyms || enrichment.antonyms) {
+        enrichment.semanticRelations = {
+          synonyms: enrichment.synonyms || [],
+          antonyms: enrichment.antonyms || [],
+        };
+        delete enrichment.synonyms;
+        delete enrichment.antonyms;
+      }
+
+      return {
+        enrichment,
+        ttfbMs: enrichmentResult.ttfbMs,
+        model: enrichmentResult.model,
+      };
     } catch (error) {
       lastError = error;
       console.warn('[AI][pipeline] enrichment attempt failed', {
         attempt,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (attempt < 2) await delay(500);
+      if (attempt < maxAttempts) {
+        await delay(500);
+      }
     }
   }
+
   throw lastError instanceof Error
     ? lastError
-    : new Error('AI enrichment stream failed');
+    : new Error('AI enrichment stream failed after 3 attempts');
 }
 
 export async function generateCardContentStream(
@@ -768,6 +840,7 @@ export async function generateCardContentStream(
     }
   }
   core.definition = normalizeDirectDefinition(core.definition);
+  core.partOfSpeech = resolveNormalizedPartOfSpeech(core.partOfSpeech, core.definition);
   const verifiedResolution = coreResult.resolution;
   if (verifiedResolution?.canonicalSubject) {
     core.normalizedTargetWord = verifiedResolution.canonicalSubject;
@@ -797,7 +870,7 @@ export async function generateCardContentStream(
   });
 
   handlers.onToken?.('\n');
-  const enrichmentResult = await streamEnrichmentWithRetry(
+  const { enrichment, ttfbMs, model } = await streamAndNormalizeEnrichmentWithRetry(
     {
       generationId,
       targetWord,
@@ -810,32 +883,10 @@ export async function generateCardContentStream(
       sourceLanguage,
       aiBreakdownMode,
     },
+    canonicalSubject,
+    core,
     { onToken: handlers.onToken }
   );
-
-  const enrichmentJson = extractFirstJsonObject(enrichmentResult.rawContent);
-  if (!enrichmentJson) {
-    throw new Error('AI enrichment stream did not return a complete JSON object');
-  }
-  const enrichment = JSON.parse(enrichmentJson) as EnrichmentResult;
-  // Core is the single source of truth for sentence meaning and translation.
-  // Enrichment may add learning fields, but it must never reinterpret or replace it.
-  delete enrichment.sentenceTranslation;
-
-  const normalizedUsage = normalizeGeneratedUsagePairs(enrichment, canonicalSubject);
-  enrichment.frequentCollocations = normalizedUsage.frequentCollocations;
-  enrichment.example = normalizedUsage.example;
-  delete enrichment.usagePairs;
-
-  // 🟢 手動把扁平的陣列，重新包裝回前端預期的深層結構
-  if (enrichment.synonyms || enrichment.antonyms) {
-    enrichment.semanticRelations = {
-      synonyms: enrichment.synonyms || [],
-      antonyms: enrichment.antonyms || [],
-    };
-    delete enrichment.synonyms;
-    delete enrichment.antonyms;
-  }
 
   const combined = {
     ...core,
@@ -843,14 +894,16 @@ export async function generateCardContentStream(
   } as GenerateCardResult;
   console.log('[AI][pipeline] enrichment complete', {
     elapsedMs: Date.now() - pipelineStartedAt,
-    ttfbMs: enrichmentResult.ttfbMs,
-    model: enrichmentResult.model,
+    ttfbMs,
+    model,
+    canonicalSubject,
   });
   return normalizeGeneratedCardResult(
     combined,
     targetWord,
     localPhonetic,
-    selectedSourceSentence
+    selectedSourceSentence,
+    { allowEmptyCollocations: true }
   );
 }
 /**
