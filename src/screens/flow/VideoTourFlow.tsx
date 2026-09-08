@@ -32,6 +32,7 @@ import { markTourSeenLocally } from '../../features/tour/tourSeen';
 import { getVisibleTourSlides } from '../../features/tour/tutorialPresentation';
 import { resolveThemeColors } from '../../theme/colors';
 import { traceFirstRun } from '../../services/logging/firstRunTraceRuntime';
+import { useAppTour } from '../../contexts/AppTourContext';
 
 type VideoTourStep = {
   key: string;
@@ -464,6 +465,7 @@ export default function VideoTourFlow({
   markSeenOnComplete = true,
   preloadedFirstPlayer,
 }: Props) {
+  const appTour = useAppTour();
   const colorScheme = useColorScheme();
   const theme = React.useMemo(
     () => resolveThemeColors(colorScheme),
@@ -545,6 +547,9 @@ export default function VideoTourFlow({
     });
     setSaving(true);
     void Haptics.selectionAsync();
+    if (markSeenOnComplete) {
+      appTour.startTour('first_run');
+    }
     try {
       if (markSeenOnComplete) {
         await markTourSeenLocally(userId);
@@ -574,6 +579,7 @@ export default function VideoTourFlow({
       useNativeDriver: true,
     }).start(complete);
   }, [
+    appTour,
     markSeenOnComplete,
     onComplete,
     reduceMotionEnabled,

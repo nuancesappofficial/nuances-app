@@ -70,7 +70,7 @@ export function useCacheSwipeActions(params: Params) {
         hideCacheCardFromStack(itemId);
       }
     },
-    [cards, hideCacheCardFromStack, hideCacheCardImmediately, isImageCacheCard]
+    [appTour, cards, hideCacheCardFromStack, hideCacheCardImmediately, isImageCacheCard]
   );
 
   const handleCardSwipe = React.useCallback(

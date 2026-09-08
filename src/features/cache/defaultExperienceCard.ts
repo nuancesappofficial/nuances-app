@@ -22,6 +22,8 @@ export const DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT = 'nuances:default-experience-qu
 export const DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT =
   'nuances:default-experience-tutorial-completed';
 
+import { DEFAULT_EXPERIENCE_CARD_VERSION } from '../tour/tutorialFlowPolicy';
+
 // The demo card image is a bundled static asset, so its pixel size is known at
 // build time. Providing it directly lets the image cropper skip the slow
 // Image.getSize() resolution of the asset URI (which flashes a spinner).
@@ -30,7 +32,6 @@ export const DEFAULT_EXPERIENCE_CARD_IMAGE_SIZE = {
   height: 1254,
 } as const;
 
-const DEFAULT_EXPERIENCE_CARD_VERSION = 'v3';
 const DEFAULT_EXPERIENCE_CARD_IMAGE = require('../../../assets/tutorial/demo-card/smallest-nuances-with-text-v2.png');
 const DEFAULT_EXPERIENCE_CARD_ANNOTATIONS = [{ text: DEFAULT_EXPERIENCE_CARD_SENTENCE }];
 const LEGACY_DEFAULT_EXPERIENCE_CARD_SENTENCES = [

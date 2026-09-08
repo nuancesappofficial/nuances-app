@@ -1504,6 +1504,10 @@ export default function App() {
     setShowVideoTourCurtain(false);
   }, []);
 
+  const handleTutorialStarted = React.useCallback(() => {
+    setStartTutorialAfterVideoTour(false);
+  }, []);
+
   React.useEffect(() => {
     if (!userId || (!needsVideoTour && !manualVideoTourRequested)) return;
     videoTourEntryOpacity.stopAnimation();
@@ -1615,7 +1619,7 @@ export default function App() {
                     key={userId}
                     isExpoGo={isExpoGo}
                     startTutorialOnMount={startTutorialAfterVideoTour}
-                    onTutorialStarted={() => setStartTutorialAfterVideoTour(false)}
+                    onTutorialStarted={handleTutorialStarted}
                     onDevAccountDelete={handleDevAccountDelete}
                     onReplayVideoTutorial={() => {
                       if (VIDEO_TOUR_ENABLED) {

@@ -4,6 +4,7 @@ import { database } from '@database/index';
 import { clearUserSettings } from '@services/settings/userSettings';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
+import { resolveAccountDeletionStorageKeys } from '@/features/tour/tutorialFlowPolicy';
 
 const DELETE_ACCOUNT_FUNCTION_NAME = process.env.EXPO_PUBLIC_DELETE_ACCOUNT_FUNCTION_NAME || 'delete-account';
 
@@ -44,33 +45,11 @@ async function removeDirectoryIfExists(uri: string): Promise<void> {
 }
 
 export async function clearLocalAccountCaches(userId: string): Promise<void> {
-  const keys = [
-    // Legacy unscoped keys
-    'card_detail_sticky_notes_v1',
-    'deck_album_preferences_v1',
-    'local_card_image_map_v1',
-    'card_pronunciation_history_v1',
-    'user_app_settings_v1',
-    'nuances_user_mistake_log_v1',
-    'share_extension_ingest_events',
-    // Current account-scoped keys
-    `card_detail_sticky_notes_v1:${userId}`,
-    `deck_album_preferences_v1:${userId}`,
-    `local_card_image_map_v1:${userId}`,
-    `nuances_card_image_upload_queue_v1:${userId}`,
-    `card_pronunciation_history_v1:${userId}`,
-    `user_app_settings_v1:${userId}`,
-    `share_extension_ingest_events:${userId}`,
-    'nuances_trial_started_at',
-    'nuances_trial_ends_at',
-    `deck_review_prefs_v1:${userId}`,
-    `deck_album_sort_preferences_v1:${userId}`,
-    `deck_card_detail_seen_v1:${userId}`,
-    `deck_quiz_reviewed_v1:${userId}`,
-    `nuances:tour_seen:${userId}`,
-    `nuances:default_experience_card:v1:${userId}`,
-  ];
-  await AsyncStorage.multiRemove(keys);
+  const allKeys = await AsyncStorage.getAllKeys();
+  const keysToRemove = resolveAccountDeletionStorageKeys(allKeys, userId);
+  if (keysToRemove.length > 0) {
+    await AsyncStorage.multiRemove(keysToRemove);
+  }
 
   const documentDirectory = FileSystemLegacy.documentDirectory || '';
   await Promise.all([

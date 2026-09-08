@@ -398,6 +398,11 @@ export default function RootNavigator({
     Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
   }, [tabOpacities]);
 
+  const onTutorialStartedRef = React.useRef(onTutorialStarted);
+  React.useEffect(() => {
+    onTutorialStartedRef.current = onTutorialStarted;
+  }, [onTutorialStarted]);
+
   React.useEffect(() => {
     if (!startTutorialOnMount || didStartRequestedTutorialRef.current) return;
     didStartRequestedTutorialRef.current = true;
@@ -410,25 +415,16 @@ export default function RootNavigator({
       `[FirstRunTrace] tutorial.switch_tab target=${tutorialTab === 'cache' ? 1 : 0} selectedTabIndex=${selectedTabIndexRef.current}`
     );
 
-    let secondFrame: number | null = null;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        traceFirstRun('tutorial', 'started', { startTab: tutorialTab });
-        appTour.startTour('first_run');
-        onTutorialStarted?.();
-        console.log(
-          `[FirstRunTrace] tutorial.started step=${appTour.step} selectedTabIndex=${selectedTabIndexRef.current}`
-        );
-      });
-    });
-
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      if (secondFrame != null) cancelAnimationFrame(secondFrame);
-    };
+    if (!appTour.isActive) {
+      appTour.startTour('first_run');
+    }
+    traceFirstRun('tutorial', 'started', { startTab: tutorialTab });
+    onTutorialStartedRef.current?.();
+    console.log(
+      `[FirstRunTrace] tutorial.started step=${appTour.step} selectedTabIndex=${selectedTabIndexRef.current}`
+    );
   }, [
     appTour,
-    onTutorialStarted,
     startTutorialOnMount,
     switchTabImmediately,
   ]);

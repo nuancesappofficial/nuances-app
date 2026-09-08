@@ -126,7 +126,10 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
       void markTourSeen();
       setSampleCardId(null);
       setStep((current) =>
-        current === 'IDLE' || current === 'COMPLETED'
+        source === 'first_run' ||
+        source === 'replay' ||
+        current === 'IDLE' ||
+        current === 'COMPLETED'
           ? 'STEP_5_PROCESS_CACHE_CARD'
           : current
       );
@@ -201,6 +204,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
       completeTour,
       launchSource,
       goToStep,
+      isRunning,
       nextStep,
       resetTourState,
       sampleCardId,
