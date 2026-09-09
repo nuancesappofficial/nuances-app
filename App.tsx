@@ -1592,18 +1592,18 @@ export default function App() {
                         );
                         setNeedsOnboarding(false);
                         setOnboardingChecked(true);
-                        setNeedsVideoTour(
-                          VIDEO_TOUR_ENABLED &&
-                            nextJourney.stage === 'video-tour'
-                        );
+                        // Video tour is bypassed: nextJourney.stage is now 'tutorial',
+                        // so we never set needsVideoTour = true here.
+                        // setNeedsVideoTour(
+                        //   VIDEO_TOUR_ENABLED &&
+                        //     nextJourney.stage === 'video-tour'
+                        // );
+                        setNeedsVideoTour(false);
                         setStartTutorialAfterVideoTour(
-                          !VIDEO_TOUR_ENABLED
+                          nextJourney.stage === 'tutorial'
                         );
                         setVideoTourChecked(true);
-                        if (
-                          nextJourney.stage !== 'video-tour' &&
-                          preloadedFirstPlayerRef.current
-                        ) {
+                        if (preloadedFirstPlayerRef.current) {
                           preloadedFirstPlayerRef.current.release();
                           preloadedFirstPlayerRef.current = null;
                         }

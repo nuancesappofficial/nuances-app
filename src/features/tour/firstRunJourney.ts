@@ -18,7 +18,9 @@ export function advanceFirstRunJourney(
   event: FirstRunJourneyEvent
 ): FirstRunJourney {
   if (journey.stage === 'onboarding' && event === 'onboarding-completed') {
-    return { stage: 'video-tour' };
+    // Video tour is bypassed: skip directly to interactive tutorial.
+    // return { stage: 'video-tour' };
+    return { stage: 'tutorial' };
   }
   if (journey.stage === 'video-tour' && event === 'video-tour-completed') {
     return { stage: 'tutorial' };

@@ -727,7 +727,15 @@ export default function RootNavigator({
             <ProfileStack
               navigationRef={profileNavigationRef}
               onSwipeEnabledChange={handleProfileRootRouteEnabledChange}
-              onReplayVideoTutorial={onReplayVideoTutorial || (() => {})}
+              onReplayVideoTutorial={() => {
+                // Rewatch now launches the interactive tutorial (sandbox mode)
+                // instead of the video tour.
+                // Original: onReplayVideoTutorial?.()
+                switchTabImmediately(1);
+                if (!appTour.isActive) {
+                  appTour.startTour('replay');
+                }
+              }}
               onDevAccountDelete={onDevAccountDelete}
             />
           </Animated.View>

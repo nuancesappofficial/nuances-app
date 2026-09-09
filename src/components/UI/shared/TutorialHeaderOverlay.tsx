@@ -67,7 +67,7 @@ export default function TutorialHeaderOverlay({ uiLanguage: propUiLanguage }: Pr
             onPress={() => appTour.skipTour()}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            hitSlop={10}
+            hitSlop={12}
           >
             <Animated.View
               style={[
@@ -104,9 +104,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   skipButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 14,
     backgroundColor: MODAL_CTA_COLOR,
     borderWidth: 1,
     borderColor: MODAL_CTA_COLOR_BORDER,
@@ -120,13 +120,13 @@ const styles = StyleSheet.create({
   },
   skipText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
   progressInline: {
     color: 'rgba(255,255,255,0.72)',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.4,
   },
