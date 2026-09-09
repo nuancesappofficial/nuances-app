@@ -2250,16 +2250,16 @@ function CardDetailCarouselCardUI({
                         >
                           {tUI(uiLanguage, 'cardDetail.personalNotes')}
                         </Text>
-                        <CollapsibleBackField
-                          fieldKey="personalNotes"
-                          resetKey={`${item.id}-personal-notes`}
-                          collapsedHeight={personalNotesCollapsedLimit}
-                          uiLanguage={uiLanguage}
-                          color={ui.secondaryText}
-                          onExpandedChange={handleBackFieldExpandedChange}
-                          onCollapse={resetBackBodyScroll}
-                        >
-                          {hasStickyNote ? (
+                        {hasStickyNote ? (
+                          <CollapsibleBackField
+                            fieldKey="personalNotes"
+                            resetKey={`${item.id}-personal-notes`}
+                            collapsedHeight={personalNotesCollapsedLimit}
+                            uiLanguage={uiLanguage}
+                            color={ui.secondaryText}
+                            onExpandedChange={handleBackFieldExpandedChange}
+                            onCollapse={resetBackBodyScroll}
+                          >
                             <Text
                               style={[
                                 localStyles.dualSentenceText,
@@ -2273,38 +2273,38 @@ function CardDetailCarouselCardUI({
                             >
                               {stickyNoteText?.trim()}
                             </Text>
-                          ) : null}
-                          <Pressable
-                            style={({ pressed }) => [
-                              localStyles.noteActionBtn,
-                              {
-                                backgroundColor: ui.noteActionBg,
-                                borderColor: ui.noteActionBorder,
-                              },
-                              pressed
-                                ? localStyles.actionIconBtnPressed
-                                : null,
+                          </CollapsibleBackField>
+                        ) : null}
+                        <Pressable
+                          style={({ pressed }) => [
+                            localStyles.noteActionBtn,
+                            {
+                              backgroundColor: ui.noteActionBg,
+                              borderColor: ui.noteActionBorder,
+                            },
+                            pressed
+                              ? localStyles.actionIconBtnPressed
+                              : null,
+                          ]}
+                          accessibilityRole="button"
+                          onPress={onOpenStickyNote}
+                        >
+                          <Ionicons
+                            name={hasStickyNote ? 'create-outline' : 'add'}
+                            size={16}
+                            color={ui.icon}
+                          />
+                          <Text
+                            style={[
+                              localStyles.noteActionText,
+                              { color: ui.icon },
                             ]}
-                            accessibilityRole="button"
-                            onPress={onOpenStickyNote}
                           >
-                            <Ionicons
-                              name={hasStickyNote ? 'create-outline' : 'add'}
-                              size={16}
-                              color={ui.icon}
-                            />
-                            <Text
-                              style={[
-                                localStyles.noteActionText,
-                                { color: ui.icon },
-                              ]}
-                            >
-                              {hasStickyNote
-                                ? tUI(uiLanguage, 'cardDetail.editNote')
-                                : tUI(uiLanguage, 'cardDetail.addNote')}
-                            </Text>
-                          </Pressable>
-                        </CollapsibleBackField>
+                            {hasStickyNote
+                              ? tUI(uiLanguage, 'cardDetail.editNote')
+                              : tUI(uiLanguage, 'cardDetail.addNote')}
+                          </Text>
+                        </Pressable>
                       </View>
                     </ScrollView>
                   </View>
@@ -2532,16 +2532,20 @@ const localStyles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 34,
     gap: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
   },
   noteActionText: {
     fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
+    includeFontPadding: false,
   },
   dualSentenceBlock: {
     marginTop: 4,

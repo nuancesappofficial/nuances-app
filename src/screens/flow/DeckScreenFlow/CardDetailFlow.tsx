@@ -22,6 +22,7 @@ import {
   Easing,
   Vibration,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -2122,67 +2123,93 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         animationType="none"
         onRequestClose={() => setShowStickyNoteModal(false)}
       >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setShowStickyNoteModal(false)}
-          style={styles.stickyBackdrop}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.stickyKeyboardWrapper}
         >
-          <Animated.View
-            style={[
-              styles.stickySheet,
-              {
-                opacity: stickyModalAnim,
-                transform: [
-                  {
-                    scale: stickyModalAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.92, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setShowStickyNoteModal(false)}
+            style={styles.stickyBackdrop}
           >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-              <Text style={styles.stickyTitle}>
-                {tUI(uiLanguage, 'cardDetail.cardNote')}
-              </Text>
-              <TextInput
-                value={stickyDraft}
-                onChangeText={setStickyDraft}
-                placeholder={tUI(uiLanguage, 'cardDetail.notePlaceholder')}
-                placeholderTextColor="#64748B"
-                multiline
-                textAlignVertical="top"
-                style={styles.stickyInput}
-              />
-              <View style={styles.stickyButtonRow}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.stickyCancelBtn,
-                    pressed ? styles.pressablePrimaryPressed : null,
+            <Animated.View
+              style={[
+                styles.stickySheet,
+                isLightMode ? styles.stickySheetLight : null,
+                {
+                  opacity: stickyModalAnim,
+                  transform: [
+                    {
+                      scale: stickyModalAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.92, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                <Text
+                  style={[
+                    styles.stickyTitle,
+                    isLightMode ? styles.stickyTitleLight : null,
                   ]}
-                  onPress={() => setShowStickyNoteModal(false)}
                 >
-                  <Text style={styles.stickyCancelText}>
-                    {tUI(uiLanguage, 'common.cancel')}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.stickySaveBtn,
-                    pressed ? styles.pressablePrimaryPressed : null,
+                  {tUI(uiLanguage, 'cardDetail.cardNote')}
+                </Text>
+                <TextInput
+                  value={stickyDraft}
+                  onChangeText={setStickyDraft}
+                  placeholder={tUI(uiLanguage, 'cardDetail.notePlaceholder')}
+                  placeholderTextColor={isLightMode ? '#94A3B8' : '#64748B'}
+                  multiline
+                  textAlignVertical="top"
+                  style={[
+                    styles.stickyInput,
+                    isLightMode ? styles.stickyInputLight : null,
                   ]}
-                  onPress={() => void saveStickyNote()}
-                >
-                  <Text style={styles.stickySaveText}>
-                    {tUI(uiLanguage, 'create.save')}
-                  </Text>
-                </Pressable>
-              </View>
-            </TouchableOpacity>
-          </Animated.View>
-        </TouchableOpacity>
+                />
+                <View style={styles.stickyButtonRow}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.stickyCancelBtn,
+                      isLightMode ? styles.stickyCancelBtnLight : null,
+                      pressed ? styles.pressablePrimaryPressed : null,
+                    ]}
+                    onPress={() => setShowStickyNoteModal(false)}
+                  >
+                    <Text
+                      style={[
+                        styles.stickyCancelText,
+                        isLightMode ? styles.stickyCancelTextLight : null,
+                      ]}
+                    >
+                      {tUI(uiLanguage, 'common.cancel')}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.stickySaveBtn,
+                      isLightMode ? styles.stickySaveBtnLight : null,
+                      pressed ? styles.pressablePrimaryPressed : null,
+                    ]}
+                    onPress={() => void saveStickyNote()}
+                  >
+                    <Text
+                      style={[
+                        styles.stickySaveText,
+                        isLightMode ? styles.stickySaveTextLight : null,
+                      ]}
+                    >
+                      {tUI(uiLanguage, 'create.save')}
+                    </Text>
+                  </Pressable>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -2649,9 +2676,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 6,
   },
+  stickyKeyboardWrapper: {
+    flex: 1,
+  },
   stickyBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
@@ -2662,59 +2692,93 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   stickySheet: {
-    borderRadius: 18,
+    borderRadius: 20,
     backgroundColor: '#0F172A',
     borderWidth: 1,
     borderColor: '#334155',
-    padding: 14,
-    gap: 12,
+    padding: 20,
+    gap: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  stickySheetLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    shadowOpacity: 0.12,
   },
   stickyTitle: {
     color: '#E2E8F0',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
+    marginTop: -15,
+  },
+  stickyTitleLight: {
+    color: '#0F172A',
   },
   stickyInput: {
-    minHeight: 140,
-    borderRadius: 12,
+    minHeight: 240,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#334155',
     backgroundColor: '#111827',
     color: '#F8FAFC',
-    fontSize: 15,
-    lineHeight: 22,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    fontSize: 16,
+    lineHeight: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  stickyInputLight: {
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
   },
   stickyButtonRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
+    marginTop: 6,
   },
   stickyCancelBtn: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
+  },
+  stickyCancelBtnLight: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   stickyCancelText: {
     color: '#CBD5E1',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
+  },
+  stickyCancelTextLight: {
+    color: '#475569',
   },
   stickySaveBtn: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#4EAFF4',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
+  },
+  stickySaveBtnLight: {
+    backgroundColor: '#0284C7',
   },
   stickySaveText: {
     color: '#0F172A',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
+  },
+  stickySaveTextLight: {
+    color: '#FFFFFF',
   },
   pronunciationSheet: {
     width: '92%',
