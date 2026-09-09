@@ -33,6 +33,7 @@ type Params = {
   normalizeStickerText: (value: string) => string;
   toDayKey: (input: Date | string) => string;
   optimisticallyHiddenCacheIds: Set<string>;
+  isTutorialActive?: boolean;
 };
 
 export function useCacheListDataSource(params: Params) {
@@ -43,10 +44,17 @@ export function useCacheListDataSource(params: Params) {
     normalizeStickerText,
     toDayKey,
     optimisticallyHiddenCacheIds,
+    isTutorialActive,
   } = params;
 
   const [cacheItems, setCacheItems] = React.useState<CachedItem[]>([]);
   const [allCards, setAllCards] = React.useState<Card[]>([]);
+  const hasInitialLoadedRef = React.useRef(false);
+  const hasAttemptedHealRef = React.useRef(false);
+
+  React.useEffect(() => {
+    hasAttemptedHealRef.current = false;
+  }, [isTutorialActive]);
 
   React.useEffect(() => {
     let sub: { unsubscribe: () => void } | undefined;
@@ -59,7 +67,9 @@ export function useCacheListDataSource(params: Params) {
           if (!cancelled) setCacheItems([]);
           return;
         }
-        await ensureDefaultExperienceCard(userId);
+        if (isTutorialActive) {
+          await ensureDefaultExperienceCard(userId, { force: true });
+        }
         const query = database
           .get<CachedItem>('cached_items')
           .query(
@@ -70,6 +80,7 @@ export function useCacheListDataSource(params: Params) {
           );
         const data = await query.fetch();
         if (cancelled) return;
+        hasInitialLoadedRef.current = true;
         console.log(
           `[FirstRunTrace] cache_list.loaded userId=${userId} count=${data.length} defaultCard=${data.some((i) => isDefaultExperienceCard(i))}`
         );
@@ -86,7 +97,30 @@ export function useCacheListDataSource(params: Params) {
       cancelled = true;
       sub?.unsubscribe();
     };
-  }, []);
+  }, [isTutorialActive]);
+
+  React.useEffect(() => {
+    if (!isTutorialActive || !hasInitialLoadedRef.current || hasAttemptedHealRef.current) return;
+    const hasDemoCard = cacheItems.some((item) => isDefaultExperienceCard(item));
+    if (hasDemoCard) return;
+
+    hasAttemptedHealRef.current = true;
+    let cancelled = false;
+    const healDemoCard = async () => {
+      try {
+        const userId = await getCurrentSessionUserId();
+        if (!userId || cancelled) return;
+        await ensureDefaultExperienceCard(userId, { force: true });
+      } catch (error) {
+        console.warn('[CacheList] self-heal demo card failed:', error);
+      }
+    };
+
+    void healDemoCard();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTutorialActive, cacheItems]);
 
   React.useEffect(() => {
     let sub: { unsubscribe: () => void } | undefined;
@@ -120,7 +154,7 @@ export function useCacheListDataSource(params: Params) {
   }, []);
 
   const cards = React.useMemo<CacheCardRecord[]>(() => {
-    return [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
+    const list = [...cacheItems].reverse().reduce<CacheCardRecord[]>((acc, item) => {
       if (optimisticallyHiddenCacheIds.has(item.id)) {
         return acc;
       }
@@ -150,7 +184,13 @@ export function useCacheListDataSource(params: Params) {
       });
       return acc;
     }, []);
-  }, [cacheItems, getDetectedPreview, optimisticallyHiddenCacheIds, toRelativeImportTime, toSourceLabel]);
+
+    if (isTutorialActive) {
+      const demoCard = list.find((c) => c.isDefaultExperienceCard);
+      return demoCard ? [demoCard] : [];
+    }
+    return list.filter((c) => !c.isDefaultExperienceCard);
+  }, [cacheItems, getDetectedPreview, isTutorialActive, optimisticallyHiddenCacheIds, toRelativeImportTime, toSourceLabel]);
 
   const todayStickerWords = React.useMemo(() => {
     const todayKey = toDayKey(new Date());

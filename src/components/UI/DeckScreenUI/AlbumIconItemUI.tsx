@@ -27,6 +27,7 @@ type Props = {
   startY: SharedValue<number>;
   hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
   activeAlbumId: string | null;
+  deletionLocked?: boolean;
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
   onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete' ) => void;
@@ -51,6 +52,7 @@ export default function AlbumIconItemUI({
   startY,
   hoveredAction,
   activeAlbumId,
+  deletionLocked = false,
   onMenuStart,
   onMenuFinish,
   onActionEnd,
@@ -118,7 +120,7 @@ export default function AlbumIconItemUI({
 
       let nextAction: 'none' | 'edit' | 'delete' = 'none';
       if (editDistance <= radius) nextAction = 'edit';
-      if (deleteDistance <= radius) nextAction = 'delete';
+      if (!deletionLocked && deleteDistance <= radius) nextAction = 'delete';
 
       if (nextAction !== hoveredAction.value) {
         hoveredAction.value = nextAction;
@@ -134,7 +136,9 @@ export default function AlbumIconItemUI({
       isActive.value = 0;
       liftScale.value = withSpring(1, ELEGANT_SPRING);
       runOnJS(onMenuFinish)();
-      runOnJS(onActionEnd)(item, action);
+      if (!deletionLocked || action !== 'delete') {
+        runOnJS(onActionEnd)(item, action);
+      }
       runOnJS(releaseLongPressSuppression)();
     })
     .onFinalize(() => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   clampTutorialCacheDragX,
+  shouldBlockTutorialAlbumDeletion,
   shouldBlockTutorialCacheDeletion,
 } from './tutorialCachePolicy.ts';
 
@@ -22,10 +23,37 @@ test('the tutorial demo card cannot be deleted by swiping left', () => {
   );
 });
 
-test('no cache card can be deleted while the tutorial is on the cache processing step', () => {
+test('the tutorial demo card cannot be deleted by swiping left even when tutorial is inactive or idle', () => {
+  assert.equal(
+    shouldBlockTutorialCacheDeletion({
+      isTutorialActive: false,
+      tourStep: 'IDLE',
+      isDefaultExperienceCard: true,
+      direction: 'left',
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockTutorialCacheDeletion({
+      isDefaultExperienceCard: true,
+      direction: 'left',
+    }),
+    true,
+  );
+});
+
+test('non-demo cache cards cannot be deleted by swiping left while the tutorial is active', () => {
   assert.equal(
     shouldBlockTutorialCacheDeletion({
       tourStep: 'STEP_5_PROCESS_CACHE_CARD',
+      isDefaultExperienceCard: false,
+      direction: 'left',
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockTutorialCacheDeletion({
+      isTutorialActive: true,
       isDefaultExperienceCard: false,
       direction: 'left',
     }),
@@ -77,4 +105,13 @@ test('normal cache cards retain the delete gesture', () => {
     }),
     false,
   );
+});
+
+test('album deletion is blocked while tutorial is active', () => {
+  assert.equal(shouldBlockTutorialAlbumDeletion(true), true);
+});
+
+test('album deletion is permitted when tutorial is not active', () => {
+  assert.equal(shouldBlockTutorialAlbumDeletion(false), false);
+  assert.equal(shouldBlockTutorialAlbumDeletion(undefined), false);
 });

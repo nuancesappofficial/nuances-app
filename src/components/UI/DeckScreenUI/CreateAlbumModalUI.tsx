@@ -16,6 +16,10 @@ import {
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
+import TutorialOverlayMask from '../shared/TutorialOverlayMask';
+import TutorialHeaderOverlay from '../shared/TutorialHeaderOverlay';
+import MovingTutorialArrow from '../shared/MovingTutorialArrow';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import { tUI } from '../../../i18n/uiLanguage';
 import {
   CONTAINER_BG,
@@ -67,6 +71,10 @@ export default function CreateAlbumModalUI({
   const entranceY = React.useRef(new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const keyboardLift = React.useRef(new Animated.Value(0)).current;
+  const keyboardLiftRef = React.useRef(0);
+  const { spotlightRect, setSpotlightRect } = useAppTour();
+  const spotlightRectRef = React.useRef(spotlightRect);
+  React.useEffect(() => { spotlightRectRef.current = spotlightRect; }, [spotlightRect]);
 
   React.useEffect(() => {
     if (visible) {
@@ -127,6 +135,12 @@ export default function CreateAlbumModalUI({
       const requestedLift = kbHeight + KEYBOARD_EXTRA_GAP;
       const maxAllowedLift = Math.max(0, windowHeight - Math.max(sheetHeight, 320) - SHEET_TOP_SAFE_MARGIN);
       const nextLift = Math.min(requestedLift, maxAllowedLift);
+      const delta = nextLift - keyboardLiftRef.current;
+      keyboardLiftRef.current = nextLift;
+      if (delta !== 0) {
+        const prev = spotlightRectRef.current;
+        if (prev) setSpotlightRect({ ...prev, y: prev.y - delta });
+      }
       const duration = typeof event?.duration === 'number' ? event.duration : 220;
       Animated.timing(keyboardLift, {
         toValue: nextLift,
@@ -137,6 +151,12 @@ export default function CreateAlbumModalUI({
     };
 
     const onHide = (event: any) => {
+      const delta = keyboardLiftRef.current;
+      keyboardLiftRef.current = 0;
+      if (delta !== 0) {
+        const prev = spotlightRectRef.current;
+        if (prev) setSpotlightRect({ ...prev, y: prev.y + delta });
+      }
       const duration = typeof event?.duration === 'number' ? event.duration : 200;
       Animated.timing(keyboardLift, {
         toValue: 0,
@@ -154,7 +174,7 @@ export default function CreateAlbumModalUI({
     return () => {
       subs.forEach((sub) => sub.remove());
     };
-  }, [keyboardLift, sheetHeight, visible, windowHeight]);
+  }, [keyboardLift, setSpotlightRect, sheetHeight, visible, windowHeight]);
 
   const sheetTransform = React.useMemo(
     () => Animated.add(entranceY, Animated.multiply(keyboardLift, -1)),
@@ -230,6 +250,14 @@ export default function CreateAlbumModalUI({
                 onSpotlightPress={onConfirm}
                 style={styles.tourButtonWrapper}
               >
+                {tourConfirmActive ? (
+                  <MovingTutorialArrow
+                    direction="down"
+                    color="#4EAFF4"
+                    size={28}
+                    style={styles.tourConfirmArrow}
+                  />
+                ) : null}
                 <Pressable
                   style={({ pressed }) => [styles.confirmButton, pressed ? styles.pressablePrimaryPressed : null]}
                   onPress={onConfirm}
@@ -240,6 +268,8 @@ export default function CreateAlbumModalUI({
             </View>
           </Pressable>
         </Animated.View>
+        <TutorialOverlayMask />
+        <TutorialHeaderOverlay />
       </Pressable>
     </Modal>
   );
@@ -309,6 +339,15 @@ const styles = StyleSheet.create({
   },
   tourButtonWrapper: {
     flex: 1,
+    position: 'relative',
+  },
+  tourConfirmArrow: {
+    position: 'absolute',
+    top: -72,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 100,
   },
   cancelButton: {
     flex: 1,

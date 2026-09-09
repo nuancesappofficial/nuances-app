@@ -103,6 +103,9 @@ export function useCacheSwipeActions(params: Params) {
             Alert.alert('找不到圖片', '這張圖片卡沒有可裁切的圖片來源。');
             return;
           }
+          if (appTour.step === 'STEP_5_PROCESS_CACHE_CARD') {
+            appTour.nextStep();
+          }
           openCropperForSwipeImage({
             item: target.cachedItem,
             imageUri,

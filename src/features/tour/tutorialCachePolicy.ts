@@ -15,9 +15,18 @@ export function shouldBlockTutorialCacheDeletion(params: {
   isDefaultExperienceCard: boolean;
   direction: 'left' | 'right';
 }): boolean {
+  if (params.direction !== 'left') {
+    return false;
+  }
+  if (params.isDefaultExperienceCard === true) {
+    return true;
+  }
   return (
-    (params.isTutorialActive === true ||
-      Boolean(params.tourStep?.startsWith('STEP_'))) &&
-    params.direction === 'left'
+    params.isTutorialActive === true ||
+    Boolean(params.tourStep?.startsWith('STEP_'))
   );
+}
+
+export function shouldBlockTutorialAlbumDeletion(isTutorialActive?: boolean): boolean {
+  return isTutorialActive === true;
 }

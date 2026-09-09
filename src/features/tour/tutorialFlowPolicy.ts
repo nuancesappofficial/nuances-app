@@ -64,3 +64,36 @@ export function resolveInitialTourStepOnStart(currentStep: string, source: strin
   }
   return currentStep;
 }
+
+/**
+ * Avoids flashing Cache Screen when saving a card during interactive tutorial.
+ * Immediately transitions tab to Deck (tab 0), and delays popping CacheStack until covered.
+ */
+export function resolveSaveCardNavigationPlan(params: {
+  isDefaultExperienceTutorial?: boolean;
+  tourStep?: string;
+}): {
+  isTutorialSave: boolean;
+  targetTab: number;
+  advanceTourStepTo?: string;
+  popDelayMs: number;
+} {
+  const isTutorialSave =
+    Boolean(params.isDefaultExperienceTutorial) ||
+    params.tourStep === 'STEP_7_SAVE_SAMPLE';
+
+  if (isTutorialSave) {
+    return {
+      isTutorialSave: true,
+      targetTab: 0,
+      advanceTourStepTo: 'STEP_10_QUIZ_SAMPLE',
+      popDelayMs: 420,
+    };
+  }
+
+  return {
+    isTutorialSave: false,
+    targetTab: 1,
+    popDelayMs: 0,
+  };
+}

@@ -6,6 +6,7 @@ import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
 import { isDefaultExperienceCard } from '../../../../features/cache/defaultExperienceCard';
+import { useAppTour } from '../../../../contexts/AppTourContext';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
 
@@ -26,6 +27,7 @@ export function useCacheQuickAddFlow({
   onBatchQuickAddCreated,
   onSwipeImageCropCancel,
 }: UseCacheQuickAddFlowArgs) {
+  const appTour = useAppTour();
   const [creatingImage, setCreatingImage] = React.useState(false);
   const [showQuickCamera, setShowQuickCamera] = React.useState(false);
   const [quickCameraFacing, setQuickCameraFacing] = React.useState<CameraType>('back');
@@ -315,6 +317,14 @@ export function useCacheQuickAddFlow({
   );
 
   const handleUploadCropCancel = React.useCallback(() => {
+    if (
+      appTour.isActive &&
+      cropperFlowTarget === 'swipe-image' &&
+      pendingSwipeImageItem &&
+      isDefaultExperienceCard(pendingSwipeImageItem)
+    ) {
+      return;
+    }
     const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
     const cancelledSwipeItemId =
       cropperFlowTarget === 'swipe-image' ? pendingSwipeImageItem?.id ?? null : null;
@@ -343,6 +353,12 @@ export function useCacheQuickAddFlow({
       setPendingOpenCropperAfterAddDismiss(false);
       try {
         if (cropperFlowTarget === 'swipe-image' && pendingSwipeImageItem) {
+          if (
+            appTour.step === 'STEP_5_CROP_IMAGE' ||
+            appTour.step === 'STEP_5_PROCESS_CACHE_CARD'
+          ) {
+            appTour.nextStep();
+          }
           navigation.navigate('CreateCard', {
             cachedItem: pendingSwipeImageItem,
             croppedImageUri: croppedUri,
@@ -403,6 +419,13 @@ export function useCacheQuickAddFlow({
     pendingSwipeImageItem !== null &&
     isDefaultExperienceCard(pendingSwipeImageItem);
 
+  const forceCloseUploadCropper = React.useCallback(() => {
+    setShowUploadCropper(false);
+    setPendingOriginalImageUri(null);
+    setPendingOriginalImageSize(null);
+    setPendingOpenCropperAfterAddDismiss(false);
+  }, []);
+
   return {
     creatingImage,
     showQuickCamera,
@@ -424,5 +447,6 @@ export function useCacheQuickAddFlow({
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     openCropperForSwipeImage,
+    forceCloseUploadCropper,
   };
 }

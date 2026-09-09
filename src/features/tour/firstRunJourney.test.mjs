@@ -54,3 +54,13 @@ test('finishing the tutorial quiz never opens a paywall', () => {
     false,
   );
 });
+
+test('skipping or completing the tutorial advances the journey directly to the app stage', () => {
+  let journey = createFirstRunJourney();
+  journey = advanceFirstRunJourney(journey, 'onboarding-completed');
+  journey = advanceFirstRunJourney(journey, 'video-tour-completed');
+  assert.equal(journey.stage, 'tutorial');
+
+  journey = advanceFirstRunJourney(journey, 'tutorial-completed');
+  assert.equal(journey.stage, 'app');
+});

@@ -227,7 +227,7 @@ export default function CacheStackUI({
             shouldAnimateEntrance={shouldAnimateEntrance}
             entranceOrder={entranceOrder}
             showSwipeTugHint={Boolean(item.isDefaultExperienceCard && isTopCard)}
-            deletionLocked={deletionLocked}
+            deletionLocked={deletionLocked || Boolean(item.isDefaultExperienceCard)}
           />
         );
 

@@ -308,7 +308,7 @@ export default function CacheCardUI({
       rot.value = targetRot + dragX / 20;
     })
     .onEnd((e) => {
-      if (deletionLocked && e.translationX < 0) {
+      if (deletionLocked && (e.translationX < 0 || e.velocityX < -400)) {
         isPressed.value = false;
         x.value = withSpring(0, ELEGANT_SPRING);
         if (isTopCard) {
@@ -324,6 +324,19 @@ export default function CacheCardUI({
       const trigger = Math.abs(e.velocityX) > 400 || Math.abs(e.translationX) > width * 0.3;
       if (trigger) {
         const dir = e.translationX > 0 ? 1 : -1;
+        if (deletionLocked && dir === -1) {
+          isPressed.value = false;
+          x.value = withSpring(0, ELEGANT_SPRING);
+          if (isTopCard) {
+            topCardDragX.value = 0;
+          }
+          y.value = withSpring(toY, ELEGANT_SPRING);
+          rot.value = withSpring(targetRot, ELEGANT_SPRING);
+          if (showSwipeTugHint && isTopCard) {
+            runOnJS(restartTutorialTug)();
+          }
+          return;
+        }
         x.value = withSpring(width * 2 * dir, { velocity: e.velocityX });
         if (isTopCard) {
           topCardDragX.value = width * 2 * dir;

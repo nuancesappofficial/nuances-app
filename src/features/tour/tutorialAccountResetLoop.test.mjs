@@ -7,6 +7,7 @@ import {
   buildDefaultExperienceCardStorageKeys,
   resolveAccountDeletionStorageKeys,
   resolveInitialTourStepOnStart,
+  resolveSaveCardNavigationPlan,
 } from './tutorialFlowPolicy.ts';
 
 test('buildDefaultExperienceCardStorageKeys includes v3 seen key and quiz hint key', () => {
@@ -83,5 +84,26 @@ test('resolveAccountDeletionStorageKeys removes all keys matching userId regardl
   // Must NOT include other user's keys
   assert.equal(keysToDelete.includes(`nuances:default_experience_card:v3:${otherUserId}`), false);
   assert.equal(keysToDelete.includes(`nuances:tour_seen:${otherUserId}`), false);
+});
+
+test('resolveSaveCardNavigationPlan switches to Deck immediately and delays pop during tutorial', () => {
+  const tutorialPlan = resolveSaveCardNavigationPlan({
+    isDefaultExperienceTutorial: true,
+    tourStep: 'STEP_7_SAVE_SAMPLE',
+  });
+
+  assert.equal(tutorialPlan.isTutorialSave, true);
+  assert.equal(tutorialPlan.targetTab, 0); // Must navigate to Deck (tab 0)
+  assert.equal(tutorialPlan.advanceTourStepTo, 'STEP_10_QUIZ_SAMPLE');
+  assert.ok(tutorialPlan.popDelayMs >= 400, 'Must delay pop until Deck covers screen to avoid flashing Cache');
+
+  const normalPlan = resolveSaveCardNavigationPlan({
+    isDefaultExperienceTutorial: false,
+    tourStep: 'IDLE',
+  });
+
+  assert.equal(normalPlan.isTutorialSave, false);
+  assert.equal(normalPlan.targetTab, 1); // Remains on Cache
+  assert.equal(normalPlan.popDelayMs, 0); // Immediate pop
 });
 

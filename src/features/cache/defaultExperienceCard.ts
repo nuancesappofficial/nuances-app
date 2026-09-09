@@ -114,16 +114,27 @@ export async function completeDefaultExperienceQuizHint(userId: string): Promise
   DeviceEventEmitter.emit(DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT, false);
 }
 
+export async function markDefaultExperienceCardHandled(userId: string): Promise<void> {
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) return;
+  await AsyncStorage.setItem(buildSeenKey(normalizedUserId), 'true');
+}
+
 /**
  * Adds one real cache item for a genuinely empty account. Existing users are
  * marked as handled without changing their cache, so this never appears as
  * surprise content later when they happen to clear their stack.
  */
-export async function ensureDefaultExperienceCard(userId: string): Promise<string | null> {
+export async function ensureDefaultExperienceCard(
+  userId: string,
+  options?: { force?: boolean }
+): Promise<string | null> {
   const normalizedUserId = userId.trim();
   if (!normalizedUserId) return null;
+  const isForce = Boolean(options?.force);
+  const requestKey = `${normalizedUserId}:${isForce}`;
 
-  const inFlight = ensureRequests.get(normalizedUserId);
+  const inFlight = ensureRequests.get(requestKey);
   if (inFlight) return inFlight;
 
   const request = (async () => {
@@ -171,19 +182,26 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
       )
       .fetch();
     if (currentDefaultCards[0]) {
-      if (
-        imageUri &&
+      const needsImageUpdate =
+        Boolean(imageUri) &&
         (currentDefaultCards[0].mediaUri !== imageUri ||
           currentDefaultCards[0].imageStoragePath !== imageUri ||
-          currentDefaultCards[0].imageAnnotations?.[0]?.text !== DEFAULT_EXPERIENCE_CARD_SENTENCE)
-      ) {
+          currentDefaultCards[0].imageAnnotations?.[0]?.text !== DEFAULT_EXPERIENCE_CARD_SENTENCE);
+      const isSoftDeleted = currentDefaultCards[0].deletedAt !== null && currentDefaultCards[0].deletedAt !== undefined;
+
+      if (needsImageUpdate || isSoftDeleted) {
         await database.write(async () => {
           await currentDefaultCards[0].update((record) => {
-            record.type = 'image';
-            record.contentType = 'image';
-            record.mediaUri = imageUri;
-            record.imageStoragePath = imageUri;
-            record.imageAnnotations = DEFAULT_EXPERIENCE_CARD_ANNOTATIONS;
+            if (isSoftDeleted) {
+              record.deletedAt = undefined;
+            }
+            if (imageUri) {
+              record.type = 'image';
+              record.contentType = 'image';
+              record.mediaUri = imageUri;
+              record.imageStoragePath = imageUri;
+              record.imageAnnotations = DEFAULT_EXPERIENCE_CARD_ANNOTATIONS;
+            }
           });
         });
       }
@@ -191,28 +209,30 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
       return currentDefaultCards[0].id;
     }
 
-    if ((await AsyncStorage.getItem(seenKey)) === 'true') {
+    if (!isForce && (await AsyncStorage.getItem(seenKey)) === 'true') {
       console.log(
         `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} skipped=already_seen`
       );
       return null;
     }
 
-    const [existingCacheCount, existingCardCount] = await Promise.all([
-      cacheCollection
-        .query(Q.where('user_id', normalizedUserId), Q.where('deleted_at', null))
-        .fetchCount(),
-      cardCollection
-        .query(Q.where('user_id', normalizedUserId), Q.where('deleted_at', null))
-        .fetchCount(),
-    ]);
+    if (!isForce) {
+      const [existingCacheCount, existingCardCount] = await Promise.all([
+        cacheCollection
+          .query(Q.where('user_id', normalizedUserId), Q.where('deleted_at', null))
+          .fetchCount(),
+        cardCollection
+          .query(Q.where('user_id', normalizedUserId), Q.where('deleted_at', null))
+          .fetchCount(),
+      ]);
 
-    if (existingCacheCount > 0 || existingCardCount > 0) {
-      await AsyncStorage.setItem(seenKey, 'true');
-      console.log(
-        `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} skipped=not_empty cache=${existingCacheCount} cards=${existingCardCount}`
-      );
-      return null;
+      if (existingCacheCount > 0 || existingCardCount > 0) {
+        await AsyncStorage.setItem(seenKey, 'true');
+        console.log(
+          `[FirstRunTrace] default_experience_card.ensure_result userId=${normalizedUserId} skipped=not_empty cache=${existingCacheCount} cards=${existingCardCount}`
+        );
+        return null;
+      }
     }
 
     let createdItemId: string | null = null;
@@ -254,15 +274,40 @@ export async function ensureDefaultExperienceCard(userId: string): Promise<strin
     );
     return createdItemId;
   })().finally(() => {
-    ensureRequests.delete(normalizedUserId);
+    ensureRequests.delete(requestKey);
   });
 
-  ensureRequests.set(normalizedUserId, request);
+  ensureRequests.set(requestKey, request);
   return request;
 }
 
 export async function clearDefaultExperienceCardSeen(userId: string): Promise<void> {
   await AsyncStorage.removeItem(buildSeenKey(userId.trim()));
+}
+
+export async function removeUnusedDefaultExperienceCard(userId: string): Promise<void> {
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) return;
+
+  try {
+    const cacheCollection = database.get<CachedItem>('cached_items');
+    const demoCards = await cacheCollection
+      .query(
+        Q.where('user_id', normalizedUserId),
+        Q.where('source_app', DEFAULT_EXPERIENCE_CARD_SOURCE),
+        Q.where('deleted_at', null)
+      )
+      .fetch();
+
+    const matchingCards = demoCards.filter((card) => isDefaultExperienceCard(card));
+    if (matchingCards.length > 0) {
+      await database.write(async () => {
+        await Promise.all(matchingCards.map((card) => card.destroyPermanently()));
+      });
+    }
+  } catch (error) {
+    console.warn('[DefaultExperienceCard] removeUnusedDefaultExperienceCard failed:', error);
+  }
 }
 
 export function isDefaultExperienceCard(item: Pick<CachedItem, 'sourceApp' | 'contentText'>): boolean {

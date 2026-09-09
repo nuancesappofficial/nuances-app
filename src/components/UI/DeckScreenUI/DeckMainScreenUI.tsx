@@ -448,19 +448,28 @@ export default function DeckMainScreenUI({
                         }
                       >
                         {item ? (
-                          <AlbumIconItemUI
-                            item={item}
-                            uiLanguage={uiLanguage}
-                            onPress={onPressAlbum}
-                            isMenuVisible={isMenuVisible}
-                            startX={startX}
-                            startY={startY}
-                            hoveredAction={hoveredAction}
-                            activeAlbumId={activeAlbumId}
-                            onMenuStart={onMenuStart}
-                            onMenuFinish={onMenuFinish}
-                            onActionEnd={onActionEnd}
-                          />
+                          <TutorialSpotlight
+                            active={
+                              tourStep === 'STEP_13_LONG_PRESS_ALBUM' &&
+                              !isTourMenuOpen &&
+                              item.id === tutorialLongPressAlbumId
+                            }
+                          >
+                            <AlbumIconItemUI
+                              item={item}
+                              uiLanguage={uiLanguage}
+                              onPress={onPressAlbum}
+                              isMenuVisible={isMenuVisible}
+                              startX={startX}
+                              startY={startY}
+                              hoveredAction={hoveredAction}
+                              activeAlbumId={activeAlbumId}
+                              deletionLocked={tourStep === 'STEP_13_LONG_PRESS_ALBUM'}
+                              onMenuStart={onMenuStart}
+                              onMenuFinish={onMenuFinish}
+                              onActionEnd={onActionEnd}
+                            />
+                          </TutorialSpotlight>
                         ) : (
                           <View style={styles.albumCellPlaceholder} />
                         )}

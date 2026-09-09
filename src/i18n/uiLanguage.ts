@@ -1,4 +1,5 @@
 import type { UILanguage } from '../services/settings/userSettings';
+export type { UILanguage };
 import { ADDITIONAL_UI_STRINGS } from './uiLanguageAdditional';
 
 export type UIStringKey =
@@ -77,6 +78,7 @@ export type UIStringKey =
   | 'cardDetail.downloading'
   | 'cache.create'
   | 'cache.skip'
+  | 'tour.skip'
   | 'cache.adding'
   | 'cache.duplicateTitle'
   | 'cache.duplicateMessage'
@@ -509,6 +511,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.downloading': 'downloading...',
     'cache.create': 'Create',
     'cache.skip': 'Skip',
+    'tour.skip': 'Skip',
     'cache.adding': 'Adding...',
     'cache.duplicateTitle': 'Already added',
     'cache.duplicateMessage':
@@ -991,6 +994,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.downloading': '下載中...',
     'cache.create': '建立',
     'cache.skip': '略過',
+    'tour.skip': '跳過',
     'cache.adding': '新增中…',
     'cache.duplicateTitle': '已經新增',
     'cache.duplicateMessage': '完全相同的文字已在暫存佇列中。',
@@ -1437,6 +1441,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.downloading': '下载中...',
     'cache.create': '建立',
     'cache.skip': '跳过',
+    'tour.skip': '跳过',
     'cache.adding': '新增中…',
     'cache.duplicateTitle': '已经新增',
     'cache.duplicateMessage': '完全相同的文字已在暂存队列中。',

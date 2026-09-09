@@ -21,6 +21,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'common.updating': '更新中...',
     'common.unableToOpenLink': 'リンクを開けません。',
     'common.skipTutorial': 'チュートリアルをスキップする',
+    'tour.skip': 'スキップ',
     'deck.searchPlaceholder': 'カード、アルバム、メモを検索...',
     'deck.noOriginalSentence': '原文はまだありません。',
     'deck.emptyWordPopTitle': 'カードを追加して単語を生成し始める',
@@ -517,6 +518,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'common.updating': '업데이트 중...',
     'common.unableToOpenLink': '링크를 열 수 없습니다.',
     'common.skipTutorial': '튜토리얼 건너뛰기',
+    'tour.skip': '건너뛰기',
     'deck.searchPlaceholder': '카드, 앨범, 메모 검색...',
     'deck.noOriginalSentence': '아직 원본 문장이 없습니다.',
     'deck.emptyWordPopTitle': '단어를 생성하려면 카드를 추가하세요.',
@@ -1001,6 +1003,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'common.updating': 'Actualizando...',
     'common.unableToOpenLink': 'No se puede abrir el enlace.',
     'common.skipTutorial': 'Saltar tutorial',
+    'tour.skip': 'Omitir',
     'deck.searchPlaceholder': 'Busca tarjetas, álbumes, notas...',
     'deck.noOriginalSentence': 'Aún no hay frase original.',
     'deck.emptyWordPopTitle':
@@ -1506,6 +1509,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'common.updating': 'Mise à jour...',
     'common.unableToOpenLink': "Impossible d'ouvrir le lien.",
     'common.skipTutorial': 'Passer le didacticiel',
+    'tour.skip': 'Passer',
     'deck.searchPlaceholder': 'Rechercher des cartes, des albums, des notes...',
     'deck.noOriginalSentence': 'Pas encore de phrase originale.',
     'deck.emptyWordPopTitle':

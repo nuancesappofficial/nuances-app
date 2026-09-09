@@ -13,8 +13,10 @@ import {
   View,
 } from 'react-native';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
-import TutorialSpotlight from '../shared/TutorialSpotlight';
+import TutorialOverlayMask from '../shared/TutorialOverlayMask';
+import TutorialHeaderOverlay from '../shared/TutorialHeaderOverlay';
 import MovingTutorialArrow from '../shared/MovingTutorialArrow';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import { tUI } from '../../../i18n/uiLanguage';
 import {
   MODAL_CTA_COLOR,
@@ -99,6 +101,10 @@ export default function AlbumSettingsModalUI({
   const selectedBorder = isDarkMode
     ? MODAL_CTA_COLOR_BORDER
     : '#85C7EF';
+  const { setSpotlightRect } = useAppTour();
+  const imageTabAnchorRef = React.useRef<View | null>(null);
+  const coverUploadAnchorRef = React.useRef<View | null>(null);
+  const saveButtonAnchorRef = React.useRef<View | null>(null);
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [entryDone, setEntryDone] = React.useState(false);
   const [coverTab, setCoverTab] = React.useState<'classic' | 'image'>(hasCoverImage ? 'image' : 'classic');
@@ -107,6 +113,47 @@ export default function AlbumSettingsModalUI({
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const tabSlideProgress = React.useRef(new Animated.Value(hasCoverImage ? 1 : 0)).current;
   const onDidCloseRef = React.useRef(onDidClose);
+
+  const measureActiveTarget = React.useCallback(() => {
+    if (!entryDone || !visible) return;
+    let activeRef: React.RefObject<View | null> | null = null;
+    if (tourPickCoverActive && coverTab !== 'image') {
+      activeRef = imageTabAnchorRef;
+    } else if (tourPickCoverActive && coverTab === 'image' && !coverImageUri) {
+      activeRef = coverUploadAnchorRef;
+    } else if (tourSaveActive) {
+      activeRef = saveButtonAnchorRef;
+    }
+
+    if (!activeRef) {
+      setSpotlightRect(null);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      activeRef?.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          setSpotlightRect({ x, y, width, height });
+        }
+      });
+    });
+  }, [coverImageUri, coverTab, entryDone, setSpotlightRect, tourPickCoverActive, tourSaveActive, visible]);
+
+  React.useEffect(() => {
+    measureActiveTarget();
+    const t1 = setTimeout(measureActiveTarget, 100);
+    const t2 = setTimeout(measureActiveTarget, 300);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [measureActiveTarget]);
+
+  React.useEffect(() => {
+    if (!visible) {
+      setSpotlightRect(null);
+    }
+  }, [visible, setSpotlightRect]);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -186,8 +233,16 @@ export default function AlbumSettingsModalUI({
   const panelWidth = Math.max(tabContentWidth, 1);
 
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onCancel}>
-      <Pressable style={styles.rootPressable} onPress={onCancel}>
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      onRequestClose={onCancel}
+    >
+      <Pressable
+        style={styles.rootPressable}
+        onPress={onCancel}
+      >
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}>
           <Pressable
@@ -267,6 +322,14 @@ export default function AlbumSettingsModalUI({
                         ]}
                         onPress={() => handleSelectTab(tab)}
                       >
+                        {tab === 'image' ? (
+                          <View
+                            ref={imageTabAnchorRef}
+                            collapsable={false}
+                            pointerEvents="none"
+                            style={StyleSheet.absoluteFillObject}
+                          />
+                        ) : null}
                         <Text
                           style={[
                             styles.tabButtonText,
@@ -342,7 +405,9 @@ export default function AlbumSettingsModalUI({
                               ],
                               pressed ? styles.pressableIconPressed : null,
                             ]}
-                            onPress={() => onChangeEmoji(emoji)}
+                            onPress={() => {
+                              onChangeEmoji(emoji);
+                            }}
                           >
                             <Text style={styles.emojiOptionText}>{emoji}</Text>
                           </Pressable>
@@ -361,21 +426,24 @@ export default function AlbumSettingsModalUI({
                       <Text style={[styles.sectionLabel, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumCoverColor')}</Text>
                       <View style={styles.colorGrid}>
                         {COVER_COLOR_OPTIONS.map((option) => {
-                          const active = settingsColor === option.value;
+                          const colorHex = option.value;
+                          const active = settingsColor === colorHex;
                           return (
                             <Pressable
-                              key={option.value}
+                              key={colorHex}
                               style={({ pressed }) => [
                                 styles.colorOptionRow,
                                 active ? styles.colorOptionRowActive : null,
                                 pressed ? styles.pressableIconPressed : null,
                               ]}
-                              onPress={() => onChangeColor(option.value)}
+                              onPress={() => {
+                                onChangeColor(colorHex);
+                              }}
                             >
                               <View
                                 style={[
                                   styles.colorSwatch,
-                                  { backgroundColor: option.value },
+                                  { backgroundColor: colorHex },
                                   active ? styles.colorSwatchActive : null,
                                 ]}
                               />
@@ -398,6 +466,12 @@ export default function AlbumSettingsModalUI({
                       ]}
                       onPress={onPickCoverImage}
                     >
+                      <View
+                        ref={coverUploadAnchorRef}
+                        collapsable={false}
+                        pointerEvents="none"
+                        style={StyleSheet.absoluteFillObject}
+                      />
                       {tourPickCoverActive && coverTab === 'image' && !coverImageUri ? (
                         <MovingTutorialArrow
                           direction="down"
@@ -450,27 +524,29 @@ export default function AlbumSettingsModalUI({
               >
                 <Text style={[styles.cancelText, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'create.albumCancel')}</Text>
               </Pressable>
-              <TutorialSpotlight
-                active={tourSaveActive}
-                onSpotlightPress={onSave}
-                style={styles.tourButtonWrapper}
+              <Pressable
+                style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
+                onPress={onSave}
               >
+                <View
+                  ref={saveButtonAnchorRef}
+                  collapsable={false}
+                  pointerEvents="none"
+                  style={StyleSheet.absoluteFillObject}
+                />
                 {tourSaveActive ? (
                   <MovingTutorialArrow
                     direction="down"
                     style={styles.tourSaveArrow}
                   />
                 ) : null}
-                <Pressable
-                  style={({ pressed }) => [styles.saveButton, pressed ? styles.pressablePrimaryPressed : null]}
-                  onPress={onSave}
-                >
-                  <Text style={styles.saveText}>{tUI(uiLanguage, 'create.albumSave')}</Text>
-                </Pressable>
-              </TutorialSpotlight>
+                <Text style={styles.saveText}>{tUI(uiLanguage, 'create.albumSave')}</Text>
+              </Pressable>
             </View>
           </Pressable>
         </Animated.View>
+        <TutorialOverlayMask />
+        <TutorialHeaderOverlay uiLanguage={uiLanguage} />
         {children}
       </Pressable>
     </Modal>
@@ -706,9 +782,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 4,
-  },
-  tourButtonWrapper: {
-    flex: 1,
   },
   tourPickCoverTabArrow: {
     position: 'absolute',

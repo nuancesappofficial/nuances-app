@@ -10,12 +10,13 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
-import { useAppTour } from '../../../contexts/AppTourContext';
+import { useAppTour, TOUR_COMPLETION_GREETING_EVENT } from '../../../contexts/AppTourContext';
 import {
   hasSeenTourLocally,
   markTourSeenLocally,
 } from '../../../features/tour/tourSeen';
 import { VIDEO_TOUR_ENABLED } from '../../../features/tour/tourMode';
+import { shouldBlockTutorialAlbumDeletion } from '../../../features/tour/tutorialCachePolicy';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
 import { resolveCardImageUri } from '@services/media/cardImage';
@@ -235,7 +236,6 @@ export default function DeckMainFlow({
   const didTrackTutorialCompletedRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
   const didOpenTourQuizRef = React.useRef(false);
-  const openedTourCardIdRef = React.useRef<string | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -313,11 +313,35 @@ export default function DeckMainFlow({
   }, [appTour, markTourSeen]);
 
   React.useEffect(() => {
+    if (appTour.isActive) {
+      didShowTourCompletionGreetingRef.current = false;
+    }
+  }, [appTour.isActive]);
+
+  React.useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      TOUR_COMPLETION_GREETING_EVENT,
+      () => {
+        setSettingsVisible(false);
+        setSettingsAlbum(null);
+        setPendingAlbumCoverCropUri(null);
+        setIsCreateModalVisible(false);
+        setActiveAlbum(null);
+        setActiveLayout(null);
+        setIsTourMenuOpen(false);
+        didShowTourCompletionGreetingRef.current = false;
+        setTourCompletionGreetingPending(true);
+      }
+    );
+    return () => subscription.remove();
+  }, []);
+
+  React.useEffect(() => {
     if (!tourCompletionGreetingPending || settingsVisible) return;
     const timer = setTimeout(() => {
       setTourCompletionGreetingPending(false);
       showTourCompletionGreeting();
-    }, 1000);
+    }, 300);
     return () => clearTimeout(timer);
   }, [
     settingsVisible,
@@ -375,29 +399,6 @@ export default function DeckMainFlow({
   }, [allCards, appTour.sampleCardId]);
 
   React.useEffect(() => {
-    if (appTour.step !== 'STEP_8_FLICK_CARD') return;
-    if (!appTour.sampleCardId || tourSampleCard?.id !== appTour.sampleCardId)
-      return;
-    if (openedTourCardIdRef.current === tourSampleCard.id) return;
-
-    openedTourCardIdRef.current = tourSampleCard.id;
-    const scopedCardIds = allCards.map((card) => card.id);
-    navigation.navigate('CardDetail', {
-      cardId: tourSampleCard.id,
-      cardIds: scopedCardIds.length > 0 ? scopedCardIds : [tourSampleCard.id],
-      albumName: tUI(uiLanguage, 'deck.albumAllCards'),
-      headerTitle: tUI(uiLanguage, 'deck.albumAllCards'),
-    });
-  }, [
-    allCards,
-    appTour.sampleCardId,
-    appTour.step,
-    navigation,
-    tourSampleCard,
-    uiLanguage,
-  ]);
-
-  React.useEffect(() => {
     if (appTour.step !== 'STEP_5_PROCESS_CACHE_CARD') return;
     console.log(
       `[FirstRunTrace] deck_main.step5_go_cache tabSwipeContext=${Boolean(tabSwipeContext)} step=${appTour.step}`
@@ -408,19 +409,16 @@ export default function DeckMainFlow({
   const handleTourTargetPress = React.useCallback(() => {
     if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
       didOpenTourQuizRef.current = true;
+      appTour.goToStep('STEP_10_QUIZ_FINISH');
       pressTodayReviewRef.current();
-      appTour.resetTourState();
       return;
     }
 
     if (appTour.step === 'STEP_11_CREATE_ALBUM') {
       setNewAlbumName((prev) => (prev.trim() ? prev : 'My Nuances'));
-      appTour.resetTourState();
+      setIsCreateModalVisible(true);
       setTimeout(() => {
-        setIsCreateModalVisible(true);
-        setTimeout(() => {
-          appTour.goToStep('STEP_12_CONFIRM_ALBUM');
-        }, 420);
+        appTour.goToStep('STEP_12_CONFIRM_ALBUM');
       }, 420);
       return;
     }
@@ -1125,7 +1123,9 @@ export default function DeckMainFlow({
       return;
     }
 
-    const isDefaultExperienceTutorial = showDefaultExperienceQuizHint;
+    const isDefaultExperienceTutorial = Boolean(
+      showDefaultExperienceQuizHint || appTour.isActive
+    );
     hideDefaultExperienceQuizHint();
     if (!cardsHydrated) {
       navigation.navigate('CardReview', {
@@ -1140,7 +1140,7 @@ export default function DeckMainFlow({
       return;
     }
 
-    if (sourceQuizUsableCards.length === 0) {
+    if (!isDefaultExperienceTutorial && sourceQuizUsableCards.length === 0) {
       Alert.alert(
         tUI(uiLanguage, 'deck.alertNoWordsTitle'),
         tUI(uiLanguage, 'deck.alertNoWordsBody')
@@ -1365,7 +1365,6 @@ export default function DeckMainFlow({
     };
 
     if (isTourConfirmation) {
-      appTour.resetTourState();
       setTimeout(() => {
         finishAlbumCreation();
         setTimeout(() => {
@@ -1569,11 +1568,12 @@ export default function DeckMainFlow({
       if (action === 'edit') {
         openAlbumSettings(album);
         if (appTour.step === 'STEP_13_LONG_PRESS_ALBUM') {
-          setTimeout(() => appTour.goToStep('STEP_14_ALBUM_SETTINGS'), 420);
+          setTimeout(() => appTour.goToStep('STEP_14_ALBUM_SETTINGS_COVER'), 420);
         }
         return;
       }
       if (action === 'delete') {
+        if (shouldBlockTutorialAlbumDeletion(appTour.isActive)) return;
         handleDeleteAlbum(album);
       }
     },
@@ -1697,11 +1697,20 @@ export default function DeckMainFlow({
           todayNewWordsOnly ? sourceTodayUnreviewedQuizUsableCardIds.length : 0
         }
         todayNewWordsOnly={todayNewWordsOnly}
-        onPressTodayReview={handlePressTodayReview}
+        onPressTodayReview={() => {
+          if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
+            handleTourTargetPress();
+            return;
+          }
+          handlePressTodayReview();
+        }}
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
-        showQuickQuizTutorialArrow={showDefaultExperienceQuizHint}
+        showQuickQuizTutorialArrow={
+          showDefaultExperienceQuizHint ||
+          appTour.step === 'STEP_10_QUIZ_SAMPLE'
+        }
         tutorialLongPressAlbumId={
           appTour.step === 'STEP_13_LONG_PRESS_ALBUM'
             ? customAlbums[0]?.id || null
@@ -1771,7 +1780,7 @@ export default function DeckMainFlow({
         tourSaveActive={
           appTour.step === 'STEP_14_ALBUM_SETTINGS' && tourCoverPicked
         }
-        tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS'}
+        tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER'}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
@@ -1789,6 +1798,7 @@ export default function DeckMainFlow({
           fixedCropSize={260}
           modalAnimationType="slide"
           uiLanguage={uiLanguage}
+          showConfirmTutorialArrow={appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER'}
           onCancel={() => {
             setPendingAlbumCoverCropUri(null);
           }}
@@ -1797,6 +1807,9 @@ export default function DeckMainFlow({
             setPendingAlbumCoverCropUri(null);
             // 換完封面 → 顯示指向儲存按鈕的箭頭
             setTourCoverPicked(true);
+            if (appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER') {
+              appTour.goToStep('STEP_14_ALBUM_SETTINGS');
+            }
             void persistAlbumCoverImage(croppedUri)
               .then((stableUri) => {
                 setSettingsCoverImageUri(stableUri);

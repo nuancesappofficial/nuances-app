@@ -24,6 +24,8 @@ import {
   type DevFreshUserSession,
 } from './devFreshUserSimulatorCore';
 import { resolveAccountDeletionStorageKeys } from '../tour/tutorialFlowPolicy';
+import { clearDefaultExperienceCardSeen } from '../cache/defaultExperienceCard';
+import { clearTourSeenLocally } from '../tour/tourSeen';
 
 async function removeDirectoryIfExists(uri: string): Promise<void> {
   if (!uri) return;
@@ -74,6 +76,16 @@ export async function simulateFreshUser(): Promise<DevFreshUserSession> {
     await clearLocalAccountCaches(userId);
   } catch (error) {
     console.warn('[DevFreshUser] local cache cleanup failed:', error);
+  }
+  try {
+    await clearDefaultExperienceCardSeen(userId);
+  } catch (error) {
+    console.warn('[DevFreshUser] default experience card cleanup failed:', error);
+  }
+  try {
+    await clearTourSeenLocally(userId);
+  } catch (error) {
+    console.warn('[DevFreshUser] tour seen cleanup failed:', error);
   }
   try {
     await clearUserSettings();

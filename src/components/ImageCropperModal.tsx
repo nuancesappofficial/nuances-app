@@ -21,6 +21,9 @@ import {
 } from '../services/settings/userSettings';
 import { tUI } from '../i18n/uiLanguage';
 import MovingTutorialArrow from './UI/shared/MovingTutorialArrow';
+import TutorialSpotlight from './UI/shared/TutorialSpotlight';
+import TutorialOverlayMask from './UI/shared/TutorialOverlayMask';
+import TutorialHeaderOverlay from './UI/shared/TutorialHeaderOverlay';
 
 type Size = {
   width: number;
@@ -1114,32 +1117,39 @@ export default function ImageCropperModal({
             ) : null}
           </View>
           <View style={styles.confirmTutorialTarget}>
-            {showConfirmTutorialArrow && !processing ? (
-              <MovingTutorialArrow
-                direction="up"
-                color="#4EAFF4"
-                size={28}
-                style={styles.confirmTutorialArrow}
-              />
-            ) : null}
-            <Pressable
-              onPress={handleConfirm}
-              style={({ pressed }) => [
-                styles.headerChip,
-                pressed && !processing && cropRect
-                  ? styles.pressableChipPressed
-                  : null,
-              ]}
-              disabled={processing || !cropRect}
+            <TutorialSpotlight
+              active={showConfirmTutorialArrow && !processing}
+              onSpotlightPress={handleConfirm}
             >
-              <Text style={styles.confirmText}>
-                {processing
-                  ? tUI(uiLanguage, 'cropper.processing')
-                  : tUI(uiLanguage, 'common.done')}
-              </Text>
-            </Pressable>
+              {showConfirmTutorialArrow && !processing ? (
+                <MovingTutorialArrow
+                  direction="up"
+                  color="#4EAFF4"
+                  size={28}
+                  style={styles.confirmTutorialArrow}
+                />
+              ) : null}
+              <Pressable
+                onPress={handleConfirm}
+                style={({ pressed }) => [
+                  styles.headerChip,
+                  pressed && !processing && cropRect
+                    ? styles.pressableChipPressed
+                    : null,
+                ]}
+                disabled={processing || !cropRect}
+              >
+                <Text style={styles.confirmText}>
+                  {processing
+                    ? tUI(uiLanguage, 'cropper.processing')
+                    : tUI(uiLanguage, 'common.done')}
+                </Text>
+              </Pressable>
+            </TutorialSpotlight>
           </View>
         </View>
+        {cropShape !== 'album' ? <TutorialOverlayMask /> : null}
+        <TutorialHeaderOverlay />
       </View>
     </Modal>
   );

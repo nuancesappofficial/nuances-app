@@ -1,5 +1,14 @@
 import React from 'react';
-import { Animated, Easing, Linking, StyleSheet, TouchableOpacity, View, useColorScheme } from 'react-native';
+import {
+  Animated,
+  DeviceEventEmitter,
+  Easing,
+  Linking,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  useColorScheme,
+} from 'react-native';
 import {
   NavigationContainer,
   NavigationIndependentTree,
@@ -34,7 +43,9 @@ import { resolveThemeColors } from '../theme/colors';
 import { getCurrentSessionUserId } from '../services/auth/userIdentity';
 import SubscriptionService from '../services/subscription/SubscriptionService';
 import { APP_STORE_REVIEW_URL } from '../constants/legalLinks';
-import { useAppTour } from '../contexts/AppTourContext';
+import { useAppTour, TOUR_COMPLETION_GREETING_EVENT } from '../contexts/AppTourContext';
+import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay';
+import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
 import { traceFirstRun } from '../services/logging/firstRunTraceRuntime';
 
@@ -527,6 +538,17 @@ export default function RootNavigator({
     setTimeout(popDeckRootWhenReady, 280);
   }, [cardsNavigationRef, switchTabImmediately]);
 
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      TOUR_COMPLETION_GREETING_EVENT,
+      () => {
+        resetCacheStackToRoot();
+        routeToDeckRoot();
+      }
+    );
+    return () => sub.remove();
+  }, [resetCacheStackToRoot, routeToDeckRoot]);
+
   const handledNotificationResponseIdRef = React.useRef<string | null>(null);
 
   const handleReminderNotificationResponse = React.useCallback(
@@ -733,6 +755,8 @@ export default function RootNavigator({
             navCapsuleBorder={theme.navCapsuleBorder}
           />
         </Animated.View>
+        <TutorialOverlayMask />
+        <TutorialHeaderOverlay />
       </View>
     </TabSwipeContext.Provider>
   );

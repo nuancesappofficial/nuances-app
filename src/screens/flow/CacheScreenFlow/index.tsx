@@ -9,6 +9,7 @@ import {
   Animated,
   useColorScheme,
   useWindowDimensions,
+  DeviceEventEmitter,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
@@ -34,7 +35,7 @@ import Reanimated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
-import { useAppTour } from '../../../contexts/AppTourContext';
+import { useAppTour, TOUR_COMPLETION_GREETING_EVENT } from '../../../contexts/AppTourContext';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import { getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
@@ -782,6 +783,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     openCropperForSwipeImage,
+    forceCloseUploadCropper,
   } = useCacheQuickAddFlow({
     navigation,
     setShowAddModal,
@@ -791,6 +793,22 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     },
     onSwipeImageCropCancel: restoreCacheCardToStack,
   });
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      TOUR_COMPLETION_GREETING_EVENT,
+      () => {
+        setShowAddModal(false);
+        closeQuickCamera();
+        // Do NOT call handleUploadCropCancel here — it would call setShowAddModal(true)
+        // (cropperFlowTarget defaults to 'quick-add' so shouldReopenAddModal is true),
+        // which pops up the upload modal before the greeting modal can appear.
+        forceCloseUploadCropper();
+      }
+    );
+    return () => sub.remove();
+  }, [closeQuickCamera, forceCloseUploadCropper]);
+
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
   const [stickerFontKey, setStickerFontKey] = useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
   const [stickerFontScalePercent, setStickerFontScalePercent] = useState(
@@ -870,6 +888,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     normalizeStickerText,
     toDayKey,
     optimisticallyHiddenCacheIds,
+    isTutorialActive: appTour.isActive,
   });
   const todayUploadGridHeight = useMemo(
     () => getStickerGridHeightForCount(todayStickerWords.length),

@@ -1983,7 +1983,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const handleTourGeneratePress = React.useCallback(() => {
     if (appTour.step === 'STEP_6_GENERATE_SAMPLE') {
       shouldPromptTourSaveOnScrollRef.current = true;
-      appTour.resetTourState();
+      appTour.goToStep('STEP_7_SAVE_SAMPLE');
       requestAnimationFrame(() => {
         void handleGenerate();
       });
@@ -2328,14 +2328,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         is_tutorial: isDefaultExperienceTutorial,
       });
 
-      if (isDefaultExperienceTutorial && createdCardIds.length > 0) {
-        await markDefaultExperienceQuizHintPending(activeUserId);
-      } else if (
-        appTour.step === 'STEP_7_SAVE_SAMPLE' &&
-        createdCardIds.length > 0
-      ) {
-        appTour.setSampleCardId(createdCardIds[0]);
-        appTour.nextStep();
+      if (createdCardIds.length > 0) {
+        if (isDefaultExperienceTutorial) {
+          await markDefaultExperienceQuizHintPending(activeUserId);
+        }
+        if (
+          appTour.step === 'STEP_7_SAVE_SAMPLE' ||
+          isDefaultExperienceTutorial
+        ) {
+          appTour.setSampleCardId(createdCardIds[0]);
+        }
       }
     } catch (error) {
       console.error('[CreateCard] save failed:', error);
@@ -2367,17 +2369,21 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     cancelDefaultExperienceSaveArrowRef.current?.();
     cancelDefaultExperienceSaveArrowRef.current = null;
     setShowDefaultExperienceSaveArrow(false);
-    goToCacheHome();
     if (
       isDefaultExperienceTutorial ||
       appTour.step === 'STEP_7_SAVE_SAMPLE'
     ) {
+      appTour.goToStep('STEP_10_QUIZ_SAMPLE');
+      tabSwipeContext?.goToTab(0, { animation: 'slide', durationMs: 400 });
       setTimeout(() => {
-        tabSwipeContext?.goToTab(0, { animation: 'slide', durationMs: 620 });
-      }, 80);
+        goToCacheHome();
+      }, 420);
+      return;
     }
+    goToCacheHome();
   }, [
-    appTour.step,
+    appTour,
+    completedCards,
     goToCacheHome,
     isDefaultExperienceTutorial,
     tabSwipeContext,
@@ -2732,56 +2738,63 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                             style={styles.tokenTutorialArrow}
                           />
                         ) : null}
-                        <Pressable
-                          style={({ pressed }) => [
-                            styles.tokenBtn,
-                            {
-                              backgroundColor: isSelected
-                                ? MODAL_CTA_COLOR
-                                : palette.modalOptionBg,
-                              borderColor: isSelected
-                                ? MODAL_CTA_COLOR_BORDER
-                                : palette.modalOptionBorder,
-                              borderStyle: isRecognizedTextEditMode
-                                ? 'dashed'
-                                : 'solid',
-                              borderTopLeftRadius:
-                                isSelected && !isGroupStart ? 4 : 8,
-                              borderBottomLeftRadius:
-                                isSelected && !isGroupStart ? 4 : 8,
-                              borderTopRightRadius:
-                                isSelected && !isGroupEnd ? 4 : 8,
-                              borderBottomRightRadius:
-                                isSelected && !isGroupEnd ? 4 : 8,
-                            },
-                            pressed ? styles.pressableChipPressed : null,
-                          ]}
-                          onPress={() => {
-                            if (
-                              resolveRecognizedWordPressAction(
-                                isRecognizedTextEditMode
-                              ) === 'edit'
-                            ) {
-                              editSourceToken(token, idx);
-                              return;
-                            }
-                            toggleSourceToken(idx);
-                          }}
+                        <TutorialSpotlight
+                          active={
+                            appTour.step === 'STEP_5_SELECT_TARGET' &&
+                            idx === defaultExperienceTargetIndex
+                          }
                         >
-                          <Text
-                            style={[
-                              styles.tokenText,
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.tokenBtn,
                               {
-                                color: isSelected
-                                  ? TEXT_ON_CTA
-                                  : palette.textOnContainer,
+                                backgroundColor: isSelected
+                                  ? MODAL_CTA_COLOR
+                                  : palette.modalOptionBg,
+                                borderColor: isSelected
+                                  ? MODAL_CTA_COLOR_BORDER
+                                  : palette.modalOptionBorder,
+                                borderStyle: isRecognizedTextEditMode
+                                  ? 'dashed'
+                                  : 'solid',
+                                borderTopLeftRadius:
+                                  isSelected && !isGroupStart ? 4 : 8,
+                                borderBottomLeftRadius:
+                                  isSelected && !isGroupStart ? 4 : 8,
+                                borderTopRightRadius:
+                                  isSelected && !isGroupEnd ? 4 : 8,
+                                borderBottomRightRadius:
+                                  isSelected && !isGroupEnd ? 4 : 8,
                               },
-                              isSelected && styles.tokenTextSelected,
+                              pressed ? styles.pressableChipPressed : null,
                             ]}
+                            onPress={() => {
+                              if (
+                                resolveRecognizedWordPressAction(
+                                  isRecognizedTextEditMode
+                                ) === 'edit'
+                              ) {
+                                editSourceToken(token, idx);
+                                return;
+                              }
+                              toggleSourceToken(idx);
+                            }}
                           >
-                            {token}
-                          </Text>
-                        </Pressable>
+                            <Text
+                              style={[
+                                styles.tokenText,
+                                {
+                                  color: isSelected
+                                    ? TEXT_ON_CTA
+                                    : palette.textOnContainer,
+                                },
+                                isSelected && styles.tokenTextSelected,
+                              ]}
+                            >
+                              {token}
+                            </Text>
+                          </Pressable>
+                        </TutorialSpotlight>
                         </View>
                       </React.Fragment>
                     );
