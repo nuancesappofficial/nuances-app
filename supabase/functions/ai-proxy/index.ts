@@ -575,14 +575,28 @@ function resolveAIBreakdownMode(input: unknown): AIBreakdownMode {
   return 'context';
 }
 
+function getCulturalBackgroundGuideline(budgetChars: number, replyLanguageLabel: string): string {
+  return [
+    `culturalBackground <= ${budgetChars} chars in ${replyLanguageLabel}.`,
+    'CRITICAL RULES for culturalBackground — violating any rule is a failure:',
+    'BANNED starters: "這句話的意思是", "這個詞是指", "意思是", "這個成語源於一種心理狀態", "This phrase means", "This word means", or any paraphrase of the definition.',
+    'BANNED generic endings: "可能影響他人的互動", "可能導致衝突和誤解", "在社交場合中帶有批評語氣", or any sentence that fits 10+ different words.',
+    'RULE for idioms/phrases: MUST include (a) a concrete physical origin or historical act in ONE sentence — e.g. "19世紀美國年輕人將木屑放在肩上，挑釁對方撥掉，一旦被動就開打" — NOT "源於一種心理狀態" or "形象地描繪". Then (b) the precise psychological gap vs. a plain synonym — e.g. not just angry, but "長期積壓的被虧待感+隨時準備反擊的過度防衛". Then (c) the real-life social cost — e.g. "被這樣評價的人通常被認為難以共事，因為任何批評都會被他詮釋為人身攻擊".',
+    'RULE for regular words: name the intensity level vs. plain synonyms, the speaker subtext, and one concrete scenario where this word is the ONLY right choice.',
+    'RULE for proper nouns: state the domain status/benchmark role (NOT Wikipedia history) and why the speaker invoked it here specifically.',
+    'RULE for standalone input: still follow all above rules from general knowledge. NEVER say context is missing.',
+  ].join(' ');
+}
+
 function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel: string): string {
   const budget = CARD_SECTION_BUDGETS[mode];
+  const bgGuideline = getCulturalBackgroundGuideline(budget.contextChars, replyLanguageLabel);
   if (mode === 'short_punchy') {
     return [
       'Mode: Quick.',
       `definition <= ${budget.definitionChars} chars, one line and normally 1-4 words in ${replyLanguageLabel}.`,
       `sentenceTranslation <= ${budget.sentenceTranslationChars} chars total.`,
-      `culturalBackground <= ${budget.contextChars} chars, 1-2 concise sentences explaining why the speaker/writer chose this word in this sentence, including tone or implication. Do not explain the subject as general knowledge.`,
+      `culturalBackground: 1-2 concise sentences following these rules: ${bgGuideline}`,
       `Return ${budget.collocationCount} usage pair(s), each with one usage phrase and one example, unless the subject genuinely has fewer common reusable patterns.`,
     ].join(' ');
   }
@@ -592,7 +606,7 @@ function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel
       'Mode: Deep Dive.',
       `definition <= ${budget.definitionChars} chars, one line and normally 1-6 words: the single best natural in-context translation in ${replyLanguageLabel}.`,
       `sentenceTranslation <= ${budget.sentenceTranslationChars} chars total.`,
-      `culturalBackground <= ${budget.contextChars} chars; give 3-4 useful sentences about the word's role in this sentence: why it fits, nearby-word interaction, tone/register, implication, and any useful contrast. Do not explain the subject as general knowledge.`,
+      `culturalBackground: 3-4 in-depth sentences following these rules: ${bgGuideline}`,
       `Return ${budget.collocationCount} usage pairs, each with one example, unless the subject genuinely has fewer common reusable patterns. Prefer varied everyday, professional/abstract, and nuanced contexts.`,
     ].join(' ');
   }
@@ -601,7 +615,7 @@ function getAIBreakdownModeInstruction(mode: AIBreakdownMode, replyLanguageLabel
     'Mode: Detailed.',
     `definition <= ${budget.definitionChars} chars, one line and normally 1-6 words: the single best natural in-context translation in ${replyLanguageLabel}.`,
     `sentenceTranslation <= ${budget.sentenceTranslationChars} chars total.`,
-    `culturalBackground <= ${budget.contextChars} chars, 2-3 concise sentences about the word's role in this sentence: why it fits, nearby-word interaction, tone/register, and implication. Do not explain the subject as general knowledge.`,
+    `culturalBackground: 2-3 rich sentences following these rules: ${bgGuideline}`,
     `Return ${budget.collocationCount} usage pairs, each with one example, unless the subject genuinely has fewer common reusable patterns. Prefer practical examples in different contexts.`,
   ].join(' ');
 }
@@ -716,7 +730,7 @@ function buildGenerateCardResponseSchema(sectionBudget: (typeof CARD_SECTION_BUD
       },
       culturalBackground: {
         type: 'STRING',
-        description: 'Explain the subject’s role in this sentence: why it fits, nearby-word interaction, tone/register, or implication. Do not give general encyclopedia knowledge about the subject.',
+        description: 'Nuance, origin, and pragmatic context. For idioms/phrases: give vivid origin/mental image, psychological nuance vs plain words, and social impression. For regular words: explain intensity, register contrast, and tone. For proper nouns: state domain benchmark/symbolic status. Never repeat the definition or start with "means/指的是".',
       },
       frequentCollocations: {
         type: 'ARRAY',
@@ -1398,18 +1412,18 @@ function buildStructuredContextExplanation(params: {
   );
   const culturalBackground = firstText(
     culturalBackgroundMaxChars,
+    parsed.culturalBackground,
+    parsed.context,
+    parsed.culturalContext,
+    parsed.whyItFits,
+    parsed.usageFit,
+    parsed.origin,
+    contextObject.culturalBackground,
+    contextObject.context,
+    contextObject.culturalContext,
     meaningResolution.whyGoodFit,
     meaningResolution.literalMeaningNote,
     meaningResolution.meaningHere,
-    parsed.context,
-    parsed.culturalBackground,
-    parsed.culturalContext,
-    parsed.usageFit,
-    parsed.whyItFits,
-    parsed.origin,
-    contextObject.context,
-    contextObject.culturalBackground,
-    contextObject.culturalContext,
   );
   const exampleSentence = normalizeExamples(
     parsed.example || parsed.exampleSentence || parsed.naturalExample || contextObject.exampleSentence || contextObject.example,
@@ -2517,11 +2531,11 @@ async function handleGenerateCard(payload: GenerateCardPayload): Promise<Respons
   const isLowContextSource = isLowContextSourceInput(targetWord, originalSentence);
   const lowContextInstruction = isLowContextSource
     ? [
-      'Low-context input detected: the source sentence is only the target word/phrase.',
-      'Use the most common neutral literal meaning. Do NOT infer slang, meme, metaphor, innuendo, or cultural meaning.',
-      'Set partOfSpeech to the ordinary grammatical category when clear. Do not label it slang unless the word itself is only slang.',
-      'Keep culturalBackground empty or write one very short neutral note that there is no extra sentence context.',
-      'Even when the input is a single word, still provide real multi-word collocations and a full example sentence from common lexical knowledge.',
+      'Standalone input detected: the input is a single word or phrase without extra sentence context.',
+      'Use the primary natural meaning in modern contemporary usage.',
+      'For culturalBackground, follow the culturalBackground rules: explain origin/mental image (for idioms/phrases), psychological nuance/contrast, or intensity/register (for words). Do NOT leave culturalBackground empty and do NOT say context is lacking.',
+      'Set partOfSpeech to the ordinary grammatical category when clear.',
+      'Provide real multi-word collocations and a full natural example sentence from common lexical knowledge.',
       'Do not return the bare target word as a collocation or example. Expand it into a natural phrase or sentence.',
     ].join(' ')
     : [
@@ -2572,7 +2586,7 @@ Return strict JSON with these exact keys:
   "lemma": "single-word lemma for the target's in-context part of speech",
   "lemmaMeaningPreserved": true,
   "partOfSpeech": "noun | verb | adjective | adverb | phrasal verb | idiom | fixed expression | phrase | slang | proper noun | other",
-  "culturalBackground": "why this word fits this sentence, including nuance/tone; not general knowledge, max ${sectionBudget.contextChars} chars",
+  "culturalBackground": "nuance and context: for idioms/phrases give origin/mental image, psychological nuance vs plain words, and social impression; for regular words give intensity/register/subtext; for proper nouns give domain symbolic benchmark; never repeat definition or start with 'means/指的是', max ${sectionBudget.contextChars} chars",
   "frequentCollocations": [{ "phrase": "${sourceLanguage.label} collocation", "translation": "direct ${replyLanguage.label} translation" }],
   "example": [{ "sentence": "complete ${sourceLanguage.label} example", "translation": "complete ${replyLanguage.label} translation" }],
   "semanticRelations": {
@@ -2616,7 +2630,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     domainRegisterSenseInstruction,
     lexicalDefinitionScopeInstruction,
     'sentenceTranslation has exactly two lines: full source sentence with quoted target, then clean translation with quoted translated target.',
-    'Keep definition compact. In culturalBackground, explain why this word fits this sentence and what nuance/tone it adds; do not give general knowledge about the subject.',
+    'Keep definition compact. In culturalBackground, do NOT start with "意思是/指的是/means" or repeat the definition, and avoid generic filler. Follow the 3-category culturalBackground rules (origin/psychological nuance/social impression for idioms; intensity/register/subtext for regular words; domain benchmark for proper nouns).',
     `semanticRelations must match the effective subject's meaning, part of speech, and register. Return up to ${sectionBudget.synonymCount} synonym(s) and up to ${sectionBudget.antonymCount} true antonym(s); either array may be empty when no natural sense-specific relation exists. Phrase cards require related phrases. Never repeat collocations.`,
     'Return reusable usage patterns containing the effective subject or its normal inflection. Each example must be a complete sentence using the matching pattern.',
     modeInstruction,
@@ -3223,7 +3237,7 @@ Return JSON with exactly these keys:
   "definition": "same idea as meaningResolution.targetTranslation; one line, normally 1-6 words",
   "normalizedTargetWord": "base form or verified phrase",
   "partOfSpeech": "noun | verb | adjective | adverb | phrasal verb | idiom | fixed expression | phrase | slang | proper noun | other",
-	  "culturalBackground": "why this word fits this sentence, including nuance/tone; not general knowledge",
+	  "culturalBackground": "nuance and context: origin/mental image, psychological nuance vs plain words, social tone; not definition or generic filler",
   "frequentCollocations": [{ "phrase": "${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation" }],
   "example": [{ "sentence": "${sourceLanguage.label} example sentence", "translation": "${replyLanguage.label} translation" }],
   "semanticRelations": {
@@ -3737,21 +3751,27 @@ Card subject: "${canonicalSubject}"
 Part of speech: "${partOfSpeech}"
 Meaning here in ${replyLanguage.label}: "${definition}"
 
-1. Briefly explain in ${replyLanguage.label} why the card subject has this meaning and nuance in the source text.
-2. First choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s) for this meaning, unless fewer genuinely exist, and give the natural ${replyLanguage.label} meaning of each whole collocation.
-3. Then write one complete ${sourceLanguage.label} example sentence for each collocation. Build each example from its collocation and use that exact collocation, then give the natural ${replyLanguage.label} translation of the complete example.
+1. Write culturalBackground in ${replyLanguage.label}. Follow ALL rules:
+   BANNED starters: "意思是/指的是/This means/這個成語源於一種心理狀態/形象地描繪" or any restatement of the definition.
+   BANNED generic endings: "可能影響他人的互動", "可能導致衝突和誤解", "在社交場合中帶有批評語氣", or any sentence applicable to 10+ words.
+   FOR IDIOMS/PHRASES: (a) concrete physical origin or historical act — e.g. "19世紀美國少年把木屑放肩上，誰撥掉就跟誰打架" — NEVER "源於一種心理狀態"; (b) exact psychological gap vs. plain synonym — e.g. "不只是生氣，而是長期累積的被虧待感，隨時豎刺準備還擊"; (c) real social cost — e.g. "被這樣評論的人通常被認為難以共事，因為任何批評都會被他詮釋為人身攻擊".
+   FOR REGULAR WORDS: intensity vs. plain synonyms, speaker subtext, and one scenario where ONLY this word is correct.
+   FOR PROPER NOUNS: domain benchmark/symbolic role (not Wikipedia history), and why the speaker uses it here.
+2. Choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s), unless fewer genuinely exist, and give the natural ${replyLanguage.label} meaning of each.
+3. Write one complete ${sourceLanguage.label} example sentence per collocation. CRITICAL: The example MUST be a brand-new sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Then give the complete ${replyLanguage.label} translation.
 4. Give up to ${sectionBudget.synonymCount} sense-specific synonym(s) and ${sectionBudget.antonymCount} true antonym(s), only when they naturally exist.
 ${isLowContextSource ? 'For a standalone lookup, use common usage for the resolved meaning.' : ''}
 
 Return JSON in exactly this order:
 {
-  "culturalBackground": "why this word fits this sentence, including nuance/tone; not a general explanation of the subject",
-  "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "complete ${sourceLanguage.label} example using this exact collocation", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
+  "culturalBackground": "concrete origin + psychological nuance + social cost/impression — not definition or generic filler",
+  "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "brand-new ${sourceLanguage.label} example — NEVER the source sentence", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
   "synonyms": [{ "term": "sense-specific synonym", "translation": "short translation" }],
   "antonyms": [{ "term": "true antonym", "translation": "short translation" }],
   "tags": ["max 3 short tags"]
 }
 `;
+
   const messages = [
     { role: 'system', content: systemInstruction },
     { role: 'user', content: prompt },

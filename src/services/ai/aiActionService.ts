@@ -364,14 +364,11 @@ function normalizeGeneratedCardResult(
     isPartOfPhrase: result.isPartOfPhrase,
   });
   const allowEmpty = isProperNoun || isPhrase || Boolean(options?.allowEmptyCollocations);
-  let example = stringifyExamples(result.example || result.exampleSentence);
+  const example = stringifyExamples(result.example || result.exampleSentence);
   const frequentCollocations = stringifyCollocations(
     result.frequentCollocations || result['Frequent collocations'],
     resolvedHeadword
   );
-  if (!example && originalSentence) {
-    example = originalSentence;
-  }
   if (!example || (!allowEmpty && !frequentCollocations)) {
     throw new Error(
       `Generated card missing valid collocation and example pairs for "${resolvedHeadword}"`
@@ -770,8 +767,6 @@ async function streamAndNormalizeEnrichmentWithRetry(
         definition: core.definition,
         isPartOfPhrase: core.isPartOfPhrase,
         allowEmptyCollocations: attempt === maxAttempts,
-        fallbackExampleSentence: payload.originalSentence,
-        fallbackExampleTranslation: core.sentenceTranslation,
       });
 
       enrichment.frequentCollocations = normalizedUsage.frequentCollocations;
