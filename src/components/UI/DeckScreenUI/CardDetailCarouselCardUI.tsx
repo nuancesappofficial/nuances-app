@@ -1216,10 +1216,9 @@ function CardDetailCarouselCardUI({
       });
       await Share.share({
         url: uri,
-        message: `${itemWord} (${face})`,
       });
     },
-    [itemWord]
+    []
   );
   const captureFacePreview = React.useCallback(
     async (face: 'front' | 'back') => {
@@ -1279,7 +1278,6 @@ function CardDetailCarouselCardUI({
       });
       await Share.share({
         url: uri,
-        message: `${itemWord} (front + back)`,
       });
       return;
     }
@@ -1292,7 +1290,6 @@ function CardDetailCarouselCardUI({
     }
   }, [
     captureAndShareFace,
-    itemWord,
     shareSelection.back,
     shareSelection.front,
   ]);
@@ -2334,6 +2331,7 @@ function CardDetailCarouselCardUI({
           <Animated.View
             style={[
               localStyles.shareModalSheet,
+              isLightMode ? localStyles.shareModalSheetLight : null,
               {
                 opacity: shareModalAnim,
                 transform: [
@@ -2348,7 +2346,12 @@ function CardDetailCarouselCardUI({
             ]}
           >
             <Pressable onPress={() => {}}>
-              <Text style={localStyles.shareModalTitle}>
+              <Text
+                style={[
+                  localStyles.shareModalTitle,
+                  isLightMode ? localStyles.shareModalTitleLight : null,
+                ]}
+              >
                 {tUI(uiLanguage, 'cardDetail.shareScreens')}
               </Text>
               <View style={localStyles.sharePreviewRow}>
@@ -2362,8 +2365,14 @@ function CardDetailCarouselCardUI({
                   <View
                     style={[
                       localStyles.sharePreviewMedia,
+                      isLightMode ? localStyles.sharePreviewMediaLight : null,
                       shareSelection.front
-                        ? localStyles.sharePreviewMediaActive
+                        ? [
+                            localStyles.sharePreviewMediaActive,
+                            isLightMode
+                              ? localStyles.sharePreviewMediaActiveLight
+                              : null,
+                          ]
                         : null,
                     ]}
                   >
@@ -2374,7 +2383,14 @@ function CardDetailCarouselCardUI({
                         resizeMode="cover"
                       />
                     ) : (
-                      <Text style={localStyles.sharePreviewFallback}>
+                      <Text
+                        style={[
+                          localStyles.sharePreviewFallback,
+                          isLightMode
+                            ? localStyles.sharePreviewFallbackLight
+                            : null,
+                        ]}
+                      >
                         {tUI(uiLanguage, 'cardDetail.front')}
                       </Text>
                     )}
@@ -2387,9 +2403,20 @@ function CardDetailCarouselCardUI({
                           : 'ellipse-outline'
                       }
                       size={18}
-                      color={shareSelection.front ? '#4EAFF4' : '#94A3B8'}
+                      color={
+                        shareSelection.front
+                          ? isLightMode
+                            ? '#0284C7'
+                            : '#4EAFF4'
+                          : '#94A3B8'
+                      }
                     />
-                    <Text style={localStyles.sharePreviewLabel}>
+                    <Text
+                      style={[
+                        localStyles.sharePreviewLabel,
+                        isLightMode ? localStyles.sharePreviewLabelLight : null,
+                      ]}
+                    >
                       {tUI(uiLanguage, 'cardDetail.front')}
                     </Text>
                   </View>
@@ -2405,8 +2432,14 @@ function CardDetailCarouselCardUI({
                   <View
                     style={[
                       localStyles.sharePreviewMedia,
+                      isLightMode ? localStyles.sharePreviewMediaLight : null,
                       shareSelection.back
-                        ? localStyles.sharePreviewMediaActive
+                        ? [
+                            localStyles.sharePreviewMediaActive,
+                            isLightMode
+                              ? localStyles.sharePreviewMediaActiveLight
+                              : null,
+                          ]
                         : null,
                     ]}
                   >
@@ -2417,7 +2450,14 @@ function CardDetailCarouselCardUI({
                         resizeMode="cover"
                       />
                     ) : (
-                      <Text style={localStyles.sharePreviewFallback}>
+                      <Text
+                        style={[
+                          localStyles.sharePreviewFallback,
+                          isLightMode
+                            ? localStyles.sharePreviewFallbackLight
+                            : null,
+                        ]}
+                      >
                         {tUI(uiLanguage, 'cardDetail.back')}
                       </Text>
                     )}
@@ -2430,9 +2470,20 @@ function CardDetailCarouselCardUI({
                           : 'ellipse-outline'
                       }
                       size={18}
-                      color={shareSelection.back ? '#4EAFF4' : '#94A3B8'}
+                      color={
+                        shareSelection.back
+                          ? isLightMode
+                            ? '#0284C7'
+                            : '#4EAFF4'
+                          : '#94A3B8'
+                      }
                     />
-                    <Text style={localStyles.sharePreviewLabel}>
+                    <Text
+                      style={[
+                        localStyles.sharePreviewLabel,
+                        isLightMode ? localStyles.sharePreviewLabelLight : null,
+                      ]}
+                    >
                       {tUI(uiLanguage, 'cardDetail.back')}
                     </Text>
                   </View>
@@ -2443,22 +2494,34 @@ function CardDetailCarouselCardUI({
                 <Pressable
                   style={({ pressed }) => [
                     localStyles.shareCancelBtn,
+                    isLightMode ? localStyles.shareCancelBtnLight : null,
                     pressed ? localStyles.shareActionBtnPressed : null,
                   ]}
                   onPress={() => setIsSharePickerVisible(false)}
                 >
-                  <Text style={localStyles.shareCancelText}>
+                  <Text
+                    style={[
+                      localStyles.shareCancelText,
+                      isLightMode ? localStyles.shareCancelTextLight : null,
+                    ]}
+                  >
                     {tUI(uiLanguage, 'common.cancel')}
                   </Text>
                 </Pressable>
                 <Pressable
                   style={({ pressed }) => [
                     localStyles.shareConfirmBtn,
+                    isLightMode ? localStyles.shareConfirmBtnLight : null,
                     pressed ? localStyles.shareActionBtnPressed : null,
                   ]}
                   onPress={() => void submitShareSelection()}
                 >
-                  <Text style={localStyles.shareConfirmText}>
+                  <Text
+                    style={[
+                      localStyles.shareConfirmText,
+                      isLightMode ? localStyles.shareConfirmTextLight : null,
+                    ]}
+                  >
                     {tUI(uiLanguage, 'cardDetail.share')}
                   </Text>
                 </Pressable>
@@ -2471,7 +2534,10 @@ function CardDetailCarouselCardUI({
         <View
           ref={combinedShareRef}
           collapsable={false}
-          style={localStyles.combinedCaptureSheet}
+          style={[
+            localStyles.combinedCaptureSheet,
+            isLightMode ? localStyles.combinedCaptureSheetLight : null,
+          ]}
         >
           {sharePreviewUri.front ? (
             <Image
@@ -2726,12 +2792,25 @@ const localStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     padding: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  shareModalSheetLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    shadowOpacity: 0.12,
   },
   shareModalTitle: {
     color: '#F8FAFC',
     fontSize: 17,
     fontWeight: '700',
     marginBottom: 12,
+  },
+  shareModalTitleLight: {
+    color: '#0F172A',
   },
   sharePreviewRow: {
     flexDirection: 'row',
@@ -2757,9 +2836,15 @@ const localStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sharePreviewMediaLight: {
+    backgroundColor: '#F1F5F9',
+  },
   sharePreviewMediaActive: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#4EAFF4',
+  },
+  sharePreviewMediaActiveLight: {
+    borderColor: '#0284C7',
   },
   sharePreviewImage: {
     width: '100%',
@@ -2769,6 +2854,9 @@ const localStyles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 12,
     fontWeight: '600',
+  },
+  sharePreviewFallbackLight: {
+    color: '#64748B',
   },
   sharePreviewMetaRow: {
     marginTop: 6,
@@ -2781,6 +2869,9 @@ const localStyles = StyleSheet.create({
     color: '#E2E8F0',
     fontSize: 12,
     fontWeight: '600',
+  },
+  sharePreviewLabelLight: {
+    color: '#0F172A',
   },
   shareActionRow: {
     flexDirection: 'row',
@@ -2795,10 +2886,18 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 11,
   },
+  shareCancelBtnLight: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   shareCancelText: {
     color: '#CBD5E1',
     fontSize: 14,
     fontWeight: '600',
+  },
+  shareCancelTextLight: {
+    color: '#475569',
   },
   shareConfirmBtn: {
     flex: 1,
@@ -2808,10 +2907,16 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 11,
   },
+  shareConfirmBtnLight: {
+    backgroundColor: '#0284C7',
+  },
   shareConfirmText: {
     color: '#0F172A',
     fontSize: 14,
     fontWeight: '700',
+  },
+  shareConfirmTextLight: {
+    color: '#FFFFFF',
   },
   shareActionBtnPressed: {
     opacity: 0.92,
@@ -2828,6 +2933,9 @@ const localStyles = StyleSheet.create({
     backgroundColor: '#0F172A',
     padding: 8,
     gap: 8,
+  },
+  combinedCaptureSheetLight: {
+    backgroundColor: '#F1EBE3',
   },
   combinedCaptureHalf: {
     width: '100%',
