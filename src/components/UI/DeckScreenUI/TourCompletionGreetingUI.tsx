@@ -22,20 +22,20 @@ const SHARE_SHEET_VIDEO = require('../../../../assets/tutorial/raw/Chinese/01_sh
 type Props = {
   visible: boolean;
   title: string;
-  body: string;
-  shareLabel: string;
+  body?: string;
+  shareLabel?: string;
   uploadLabel: string;
-  onShare: () => void;
+  onShare?: () => void;
+  onClose?: () => void;
   onUpload: () => void;
 };
 
 export default function TourCompletionGreetingUI({
   visible,
   title,
-  body,
-  shareLabel,
   uploadLabel,
   onShare,
+  onClose,
   onUpload,
 }: Props) {
   const palette = resolveThemeColors(useColorScheme());
@@ -71,7 +71,7 @@ export default function TourCompletionGreetingUI({
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={onShare}
+      onRequestClose={onClose ?? onShare ?? onUpload}
     >
       <View style={styles.backdrop}>
         <View
@@ -86,22 +86,6 @@ export default function TourCompletionGreetingUI({
           <Text style={[styles.title, { color: palette.textOnContainer }]}>
             {title}
           </Text>
-          <Text style={[styles.body, { color: palette.secondaryText }]}>
-            {body}
-          </Text>
-          <Pressable style={styles.primaryButton} onPress={onUpload}>
-            <Text style={styles.primaryButtonText}>{uploadLabel}</Text>
-          </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={onShare}>
-            <Text
-              style={[
-                styles.secondaryButtonText,
-                { color: palette.textOnContainer },
-              ]}
-            >
-              {shareLabel}
-            </Text>
-          </Pressable>
           <View
             style={[
               styles.videoFrame,
@@ -123,6 +107,9 @@ export default function TourCompletionGreetingUI({
               />
             </View>
           </View>
+          <Pressable style={styles.primaryButton} onPress={onUpload}>
+            <Text style={styles.primaryButtonText}>{uploadLabel}</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -140,24 +127,20 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 24,
-    paddingTop: 30,
-    paddingBottom: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
   },
   title: {
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  body: {
-    marginTop: 12,
-    fontSize: 17,
-    lineHeight: 24,
-    textAlign: 'center',
+    marginBottom: 16,
   },
   primaryButton: {
-    minHeight: 56,
-    marginTop: 28,
+    minHeight: 52,
+    marginTop: 18,
+    marginBottom: 4,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -168,19 +151,8 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
-  secondaryButton: {
-    minHeight: 52,
-    marginTop: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
   videoFrame: {
     alignSelf: 'center',
-    marginTop: 4,
     padding: 6,
     overflow: 'hidden',
     borderRadius: 32,

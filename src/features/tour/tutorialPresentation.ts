@@ -13,7 +13,7 @@ export function getGreetingVideoPlayback(visible: boolean) {
 }
 
 export function getGreetingVideoHeight(windowHeight: number): number {
-  return Math.min(350, Math.max(240, Math.round(windowHeight * 0.4)));
+  return Math.min(480, Math.max(260, Math.round(windowHeight * 0.52)));
 }
 
 export function getGreetingVideoWidth(videoHeight: number): number {

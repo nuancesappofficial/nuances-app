@@ -1825,14 +1825,6 @@ export default function DeckMainFlow({
       <TourCompletionGreetingUI
         visible={tourCompletionGreetingVisible}
         title={tUI(uiLanguage, 'deck.tourCompleteTitle')}
-        body={tUI(uiLanguage, 'deck.tourCompleteBody')}
-        shareLabel={
-          uiLanguage === 'zh-TW'
-            ? '我會用分享選單'
-            : uiLanguage === 'zh-CN'
-              ? '我会用分享菜单'
-              : 'I’ll use Share'
-        }
         uploadLabel={
           uiLanguage === 'zh-TW'
             ? '立即上傳'
@@ -1840,7 +1832,7 @@ export default function DeckMainFlow({
               ? '立即上传'
               : 'Upload now'
         }
-        onShare={handleGreetingShare}
+        onClose={handleGreetingShare}
         onUpload={handleGreetingUpload}
       />
 

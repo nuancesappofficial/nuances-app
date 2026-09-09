@@ -20,11 +20,12 @@ test('the Greeting preserves the complete phone outline', () => {
 });
 
 test('the Greeting gives the raw video a larger responsive frame', () => {
-  assert.equal(getGreetingVideoHeight(874), 350);
-  assert.equal(getGreetingVideoHeight(667), 267);
-  assert.equal(getGreetingVideoHeight(500), 240);
-  assert.equal(getGreetingVideoWidth(350), 168);
-  assert.equal(getGreetingVideoWidth(267), 128);
+  assert.equal(getGreetingVideoHeight(950), 480);
+  assert.equal(getGreetingVideoHeight(874), 454);
+  assert.equal(getGreetingVideoHeight(667), 347);
+  assert.equal(getGreetingVideoHeight(450), 260);
+  assert.equal(getGreetingVideoWidth(480), 230);
+  assert.equal(getGreetingVideoWidth(347), 167);
 });
 
 test('the Greeting loops the Share Sheet demonstration only while visible', () => {

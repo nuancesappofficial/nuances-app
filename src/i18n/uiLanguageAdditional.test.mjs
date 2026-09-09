@@ -6,7 +6,7 @@ import { ADDITIONAL_UI_STRINGS } from './uiLanguageAdditional.ts';
 test('Japanese UI presents the current tour completion call to action', () => {
   assert.equal(
     ADDITIONAL_UI_STRINGS.ja['deck.tourCompleteTitle'],
-    '次はあなたの番です',
+    'アプリを開かずに保存',
   );
   assert.equal(
     ADDITIONAL_UI_STRINGS.ja['deck.tourCompleteBody'],
