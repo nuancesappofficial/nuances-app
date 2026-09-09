@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  isPhraseSubject,
   normalizeGeneratedUsagePairs,
   resolveNormalizedPartOfSpeech,
 } from './usageValidation.ts';
@@ -168,5 +169,119 @@ test('resolveNormalizedPartOfSpeech normalizes proper nouns from definition even
     resolveNormalizedPartOfSpeech('verb', '跑步'),
     'verb'
   );
+});
+
+test('have a chip on one\'s shoulder matches example with has as third-person irregular form', () => {
+  const result = normalizeGeneratedUsagePairs(
+    {
+      usagePairs: [
+        {
+          phrase: "have a chip on one's shoulder",
+          translation: '耿耿於懷',
+          exampleSentence: 'He has a chip on his shoulder about his background.',
+          exampleTranslation: '他對自己的背景耿耿於懷。',
+        },
+      ],
+    },
+    "have a chip on one's shoulder",
+    { isPartOfPhrase: true }
+  );
+
+  assert.deepEqual(result, {
+    frequentCollocations: [
+      { phrase: "have a chip on one's shoulder", translation: '耿耿於懷' },
+    ],
+    example: [
+      {
+        sentence: 'He has a chip on his shoulder about his background.',
+        translation: '他對自己的背景耿耿於懷。',
+      },
+    ],
+  });
+});
+
+test('phrase allows empty collocations on first attempt when isPartOfPhrase is true', () => {
+  const result = normalizeGeneratedUsagePairs(
+    {
+      usagePairs: [
+        {
+          phrase: '',
+          exampleSentence: 'He has a chip on his shoulder about not going to university.',
+          exampleTranslation: '他因沒上大學而耿耿於懷。',
+        },
+      ],
+    },
+    'chip',
+    { isPartOfPhrase: true }
+  );
+
+  assert.deepEqual(result, {
+    frequentCollocations: [],
+    example: [
+      {
+        sentence: 'He has a chip on his shoulder about not going to university.',
+        translation: '他因沒上大學而耿耿於懷。',
+      },
+    ],
+  });
+});
+
+test('phrase allows empty collocations on first attempt when partOfSpeech is idiom', () => {
+  const result = normalizeGeneratedUsagePairs(
+    {
+      usagePairs: [
+        {
+          phrase: '',
+          exampleSentence: 'You seem to have a chip on your shoulder.',
+          exampleTranslation: '你看起來心存芥蒂。',
+        },
+      ],
+    },
+    "have a chip on one's shoulder",
+    { partOfSpeech: 'idiom' }
+  );
+
+  assert.deepEqual(result, {
+    frequentCollocations: [],
+    example: [
+      {
+        sentence: 'You seem to have a chip on your shoulder.',
+        translation: '你看起來心存芥蒂。',
+      },
+    ],
+  });
+});
+
+test('isPhraseSubject detects phrases and idioms', () => {
+  assert.equal(isPhraseSubject({ isPartOfPhrase: true }), true);
+  assert.equal(isPhraseSubject({ partOfSpeech: 'idiom' }), true);
+  assert.equal(isPhraseSubject({ partOfSpeech: 'phrasal verb' }), true);
+  assert.equal(isPhraseSubject({ partOfSpeech: 'fixed expression' }), true);
+  assert.equal(isPhraseSubject({ partOfSpeech: '片語' }), true);
+  assert.equal(isPhraseSubject({ partOfSpeech: 'noun' }), false);
+});
+
+test('fallbackExampleSentence kicks in when candidates are completely empty and allowEmptyCollocations is true', () => {
+  const result = normalizeGeneratedUsagePairs(
+    {
+      usagePairs: [],
+    },
+    'chip',
+    {
+      allowEmptyCollocations: true,
+      fallbackExampleSentence: 'You seem to have a chip on your shoulder.',
+      fallbackExampleTranslation: '你看起來心懷芥蒂。',
+    }
+  );
+
+  assert.deepEqual(result, {
+    frequentCollocations: [],
+    example: [
+      {
+        sentence: 'You seem to have a chip on your shoulder.',
+        translation: '你看起來心懷芥蒂。',
+      },
+    ],
+  });
 });
 

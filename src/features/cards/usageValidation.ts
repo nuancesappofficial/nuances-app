@@ -23,7 +23,7 @@ const IRREGULAR_FORMS: Record<string, string[]> = {
   get: ['got', 'gotten'],
   give: ['gave', 'given'],
   go: ['gone', 'went'],
-  have: ['had'],
+  have: ['had', 'has'],
   hear: ['heard'],
   hold: ['held'],
   keep: ['kept'],
@@ -129,7 +129,7 @@ export function isValidCollocationForSubject(phrase: string, subject: string): b
   const phraseKey = normalizeLexicalSequence(phrase);
   const subjectKey = normalizeLexicalSequence(subject);
   if (!phraseKey || !subjectKey) return false;
-  return containsLexicalAnchors(phrase, subject);
+  return containsLexicalAnchors(phrase, subject) || containsLexicalAnchors(subject, phrase);
 }
 
 export function isCompleteExampleSentence(sentence: string): boolean {
@@ -279,6 +279,28 @@ export function isProperNounSubject(
   return false;
 }
 
+export function isPhrasePartOfSpeech(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return /(?:phrase|idiom|expression|phrasal|片語|短語|成語|慣用)/i.test(normalized);
+}
+
+export function isPhraseSubject(
+  options?:
+    | {
+        partOfSpeech?: string | null;
+        isPartOfPhrase?: boolean | null;
+      }
+    | string
+    | null
+): boolean {
+  if (typeof options === 'object' && options?.isPartOfPhrase === true) {
+    return true;
+  }
+  const partOfSpeech = typeof options === 'string' ? options : options?.partOfSpeech;
+  return isPhrasePartOfSpeech(partOfSpeech);
+}
+
 export function resolveNormalizedPartOfSpeech(
   partOfSpeech?: string | null,
   definition?: string | null
@@ -292,7 +314,10 @@ export function resolveNormalizedPartOfSpeech(
 export type NormalizeGeneratedUsageOptions = {
   partOfSpeech?: string | null;
   definition?: string | null;
+  isPartOfPhrase?: boolean | null;
   allowEmptyCollocations?: boolean;
+  fallbackExampleSentence?: string | null;
+  fallbackExampleTranslation?: string | null;
 };
 
 export function normalizeGeneratedUsagePairs(
@@ -340,7 +365,8 @@ export function normalizeGeneratedUsagePairs(
   }
 
   const isProperNoun = isProperNounSubject(options);
-  const allowEmptyCollocations = isProperNoun || Boolean(options?.allowEmptyCollocations);
+  const isPhrase = isPhraseSubject(options);
+  const allowEmptyCollocations = isProperNoun || isPhrase || Boolean(options?.allowEmptyCollocations);
 
   if (allowEmptyCollocations) {
     const validExamples = candidates
@@ -348,18 +374,33 @@ export function normalizeGeneratedUsagePairs(
       .filter((example) =>
         Boolean(
           example.sentence &&
-          containsLexicalAnchors(example.sentence, subject)
+          (
+            containsLexicalAnchors(example.sentence, subject) ||
+            (isPhrase && containsLexicalAnchors(subject, example.sentence))
+          )
         )
       );
 
-    if (validExamples.length === 0) {
-      throw new Error(`Card enrichment missing valid example for "${subject}"`);
+    if (validExamples.length > 0) {
+      return {
+        frequentCollocations: [],
+        example: validExamples,
+      };
     }
 
-    return {
-      frequentCollocations: [],
-      example: validExamples,
-    };
+    if (options?.fallbackExampleSentence) {
+      return {
+        frequentCollocations: [],
+        example: [
+          {
+            sentence: options.fallbackExampleSentence,
+            translation: options.fallbackExampleTranslation || '',
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Card enrichment missing valid example for "${subject}"`);
   }
 
   throw new Error(

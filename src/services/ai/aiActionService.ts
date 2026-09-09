@@ -13,6 +13,7 @@ import {
 } from './generateCardPayload';
 import { parseCoreStream } from './parseCoreStream';
 import {
+  isPhraseSubject,
   isProperNounSubject,
   isValidCollocationForSubject,
   normalizeGeneratedUsagePairs,
@@ -243,12 +244,20 @@ function stringifyCollocations(
     Boolean(phrase && (!subject || isValidCollocationForSubject(phrase, subject)));
   if (Array.isArray(value)) {
     return value
-      .filter((item) => isValidForSubject(normalizeOptionalString(item?.phrase)))
       .map((item) => {
-        const phrase = normalizeOptionalString(item?.phrase);
-        const translation = normalizeOptionalString(item?.translation);
-        if (phrase && translation) return `${phrase} — ${translation}`;
-        return phrase || translation || '';
+        const itemUnknown = item as unknown;
+        if (typeof itemUnknown === 'string') {
+          return { phrase: itemUnknown.trim(), translation: '' };
+        }
+        return {
+          phrase: normalizeOptionalString(item?.phrase || (item as any)?.collocation),
+          translation: normalizeOptionalString(item?.translation),
+        };
+      })
+      .filter((item) => isValidForSubject(item.phrase))
+      .map((item) => {
+        if (item.phrase && item.translation) return `${item.phrase} — ${item.translation}`;
+        return item.phrase || item.translation || '';
       })
       .filter(Boolean)
       .join('\n');
@@ -270,12 +279,27 @@ function isCompleteGeneratedExampleSentence(value: string | undefined | null): b
 function stringifyExamples(value: GenerateCardResult['example'] | GenerateCardResult['exampleSentence']): string {
   if (Array.isArray(value)) {
     return value
-      .filter((item) => isCompleteGeneratedExampleSentence(item?.sentence))
       .map((item) => {
-        const sentence = normalizeOptionalString(item?.sentence);
-        const translation = normalizeOptionalString(item?.translation);
-        if (sentence && translation) return `${sentence} — ${translation}`;
-        return sentence || translation || '';
+        const itemUnknown = item as unknown;
+        if (typeof itemUnknown === 'string') {
+          return { sentence: itemUnknown.trim(), translation: '' };
+        }
+        return {
+          sentence: normalizeOptionalString(
+            item?.sentence ||
+            (item as any)?.exampleSentence ||
+            (item as any)?.example
+          ),
+          translation: normalizeOptionalString(
+            item?.translation ||
+            (item as any)?.exampleTranslation
+          ),
+        };
+      })
+      .filter((item) => isCompleteGeneratedExampleSentence(item.sentence))
+      .map((item) => {
+        if (item.sentence && item.translation) return `${item.sentence} — ${item.translation}`;
+        return item.sentence || item.translation || '';
       })
       .filter(Boolean)
       .join('\n');
@@ -335,12 +359,19 @@ function normalizeGeneratedCardResult(
     partOfSpeech: result.partOfSpeech || result['part of speech'],
     definition: result.definition,
   });
-  const allowEmpty = isProperNoun || Boolean(options?.allowEmptyCollocations);
-  const example = stringifyExamples(result.example || result.exampleSentence);
+  const isPhrase = isPhraseSubject({
+    partOfSpeech: result.partOfSpeech || result['part of speech'],
+    isPartOfPhrase: result.isPartOfPhrase,
+  });
+  const allowEmpty = isProperNoun || isPhrase || Boolean(options?.allowEmptyCollocations);
+  let example = stringifyExamples(result.example || result.exampleSentence);
   const frequentCollocations = stringifyCollocations(
     result.frequentCollocations || result['Frequent collocations'],
     resolvedHeadword
   );
+  if (!example && originalSentence) {
+    example = originalSentence;
+  }
   if (!example || (!allowEmpty && !frequentCollocations)) {
     throw new Error(
       `Generated card missing valid collocation and example pairs for "${resolvedHeadword}"`
@@ -732,12 +763,15 @@ async function streamAndNormalizeEnrichmentWithRetry(
       // Enrichment may add learning fields, but it must never reinterpret or replace it.
       delete enrichment.sentenceTranslation;
 
-      // Proper nouns always allow empty collocations from attempt 1.
+      // Proper nouns and phrases always allow empty collocations from attempt 1.
       // Normal words allow empty collocations on the 3rd attempt to prevent user errors.
       const normalizedUsage = normalizeGeneratedUsagePairs(enrichment, canonicalSubject, {
         partOfSpeech: core.partOfSpeech,
         definition: core.definition,
+        isPartOfPhrase: core.isPartOfPhrase,
         allowEmptyCollocations: attempt === maxAttempts,
+        fallbackExampleSentence: payload.originalSentence,
+        fallbackExampleTranslation: core.sentenceTranslation,
       });
 
       enrichment.frequentCollocations = normalizedUsage.frequentCollocations;
@@ -771,9 +805,20 @@ async function streamAndNormalizeEnrichmentWithRetry(
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('AI enrichment stream failed after 3 attempts');
+  // 終極保底：若重試多次依然因網路或格式異常中斷，避免跳出報錯阻擋使用者，以最小資料放行
+  console.warn('[AI][pipeline] enrichment attempts exhausted, falling back to minimal card usage', {
+    lastError: lastError instanceof Error ? lastError.message : String(lastError),
+  });
+  const fallbackExample = payload.originalSentence
+    ? [{ sentence: payload.originalSentence, translation: core.sentenceTranslation || '' }]
+    : [];
+  return {
+    enrichment: {
+      culturalBackground: '',
+      frequentCollocations: [],
+      example: fallbackExample,
+    },
+  };
 }
 
 export async function generateCardContentStream(
