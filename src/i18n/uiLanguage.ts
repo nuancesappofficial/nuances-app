@@ -1282,9 +1282,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'auth.continueWithGoogle': '使用 Google 繼續',
     'onboarding.question.learningLanguages':
       '你希望 Nuances 用什麼語言解釋英文？',
-    'onboarding.question.captureHabit': '遇到不懂的字時，你通常怎麼辦？',
+    'onboarding.question.captureHabit': '遇到不懂的字時，你通常會？',
     'onboarding.question.stumbleContext': '你通常在哪裡遇到這些字？',
-    'onboarding.question.breakdownDepth': '你希望我們解釋多詳細？',
+    'onboarding.question.breakdownDepth': '你希望我們解釋得多詳細？',
     'onboarding.option.screenshot': '截圖',
     'onboarding.option.notes': '筆記',
     'onboarding.option.search': '搜尋',
