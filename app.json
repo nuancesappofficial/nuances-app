@@ -4,7 +4,7 @@
     "description": "AI-assisted English flashcards, pronunciation practice, and study tools built from text, images, and shared content.",
     "slug": "nuances-app",
     "scheme": "nuances",
-    "version": "1.2.3",
+    "version": "1.2.5",
     "orientation": "portrait",
     "icon": "./assets/app_icons/NUANCES_ICON8.png",
     "userInterfaceStyle": "automatic",
@@ -21,7 +21,7 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.jeffenglishlearning.nuances",
-      "buildNumber": "91",
+      "buildNumber": "93",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true,
         "ITSAppUsesNonExemptEncryption": false,
