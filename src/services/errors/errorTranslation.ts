@@ -32,6 +32,8 @@ export type TranslatedError = {
 
 export type ErrorCode =
   | 'free_starter_exhausted'
+  | 'starter_allowance_unavailable'
+  | 'pronunciation_quota_unavailable'
   | 'pronunciation_monthly_quota_exceeded'
   | 'ai_monthly_quota_exceeded'
   | 'rate_limit_exceeded'
@@ -41,6 +43,23 @@ export type ErrorCode =
   | 'unknown';
 
 const TRANSLATIONS: Record<ErrorCode, TranslatedError> = {
+  pronunciation_quota_unavailable: {
+    code: 'pronunciation_quota_unavailable',
+    title: '發音評估次數已達上限',
+    message: '暫時無法進行發音評分，請稍後再試。',
+    ctaLabel: '確定',
+    ctaKind: 'dismiss',
+    retryable: false,
+  },
+  starter_allowance_unavailable: {
+    code: 'starter_allowance_unavailable',
+    title: '免費體驗額度已滿',
+    message:
+      '你已完成終身體驗額度！升級至 PRO 方案即可暢享進階語音功能與所有 AI 生成功能。',
+    ctaLabel: '查看升級方案 >',
+    ctaKind: 'open_paywall_pro',
+    retryable: false,
+  },
   free_starter_exhausted: {
     code: 'free_starter_exhausted',
     title: '試用發音額度已完成！',
@@ -115,6 +134,20 @@ const TRANSLATIONS: Record<ErrorCode, TranslatedError> = {
 
 /** 錯誤碼關鍵字 → 對應錯誤分類。 */
 const CODE_KEYWORDS: Array<{ code: ErrorCode; keywords: string[] }> = [
+  {
+    code: 'pronunciation_quota_unavailable',
+    keywords: [
+      'pronunciation_quota_unavailable',
+      'pronunciation quota check failed',
+    ],
+  },
+  {
+    code: 'starter_allowance_unavailable',
+    keywords: [
+      'starter_allowance_unavailable',
+      'starter allowance is temporarily unavailable',
+    ],
+  },
   {
     code: 'free_starter_exhausted',
     keywords: [

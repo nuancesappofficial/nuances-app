@@ -73,6 +73,7 @@ create trigger prevent_client_subscription_profile_update
 
 -- Monthly pronunciation quota RPC. Resets the counter whenever the calendar
 -- month changes, then atomically increments if under the monthly limit.
+drop function if exists public.consume_pronunciation_quota(uuid, integer);
 create or replace function public.consume_pronunciation_quota(
   p_user_id uuid,
   p_monthly_limit integer

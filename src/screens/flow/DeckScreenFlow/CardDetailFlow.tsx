@@ -65,7 +65,7 @@ import {
   loadStandardIpaPhonemes,
   speakIpaPhoneme,
 } from '@services/pronunciation/ipaPhonemes';
-import { stopAzureTtsPlayback } from '@services/tts/cloudSpeech';
+import { stopAzureTtsPlayback, cancelAllTtsPlayback } from '@services/tts/cloudSpeech';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import { analytics } from '@services/analytics';
@@ -130,6 +130,7 @@ type Props = {
       cardIds?: string[];
       albumName?: string;
       headerTitle?: string;
+      interactiveTutorial?: boolean;
     };
   };
 };
@@ -847,6 +848,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         void sound.unloadAsync().catch(() => undefined);
       }
       Speech.stop();
+      void Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => undefined);
     };
   }, []);
 
@@ -912,6 +917,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     await stopUserRecordingPreview();
     await stopDefaultExperiencePronunciation();
     await stopAzureTtsPlayback();
+    cancelAllTtsPlayback();
     await Speech.stop();
   }, [stopUserRecordingPreview]);
 
@@ -1073,6 +1079,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       );
 
       await stopActiveAudio();
+      
+      // Delay to ensure native AVAudioSession settles before recording (Race condition fix)
+      await new Promise((resolve) => setTimeout(resolve, 250));
 
       const recording = new Audio.Recording();
       waveformPointerRef.current = 0;
@@ -1082,7 +1091,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any),
         5000,
         'prepareToRecordAsync'
-      );
+      ).catch(async (prepareError) => {
+        // The first prepare can race the audio-session transition. Retry
+        // once after a short settle before giving up.
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        await recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any);
+      });
       recording.setProgressUpdateInterval(120);
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status?.isRecording) return;
@@ -1140,6 +1154,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         },
       });
       Alert.alert('錄音失敗', `請再試一次。\n[DEBUG] ${detail}`);
+      
+      // Fix state leak if start fails
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => {});
     } finally {
       recordingTransitionRef.current = false;
     }
@@ -1193,6 +1213,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         throw new Error(`錄音格式錯誤，預期 .wav，實際 URI: ${uri}`);
       }
 
+      // 【關鍵移動】：在打 API 前立刻將硬體麥克風釋放，切回播放模式，防止網路 I/O 或 503 阻斷狀態重置
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch((e: any) => console.warn('[CardDetail] audio mode release before assess failed:', e));
+
       setIsAnalyzing(true);
       setPronunciationAnalysisError(null);
       setPronunciationRevealStep(0);
@@ -1200,6 +1226,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         referenceText: pronunciationText,
         audioUri: uri,
         locale: detectPronunciationLocale(pronunciationText),
+        demoExperience: !!route.params?.interactiveTutorial || appTour.isActive,
       });
 
       setPronunciationScore(result.score);
@@ -1263,6 +1290,21 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setPronunciationRecordingElapsedMs(0);
       pronunciationTargetCardIdRef.current = null;
       recordingTransitionRef.current = false;
+
+      const leftover = recordingRef.current;
+      if (leftover) {
+        try {
+          leftover.setOnRecordingStatusUpdate(null);
+          await leftover.stopAndUnloadAsync();
+        } catch {}
+        recordingRef.current = null;
+        setIsRecording(false);
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch((e: any) => console.warn('[CardDetail] audio mode cleanup failed:', e));
     }
   };
 

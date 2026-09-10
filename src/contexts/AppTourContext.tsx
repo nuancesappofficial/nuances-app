@@ -175,6 +175,7 @@ export function AppTourProvider({ children }: { children: React.ReactNode }) {
         try {
           const userId = await getCurrentSessionUserId();
           if (userId) {
+            await completeDefaultExperienceQuizHint(userId);
             await clearDefaultExperienceCardSeen(userId);
             await ensureDefaultExperienceCard(userId, { force: true });
           }

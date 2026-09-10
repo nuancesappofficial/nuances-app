@@ -71,6 +71,7 @@ import {
   DEFAULT_EXPERIENCE_QUIZ_HINT_EVENT,
   DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT,
   isDefaultExperienceQuizHintPending,
+  completeDefaultExperienceQuizHint,
   localizeDefaultExperienceSavedCard,
 } from '../../../features/cache/defaultExperienceCard';
 import {
@@ -243,13 +244,19 @@ export default function DeckMainFlow({
       void (async () => {
         const userId = await getCurrentSessionUserId();
         if (!userId) return;
+        // 若當前並非處於等待 Quiz 的特定教學步驟，但處於重播或閒置狀態，防範舊殘留鎖死
+        if (appTour.launchSource === 'replay' && appTour.step !== 'STEP_10_QUIZ_SAMPLE') {
+          await completeDefaultExperienceQuizHint(userId);
+          if (!cancelled) setShowDefaultExperienceQuizHint(false);
+          return;
+        }
         const pending = await isDefaultExperienceQuizHintPending(userId);
         if (!cancelled) setShowDefaultExperienceQuizHint(pending);
       })();
       return () => {
         cancelled = true;
       };
-    }, [])
+    }, [appTour.launchSource, appTour.step])
   );
 
   React.useEffect(() => {

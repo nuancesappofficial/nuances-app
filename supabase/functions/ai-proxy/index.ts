@@ -4079,21 +4079,29 @@ Deno.serve(async (req: Request) => {
       }
 
       let claimedDemoPronunciation = false;
-      if (planType === 'free' && body.action === 'pronunciation_assess') {
-        const claimResult = await claimDemoPronunciationAssessment({
-          supabase,
-          userId,
-          payload: body.payload as PronunciationAssessPayload,
-        });
-        claimedDemoPronunciation = claimResult === 'claimed';
-        if (claimResult === 'unavailable') {
-          return jsonResponse(
-            {
-              error: 'Demo pronunciation state is unavailable',
-              reason: 'demo_pronunciation_unavailable',
-            },
-            503
-          );
+      if (body.action === 'pronunciation_assess') {
+        const assessPayload = body.payload as PronunciationAssessPayload;
+        // User explicitly requested: "確保教學模式下的 Review 發音評估能100%略過額度檢查"
+        // We now honor demoExperience for ALL plan types without DB-enforced limitations,
+        // avoiding the 503 errors caused by DB consumption mismatches.
+        if (assessPayload.demoExperience === true) {
+          claimedDemoPronunciation = true;
+        } else if (planType === 'free') {
+          const claimResult = await claimDemoPronunciationAssessment({
+            supabase,
+            userId,
+            payload: assessPayload,
+          });
+          claimedDemoPronunciation = claimResult === 'claimed';
+          if (claimResult === 'unavailable') {
+            return jsonResponse(
+              {
+                error: 'Demo pronunciation state is unavailable',
+                reason: 'demo_pronunciation_unavailable',
+              },
+              503
+            );
+          }
         }
       }
 

@@ -91,6 +91,7 @@ import {
 } from '../../../features/deck/reviewPreferences';
 import { markCardAsQuizReviewed } from '../../../features/deck/cardDetailSeen';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { useAppTour } from '../../../contexts/AppTourContext';
 import { shouldOpenReviewCompletionPaywall } from '../../../features/tour/firstRunJourney';
 import {
   DEFAULT_EXPERIENCE_CARD_SENTENCE,
@@ -1491,6 +1492,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const { width } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const tabSwipeContext = React.useContext(TabSwipeContext);
+  const appTour = useAppTour();
   const theme = resolveThemeColors(colorScheme);
   const isLightMode = colorScheme === 'light';
   const albumId = route.params?.albumId || 'all-cards';
@@ -1502,7 +1504,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
     (route.params?.isScreenshotDemoQuiz === true ||
       isScreenshotDemoModeEnabled());
   const isDefaultExperienceTutorial = route.params?.isDefaultExperienceTutorial === true;
-  const usesDemoPronunciationBackend = isDefaultExperienceTutorial || isScreenshotDemoQuiz;
+  const usesDemoPronunciationBackend = isDefaultExperienceTutorial || isScreenshotDemoQuiz || appTour.isActive;
   const usesMockPronunciationResult = isScreenshotDemoQuiz;
   const themeColor = '#4EAFF4';
   const routeCardIds = route.params?.cardIds || [];
@@ -1904,6 +1906,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
       }
 
       void stopDefaultExperiencePronunciation();
+      void Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => undefined);
     };
   }, []);
 
@@ -2251,9 +2257,20 @@ export default function ReviewFlow({ navigation, route }: Props) {
         return next;
       });
     } finally {
+      const leftover = pronunciationRecordingRef.current;
+      if (leftover) {
+        try {
+          leftover.setOnRecordingStatusUpdate(null);
+          await leftover.stopAndUnloadAsync();
+        } catch {}
+      }
       pronunciationRecordingRef.current = null;
       setPronunciationRecordingQuestionId(null);
       setPronunciationAnalyzingQuestionId(null);
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch((e: any) => console.warn('[ReviewFlow] audio mode cleanup failed:', e));
     }
   }, [finishQuestionWithResult, tabSwipeContext, uiLanguage, usesDemoPronunciationBackend, usesMockPronunciationResult]);
 
@@ -2398,6 +2415,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
         pendingRecording.setOnRecordingStatusUpdate(null);
         await pendingRecording.stopAndUnloadAsync().catch(() => undefined);
       }
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => {});
       const detail =
         error instanceof Error
           ? error.message
