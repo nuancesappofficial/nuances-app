@@ -103,7 +103,6 @@ import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { CreateCardGhostPreviewScene as CreateCardPreviewScene } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import {
   DEMO_GHOST_SAVE_ARROW_DELAY_MS,
-  DEMO_GHOST_SCROLL_DURATION_MS,
   scheduleDemoGhostSaveArrow,
 } from '../../../features/createCard/ghostAnimationTiming';
 import {
@@ -127,6 +126,7 @@ import {
   type SelectedSourceTarget,
 } from '../../../features/createCard/textTransforms';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
+import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
 import {
   filterUsageTextPairs,
   resolveNormalizedPartOfSpeech,
@@ -169,7 +169,7 @@ const GHOST_CARD_STATUS_KEYS: UIStringKey[] = [
 
 const STACK_CARD_ENTERING = FadeIn.duration(260);
 const STACK_CARD_LAYOUT = Layout.duration(260);
-const GHOST_INITIAL_LOADING_BEAT_MS = 320;
+const GHOST_INITIAL_LOADING_BEAT_MS = 1500;
 
 type Props = {
   navigation: any;
@@ -1003,7 +1003,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     typeof setTimeout
   > | null>(null);
   const previewScrollRequestIdRef = React.useRef(0);
-  const previewScrollAnimationFrameRef = React.useRef<number | null>(null);
   const autoScrolledPreviewKeyRef = React.useRef<string | null>(null);
   const didAutoScrollDefaultExperienceCompletionRef = React.useRef(false);
   const pendingPremiumRetryRef = React.useRef(false);
@@ -1092,63 +1091,18 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       clearTimeout(previewScrollTimeoutRef.current);
       previewScrollTimeoutRef.current = null;
     }
-    if (previewScrollAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(previewScrollAnimationFrameRef.current);
-      previewScrollAnimationFrameRef.current = null;
-    }
   }, []);
 
   const animatePreviewScrollTo = React.useCallback(
     (targetY: number) => {
-      if (previewScrollAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(previewScrollAnimationFrameRef.current);
-        previewScrollAnimationFrameRef.current = null;
-      }
-
-      const startY = currentScrollYRef.current;
-      if (reduceMotion) {
-        currentScrollYRef.current = targetY;
-        scrollRef.current?.scrollTo({
-          y: Math.max(0, targetY),
-          animated: false,
-        });
-        return;
-      }
-      if (!isDefaultExperienceTutorial) {
-        scrollRef.current?.scrollTo({
-          y: Math.max(0, targetY),
-          animated: true,
-        });
-        return;
-      }
-      const distance = targetY - startY;
-      const startedAt = Date.now();
-      const easeInOutCubic = (progress: number) =>
-        progress < 0.5
-          ? 4 * progress * progress * progress
-          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      const step = () => {
-        const elapsed = Date.now() - startedAt;
-        const progress = Math.min(
-          1,
-          elapsed / DEMO_GHOST_SCROLL_DURATION_MS
-        );
-        const nextY = startY + distance * easeInOutCubic(progress);
-        currentScrollYRef.current = nextY;
-        scrollRef.current?.scrollTo({ y: Math.max(0, nextY), animated: false });
-
-        if (progress < 1) {
-          previewScrollAnimationFrameRef.current = requestAnimationFrame(step);
-        } else {
-          currentScrollYRef.current = targetY;
-          previewScrollAnimationFrameRef.current = null;
-        }
-      };
-
-      previewScrollAnimationFrameRef.current = requestAnimationFrame(step);
+      const clampedY = Math.max(0, targetY);
+      currentScrollYRef.current = clampedY;
+      scrollRef.current?.scrollTo({
+        y: clampedY,
+        animated: !reduceMotion,
+      });
     },
-    [isDefaultExperienceTutorial, reduceMotion]
+    [reduceMotion]
   );
 
   const scrollToActivePreviewCard = React.useCallback(
@@ -1562,6 +1516,27 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         });
         try {
 
+          const handleStreamToken = (delta: string) => {
+            accumulatedRaw += delta;
+            const partialFields =
+              parseIncompleteGenerateCardJSON(accumulatedRaw);
+            const partialCard = buildPartialGhostCard({
+              word,
+              sourceSentence: sentenceForCard,
+              fields: partialFields,
+              uiLanguage,
+              aiBreakdownMode,
+              selectedAlbumIds: selectedBatchAlbumIds,
+            });
+            if (partialCard) {
+              didShowStreamPreview = true;
+              setIsBufferedStreamPreview(true);
+              setPreviewPhase('complete');
+              setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+              setPartialGeneratedCard(partialCard);
+            }
+          };
+
           if (generationSource === 'bundled-fixture') {
             generated = await generateDefaultExperienceCardContent({
               replyLanguage: aiReplyLanguage,
@@ -1570,6 +1545,60 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             setStreamStatusText(
               tUI(uiLanguage, 'create.ghostStatusFinalizing')
             );
+            const demoContextSections = parseCardContextSections({
+              raw: generated.contextualExplanation,
+              displayWord: generated.suggestedWord || word,
+              definition: generated.definition,
+              sourceSentence: sentenceForCard,
+              manualMode: false,
+            });
+            const demoSynonyms = generated.semanticRelations
+              ? parseSemanticRelations(generated.semanticRelations).synonyms
+              : [];
+            const simulatedPayload = JSON.stringify(
+              {
+                normalizedTargetWord: generated.suggestedWord || word,
+                partOfSpeech: generated.partOfSpeech || 'noun',
+                definition: generated.definition || '',
+                sentenceTranslation:
+                  demoContextSections.sentenceTranslation || sentenceForCard,
+                culturalBackground:
+                  demoContextSections.culturalBackground || '',
+                frequentCollocations: (generated.frequentCollocations || '')
+                  .split('\n')
+                  .filter(Boolean)
+                  .map((line) => {
+                    const [phrase, translation] = line.split(/\s+[—–-]\s+/);
+                    return {
+                      phrase: phrase?.trim() || '',
+                      translation: translation?.trim() || '',
+                    };
+                  }),
+                synonyms: demoSynonyms.map((item) => ({
+                  term: item.term || '',
+                  translation: item.translation || '',
+                })),
+                example: (generated.exampleSentence || '')
+                  .split('\n')
+                  .filter(Boolean)
+                  .map((line) => {
+                    const [sentence, translation] = line.split(/\s+[—–-]\s+/);
+                    return {
+                      sentence: sentence?.trim() || '',
+                      translation: translation?.trim() || '',
+                    };
+                  }),
+              },
+              null,
+              2
+            );
+
+            const chunkSize = 4;
+            for (let i = 0; i < simulatedPayload.length; i += chunkSize) {
+              const chunk = simulatedPayload.slice(i, i + chunkSize);
+              handleStreamToken(chunk);
+              await new Promise((resolve) => setTimeout(resolve, 16));
+            }
           } else {
             generated = await generateContentForWordStream(
               word,
@@ -1584,26 +1613,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     tUI(uiLanguage, 'create.ghostStatusFinalizing')
                   );
                 },
-                onToken: (delta) => {
-                  accumulatedRaw += delta;
-                  const partialFields =
-                    parseIncompleteGenerateCardJSON(accumulatedRaw);
-                  const partialCard = buildPartialGhostCard({
-                    word,
-                    sourceSentence: sentenceForCard,
-                    fields: partialFields,
-                    uiLanguage,
-                    aiBreakdownMode,
-                    selectedAlbumIds: selectedBatchAlbumIds,
-                  });
-                  if (partialCard) {
-                    didShowStreamPreview = true;
-                    setIsBufferedStreamPreview(true);
-                    setPreviewPhase('complete');
-                    setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
-                    setPartialGeneratedCard(partialCard);
-                  }
-                },
+                onToken: handleStreamToken,
               }
             );
           }
