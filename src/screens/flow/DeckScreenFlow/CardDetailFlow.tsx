@@ -2265,10 +2265,17 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         animationType="none"
         onRequestClose={() => void closePronunciationModal()}
       >
-        <Pressable
-          style={styles.pronunciationBackdrop}
-          onPress={() => void closePronunciationModal()}
+        <ScrollView
+          style={styles.pronunciationBackdropScroll}
+          contentContainerStyle={styles.pronunciationBackdropContent}
+          keyboardShouldPersistTaps="handled"
+          bounces={true}
+          showsVerticalScrollIndicator={false}
         >
+          <Pressable
+            style={styles.pronunciationBackdropOverlay}
+            onPress={() => void closePronunciationModal()}
+          />
           <Animated.View
             style={[
               styles.pronunciationSheet,
@@ -2325,7 +2332,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               />
             </Pressable>
           </Animated.View>
-        </Pressable>
+        </ScrollView>
       </Modal>
 
       <Modal
@@ -2732,11 +2739,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
-  pronunciationBackdrop: {
+  pronunciationBackdropScroll: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.66)',
+  },
+  pronunciationBackdropContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
     paddingHorizontal: 16,
+  },
+  pronunciationBackdropOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   stickySheet: {
     borderRadius: 20,
@@ -2828,13 +2843,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   pronunciationSheet: {
-    width: '92%',
+    width: '100%',
     maxWidth: 760,
-    maxHeight: '92%',
     alignSelf: 'center',
   },
   pronunciationSheetContent: {
-    flexShrink: 1,
+    width: '100%',
   },
   referenceSubText: {
     color: '#94A3B8',

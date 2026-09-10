@@ -1,13 +1,20 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  LayoutChangeEvent,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import type { UILanguage } from '../../../services/settings/userSettings';
 import { tUI } from '../../../i18n/uiLanguage';
 import AnimatedGlowPressable from '../shared/AnimatedGlowPressable';
@@ -33,6 +40,7 @@ type Props = {
 };
 
 const COLLAPSED_ITEM_COUNT = 4;
+const COLLAPSED_HEIGHT = 64;
 
 export default function PronunciationPhonemeSectionUI({
   items,
@@ -45,16 +53,75 @@ export default function PronunciationPhonemeSectionUI({
   onPressItem,
 }: Props) {
   const [expanded, setExpanded] = React.useState(false);
+  const [fullMeasuredHeight, setFullMeasuredHeight] = React.useState(0);
+  const reduceMotion = useReducedMotion();
+  const heightAnim = useSharedValue(COLLAPSED_HEIGHT);
+  const chevronRotation = useSharedValue(0);
+
   const itemSignature = items.map((item) => item.id).join('|');
+
+  const estimatedRows = Math.ceil(items.length / 4);
+  const estimatedHeight = Math.max(
+    COLLAPSED_HEIGHT,
+    estimatedRows * 64 + (estimatedRows - 1) * 8
+  );
+  const targetFullHeight =
+    fullMeasuredHeight > 0 ? fullMeasuredHeight : estimatedHeight;
 
   React.useEffect(() => {
     setExpanded(false);
-  }, [itemSignature]);
+    heightAnim.value = COLLAPSED_HEIGHT;
+    chevronRotation.value = 0;
+  }, [heightAnim, chevronRotation, itemSignature]);
 
-  const visibleItems = expanded ? items : items.slice(0, COLLAPSED_ITEM_COUNT);
+  React.useEffect(() => {
+    if (items.length <= COLLAPSED_ITEM_COUNT) {
+      heightAnim.value = COLLAPSED_HEIGHT;
+      chevronRotation.value = 0;
+      return;
+    }
+    const target = expanded ? targetFullHeight : COLLAPSED_HEIGHT;
+    if (reduceMotion) {
+      heightAnim.value = target;
+      chevronRotation.value = expanded ? 180 : 0;
+    } else {
+      heightAnim.value = withTiming(target, {
+        duration: 280,
+        easing: Easing.bezier(0.2, 0, 0, 1),
+      });
+      chevronRotation.value = withTiming(expanded ? 180 : 0, {
+        duration: 240,
+        easing: Easing.bezier(0.2, 0, 0, 1),
+      });
+    }
+  }, [
+    chevronRotation,
+    expanded,
+    heightAnim,
+    items.length,
+    reduceMotion,
+    targetFullHeight,
+  ]);
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    height: items.length <= COLLAPSED_ITEM_COUNT ? 'auto' : heightAnim.value,
+    overflow: 'hidden',
+  }));
+
+  const animatedChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value}deg` }],
+  }));
+
+  const handleGridLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    if (height > 0) {
+      setFullMeasuredHeight((current) => (current !== height ? height : current));
+    }
+  }, []);
+
   const grid = (
-    <View style={styles.grid}>
-      {visibleItems.map((item) => (
+    <View style={styles.grid} onLayout={handleGridLayout}>
+      {items.map((item) => (
         <AnimatedGlowPressable
           key={item.id}
           accessibilityRole="button"
@@ -93,19 +160,9 @@ export default function PronunciationPhonemeSectionUI({
 
   return (
     <View style={styles.section}>
-      {expanded ? (
-        <ScrollView
-          style={styles.expandedScroll}
-          contentContainerStyle={styles.expandedContent}
-          showsVerticalScrollIndicator
-          nestedScrollEnabled
-          bounces={false}
-        >
-          {grid}
-        </ScrollView>
-      ) : (
-        grid
-      )}
+      <Reanimated.View style={animatedContainerStyle}>
+        {grid}
+      </Reanimated.View>
 
       {items.length > COLLAPSED_ITEM_COUNT ? (
         <Pressable
@@ -124,11 +181,13 @@ export default function PronunciationPhonemeSectionUI({
                 : 'pronunciation.showAllSounds'
             )}
           </Text>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={15}
-            color={secondaryTextColor}
-          />
+          <Reanimated.View style={animatedChevronStyle}>
+            <Ionicons
+              name="chevron-down"
+              size={15}
+              color={secondaryTextColor}
+            />
+          </Reanimated.View>
         </Pressable>
       ) : null}
     </View>
@@ -140,14 +199,6 @@ const styles = StyleSheet.create({
     width: '100%',
     flexShrink: 1,
     gap: 8,
-  },
-  expandedScroll: {
-    maxHeight: 176,
-    minHeight: 0,
-    flexShrink: 1,
-  },
-  expandedContent: {
-    paddingBottom: 2,
   },
   grid: {
     width: '100%',

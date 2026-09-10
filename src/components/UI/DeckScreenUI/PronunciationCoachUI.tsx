@@ -140,18 +140,23 @@ export default function PronunciationCoachUI({
     typeof pronunciationScore === 'number' &&
     pronunciationScore >= PRONUNCIATION_PASS_SCORE;
   const flipProgress = React.useRef(new Animated.Value(showResult ? 1 : 0)).current;
+  const [isFlipping, setIsFlipping] = React.useState(false);
   const [activeIpaTarget, setActiveIpaTarget] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (reduceMotion) {
       flipProgress.setValue(showResult ? 1 : 0);
+      setIsFlipping(false);
       return;
     }
+    setIsFlipping(true);
     Animated.timing(flipProgress, {
       toValue: showResult ? 1 : 0,
       duration: 380,
       useNativeDriver: true,
-    }).start();
+    }).start(() => {
+      setIsFlipping(false);
+    });
   }, [flipProgress, reduceMotion, showResult]);
 
   React.useEffect(() => {
@@ -241,18 +246,32 @@ export default function PronunciationCoachUI({
           pointerEvents={showResult ? 'none' : 'auto'}
           style={[
             styles.cardFace,
-            { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
-            { transform: [{ perspective: 1200 }, { rotateY: frontRotate }] },
+            styles.frontFace,
+            showResult ? styles.cardFaceAbsolute : styles.cardFaceRelative,
+            {
+              backgroundColor: palette.cardBg,
+              borderColor: palette.cardBorder,
+              display: !isFlipping && showResult ? 'none' : 'flex',
+            },
+            isFlipping
+              ? { transform: [{ perspective: 1200 }, { rotateY: frontRotate }] }
+              : null,
           ]}
         >
           <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>
             {tUI(uiLanguage, 'review.prompt.pronounceWord').toUpperCase()}
           </Text>
           <Text
-            style={[styles.questionWord, { color: palette.primaryText }]}
+            style={[
+              styles.questionWord,
+              { color: palette.primaryText },
+              itemWord.length > 16
+                ? styles.questionWordSmall
+                : itemWord.length > 10
+                ? styles.questionWordMedium
+                : null,
+            ]}
             numberOfLines={2}
-            adjustsFontSizeToFit
-            minimumFontScale={0.58}
           >
             {itemWord}
           </Text>
@@ -357,8 +376,15 @@ export default function PronunciationCoachUI({
           style={[
             styles.cardFace,
             styles.backFace,
-            { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
-            { transform: [{ perspective: 1200 }, { rotateY: backRotate }] },
+            showResult ? styles.cardFaceRelative : styles.cardFaceAbsolute,
+            {
+              backgroundColor: palette.cardBg,
+              borderColor: palette.cardBorder,
+              display: !isFlipping && !showResult ? 'none' : 'flex',
+            },
+            isFlipping
+              ? { transform: [{ perspective: 1200 }, { rotateY: backRotate }] }
+              : null,
           ]}
         >
           <View style={styles.resultContent}>
@@ -398,10 +424,16 @@ export default function PronunciationCoachUI({
             </View>
 
             <Text
-              style={[styles.answerWord, { color: palette.primaryText }]}
+              style={[
+                styles.answerWord,
+                { color: palette.primaryText },
+                itemWord.length > 16
+                  ? styles.answerWordSmall
+                  : itemWord.length > 10
+                  ? styles.answerWordMedium
+                  : null,
+              ]}
               numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.56}
             >
               {itemWord}
             </Text>
@@ -560,20 +592,32 @@ export default function PronunciationCoachUI({
 
 const styles = StyleSheet.create({
   root: {
-    height: 500,
-    minHeight: 500,
+    minHeight: 480,
     backgroundColor: 'transparent',
   },
   cardShell: {
-    flex: 1,
+    width: '100%',
     position: 'relative',
   },
   cardFace: {
-    ...StyleSheet.absoluteFillObject,
     borderRadius: 28,
     borderWidth: 1,
     padding: 22,
     backfaceVisibility: 'hidden',
+  },
+  cardFaceAbsolute: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  cardFaceRelative: {
+    position: 'relative',
+    minHeight: 480,
+  },
+  frontFace: {
+    justifyContent: 'space-between',
   },
   backFace: {
     justifyContent: 'flex-start',
@@ -591,6 +635,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     textAlignVertical: 'center',
+  },
+  questionWordMedium: {
+    fontSize: 26,
+    lineHeight: 34,
+  },
+  questionWordSmall: {
+    fontSize: 21,
+    lineHeight: 28,
   },
   pronunciationQuizPanel: {
     flexShrink: 1,
@@ -672,7 +724,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   resultContent: {
-    flex: 1,
+    width: '100%',
     minHeight: 0,
     alignItems: 'center',
     gap: 12,
@@ -699,6 +751,14 @@ const styles = StyleSheet.create({
     lineHeight: 40,
     fontWeight: '900',
     alignSelf: 'stretch',
+  },
+  answerWordMedium: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  answerWordSmall: {
+    fontSize: 22,
+    lineHeight: 28,
   },
   answerScore: {
     fontSize: 52,
