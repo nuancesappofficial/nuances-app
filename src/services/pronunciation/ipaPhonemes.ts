@@ -125,7 +125,7 @@ function normalizePhonemeKey(input: string): string {
   return stripSlashes(input)
     .toLowerCase()
     .replace(/[0-2]/g, '')
-    .replace(/[^a-zəɚɝɑæʌɔʊɪɛθðʃʒŋːˈˌ]+/g, '')
+    .replace(/[^a-zəɚɝɜɑæʌɔʊɪɛθðʃʒŋːˈˌɹɒ]+/g, '')
     .trim();
 }
 
@@ -217,16 +217,38 @@ export async function loadStandardIpaPhonemes(
   return phraseTokens;
 }
 
+import {
+  hasBundledPhonics,
+  playBundledPhonics,
+  stopBundledPhonicsPlayback,
+} from './bundledPhonics';
+
+export { hasBundledPhonics, stopBundledPhonicsPlayback };
+
 export async function speakIpaPhoneme(
   rawPhoneme: string | null | undefined,
   options?: SpeakOptions
 ): Promise<void> {
+  const token = (rawPhoneme || '').trim();
+  const ipa = getIpaSymbol(token);
+  const candidate = ipa || token;
+
+  if (candidate) {
+    const playedLocally = await playBundledPhonics(candidate, {
+      onDone: options?.onDone,
+      onStopped: options?.onStopped,
+      onError: options?.onError,
+    });
+    if (playedLocally) {
+      return;
+    }
+  }
+
   const sampleText = getIpaPhonemeAudioText(rawPhoneme);
   if (!sampleText) {
     options?.onError?.();
     return;
   }
-  const ipa = getIpaSymbol(rawPhoneme);
   await speakViaAzureTtsProxy(sampleText, {
     ...options,
     locale: 'en-US',

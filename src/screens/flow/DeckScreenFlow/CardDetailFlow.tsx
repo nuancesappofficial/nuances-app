@@ -62,8 +62,10 @@ import {
 } from '@services/tts/defaultExperienceSpeech';
 import {
   getIpaPhonemeAudioTarget,
+  hasBundledPhonics,
   loadStandardIpaPhonemes,
   speakIpaPhoneme,
+  stopBundledPhonicsPlayback,
 } from '@services/pronunciation/ipaPhonemes';
 import { stopAzureTtsPlayback, cancelAllTtsPlayback } from '@services/tts/cloudSpeech';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
@@ -848,6 +850,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         void sound.unloadAsync().catch(() => undefined);
       }
       Speech.stop();
+      void stopBundledPhonicsPlayback();
       void Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
@@ -916,6 +919,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setIsPlaying(false);
     await stopUserRecordingPreview();
     await stopDefaultExperiencePronunciation();
+    await stopBundledPhonicsPlayback();
     await stopAzureTtsPlayback();
     cancelAllTtsPlayback();
     await Speech.stop();
@@ -1804,11 +1808,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     (phoneme: string) => {
       const target = getIpaPhonemeAudioTarget(phoneme);
       if (!target) return;
-      const downloadHandlers = createPronunciationDownloadHandlers(target);
+      const isBundled = hasBundledPhonics(phoneme);
+      const downloadHandlers = !isBundled ? createPronunciationDownloadHandlers(target) : null;
       void speakIpaPhoneme(phoneme, {
-        onDownloadStart: downloadHandlers.onDownloadStart,
-        onDownloadEnd: downloadHandlers.onDownloadEnd,
-        onError: downloadHandlers.onError,
+        onDownloadStart: downloadHandlers?.onDownloadStart,
+        onDownloadEnd: downloadHandlers?.onDownloadEnd,
+        onError: downloadHandlers?.onError,
       });
     },
     [createPronunciationDownloadHandlers]

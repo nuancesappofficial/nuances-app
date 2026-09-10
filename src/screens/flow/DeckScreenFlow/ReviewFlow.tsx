@@ -37,8 +37,10 @@ import {
   formatIpaPhoneme,
   getIpaPhonemeAudioTarget,
   getIpaSymbol,
+  hasBundledPhonics,
   loadStandardIpaPhonemes,
   speakIpaPhoneme,
+  stopBundledPhonicsPlayback,
 } from '@services/pronunciation/ipaPhonemes';
 import AnimatedGlowPressable from '../../../components/UI/shared/AnimatedGlowPressable';
 import PronunciationPhonemeSectionUI from '../../../components/UI/DeckScreenUI/PronunciationPhonemeSectionUI';
@@ -1906,6 +1908,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
       }
 
       void stopDefaultExperiencePronunciation();
+      void stopBundledPhonicsPlayback();
       void Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
@@ -2362,6 +2365,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
           // downloading, so a download finishing after recording starts cannot
           // grab the AVAudioSession back into playback mode.
           await stopDefaultExperiencePronunciation();
+          await stopBundledPhonicsPlayback();
           await stopAzureTtsPlayback();
           cancelAllTtsPlayback();
           await waitForActiveAudioSession();
@@ -2496,11 +2500,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const target = getIpaPhonemeAudioTarget(rawPhoneme);
     if (!target) return;
     const playbackTarget = `${questionId}:${target}`;
+    const isBundled = hasBundledPhonics(rawPhoneme);
     setPronunciationPlaybackTarget(playbackTarget);
     void speakIpaPhoneme(rawPhoneme, {
       demoExperience: usesDemoPronunciationBackend,
-      onDownloadStart: () => setPronunciationDownloadTarget(playbackTarget),
-      onDownloadEnd: () => setPronunciationDownloadTarget((current) => (current === playbackTarget ? null : current)),
+      onDownloadStart: isBundled ? undefined : () => setPronunciationDownloadTarget(playbackTarget),
+      onDownloadEnd: isBundled ? undefined : () => setPronunciationDownloadTarget((current) => (current === playbackTarget ? null : current)),
       onDone: () => {
         setPronunciationDownloadTarget((current) => (current === playbackTarget ? null : current));
         setPronunciationPlaybackTarget((current) => (current === playbackTarget ? null : current));
