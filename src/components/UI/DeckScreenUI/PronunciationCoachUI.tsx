@@ -234,10 +234,6 @@ export default function PronunciationCoachUI({
   ]);
   const showPhonemes =
     phonemeSectionItems.length > 0 && resultRevealStep >= 2;
-  const showIpaRecovery =
-    resultRevealStep >= 2 &&
-    phonemeSectionItems.length === 0 &&
-    Boolean(onReloadIpa);
 
   return (
     <View style={styles.root}>
@@ -489,63 +485,6 @@ export default function PronunciationCoachUI({
                   onPlayIpaPhoneme?.(item.value);
                 }}
               />
-            ) : showIpaRecovery ? (
-              <View
-                style={[
-                  styles.ipaRecovery,
-                  {
-                    backgroundColor: palette.phonemeSurface,
-                    borderColor: palette.phonemeBorder,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.ipaRecoveryText,
-                    {
-                      color: ipaLookupError
-                        ? palette.errorText
-                        : palette.secondaryText,
-                    },
-                  ]}
-                >
-                  {tUI(
-                    uiLanguage,
-                    ipaLookupError
-                      ? 'pronunciation.ipaLookupFailed'
-                      : 'pronunciation.ipaUnavailable'
-                  )}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={isIpaLookupLoading}
-                  style={({ pressed }) => [
-                    styles.ipaRecoveryButton,
-                    {
-                      backgroundColor: palette.softButtonBg,
-                      borderColor: palette.softButtonBorder,
-                    },
-                    pressed && !isIpaLookupLoading
-                      ? styles.secondaryButtonPressed
-                      : null,
-                  ]}
-                  onPress={onReloadIpa}
-                >
-                  {isIpaLookupLoading ? (
-                    <ActivityIndicator size="small" color="#4EAFF4" />
-                  ) : (
-                    <Ionicons name="refresh" size={17} color={palette.primaryText} />
-                  )}
-                  <Text
-                    style={[
-                      styles.ipaRecoveryButtonText,
-                      { color: palette.primaryText },
-                    ]}
-                  >
-                    {tUI(uiLanguage, 'pronunciation.reloadIpa')}
-                  </Text>
-                </Pressable>
-              </View>
             ) : null}
           </View>
 

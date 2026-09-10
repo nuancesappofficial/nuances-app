@@ -2265,7 +2265,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
         try {
           leftover.setOnRecordingStatusUpdate(null);
           await leftover.stopAndUnloadAsync();
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
       pronunciationRecordingRef.current = null;
       setPronunciationRecordingQuestionId(null);
@@ -2877,62 +2879,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 handlePlayQuestionIpaPhoneme(question.id, item.value)
               }
             />
-          ) : (
-            <View
-              style={[
-                styles.pronunciationIpaRecovery,
-                {
-                  backgroundColor: palette.optionBg,
-                  borderColor: palette.optionBorder,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.pronunciationIpaRecoveryText,
-                  {
-                    color: pronunciationIpaLookupErrors[question.id]
-                      ? palette.errorText
-                      : palette.secondaryText,
-                  },
-                ]}
-              >
-                {tUI(
-                  uiLanguage,
-                  pronunciationIpaLookupErrors[question.id]
-                    ? 'pronunciation.ipaLookupFailed'
-                    : 'pronunciation.ipaUnavailable'
-                )}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                disabled={pronunciationIpaLookupQuestionId === question.id}
-                style={({ pressed }) => [
-                  styles.pronunciationIpaRecoveryButton,
-                  {
-                    backgroundColor: palette.softButtonBg,
-                    borderColor: palette.softButtonBorder,
-                  },
-                  pressed ? styles.secondaryButtonPressed : null,
-                ]}
-                onPress={() => void handleReloadQuestionIpa(question)}
-              >
-                {pronunciationIpaLookupQuestionId === question.id ? (
-                  <ActivityIndicator size="small" color={palette.optionCorrectBorder} />
-                ) : (
-                  <Ionicons name="refresh" size={17} color={palette.primaryText} />
-                )}
-                <Text
-                  style={[
-                    styles.pronunciationIpaRecoveryButtonText,
-                    { color: palette.primaryText },
-                  ]}
-                >
-                  {tUI(uiLanguage, 'pronunciation.reloadIpa')}
-                </Text>
-              </Pressable>
-            </View>
-          )}
+          ) : null}
         </View>
       );
     };
