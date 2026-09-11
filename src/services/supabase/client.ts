@@ -132,13 +132,7 @@ export const signInWithGoogle = async () => {
       offlineAccess: false,
     });
 
-    const rawNonce = Crypto.randomUUID();
-    const hashedNonce = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      rawNonce,
-      { encoding: Crypto.CryptoEncoding.HEX }
-    );
-    const response = await GoogleSignin.signIn({ nonce: hashedNonce });
+    const response = await GoogleSignin.signIn();
     if (isCancelledResponse(response)) {
       return {
         data: null,
@@ -147,8 +141,6 @@ export const signInWithGoogle = async () => {
       };
     }
 
-    // Use the token produced by this exact nonce-bound sign-in. getTokens() may
-    // return a cached ID token from an earlier authorization attempt.
     const identityToken = response.data.idToken?.trim();
     const googleTokens = await GoogleSignin.getTokens();
     const accessToken = googleTokens.accessToken?.trim();
@@ -164,7 +156,6 @@ export const signInWithGoogle = async () => {
       provider: 'google',
       token: identityToken,
       ...(accessToken ? { access_token: accessToken } : {}),
-      nonce: rawNonce,
     });
 
     if (error) {
