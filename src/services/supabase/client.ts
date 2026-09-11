@@ -132,7 +132,20 @@ export const signInWithGoogle = async () => {
       offlineAccess: false,
     });
 
-    const response = await GoogleSignin.signIn();
+    const isIos = Platform.OS === 'ios';
+    const rawNonce = isIos ? Crypto.randomUUID() : undefined;
+    const hashedNonce =
+      isIos && rawNonce
+        ? await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            rawNonce,
+            { encoding: Crypto.CryptoEncoding.HEX }
+          )
+        : undefined;
+
+    const response = await GoogleSignin.signIn(
+      isIos && hashedNonce ? { nonce: hashedNonce } : {}
+    );
     if (isCancelledResponse(response)) {
       return {
         data: null,
@@ -156,6 +169,7 @@ export const signInWithGoogle = async () => {
       provider: 'google',
       token: identityToken,
       ...(accessToken ? { access_token: accessToken } : {}),
+      ...(rawNonce ? { nonce: rawNonce } : {}),
     });
 
     if (error) {

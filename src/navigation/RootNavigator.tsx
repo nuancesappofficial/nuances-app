@@ -4,6 +4,7 @@ import {
   DeviceEventEmitter,
   Easing,
   Linking,
+  Platform,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -219,7 +220,7 @@ function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledCha
           <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
           <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={{ presentation: 'card' }} />
           <CardsStackNav.Screen name="AlbumView" component={SyncAlbumViewFlow} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
+          <CardsStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: Platform.OS === 'ios', gestureResponseDistance: 28 }} />
           <CardsStackNav.Screen name="DayView" component={SyncDayViewFlow} options={{ presentation: 'card' }} />
           <CardsStackNav.Screen name="CardReview" component={SyncReviewFlow} options={{ presentation: 'card' }} />
         </CardsStackNav.Navigator>
@@ -717,13 +718,13 @@ export default function RootNavigator({
     <TabSwipeContext.Provider value={tabSwipeContextValue}>
       <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[0], zIndex: selectedTabIndex === 0 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}>
+          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[0], zIndex: selectedTabIndex === 0 ? 3 : 1, display: selectedTabIndex === 0 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}>
             <CardsStack navigationRef={cardsNavigationRef} onSwipeEnabledChange={handleDeckRootRouteEnabledChange} />
           </Animated.View>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[1], zIndex: selectedTabIndex === 1 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}>
+          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[1], zIndex: selectedTabIndex === 1 ? 3 : 1, display: selectedTabIndex === 1 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}>
             <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1 }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
+          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1, display: selectedTabIndex === 2 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
             <ProfileStack
               navigationRef={profileNavigationRef}
               onSwipeEnabledChange={handleProfileRootRouteEnabledChange}

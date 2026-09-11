@@ -7,13 +7,13 @@ import {
   type LayoutChangeEvent,
   Modal,
   Pressable,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import Reanimated, {
