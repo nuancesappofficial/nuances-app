@@ -1608,9 +1608,7 @@ export default function DeckMainFlow({
   const handleAvatarPress = React.useCallback(() => {
     if (onPressAvatar) {
       onPressAvatar();
-      return;
     }
-    console.log('[DeckHub] Avatar pressed');
   }, [onPressAvatar]);
 
   const handleCacheFabPress = React.useCallback(() => {

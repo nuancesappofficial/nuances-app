@@ -761,7 +761,7 @@ export default function App() {
         category: 'app_lifecycle',
         event: 'app_initialization_started',
       });
-      if (isExpoGo) {
+      if (__DEV__ && isExpoGo) {
         console.log('✅ Running in Expo Go mode');
       }
 
@@ -1389,68 +1389,42 @@ export default function App() {
   }, []);
 
   const handleTestAccountSignIn = React.useCallback(async () => {
-    const devSimulatorEnabled = isDevFreshUserSimulatorEnabled();
-    const email = process.env.EXPO_PUBLIC_TEST_ACCOUNT_EMAIL;
-    const password = process.env.EXPO_PUBLIC_TEST_ACCOUNT_PASSWORD;
     if (!__DEV__ && !INTERNAL_TESTER_TOOLS_ENABLED) {
       Alert.alert('Test account unavailable', 'Dev test account is not available in this build.');
       return;
     }
-    if (!devSimulatorEnabled && (!email || !password)) {
-      Alert.alert('Test account unavailable', 'Dev test account credentials are not configured.');
-      return;
-    }
 
     traceFirstRun('auth', 'sign_in_started', {
-      provider: devSimulatorEnabled ? 'dev_fresh_user_simulator' : 'dev_test_account',
+      provider: 'dev_fresh_user_simulator',
     });
     beginFreshTestAccountReset();
     dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
-      if (devSimulatorEnabled) {
-        // Dev-only: simulate a brand-new user locally without real credentials.
-        const session = await simulateFreshUser();
-        const nextUserId = session.user.id;
-        await withTimeout(
-          setAppGroupActiveUserId(nextUserId),
-          NATIVE_BRIDGE_TIMEOUT_MS,
-          'setAppGroupActiveUserId(dev-fresh-user)'
-        );
-        activeUserIdRef.current = nextUserId;
-        setUserId(nextUserId);
-        setAllowOfflineAccess(false);
-        setNeedsOnboarding(true);
-        setOnboardingChecked(true);
-        setNeedsVideoTour(VIDEO_TOUR_ENABLED);
-        setManualVideoTourRequested(false);
-        setVideoTourChecked(true);
-        setIsReady(true);
-        traceFirstRun('auth', 'dev_fresh_user_simulator_ready', { userId: nextUserId });
-        // The local simulator does not emit Supabase's session-ready event.
-        dispatchSignInCurtain('session-ready');
-        dispatchSignInCurtain('sign-in-returned');
-      } else {
-        const { data, error } = await signIn(email, password);
-        if (error || !data?.session?.access_token) {
-          throw error ?? new Error('Test account did not return a session.');
-        }
-        const reset = await resetFreshTestAccount();
-        await Promise.all([
-          clearTourSeenLocally(reset.user_id),
-          clearDefaultExperienceCardSeen(reset.user_id),
-        ]);
-        traceFirstRun('auth', 'dev_test_account_reset_completed', {
-          userId: reset.user_id,
-        });
-        traceFirstRun('auth', 'provider_returned_session', {
-          provider: 'dev_test_account',
-        });
-        dispatchSignInCurtain('sign-in-returned');
-      }
+      // Dev-only: simulate a brand-new user locally without real credentials.
+      const session = await simulateFreshUser();
+      const nextUserId = session.user.id;
+      await withTimeout(
+        setAppGroupActiveUserId(nextUserId),
+        NATIVE_BRIDGE_TIMEOUT_MS,
+        'setAppGroupActiveUserId(dev-fresh-user)'
+      );
+      activeUserIdRef.current = nextUserId;
+      setUserId(nextUserId);
+      setAllowOfflineAccess(false);
+      setNeedsOnboarding(true);
+      setOnboardingChecked(true);
+      setNeedsVideoTour(VIDEO_TOUR_ENABLED);
+      setManualVideoTourRequested(false);
+      setVideoTourChecked(true);
+      setIsReady(true);
+      traceFirstRun('auth', 'dev_fresh_user_simulator_ready', { userId: nextUserId });
+      // The local simulator does not emit Supabase's session-ready event.
+      dispatchSignInCurtain('session-ready');
+      dispatchSignInCurtain('sign-in-returned');
     } catch (error) {
       traceFirstRun('auth', 'sign_in_failed', {
-        provider: devSimulatorEnabled ? 'dev_fresh_user_simulator' : 'dev_test_account',
+        provider: 'dev_fresh_user_simulator',
         error,
       });
       dispatchSignInCurtain('sign-in-aborted');

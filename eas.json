@@ -7,18 +7,6 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_INTERNAL_TESTER_TOOLS": "true",
-        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://cjmfobjitkmmideecfsw.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B",
-        "EXPO_PUBLIC_AUTH_REDIRECT_SCHEME": "nuances",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "209409749377-oh9gnelel2bod85spsnbsmcqdc3ehg9h.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "209409749377-rr7otmr4fqle2pvkihg3o1rdv2f26vr0.apps.googleusercontent.com",
-        "EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME": "ai-proxy",
-        "EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME": "tts-proxy",
-        "EXPO_PUBLIC_SYNC_ENTITLEMENT_FUNCTION_NAME": "sync-entitlement"
-      },
       "ios": {
         "resourceClass": "m-medium"
       },
@@ -30,15 +18,7 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_INTERNAL_TESTER_TOOLS": "true",
-        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://cjmfobjitkmmideecfsw.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B",
-        "EXPO_PUBLIC_AUTH_REDIRECT_SCHEME": "nuances",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "209409749377-oh9gnelel2bod85spsnbsmcqdc3ehg9h.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "209409749377-rr7otmr4fqle2pvkihg3o1rdv2f26vr0.apps.googleusercontent.com",
-        "EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME": "ai-proxy",
-        "EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME": "tts-proxy",
-        "EXPO_PUBLIC_SYNC_ENTITLEMENT_FUNCTION_NAME": "sync-entitlement"
+        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true"
       },
       "ios": {
         "resourceClass": "m-medium"

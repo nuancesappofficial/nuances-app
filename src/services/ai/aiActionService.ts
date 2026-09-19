@@ -861,9 +861,6 @@ export async function generateCardContentStream(
   }), stageHandlers);
 
   const rawCore = coreResult.rawContent || '';
-  if (__DEV__) {
-    console.log('--- AI RAW CORE OUTPUT ---', rawCore);
-  }
 
   const core: Partial<GenerateCardResult> = {
     ...parseCoreStream(rawCore),

@@ -1951,15 +1951,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const isGenerateDisabled = selectedTargets.length === 0;
 
   const handleGenerate = React.useCallback(async () => {
-    if (selectedTargets.length === 0) return;
-    console.log('[CreateCard][Generate] pressed', {
-      selectedTargets: selectedTargets.length,
-      effectiveGenerationMode,
-      planType: entitlementSnapshot?.planType ?? 'unknown',
-      canUseAutoCardGeneration:
-        entitlementSnapshot?.canUseAutoCardGeneration ?? null,
-      canUseCloudAI: entitlementSnapshot?.canUseCloudAI ?? null,
-    });
+    if (__DEV__) {
+      console.log('[CreateCard][Generate] pressed', {
+        selectedTargets: selectedTargets.length,
+        effectiveGenerationMode,
+        planType: entitlementSnapshot?.planType ?? 'unknown',
+        canUseAutoCardGeneration:
+          entitlementSnapshot?.canUseAutoCardGeneration ?? null,
+        canUseCloudAI: entitlementSnapshot?.canUseCloudAI ?? null,
+      });
+    }
     await beginGenerate();
   }, [
     beginGenerate,

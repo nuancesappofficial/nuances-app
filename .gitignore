@@ -32,7 +32,8 @@ yarn-error.*
 
 # local env files
 .env
-.env*.local
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
@@ -40,6 +41,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+modules/**/android/build/
+modules/**/ios/build/
+modules/**/build/
 
 # IDE
 .vscode/
@@ -60,8 +64,11 @@ logs/
 # OS
 Thumbs.db
 
-# Reference PDFs (keep in parent folder, not in git)
+# Archives & Temporary binaries
+*.zip
+*.tar.gz
 *.pdf
 .agents/
 .roo/
 output/
+

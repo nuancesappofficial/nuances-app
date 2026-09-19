@@ -47,6 +47,13 @@ async function removeDirectoryIfExists(uri: string): Promise<void> {
 export async function clearLocalAccountCaches(userId: string): Promise<void> {
   const allKeys = await AsyncStorage.getAllKeys();
   const keysToRemove = resolveAccountDeletionStorageKeys(allKeys, userId);
+  // Explicitly ensure user_app_settings_v1 and local_card_image_map_v1 scoped artifacts are purged
+  const criticalKeys = [`user_app_settings_v1:${userId}`, `local_card_image_map_v1:${userId}`];
+  for (const key of criticalKeys) {
+    if (!keysToRemove.includes(key)) {
+      keysToRemove.push(key);
+    }
+  }
   if (keysToRemove.length > 0) {
     await AsyncStorage.multiRemove(keysToRemove);
   }
