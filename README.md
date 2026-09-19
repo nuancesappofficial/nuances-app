@@ -4,7 +4,9 @@
 
 **Offline-First, Context-Aware Language Acquisition Platform Built with React Native & Cloud AI**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Download on the App Store](https://img.shields.io/badge/App_Store-Download_Now-0D96F6?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com/app/id6772143495)
+
+[![License: Proprietary / Source-Available](https://img.shields.io/badge/License-Proprietary%20%2F%20Source--Available-red.svg)](LICENSE)
 [![Expo](https://img.shields.io/badge/Expo-54-000020.svg?logo=expo)](https://expo.dev)
 [![React Native](https://img.shields.io/badge/React%20Native-0.81.5%20(New%20Architecture)-61DAFB.svg?logo=react)](https://reactnative.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6.svg?logo=typescript)](https://www.typescriptlang.org)
@@ -12,8 +14,11 @@
 [![WatermelonDB](https://img.shields.io/badge/Database-WatermelonDB%20(SQLite)-FF69B4.svg)](https://watermelondb.dev)
 
 <p align="center">
-  A production-ready mobile application engineered to transform raw, real-world text into deep, memorable flashcards with instant on-device OCR, resilient multi-provider LLM pipelines, and continuous cross-device sync.
+  A production-ready mobile application engineered to transform real-world text captures into deep, memorable flashcards via on-device OCR, multi-provider LLM pipelines, and reactive cross-device sync.
 </p>
+
+> [!NOTE]
+> **Engineering Showcase Repository**: This codebase is made source-available exclusively for academic evaluation by graduate admissions committees and technical review by industry peers. To use the production application as an end user, download the official release from the [Apple App Store](https://apps.apple.com/app/id6772143495).
 
 </div>
 
@@ -21,14 +26,16 @@
 
 ## 📌 Project Overview
 
-**Nuances** addresses the critical gap between passive language exposure and active retention by turning real-world text captures—from camera frames, photos, and system share sheets—into linguistically enriched, SRS-ready flashcards. Designed with an **offline-first, zero-trust architectural paradigm**, it combines reactive client-side database caching with high-throughput, token-budgeted cloud AI execution.
+**Nuances** bridges the gap between passive language exposure and active long-term retention. Rather than requiring users to manually transcribe words, Nuances ingests real-world content from camera frames, photo albums, and system share sheets. It then extracts text through on-device computer vision and leverages multi-modal LLM pipelines to generate linguistically nuanced, spaced-repetition (SRS) flashcards.
+
+The application follows an **offline-first, zero-trust architectural paradigm**, combining localized SQLite caching with secure, serverless cloud execution.
 
 ---
 
 ## ✨ Key Technical Highlights
 
-- **Dual-Engine On-Device OCR Pipeline**: Powered by custom cross-platform native modules (`modules/vision-ocr`) directly bridging Apple Vision Framework on iOS and Google ML Kit on Android for sub-second, zero-network text recognition.
-- **Resilient AI Proxy & Token Accounting**: Serverless backend orchestration via Supabase Edge Functions with multi-model fallback (OpenAI GPT-4o / Google Gemini 2.0 Flash), streaming JSON parser, rate limiting, and real-time USD/TWD cost ledger tracking.
+- **Dual-Engine On-Device OCR Pipeline**: Custom cross-platform native modules (`modules/vision-ocr`) directly bind to Apple Vision Framework on iOS and Google ML Kit on Android, delivering sub-second, zero-network text recognition without latency or cloud vision costs.
+- **Resilient AI Proxy & Token Accounting**: Serverless backend orchestration via Supabase Edge Functions with multi-model fallback (OpenAI GPT-4o / Google Gemini 2.0 Flash), streaming JSON extraction, rate limiting, and real-time USD/TWD cost ledger tracking.
 - **Reactive Offline-First Data Architecture**: Built on WatermelonDB (SQLite) running atop the React Native New Architecture with RxJS observable queries, backed by an incremental sync engine with strict Supabase Row-Level Security (RLS).
 - **Deep Operating System Integration**: Native OS hooks via custom iOS Share Extension (App Group shared container) and Android `SEND` / `SEND_MULTIPLE` intent interceptors (`modules/android-share-intent`), enabling card generation directly from any external app.
 
@@ -97,71 +104,36 @@ flowchart TD
 
 ---
 
-## 🚀 Getting Started
+## 🔍 Code Review & Verification (For Evaluators)
 
-### Prerequisites
+Evaluators and admissions committees can inspect, build, and verify the codebase locally.
 
-- **Node.js**: `v20.x` or later (LTS recommended)
-- **Package Manager**: `npm` (v10+)
-- **Mobile Development Environments**:
-  - iOS: macOS with Xcode 16+ and CocoaPods installed
-  - Android: Android Studio with Android SDK Platform 35 and JDK 17
+> [!IMPORTANT]
+> **Zero-Trust Backend Protection**: Cloud synchronization, real-time AI generation, and premium speech services require authenticated cloud infrastructure and proprietary secrets. For evaluation, the repository includes full static analysis tools and a zero-credential local testing harness.
 
-### Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/nuancesappofficial/nuances-app.git
-   cd nuances-app
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**:
-   Create a `.env.local` file by copying the template:
-   ```bash
-   cp .env.example .env.local
-   ```
-   Fill in your Supabase project credentials and OAuth client IDs in `.env.local`:
-   ```env
-   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-publishable-key
-   EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME=ai-proxy
-   EXPO_PUBLIC_AUTH_REDIRECT_SCHEME=nuances
-   ```
-
-### Running Locally
-
-- **Start Metro Bundler**:
-  ```bash
-  npm start
-  ```
-
-- **Run on iOS Simulator / Device**:
-  ```bash
-  npm run ios
-  ```
-
-- **Run on Android Emulator / Device**:
-  ```bash
-  npm run android
-  ```
-
-### Verification & Quality Assurance
-
-Run the comprehensive suite of linters, type checks, and security audits:
+### 1. Environment Setup
 
 ```bash
-# Type check TypeScript definitions
+# Clone the showcase repository
+git clone https://github.com/nuancesappofficial/nuances-app.git
+cd nuances-app
+
+# Install project dependencies
+npm install
+```
+
+### 2. Engineering Verification Suite
+
+Run automated checks to verify type integrity, linting standards, and security compliance:
+
+```bash
+# 1. Strict TypeScript compilation (0 errors)
 npm run type-check
 
-# Run ESLint across codebase
+# 2. ESLint code standard compliance
 npm run lint
 
-# Run rigorous zero-trust security and policy audit
+# 3. Comprehensive zero-trust security & access-control audit (19 checks)
 npm run check:security
 ```
 
@@ -172,9 +144,14 @@ npm run check:security
 - **Zero Client-Exposed API Keys**: Proprietary LLM keys (OpenAI / Gemini / Azure) are exclusively held within authenticated Supabase Edge Functions. Mobile clients only receive short-lived, RLS-scoped JWTs.
 - **Granular Row-Level Security (RLS)**: Every database table (`cards`, `profiles`, `sync_metadata`, `review_history`) strictly enforces `auth.uid() = user_id` access controls at the database engine level.
 - **Privacy-Safe Asset Isolation**: User media assets and cached card images are isolated in per-user storage buckets and local app directories, preventing cross-tenant data leakage.
+- **Server-Side Monetization Integrity**: Premium subscription validation is enforced server-side via RevenueCat webhooks and Apple StoreKit receipt verification.
 
 ---
 
-## 📄 License
+## 📄 License & Intellectual Property
 
-This project is licensed under the [MIT License](LICENSE).
+Copyright © 2026 Nuances App (Jeff English Learning). All rights reserved.
+
+This source code is made available as a **Source-Available Portfolio Showcase** strictly for academic review, prospective employment evaluation, and architectural inspection. **Commercial distribution, unauthorized compilation, reproduction, or deployment is strictly prohibited.**
+
+See [LICENSE](LICENSE) for details.

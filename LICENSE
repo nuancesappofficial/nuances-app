@@ -1,21 +1,23 @@
-MIT License
+Copyright (c) 2026 Nuances App (Jeff English Learning). All rights reserved.
 
-Copyright (c) 2026 Nuances App Contributors
+PROPRIETARY & CONFIDENTIAL SOURCE-AVAILABLE LICENSE
+FOR PORTFOLIO AND ACADEMIC EVALUATION ONLY
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This source code is made publicly available strictly for the purposes of:
+1. Technical and engineering review by graduate admissions committees.
+2. Architectural and code quality evaluation by prospective employers and technical peers.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Permission is hereby GRANTED to inspect, review, and evaluate the source code
+for the sole purposes stated above.
+
+RESTRICTIONS:
+- No permission is granted to copy, modify, distribute, publish, sublicense, 
+  or sell any part of this software, in source or binary form.
+- No permission is granted to compile or deploy this software for commercial, 
+  personal, or public use outside of authorized evaluation environments.
+- All backend services, AI models, prompts, branding, trademarks, and design 
+  assets remain the exclusive intellectual property of the author.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
