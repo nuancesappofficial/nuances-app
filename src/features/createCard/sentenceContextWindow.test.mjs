@@ -19,3 +19,9 @@ test('pickSentenceContainingWord respects MAX_SOURCE_WORDS upper bound', () => {
   assert.ok(result.includes("She's not the baby of a quick nut."));
   assert.ok(result.split(/\s+/).length <= 45);
 });
+
+test('pickSentenceContainingWord does not infinite loop when expanding in both directions', () => {
+  const text = "First short. Middle contains word. Last short.";
+  const result = pickSentenceContainingWord(text, 'word');
+  assert.equal(result, "First short. Middle contains word. Last short.");
+});

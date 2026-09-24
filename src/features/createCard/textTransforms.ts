@@ -505,21 +505,24 @@ export function pickSentenceContainingWord(
   );
   if (spanIndex < 0) spanIndex = 0;
 
+  let leftIndex = spanIndex;
+  let rightIndex = spanIndex;
+
   const selected = { ...spans[spanIndex] };
   // Very short fragments rarely disambiguate a selected word. Add one nearby
   // complete sentence, while keeping the excerpt bounded.
   while (
     tokenCount(source.slice(selected.start, selected.end)) < MIN_CONTEXT_WORDS &&
-    (spanIndex > 0 || spanIndex < spans.length - 1)
+    (leftIndex > 0 || rightIndex < spans.length - 1)
   ) {
-    const next = spans[spanIndex + 1];
-    const previous = spans[spanIndex - 1];
+    const next = spans[rightIndex + 1];
+    const previous = spans[leftIndex - 1];
     if (previous) {
       selected.start = previous.start;
-      spanIndex -= 1;
+      leftIndex -= 1;
     } else if (next) {
       selected.end = next.end;
-      spanIndex += 1;
+      rightIndex += 1;
     } else {
       break;
     }
