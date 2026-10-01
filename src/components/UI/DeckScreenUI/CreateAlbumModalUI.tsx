@@ -40,6 +40,7 @@ type Props = {
   onChangeAlbumName: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
+  onDidClose?: () => void;
   tourConfirmActive?: boolean;
 };
 
@@ -57,8 +58,13 @@ export default function CreateAlbumModalUI({
   onChangeAlbumName,
   onCancel,
   onConfirm,
+  onDidClose,
   tourConfirmActive = false,
 }: Props) {
+  const onDidCloseRef = React.useRef(onDidClose);
+  React.useEffect(() => {
+    onDidCloseRef.current = onDidClose;
+  }, [onDidClose]);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
@@ -121,6 +127,7 @@ export default function CreateAlbumModalUI({
     ]).start(({ finished }) => {
       if (!finished) return;
       setShouldRender(false);
+      onDidCloseRef.current?.();
     });
   }, [backdropOpacity, entranceY, keyboardLift, shouldRender, visible]);
 

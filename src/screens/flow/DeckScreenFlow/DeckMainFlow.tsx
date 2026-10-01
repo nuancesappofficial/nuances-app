@@ -58,10 +58,12 @@ import {
   getInitialUserSettings,
   isMainScreenEmptyAlbumSlot,
   loadUserSettings,
+  saveUserSettings,
   subscribeUserSettings,
   type MainScreenAlbumGridCount,
   type UILanguage,
 } from '@services/settings/userSettings';
+import { placeNewAlbumInSlotOrder } from '../../../features/deck/albumSlotPlacement';
 import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -176,6 +178,9 @@ export default function DeckMainFlow({
   const [settingsCoverImageUri, setSettingsCoverImageUri] = React.useState('');
   const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] =
     React.useState<string | null>(null);
+  const pendingAlbumToEditRef = React.useRef<DeckAlbum | null>(null);
+  const pendingScrollAfterSettingsRef = React.useRef<string | null>(null);
+  const [scrollToAlbumId, setScrollToAlbumId] = React.useState<string | null>(null);
   // STEP_14 教學：使用者是否已換完封面（換完後才顯示指向儲存按鈕的箭頭）
   const [tourCoverPicked, setTourCoverPicked] = React.useState(false);
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
@@ -1366,9 +1371,24 @@ export default function DeckMainFlow({
     const isTourConfirmation = appTour.step === 'STEP_12_CONFIRM_ALBUM';
 
     const finishAlbumCreation = () => {
-      setCustomAlbums((prev) => [newAlbum, ...prev]);
+      setCustomAlbums((prev) => [...prev, newAlbum]);
+      pendingAlbumToEditRef.current = newAlbum;
+
+      const nextOrder = placeNewAlbumInSlotOrder(
+        mainScreenAlbumOrder,
+        newAlbum.id
+      );
+      setMainScreenAlbumOrder(nextOrder);
+      void loadUserSettings().then((settings) => {
+        void saveUserSettings({
+          ...settings,
+          mainScreenAlbumOrder: nextOrder,
+        });
+      });
+
       setIsCreateModalVisible(false);
       setNewAlbumName('');
+      pendingScrollAfterSettingsRef.current = newAlbum.id;
     };
 
     if (isTourConfirmation) {
@@ -1382,7 +1402,25 @@ export default function DeckMainFlow({
     }
 
     finishAlbumCreation();
-  }, [appTour, newAlbumName, openAlbumSettings, uiLanguage]);
+  }, [appTour, mainScreenAlbumOrder, newAlbumName, uiLanguage]);
+
+  const handleCreateAlbumDidClose = React.useCallback(() => {
+    const album = pendingAlbumToEditRef.current;
+    pendingAlbumToEditRef.current = null;
+    if (album) {
+      setTimeout(() => {
+        openAlbumSettings(album);
+      }, 50);
+    }
+  }, [openAlbumSettings]);
+
+  const handleAlbumSettingsDidClose = React.useCallback(() => {
+    const albumId = pendingScrollAfterSettingsRef.current;
+    pendingScrollAfterSettingsRef.current = null;
+    if (albumId) {
+      setScrollToAlbumId(albumId);
+    }
+  }, []);
 
   const handleChangeSettingsEmoji = React.useCallback((emoji: string) => {
     setSettingsEmoji(emoji);
@@ -1721,6 +1759,7 @@ export default function DeckMainFlow({
             ? customAlbums[0]?.id || null
             : null
         }
+        scrollToAlbumId={scrollToAlbumId}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}
@@ -1767,6 +1806,7 @@ export default function DeckMainFlow({
           setNewAlbumName('');
         }}
         onConfirm={handleAddAlbum}
+        onDidClose={handleCreateAlbumDidClose}
       />
 
       <AlbumSettingsModalUI
@@ -1795,6 +1835,7 @@ export default function DeckMainFlow({
           }
         }}
         onSave={handleSaveAlbumSettings}
+        onDidClose={handleAlbumSettingsDidClose}
       >
         <ImageCropperModal
           visible={!!pendingAlbumCoverCropUri}

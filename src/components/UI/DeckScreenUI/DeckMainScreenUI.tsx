@@ -58,6 +58,7 @@ type Props = {
   onTourTargetPress?: () => void;
   showQuickQuizTutorialArrow?: boolean;
   tutorialLongPressAlbumId?: string | null;
+  scrollToAlbumId?: string | null;
   /** STEP_13 教學：長按選單是否開啟（開啟時隱藏長按箭頭，改由選單 overlay 顯示指向 edit 的箭頭） */
   isTourMenuOpen?: boolean;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
@@ -98,6 +99,7 @@ export default function DeckMainScreenUI({
   onTourTargetPress,
   showQuickQuizTutorialArrow = false,
   tutorialLongPressAlbumId = null,
+  scrollToAlbumId = null,
   isTourMenuOpen = false,
   slideshowItems,
   wordPopSlideMs,
@@ -278,6 +280,20 @@ export default function DeckMainScreenUI({
       albumPagerRef.current?.scrollToIndex({ index: pageIndex, animated: true });
     });
   }, [albumPages, tourStep, tutorialLongPressAlbumId]);
+
+  React.useEffect(() => {
+    if (!scrollToAlbumId) return;
+
+    const pageIndex = albumPages.findIndex((page) =>
+      page.some((album) => album?.id === scrollToAlbumId)
+    );
+    if (pageIndex < 0) return;
+
+    requestAnimationFrame(() => {
+      albumPagerRef.current?.scrollToIndex({ index: pageIndex, animated: true });
+      setCurrentPage(pageIndex);
+    });
+  }, [albumPages, scrollToAlbumId]);
 
   // STEP_13：主動 measure 教學相簿 cell 的螢幕座標，避免依賴 onLayout 在 STEP_13 時重新觸發
   // （cell 早在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發）
