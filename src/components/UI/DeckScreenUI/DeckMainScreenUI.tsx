@@ -1,7 +1,14 @@
 import React from 'react';
 import { Animated, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { type SharedValue } from 'react-native-reanimated';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing as ReanimatedEasing,
+  runOnJS,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import LightPressable from '../shared/LightPressable';
@@ -59,6 +66,7 @@ type Props = {
   showQuickQuizTutorialArrow?: boolean;
   tutorialLongPressAlbumId?: string | null;
   scrollToAlbumId?: string | null;
+  onDidScrollToAlbum?: () => void;
   /** STEP_13 教學：長按選單是否開啟（開啟時隱藏長按箭頭，改由選單 overlay 顯示指向 edit 的箭頭） */
   isTourMenuOpen?: boolean;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
@@ -100,6 +108,7 @@ export default function DeckMainScreenUI({
   showQuickQuizTutorialArrow = false,
   tutorialLongPressAlbumId = null,
   scrollToAlbumId = null,
+  onDidScrollToAlbum,
   isTourMenuOpen = false,
   slideshowItems,
   wordPopSlideMs,
@@ -131,9 +140,14 @@ export default function DeckMainScreenUI({
   const todayReviewPulse = React.useRef(new Animated.Value(0)).current;
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
-  const wordCarouselRef = React.useRef<FlatList<Props['slideshowItems'][number]> | null>(null);
+  const [activeSlot, setActiveSlot] = React.useState<'A' | 'B'>('A');
+  const [slotAIndex, setSlotAIndex] = React.useState<number | null>(0);
+  const [slotBIndex, setSlotBIndex] = React.useState<number | null>(null);
+  const slotAX = useSharedValue(0);
+  const slotBX = useSharedValue(0);
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
   const didRevealTutorialAlbumRef = React.useRef<string | null>(null);
+  const lastScrolledAlbumIdRef = React.useRef<string | null>(null);
   const tutorialAlbumCellRef = React.useRef<View | null>(null);
   const [createAlbumBtnLayout, setCreateAlbumBtnLayout] = React.useState<{
     x: number;
@@ -281,18 +295,29 @@ export default function DeckMainScreenUI({
   }, [albumPages, tourStep, tutorialLongPressAlbumId]);
 
   React.useEffect(() => {
-    if (!scrollToAlbumId) return;
+    if (!scrollToAlbumId) {
+      lastScrolledAlbumIdRef.current = null;
+      return;
+    }
+    if (lastScrolledAlbumIdRef.current === scrollToAlbumId) return;
 
     const pageIndex = albumPages.findIndex((page) =>
       page.some((album) => album?.id === scrollToAlbumId)
     );
     if (pageIndex < 0) return;
 
+    lastScrolledAlbumIdRef.current = scrollToAlbumId;
     requestAnimationFrame(() => {
       albumPagerRef.current?.scrollToIndex({ index: pageIndex, animated: true });
       setCurrentPage(pageIndex);
     });
-  }, [albumPages, scrollToAlbumId]);
+
+    const timer = setTimeout(() => {
+      onDidScrollToAlbum?.();
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [albumPages, onDidScrollToAlbum, scrollToAlbumId]);
 
   // STEP_13：主動 measure 教學相簿 cell 的螢幕座標，避免依賴 onLayout 在 STEP_13 時重新觸發
   // （cell 早在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發）
@@ -321,39 +346,70 @@ export default function DeckMainScreenUI({
     measureTutorialAlbum();
   }, [tourStep, tutorialLongPressAlbumId, albumPages, measureTutorialAlbum]);
 
+  const handleSlideComplete = React.useCallback(
+    (targetSlot: 'A' | 'B', nextIdx: number) => {
+      setActiveSlot(targetSlot);
+      setWordIndex(nextIdx);
+      if (targetSlot === 'A') {
+        setSlotBIndex(null);
+      } else {
+        setSlotAIndex(null);
+      }
+    },
+    []
+  );
+
   React.useEffect(() => {
     const itemCount = slideshowItems.length;
     if (itemCount <= 1) return;
+
     const timer = setTimeout(() => {
       const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
       const nextIndex = (safeCurrent + 1) % itemCount;
 
-      if (nextIndex === 0) {
-        // Reset without backwards animation
-        wordCarouselRef.current?.scrollToOffset({
-          offset: 0,
-          animated: false,
+      const duration = 520;
+      const easing = ReanimatedEasing.bezier(0.25, 1, 0.5, 1);
+
+      if (activeSlot === 'A') {
+        setSlotBIndex(nextIndex);
+        slotBX.value = wordSlideWidth;
+        slotAX.value = withTiming(-wordSlideWidth, { duration, easing });
+        slotBX.value = withTiming(0, { duration, easing }, (finished) => {
+          if (finished) {
+            runOnJS(handleSlideComplete)('B', nextIndex);
+          }
         });
       } else {
-        wordCarouselRef.current?.scrollToOffset({
-          offset: nextIndex * wordSlideWidth,
-          animated: true,
+        setSlotAIndex(nextIndex);
+        slotAX.value = wordSlideWidth;
+        slotBX.value = withTiming(-wordSlideWidth, { duration, easing });
+        slotAX.value = withTiming(0, { duration, easing }, (finished) => {
+          if (finished) {
+            runOnJS(handleSlideComplete)('A', nextIndex);
+          }
         });
       }
-      setWordIndex(nextIndex);
     }, wordPopSlideMs + WORD_POP_DWELL_EXTENSION_MS);
 
     return () => clearTimeout(timer);
-  }, [slideshowItems.length, wordIndex, wordPopSlideMs, wordSlideWidth]);
+  }, [
+    activeSlot,
+    handleSlideComplete,
+    slideshowItems.length,
+    slotAX,
+    slotBX,
+    wordIndex,
+    wordPopSlideMs,
+    wordSlideWidth,
+  ]);
 
-  React.useEffect(() => {
-    requestAnimationFrame(() => {
-      wordCarouselRef.current?.scrollToOffset({
-        offset: Math.min(wordIndex, Math.max(0, slideshowItems.length - 1)) * wordSlideWidth,
-        animated: false,
-      });
-    });
-  }, [slideshowItems.length, wordSlideWidth]);
+  const slotAStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: slotAX.value }],
+  }));
+
+  const slotBStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: slotBX.value }],
+  }));
 
   React.useEffect(() => {
     if (!isTodayReviewActive) {
@@ -401,8 +457,14 @@ export default function DeckMainScreenUI({
   }, [isTodayReviewActive, todayReviewPulse, todayReviewWhoosh]);
 
   React.useEffect(() => {
-    if (wordIndex >= slideshowItems.length) setWordIndex(0);
-  }, [slideshowItems.length, wordIndex]);
+    if (slideshowItems.length > 0 && wordIndex >= slideshowItems.length) {
+      setWordIndex(0);
+      setActiveSlot('A');
+      setSlotAIndex(0);
+      setSlotBIndex(null);
+      slotAX.value = 0;
+    }
+  }, [slideshowItems.length, slotAX, wordIndex]);
 
   const renderAlbumPage = React.useCallback(
     (pageAlbums: Array<DeckAlbum | null>, pageIndex: number) => {
@@ -869,34 +931,47 @@ export default function DeckMainScreenUI({
               onPressSlideshowItem(activeShowcaseItem);
             }}
           >
-            <FlatList
-              ref={wordCarouselRef}
-              data={slideshowItems}
-              horizontal
-              scrollEnabled={false}
-              showsHorizontalScrollIndicator={false}
-              bounces={false}
-              contentContainerStyle={styles.wordShowcaseTrack}
+            <View
               style={styles.wordShowcaseViewport}
-              keyExtractor={(item, index) => `${item.cardId}-${index}`}
-              renderItem={({ item, index }) =>
-                renderWordShowcaseSlide(item, `${item.cardId}-${index}`)
-              }
-              ListEmptyComponent={renderWordShowcaseSlide(undefined, 'empty')}
-              getItemLayout={(_, index) => ({
-                length: wordSlideWidth,
-                offset: wordSlideWidth * index,
-                index,
-              })}
-              initialNumToRender={3}
-              windowSize={5}
               onLayout={(event) => {
                 const nextWidth = event.nativeEvent.layout.width;
                 if (nextWidth > 0 && Math.abs(nextWidth - wordSlideWidth) > 0.5) {
                   setWordSlideWidth(nextWidth);
                 }
               }}
-            />
+            >
+              {/* Slot A */}
+              {slotAIndex !== null && slideshowItems[slotAIndex] ? (
+                <Reanimated.View
+                  style={[
+                    styles.wordShowcaseSlideLayer,
+                    activeSlot !== 'A' ? styles.wordShowcaseIncomingLayer : null,
+                    slotAStyle,
+                  ]}
+                >
+                  {renderWordShowcaseSlide(
+                    slideshowItems[slotAIndex],
+                    `slotA-${slotAIndex}`
+                  )}
+                </Reanimated.View>
+              ) : null}
+
+              {/* Slot B */}
+              {slotBIndex !== null && slideshowItems[slotBIndex] ? (
+                <Reanimated.View
+                  style={[
+                    styles.wordShowcaseSlideLayer,
+                    activeSlot !== 'B' ? styles.wordShowcaseIncomingLayer : null,
+                    slotBStyle,
+                  ]}
+                >
+                  {renderWordShowcaseSlide(
+                    slideshowItems[slotBIndex],
+                    `slotB-${slotBIndex}`
+                  )}
+                </Reanimated.View>
+              ) : null}
+            </View>
           </LightPressable>
         </View>
       ) : null}
@@ -1433,6 +1508,18 @@ const styles = StyleSheet.create({
   },
   wordShowcaseViewport: {
     overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  wordShowcaseSlideLayer: {
+    width: '100%',
+  },
+  wordShowcaseIncomingLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   wordShowcaseTrack: {
     flexDirection: 'row',

@@ -1760,6 +1760,7 @@ export default function DeckMainFlow({
             : null
         }
         scrollToAlbumId={scrollToAlbumId}
+        onDidScrollToAlbum={() => setScrollToAlbumId(null)}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}
