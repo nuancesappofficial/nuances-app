@@ -465,6 +465,7 @@ export default function DeckMainScreenUI({
                               hoveredAction={hoveredAction}
                               activeAlbumId={activeAlbumId}
                               deletionLocked={tourStep === 'STEP_13_LONG_PRESS_ALBUM'}
+                              menuEnabled={tourStep === 'STEP_13_LONG_PRESS_ALBUM'}
                               onMenuStart={onMenuStart}
                               onMenuFinish={onMenuFinish}
                               onActionEnd={onActionEnd}

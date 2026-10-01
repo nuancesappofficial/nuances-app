@@ -43,6 +43,12 @@ import {
   subscribeDeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
+import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
+import { applyDeckAlbumAppearanceUpdate } from '../../../features/deck/albumAppearanceSettings';
+import ImageCropperModal from '../../../components/ImageCropperModal';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import {
   DEFAULT_USER_SETTINGS,
   getInitialUserSettings,
@@ -148,6 +154,25 @@ const TTS_VOICE_OPTIONS: Array<{ code: TTSVoice; label: string }> = [
 ];
 
 const PREVIEW_GRID_COLUMNS = 3;
+
+const ALBUM_COVER_DIR = FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}album-covers/`
+  : '';
+
+async function persistAlbumCoverImage(sourceUri: string): Promise<string> {
+  if (!ALBUM_COVER_DIR) return sourceUri;
+  const dirInfo = await FileSystem.getInfoAsync(ALBUM_COVER_DIR);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(ALBUM_COVER_DIR, {
+      intermediates: true,
+    });
+  }
+  const targetUri = `${ALBUM_COVER_DIR}album-cover-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.jpg`;
+  await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
+  return targetUri;
+}
 const PREVIEW_GRID_GAP = 10;
 const PREVIEW_PAGE_GAP = 20;
 const STICKER_SCALE_MIN = 75;
@@ -620,6 +645,18 @@ export default function ProfileSettingOptionsFlow({
   const [pendingCreateSlotId, setPendingCreateSlotId] = React.useState<
     string | null
   >(null);
+  const [settingsAlbum, setSettingsAlbum] = React.useState<DeckAlbum | null>(
+    null
+  );
+  const [albumSettingsModalVisible, setAlbumSettingsModalVisible] =
+    React.useState(false);
+  const [albumSettingsName, setAlbumSettingsName] = React.useState('');
+  const [albumSettingsEmoji, setAlbumSettingsEmoji] = React.useState('📁');
+  const [albumSettingsColor, setAlbumSettingsColor] = React.useState('#1E293B');
+  const [albumSettingsCoverImageUri, setAlbumSettingsCoverImageUri] =
+    React.useState('');
+  const [pendingAlbumCoverCropUri, setPendingAlbumCoverCropUri] =
+    React.useState<string | null>(null);
   const [membershipPriceLabel, setMembershipPriceLabel] = React.useState<
     string | null
   >(null);
@@ -1534,6 +1571,116 @@ export default function ProfileSettingOptionsFlow({
     persistRawAlbumSlots,
     settings.mainScreenAlbumGridCount,
     settings.mainScreenAlbumOrder,
+  ]);
+
+  const openAlbumSettings = React.useCallback(
+    (album: DeckAlbum) => {
+      setSettingsAlbum(album);
+      setAlbumSettingsName(getDeckAlbumDisplayName(album, settings.uiLanguage));
+      setAlbumSettingsEmoji(album.emoji || '📁');
+      setAlbumSettingsColor(album.color || '#1E293B');
+      setAlbumSettingsCoverImageUri(album.coverImageUri || '');
+      setAlbumSettingsModalVisible(true);
+    },
+    [settings.uiLanguage]
+  );
+
+  const handleCancelAlbumSettings = React.useCallback(() => {
+    setAlbumSettingsModalVisible(false);
+    setSettingsAlbum(null);
+  }, []);
+
+  const handleSelectCoverTab = React.useCallback((tab: 'classic' | 'image') => {
+    if (tab === 'classic') {
+      setAlbumSettingsCoverImageUri('');
+    }
+  }, []);
+
+  const handleChangeAlbumSettingsEmoji = React.useCallback((emoji: string) => {
+    setAlbumSettingsEmoji(emoji);
+    setAlbumSettingsCoverImageUri('');
+  }, []);
+
+  const handleChangeAlbumSettingsColor = React.useCallback((color: string) => {
+    setAlbumSettingsColor(color);
+  }, []);
+
+  const handlePickAlbumCoverImage = React.useCallback(async () => {
+    if (!settingsAlbum) return;
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          tUI(settings.uiLanguage, 'deck.alertPhotoPermissionTitle'),
+          tUI(settings.uiLanguage, 'deck.alertPhotoPermissionBody')
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const normalizedImage = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setPendingAlbumCoverCropUri(normalizedImage.uri);
+    } catch (error) {
+      console.warn('[ProfileSettingOptions] pick album cover failed:', error);
+    }
+  }, [settings.uiLanguage, settingsAlbum]);
+
+  const handleSaveAlbumSettings = React.useCallback(async () => {
+    if (!settingsAlbum) return;
+    const nextName = albumSettingsName.trim();
+    if (!nextName) {
+      Alert.alert(
+        tUI(settings.uiLanguage, 'deck.alertAlbumNameEmptyTitle'),
+        tUI(settings.uiLanguage, 'deck.alertAlbumNameEmptyBody')
+      );
+      return;
+    }
+
+    try {
+      const prefs = await loadDeckAlbumPreferences();
+      const defaultDisplayName = getDeckAlbumDisplayName(
+        { id: settingsAlbum.id, name: settingsAlbum.name, isNameCustomized: false },
+        settings.uiLanguage
+      );
+      const { nextPrefs, updatedAlbum } = applyDeckAlbumAppearanceUpdate(
+        settingsAlbum,
+        prefs,
+        {
+          name: nextName,
+          emoji: albumSettingsEmoji,
+          color: albumSettingsColor,
+          coverImageUri: albumSettingsCoverImageUri || undefined,
+        },
+        defaultDisplayName
+      );
+
+      await saveDeckAlbumPreferences(nextPrefs);
+      setMainScreenAlbums((prev) =>
+        prev.map((it) => (it.id === settingsAlbum.id ? updatedAlbum : it))
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAlbumSettingsModalVisible(false);
+      setSettingsAlbum(null);
+    } catch (error) {
+      console.error('[ProfileSettingOptions] save album settings failed:', error);
+      Alert.alert('儲存失敗', '無法儲存相簿設定，請稍後再試。');
+    }
+  }, [
+    albumSettingsColor,
+    albumSettingsCoverImageUri,
+    albumSettingsEmoji,
+    albumSettingsName,
+    settings.uiLanguage,
+    settingsAlbum,
   ]);
 
   const rows = React.useMemo(() => {
@@ -2529,6 +2676,17 @@ export default function ProfileSettingOptionsFlow({
                           beginPreviewAlbumDrag(album.id, index);
                         }}
                         delayLongPress={220}
+                        onPress={() => {
+                          if (
+                            previewEditMode ||
+                            activeDragAlbumIdRef.current ||
+                            previewPanActiveRef.current ||
+                            draggingAlbumId
+                          ) {
+                            return;
+                          }
+                          openAlbumSettings(album);
+                        }}
                         style={styles.previewAlbumPressable}
                       >
                         {previewEditMode ? (
@@ -2851,6 +3009,49 @@ export default function ProfileSettingOptionsFlow({
           onCancel={cancelCreateAlbumAtSlot}
           onConfirm={() => void confirmCreateAlbumAtSlot()}
         />
+        <AlbumSettingsModalUI
+          visible={albumSettingsModalVisible}
+          settingsName={albumSettingsName}
+          settingsEmoji={albumSettingsEmoji}
+          settingsColor={albumSettingsColor}
+          hasCoverImage={Boolean(albumSettingsCoverImageUri)}
+          coverImageUri={albumSettingsCoverImageUri || undefined}
+          uiLanguage={settings.uiLanguage}
+          onSelectCoverTab={handleSelectCoverTab}
+          onChangeName={setAlbumSettingsName}
+          onChangeEmoji={handleChangeAlbumSettingsEmoji}
+          onChangeColor={handleChangeAlbumSettingsColor}
+          onPickCoverImage={() => void handlePickAlbumCoverImage()}
+          onCancel={handleCancelAlbumSettings}
+          onSave={() => void handleSaveAlbumSettings()}
+        >
+          <ImageCropperModal
+            visible={!!pendingAlbumCoverCropUri}
+            imageUri={pendingAlbumCoverCropUri}
+            cropShape="album"
+            fixedCropSize={260}
+            modalAnimationType="slide"
+            uiLanguage={settings.uiLanguage}
+            onCancel={() => {
+              setPendingAlbumCoverCropUri(null);
+            }}
+            onConfirm={(croppedUri) => {
+              setPendingAlbumCoverCropUri(null);
+              setAlbumSettingsCoverImageUri(croppedUri);
+              void persistAlbumCoverImage(croppedUri)
+                .then((stableUri) => {
+                  setAlbumSettingsCoverImageUri(stableUri);
+                })
+                .catch((error) => {
+                  console.warn(
+                    '[ProfileSettingOptions] persist album cover failed:',
+                    error
+                  );
+                  setAlbumSettingsCoverImageUri(croppedUri);
+                });
+            }}
+          />
+        </AlbumSettingsModalUI>
       </View>
     );
   }

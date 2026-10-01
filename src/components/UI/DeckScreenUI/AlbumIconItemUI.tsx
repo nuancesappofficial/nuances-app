@@ -28,6 +28,7 @@ type Props = {
   hoveredAction: SharedValue<'none' | 'edit' | 'delete'>;
   activeAlbumId: string | null;
   deletionLocked?: boolean;
+  menuEnabled?: boolean;
   onMenuStart: (album: DeckAlbum, layout: { x: number; y: number; width: number; height: number }) => void;
   onMenuFinish: () => void;
   onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete' ) => void;
@@ -53,6 +54,7 @@ export default function AlbumIconItemUI({
   hoveredAction,
   activeAlbumId,
   deletionLocked = false,
+  menuEnabled = false,
   onMenuStart,
   onMenuFinish,
   onActionEnd,
@@ -78,6 +80,7 @@ export default function AlbumIconItemUI({
   }));
 
   const gesture = Gesture.Pan()
+    .enabled(menuEnabled)
     .activateAfterLongPress(250)
     .onStart((e) => {
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
