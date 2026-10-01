@@ -40,6 +40,11 @@ const WORD_POP_VERTICAL_PADDING = 14;
 const WORD_POP_TEXT_LINE_LIMIT = 2;
 const WORD_POP_SENTENCE_LINE_LIMIT = 4;
 const WORD_POP_DWELL_EXTENSION_MS = 800;
+export const WORD_POP_SLIDE_GAP = 16;
+
+export function getWordPopSlideDistance(slideWidth: number, gap = WORD_POP_SLIDE_GAP): number {
+  return Math.max(0, slideWidth) + Math.max(0, gap);
+}
 const TAB_BAR_HEIGHT_ESTIMATE = 65;
 const TAB_BAR_BOTTOM_MARGIN_BUFFER = 8;
 const QUIZ_SAFE_BUFFER = 14;
@@ -303,13 +308,14 @@ export default function DeckMainScreenUI({
       const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
       const nextIndex = (safeCurrent + 1) % itemCount;
 
-      const duration = 520;
-      const easing = ReanimatedEasing.bezier(0.25, 1, 0.5, 1);
+      const duration = 680;
+      const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+      const slideDistance = getWordPopSlideDistance(wordSlideWidth);
 
       if (activeSlot === 'A') {
         setSlotBIndex(nextIndex);
-        slotBX.value = wordSlideWidth;
-        slotAX.value = withTiming(-wordSlideWidth, { duration, easing });
+        slotBX.value = slideDistance;
+        slotAX.value = withTiming(-slideDistance, { duration, easing });
         slotBX.value = withTiming(0, { duration, easing }, (finished) => {
           if (finished) {
             runOnJS(handleSlideComplete)('B', nextIndex);
@@ -317,8 +323,8 @@ export default function DeckMainScreenUI({
         });
       } else {
         setSlotAIndex(nextIndex);
-        slotAX.value = wordSlideWidth;
-        slotBX.value = withTiming(-wordSlideWidth, { duration, easing });
+        slotAX.value = slideDistance;
+        slotBX.value = withTiming(-slideDistance, { duration, easing });
         slotAX.value = withTiming(0, { duration, easing }, (finished) => {
           if (finished) {
             runOnJS(handleSlideComplete)('A', nextIndex);
@@ -1327,7 +1333,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   wordShowcaseContent: {
-    gap: 10,
+    gap: 14,
     flexShrink: 0,
   },
   wordShowcaseViewport: {
