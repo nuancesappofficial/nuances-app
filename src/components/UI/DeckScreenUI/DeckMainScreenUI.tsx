@@ -147,7 +147,6 @@ export default function DeckMainScreenUI({
     width: number;
     height: number;
   } | null>(null);
-  const wordSlideDirectionRef = React.useRef<1 | -1>(1);
   const albumsPerPage =
     albumGridCount === 3 || albumGridCount === 6
       ? albumGridCount
@@ -327,22 +326,20 @@ export default function DeckMainScreenUI({
     if (itemCount <= 1) return;
     const timer = setTimeout(() => {
       const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
-      let direction = wordSlideDirectionRef.current;
-      let nextIndex = safeCurrent + direction;
+      const nextIndex = (safeCurrent + 1) % itemCount;
 
-      if (nextIndex >= itemCount) {
-        direction = -1;
-        nextIndex = Math.max(0, safeCurrent - 1);
-      } else if (nextIndex < 0) {
-        direction = 1;
-        nextIndex = Math.min(itemCount - 1, safeCurrent + 1);
+      if (nextIndex === 0) {
+        // Reset without backwards animation
+        wordCarouselRef.current?.scrollToOffset({
+          offset: 0,
+          animated: false,
+        });
+      } else {
+        wordCarouselRef.current?.scrollToOffset({
+          offset: nextIndex * wordSlideWidth,
+          animated: true,
+        });
       }
-
-      wordSlideDirectionRef.current = direction;
-      wordCarouselRef.current?.scrollToOffset({
-        offset: nextIndex * wordSlideWidth,
-        animated: true,
-      });
       setWordIndex(nextIndex);
     }, wordPopSlideMs + WORD_POP_DWELL_EXTENSION_MS);
 

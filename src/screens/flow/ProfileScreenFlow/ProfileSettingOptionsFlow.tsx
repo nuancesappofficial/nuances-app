@@ -1277,41 +1277,6 @@ export default function ProfileSettingOptionsFlow({
     [persistSettings, settings]
   );
 
-  const handleToggleWordPop = React.useCallback(async () => {
-    try {
-      const nextWordPopEnabled = !settings.mainScreenWordPopEnabled;
-      await persistSettings({
-        ...settings,
-        mainScreenWordPopEnabled: nextWordPopEnabled,
-      });
-    } catch (error) {
-      console.error(
-        '[ProfileSettingOptions] update word pop visibility failed:',
-        error
-      );
-      Alert.alert('更新失敗', '無法儲存 Word pop 顯示設定，請稍後再試。');
-    }
-  }, [persistSettings, settings]);
-
-  const handleSelectWordPopAlbum = React.useCallback(
-    async (albumId: string | null) => {
-      try {
-        if (settings.mainScreenWordPopAlbumId === albumId) return;
-        await persistSettings({
-          ...settings,
-          mainScreenWordPopAlbumId: albumId,
-        });
-      } catch (error) {
-        console.error(
-          '[ProfileSettingOptions] update word pop album failed:',
-          error
-        );
-        Alert.alert('更新失敗', '無法儲存 Word pop 相簿來源，請稍後再試。');
-      }
-    },
-    [persistSettings, settings]
-  );
-
   const persistAlbumOrder = React.useCallback(
     async (nextOrder: string[]) => {
       try {
@@ -1784,37 +1749,6 @@ export default function ProfileSettingOptionsFlow({
   const mainScreenGridCountOptions = React.useMemo(
     () => [3, 6] as MainScreenAlbumGridCount[],
     []
-  );
-  const wordPopAlbumOptions = React.useMemo(
-    () => [
-      {
-        id: null,
-        name: tUI(settings.uiLanguage, 'deck.albumAllCards'),
-        emoji: '📌',
-        color: MODAL_CTA_COLOR,
-        coverImageUri: undefined,
-      },
-      ...mainScreenAlbums
-        .filter((album) => album.id !== 'all')
-        .map((album) => ({
-          id: album.id,
-          name: getDeckAlbumDisplayName(album, settings.uiLanguage),
-          emoji: album.emoji,
-          color: album.color,
-          coverImageUri: album.coverImageUri,
-        })),
-    ],
-    [mainScreenAlbums, settings.uiLanguage]
-  );
-  const effectiveWordPopAlbumId = React.useMemo(
-    () =>
-      settings.mainScreenWordPopAlbumId &&
-      wordPopAlbumOptions.some(
-        (album) => album.id === settings.mainScreenWordPopAlbumId
-      )
-        ? settings.mainScreenWordPopAlbumId
-        : null,
-    [settings.mainScreenWordPopAlbumId, wordPopAlbumOptions]
   );
 
   const getPreviewSlotPosition = React.useCallback(
@@ -2876,128 +2810,6 @@ export default function ProfileSettingOptionsFlow({
                   })}
                 </View>
               </View>
-
-              <View
-                style={[
-                  styles.divider,
-                  {
-                    backgroundColor: isLight
-                      ? 'rgba(148,163,184,0.22)'
-                      : 'rgba(148,163,184,0.32)',
-                  },
-                ]}
-              />
-
-              <View style={styles.wordPopRow}>
-                <Text
-                  style={[
-                    styles.settingLabel,
-                    { color: palette.textOnContainer },
-                  ]}
-                >
-                  {tUI(settings.uiLanguage, 'settings.main.wordPop')}
-                </Text>
-                <Switch
-                  value={settings.mainScreenWordPopEnabled}
-                  onValueChange={() => void handleToggleWordPop()}
-                  trackColor={{
-                    false: palette.modalOptionBg,
-                    true: MODAL_CTA_COLOR,
-                  }}
-                  thumbColor={TEXT_ON_CTA}
-                  ios_backgroundColor={palette.modalOptionBg}
-                />
-              </View>
-
-              <View
-                style={[
-                  styles.divider,
-                  {
-                    backgroundColor: isLight
-                      ? 'rgba(148,163,184,0.22)'
-                      : 'rgba(148,163,184,0.32)',
-                  },
-                ]}
-              />
-
-              <View style={styles.wordPopSourceBlock}>
-                <Text
-                  style={[
-                    styles.settingLabel,
-                    { color: palette.textOnContainer },
-                  ]}
-                >
-                  {tUI(settings.uiLanguage, 'settings.main.wordPopSource')}
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.wordPopAlbumScroller}
-                >
-                  {wordPopAlbumOptions.map((album) => {
-                    const active =
-                      album.id == null
-                        ? effectiveWordPopAlbumId == null
-                        : effectiveWordPopAlbumId === album.id;
-                    return (
-                      <Pressable
-                        key={album.id ?? 'all'}
-                        style={({ pressed }) => [
-                          styles.wordPopAlbumPill,
-                          {
-                            backgroundColor: active
-                              ? MODAL_CTA_COLOR
-                              : palette.modalOptionBg,
-                            borderColor: active
-                              ? MODAL_CTA_COLOR
-                              : isLight
-                                ? palette.borderSubtle
-                                : CONTAINER_NEON_OUTLINE,
-                          },
-                          pressed ? styles.pressed : null,
-                        ]}
-                        onPress={() => void handleSelectWordPopAlbum(album.id)}
-                      >
-                        <View
-                          style={[
-                            styles.wordPopAlbumIcon,
-                            {
-                              backgroundColor: active
-                                ? 'rgba(255,255,255,0.18)'
-                                : album.color,
-                            },
-                          ]}
-                        >
-                          {album.coverImageUri ? (
-                            <Image
-                              source={{ uri: album.coverImageUri }}
-                              style={styles.wordPopAlbumCover}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <Text style={styles.wordPopAlbumEmoji}>
-                              {album.emoji}
-                            </Text>
-                          )}
-                        </View>
-                        <Text
-                          style={[
-                            styles.wordPopAlbumName,
-                            {
-                              color: active
-                                ? '#FFFFFF'
-                                : palette.textOnContainer,
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {album.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -3989,55 +3801,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.94,
     transform: [{ scale: 0.985 }],
-  },
-  wordPopRow: {
-    minHeight: 72,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 14,
-  },
-  wordPopSourceBlock: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 6,
-  },
-  wordPopAlbumScroller: {
-    paddingTop: 8,
-    paddingRight: 8,
-    gap: 10,
-  },
-  wordPopAlbumPill: {
-    maxWidth: 180,
-    minHeight: 46,
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingLeft: 7,
-    paddingRight: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  wordPopAlbumIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wordPopAlbumEmoji: {
-    fontSize: 17,
-  },
-  wordPopAlbumCover: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 12,
-  },
-  wordPopAlbumName: {
-    flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '800',
   },
 });
