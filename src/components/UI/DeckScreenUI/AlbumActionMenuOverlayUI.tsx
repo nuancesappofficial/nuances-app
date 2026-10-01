@@ -4,10 +4,8 @@ import { BlurView } from 'expo-blur';
 import Reanimated, { type SharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import FolderIcon from './FolderIcon';
 import { MenuSymbol } from './AlbumIconItemUI';
-import MovingTutorialArrow from '../shared/MovingTutorialArrow';
 import type { DeckAlbum } from './deckTypes';
 import type { UILanguage } from '../../../services/settings/userSettings';
-import type { AppTourStep } from '../../../contexts/AppTourContext';
 import { getDeckAlbumDisplayName } from '../../../features/deck/albums';
 
 type Props = {
@@ -18,9 +16,6 @@ type Props = {
   activeAlbum: DeckAlbum | null;
   uiLanguage: UILanguage;
   activeLayout: { x: number; y: number; width: number; height: number } | null;
-  /** STEP_13 教學：長按選單開啟時顯示指向 edit 的普通箭頭 */
-  tourStep?: AppTourStep;
-  isTourMenuOpen?: boolean;
 };
 
 const ELEGANT_SPRING = { damping: 30, stiffness: 140, mass: 1 } as const;
@@ -35,8 +30,6 @@ export default function AlbumActionMenuOverlayUI({
   activeAlbum,
   uiLanguage,
   activeLayout,
-  tourStep = 'IDLE',
-  isTourMenuOpen = false,
 }: Props) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const AnimatedBlurView = React.useMemo(() => Reanimated.createAnimatedComponent(BlurView), []);
@@ -62,13 +55,6 @@ export default function AlbumActionMenuOverlayUI({
     transform: [{ scale: withSpring(hoveredAction.value === 'delete' ? 1.5 : 1, ELEGANT_SPRING) }],
     left: startX.value + MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE,
     top: startY.value - MENU_BUTTON_HALF_SIZE,
-  }));
-
-  // STEP_13 教學：長按選單開啟時，指向 edit 按鈕的普通箭頭（edit 在左側，箭頭從正上方往下指）
-  const editTutorialArrowStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isMenuVisible.value ? 1 : 0, { duration: 120 }),
-    left: startX.value - MENU_BUTTON_OFFSET_X - MENU_BUTTON_HALF_SIZE + 25 - 25 - 5,
-    top: startY.value - MENU_BUTTON_HALF_SIZE - 88 + 10,
   }));
 
   const cloneStyle = useAnimatedStyle(() => ({
@@ -115,20 +101,6 @@ export default function AlbumActionMenuOverlayUI({
         <MenuSymbol name="square.and.pencil" color="#1C1C1E" fallback="✏️" />
       </Reanimated.View>
 
-      {tourStep === 'STEP_13_LONG_PRESS_ALBUM' && isTourMenuOpen ? (
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.editTutorialArrowWrap, editTutorialArrowStyle]}
-        >
-          <MovingTutorialArrow
-            direction="down"
-            color="#4EAFF4"
-            size={30}
-            motion="bounce"
-          />
-        </Reanimated.View>
-      ) : null}
-
       <Reanimated.View style={[styles.floatingActionButton, styles.menuButtonLayer, deleteButtonStyle]}>
         <MenuSymbol name="trash.fill" color="#FF3B30" fallback="🗑️" />
       </Reanimated.View>
@@ -170,14 +142,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.22,
     shadowRadius: 10,
     elevation: 10,
-  },
-  editTutorialArrowWrap: {
-    position: 'absolute',
-    zIndex: 999,
-    width: 50,
-    height: 60,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    overflow: 'visible',
   },
 });

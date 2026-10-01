@@ -181,8 +181,7 @@ export default function DeckMainFlow({
   const pendingAlbumToEditRef = React.useRef<DeckAlbum | null>(null);
   const pendingScrollAfterSettingsRef = React.useRef<string | null>(null);
   const [scrollToAlbumId, setScrollToAlbumId] = React.useState<string | null>(null);
-  // STEP_14 教學：使用者是否已換完封面（換完後才顯示指向儲存按鈕的箭頭）
-  const [tourCoverPicked, setTourCoverPicked] = React.useState(false);
+
   const [activeAlbum, setActiveAlbum] = React.useState<DeckAlbum | null>(null);
   const [activeLayout, setActiveLayout] = React.useState<{
     x: number;
@@ -230,8 +229,6 @@ export default function DeckMainFlow({
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const hoveredAction = useSharedValue<'none' | 'edit' | 'delete'>('none');
-  // STEP_13 教學：長按選單是否開啟（JS state，供 UI 切換長按箭頭 / 指向 edit 的箭頭）
-  const [isTourMenuOpen, setIsTourMenuOpen] = React.useState(false);
   const albumCoverCropOpenTimeoutRef = React.useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -340,7 +337,6 @@ export default function DeckMainFlow({
         setIsCreateModalVisible(false);
         setActiveAlbum(null);
         setActiveLayout(null);
-        setIsTourMenuOpen(false);
         didShowTourCompletionGreetingRef.current = false;
         setTourCompletionGreetingPending(true);
       }
@@ -425,17 +421,8 @@ export default function DeckMainFlow({
       pressTodayReviewRef.current();
       return;
     }
-
-    if (appTour.step === 'STEP_11_CREATE_ALBUM') {
-      setNewAlbumName((prev) => (prev.trim() ? prev : 'My Nuances'));
-      setIsCreateModalVisible(true);
-      setTimeout(() => {
-        appTour.goToStep('STEP_12_CONFIRM_ALBUM');
-      }, 420);
-      return;
-    }
     appTour.nextStep();
-  }, [allCards, appTour, navigation, tourSampleCard, uiLanguage]);
+  }, [appTour]);
 
   const applyMainScreenSettings = React.useCallback(
     (settings: {
@@ -1252,13 +1239,11 @@ export default function DeckMainFlow({
     const subscription = DeviceEventEmitter.addListener(
       DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT,
       () => {
-        // The quiz is only the first part of the expanded tutorial. Do NOT
-        // complete the tour / show the greeting here; advance to album creation.
-        appTour.goToStep('STEP_11_CREATE_ALBUM');
+        completeTour();
       }
     );
     return () => subscription.remove();
-  }, [appTour]);
+  }, [completeTour]);
 
   React.useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -1314,13 +1299,6 @@ export default function DeckMainFlow({
 
   const handleAlbumPress = React.useCallback(
     (album: DeckAlbum) => {
-      // STEP_13 教學：暫時鎖定單點進入教學相簿，強迫使用者練習長按
-      if (
-        appTour.step === 'STEP_13_LONG_PRESS_ALBUM' &&
-        customAlbums[0]?.id === album.id
-      ) {
-        return;
-      }
       const albumCardIdSet = new Set(album.cardIds);
       const optimisticCards =
         album.id === ALL_CARDS_ALBUM_ID || album.id === 'all-cards'
@@ -1342,7 +1320,7 @@ export default function DeckMainFlow({
       });
       navigation.navigate('AlbumView', { album, isDefault: album.isDefault });
     },
-    [allCards, appTour, cardImageMap, customAlbums, navigation, seenCardIds]
+    [allCards, cardImageMap, navigation, seenCardIds]
   );
 
   const openAlbumSettings = React.useCallback(
@@ -1360,49 +1338,30 @@ export default function DeckMainFlow({
   );
 
   const handleAddAlbum = React.useCallback(() => {
-    const trimmedName =
-      newAlbumName.trim() ||
-      (appTour.step === 'STEP_12_CONFIRM_ALBUM'
-        ? tUI(uiLanguage, 'deck.albumMyNuances')
-        : '');
+    const trimmedName = newAlbumName.trim();
     if (!trimmedName) return;
 
     const newAlbum = createCustomAlbum(trimmedName);
-    const isTourConfirmation = appTour.step === 'STEP_12_CONFIRM_ALBUM';
 
-    const finishAlbumCreation = () => {
-      setCustomAlbums((prev) => [...prev, newAlbum]);
-      pendingAlbumToEditRef.current = newAlbum;
+    setCustomAlbums((prev) => [...prev, newAlbum]);
+    pendingAlbumToEditRef.current = newAlbum;
 
-      const nextOrder = placeNewAlbumInSlotOrder(
-        mainScreenAlbumOrder,
-        newAlbum.id
-      );
-      setMainScreenAlbumOrder(nextOrder);
-      void loadUserSettings().then((settings) => {
-        void saveUserSettings({
-          ...settings,
-          mainScreenAlbumOrder: nextOrder,
-        });
+    const nextOrder = placeNewAlbumInSlotOrder(
+      mainScreenAlbumOrder,
+      newAlbum.id
+    );
+    setMainScreenAlbumOrder(nextOrder);
+    void loadUserSettings().then((settings) => {
+      void saveUserSettings({
+        ...settings,
+        mainScreenAlbumOrder: nextOrder,
       });
+    });
 
-      setIsCreateModalVisible(false);
-      setNewAlbumName('');
-      pendingScrollAfterSettingsRef.current = newAlbum.id;
-    };
-
-    if (isTourConfirmation) {
-      setTimeout(() => {
-        finishAlbumCreation();
-        setTimeout(() => {
-          appTour.goToStep('STEP_13_LONG_PRESS_ALBUM');
-        }, 520);
-      }, 420);
-      return;
-    }
-
-    finishAlbumCreation();
-  }, [appTour, mainScreenAlbumOrder, newAlbumName, uiLanguage]);
+    setIsCreateModalVisible(false);
+    setNewAlbumName('');
+    pendingScrollAfterSettingsRef.current = newAlbum.id;
+  }, [mainScreenAlbumOrder, newAlbumName]);
 
   const handleCreateAlbumDidClose = React.useCallback(() => {
     const album = pendingAlbumToEditRef.current;
@@ -1523,11 +1482,8 @@ export default function DeckMainFlow({
   );
 
   const handleSaveAlbumSettings = React.useCallback(() => {
-    const saved = applyAlbumSettings();
-    if (saved && appTour.step === 'STEP_14_ALBUM_SETTINGS') {
-      completeTour();
-    }
-  }, [appTour.step, applyAlbumSettings, completeTour]);
+    applyAlbumSettings();
+  }, [applyAlbumSettings]);
 
   const handlePickAlbumCoverImage = React.useCallback(async () => {
     if (!settingsAlbum) return;
@@ -1612,9 +1568,6 @@ export default function DeckMainFlow({
     (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => {
       if (action === 'edit') {
         openAlbumSettings(album);
-        if (appTour.step === 'STEP_13_LONG_PRESS_ALBUM') {
-          setTimeout(() => appTour.goToStep('STEP_14_ALBUM_SETTINGS_COVER'), 420);
-        }
         return;
       }
       if (action === 'delete') {
@@ -1622,7 +1575,7 @@ export default function DeckMainFlow({
         handleDeleteAlbum(album);
       }
     },
-    [appTour, handleDeleteAlbum, openAlbumSettings]
+    [appTour.isActive, handleDeleteAlbum, openAlbumSettings]
   );
 
   const handleMenuStart = React.useCallback(
@@ -1632,7 +1585,6 @@ export default function DeckMainFlow({
     ) => {
       setActiveAlbum(album);
       setActiveLayout(layout);
-      setIsTourMenuOpen(true);
     },
     []
   );
@@ -1640,7 +1592,6 @@ export default function DeckMainFlow({
   const handleMenuFinish = React.useCallback(() => {
     setActiveAlbum(null);
     setActiveLayout(null);
-    setIsTourMenuOpen(false);
   }, []);
 
   const handleAvatarPress = React.useCallback(() => {
@@ -1723,13 +1674,7 @@ export default function DeckMainFlow({
         onClearSearch={() => setSearchQuery('')}
         onPressAvatar={handleAvatarPress}
         onPressCacheFab={handleCacheFabPress}
-        onOpenCreateAlbum={() => {
-          if (appTour.step === 'STEP_11_CREATE_ALBUM') {
-            handleTourTargetPress();
-            return;
-          }
-          setIsCreateModalVisible(true);
-        }}
+        onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
         sortOrder={sortOrder}
         onToggleSort={() =>
           setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
@@ -1754,11 +1699,6 @@ export default function DeckMainFlow({
           showDefaultExperienceQuizHint ||
           appTour.step === 'STEP_10_QUIZ_SAMPLE'
         }
-        tutorialLongPressAlbumId={
-          appTour.step === 'STEP_13_LONG_PRESS_ALBUM'
-            ? customAlbums[0]?.id || null
-            : null
-        }
         scrollToAlbumId={scrollToAlbumId}
         onDidScrollToAlbum={() => setScrollToAlbumId(null)}
         slideshowItems={slideshowItems}
@@ -1778,7 +1718,6 @@ export default function DeckMainFlow({
         onMenuStart={handleMenuStart}
         onMenuFinish={handleMenuFinish}
         onActionEnd={handleActionEnd}
-        isTourMenuOpen={isTourMenuOpen}
       />
 
       <ReviewTuningModalUI
@@ -1801,7 +1740,6 @@ export default function DeckMainFlow({
         albumName={newAlbumName}
         uiLanguage={uiLanguage}
         onChangeAlbumName={setNewAlbumName}
-        tourConfirmActive={appTour.step === 'STEP_12_CONFIRM_ALBUM'}
         onCancel={() => {
           setIsCreateModalVisible(false);
           setNewAlbumName('');
@@ -1823,10 +1761,6 @@ export default function DeckMainFlow({
         onChangeEmoji={handleChangeSettingsEmoji}
         onChangeColor={handleChangeSettingsColor}
         onPickCoverImage={() => void handlePickAlbumCoverImage()}
-        tourSaveActive={
-          appTour.step === 'STEP_14_ALBUM_SETTINGS' && tourCoverPicked
-        }
-        tourPickCoverActive={appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER'}
         onCancel={() => {
           setSettingsVisible(false);
           setSettingsAlbum(null);
@@ -1845,18 +1779,12 @@ export default function DeckMainFlow({
           fixedCropSize={260}
           modalAnimationType="slide"
           uiLanguage={uiLanguage}
-          showConfirmTutorialArrow={appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER'}
           onCancel={() => {
             setPendingAlbumCoverCropUri(null);
           }}
           onConfirm={(croppedUri) => {
             setSettingsCoverImageUri(croppedUri);
             setPendingAlbumCoverCropUri(null);
-            // 換完封面 → 顯示指向儲存按鈕的箭頭
-            setTourCoverPicked(true);
-            if (appTour.step === 'STEP_14_ALBUM_SETTINGS_COVER') {
-              appTour.goToStep('STEP_14_ALBUM_SETTINGS');
-            }
             void persistAlbumCoverImage(croppedUri)
               .then((stableUri) => {
                 setSettingsCoverImageUri(stableUri);
@@ -1891,8 +1819,6 @@ export default function DeckMainFlow({
         activeAlbum={activeAlbum}
         uiLanguage={uiLanguage}
         activeLayout={activeLayout}
-        tourStep={appTour.step}
-        isTourMenuOpen={isTourMenuOpen}
       />
     </>
   );

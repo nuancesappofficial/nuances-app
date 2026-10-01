@@ -64,11 +64,8 @@ type Props = {
   tourStep?: AppTourStep;
   onTourTargetPress?: () => void;
   showQuickQuizTutorialArrow?: boolean;
-  tutorialLongPressAlbumId?: string | null;
   scrollToAlbumId?: string | null;
   onDidScrollToAlbum?: () => void;
-  /** STEP_13 教學：長按選單是否開啟（開啟時隱藏長按箭頭，改由選單 overlay 顯示指向 edit 的箭頭） */
-  isTourMenuOpen?: boolean;
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
@@ -106,10 +103,8 @@ export default function DeckMainScreenUI({
   tourStep = 'IDLE',
   onTourTargetPress,
   showQuickQuizTutorialArrow = false,
-  tutorialLongPressAlbumId = null,
   scrollToAlbumId = null,
   onDidScrollToAlbum,
-  isTourMenuOpen = false,
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
@@ -146,21 +141,7 @@ export default function DeckMainScreenUI({
   const slotAX = useSharedValue(0);
   const slotBX = useSharedValue(0);
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
-  const didRevealTutorialAlbumRef = React.useRef<string | null>(null);
   const lastScrolledAlbumIdRef = React.useRef<string | null>(null);
-  const tutorialAlbumCellRef = React.useRef<View | null>(null);
-  const [createAlbumBtnLayout, setCreateAlbumBtnLayout] = React.useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null>(null);
-  const [tutorialAlbumLayout, setTutorialAlbumLayout] = React.useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null>(null);
   const albumsPerPage =
     albumGridCount === 3 || albumGridCount === 6
       ? albumGridCount
@@ -277,24 +258,6 @@ export default function DeckMainScreenUI({
   }, [albumPages.length, currentPage]);
 
   React.useEffect(() => {
-    if (!tutorialLongPressAlbumId || tourStep !== 'STEP_13_LONG_PRESS_ALBUM') {
-      didRevealTutorialAlbumRef.current = null;
-      return;
-    }
-    if (didRevealTutorialAlbumRef.current === tutorialLongPressAlbumId) return;
-
-    const pageIndex = albumPages.findIndex((page) =>
-      page.some((album) => album?.id === tutorialLongPressAlbumId)
-    );
-    if (pageIndex < 0) return;
-
-    didRevealTutorialAlbumRef.current = tutorialLongPressAlbumId;
-    requestAnimationFrame(() => {
-      albumPagerRef.current?.scrollToIndex({ index: pageIndex, animated: true });
-    });
-  }, [albumPages, tourStep, tutorialLongPressAlbumId]);
-
-  React.useEffect(() => {
     if (!scrollToAlbumId) {
       lastScrolledAlbumIdRef.current = null;
       return;
@@ -318,33 +281,6 @@ export default function DeckMainScreenUI({
 
     return () => clearTimeout(timer);
   }, [albumPages, onDidScrollToAlbum, scrollToAlbumId]);
-
-  // STEP_13：主動 measure 教學相簿 cell 的螢幕座標，避免依賴 onLayout 在 STEP_13 時重新觸發
-  // （cell 早在 STEP_11/12 建立相簿時就已渲染，onLayout 不會在 STEP_13 重新觸發）
-  // 用 onMomentumScrollEnd（grid slide 動畫真正結束）觸發 measure，讓箭頭在滑動一結束就立刻出現
-  const measureTutorialAlbum = React.useCallback(() => {
-    if (tourStep !== 'STEP_13_LONG_PRESS_ALBUM' || !tutorialLongPressAlbumId) return;
-    tutorialAlbumCellRef.current?.measureInWindow((x, y, width, height) => {
-      setTutorialAlbumLayout((prev) =>
-        prev &&
-        prev.x === x &&
-        prev.y === y &&
-        prev.width === width &&
-        prev.height === height
-          ? prev
-          : { x, y, width, height }
-      );
-    });
-  }, [tourStep, tutorialLongPressAlbumId]);
-
-  React.useEffect(() => {
-    if (tourStep !== 'STEP_13_LONG_PRESS_ALBUM' || !tutorialLongPressAlbumId) {
-      setTutorialAlbumLayout(null);
-      return;
-    }
-    // 進入 STEP_13 時先 measure 一次（若教學相簿已在目前頁，無需等滑動）
-    measureTutorialAlbum();
-  }, [tourStep, tutorialLongPressAlbumId, albumPages, measureTutorialAlbum]);
 
   const handleSlideComplete = React.useCallback(
     (targetSlot: 'A' | 'B', nextIdx: number) => {
@@ -495,57 +431,21 @@ export default function DeckMainScreenUI({
                       <View
                         key={`cell-${pageIndex}-${rowIndex}-${colIndex}`}
                         style={{ width: albumCellWidth }}
-                        ref={
-                          item && item.id === tutorialLongPressAlbumId
-                            ? tutorialAlbumCellRef
-                            : undefined
-                        }
-                        onLayout={
-                          item && item.id === tutorialLongPressAlbumId
-                            ? () => {
-                                requestAnimationFrame(() => {
-                                  tutorialAlbumCellRef.current?.measureInWindow(
-                                    (x, y, width, height) => {
-                                      setTutorialAlbumLayout((prev) =>
-                                        prev &&
-                                        prev.x === x &&
-                                        prev.y === y &&
-                                        prev.width === width &&
-                                        prev.height === height
-                                          ? prev
-                                          : { x, y, width, height }
-                                      );
-                                    }
-                                  );
-                                });
-                              }
-                            : undefined
-                        }
                       >
                         {item ? (
-                          <TutorialSpotlight
-                            active={
-                              tourStep === 'STEP_13_LONG_PRESS_ALBUM' &&
-                              !isTourMenuOpen &&
-                              item.id === tutorialLongPressAlbumId
-                            }
-                          >
-                            <AlbumIconItemUI
-                              item={item}
-                              uiLanguage={uiLanguage}
-                              onPress={onPressAlbum}
-                              isMenuVisible={isMenuVisible}
-                              startX={startX}
-                              startY={startY}
-                              hoveredAction={hoveredAction}
-                              activeAlbumId={activeAlbumId}
-                              deletionLocked={tourStep === 'STEP_13_LONG_PRESS_ALBUM'}
-                              menuEnabled={tourStep === 'STEP_13_LONG_PRESS_ALBUM'}
-                              onMenuStart={onMenuStart}
-                              onMenuFinish={onMenuFinish}
-                              onActionEnd={onActionEnd}
-                            />
-                          </TutorialSpotlight>
+                          <AlbumIconItemUI
+                            item={item}
+                            uiLanguage={uiLanguage}
+                            onPress={onPressAlbum}
+                            isMenuVisible={isMenuVisible}
+                            startX={startX}
+                            startY={startY}
+                            hoveredAction={hoveredAction}
+                            activeAlbumId={activeAlbumId}
+                            onMenuStart={onMenuStart}
+                            onMenuFinish={onMenuFinish}
+                            onActionEnd={onActionEnd}
+                          />
                         ) : (
                           <View style={styles.albumCellPlaceholder} />
                         )}
@@ -574,7 +474,6 @@ export default function DeckMainScreenUI({
       onMenuStart,
       onMenuFinish,
       onActionEnd,
-      tutorialLongPressAlbumId,
       compactGridGap,
     ]
   );
@@ -790,68 +689,15 @@ export default function DeckMainScreenUI({
             </Animated.View>
 
             {!isSearchExpanded ? (
-              <TutorialSpotlight
-                active={tourStep === 'STEP_11_CREATE_ALBUM'}
-                onSpotlightPress={handleTourTargetPress}
-                style={styles.createAlbumSpotlight}
+              <Pressable
+                style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+                onPress={onOpenCreateAlbum}
               >
-                <Pressable
-                  style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
-                  onPress={onOpenCreateAlbum}
-                  onLayout={(event) => {
-                    const { x, y, width, height } = event.nativeEvent.layout;
-                    setCreateAlbumBtnLayout((prev) =>
-                      prev &&
-                      prev.x === x &&
-                      prev.y === y &&
-                      prev.width === width &&
-                      prev.height === height
-                        ? prev
-                        : { x, y, width, height }
-                    );
-                  }}
-                >
-                  <Ionicons name="add" size={38} color={palette.textOnBg} />
-                </Pressable>
-                {tourStep === 'STEP_11_CREATE_ALBUM' && createAlbumBtnLayout ? (
-                  <MovingTutorialArrow
-                    direction="up"
-                    style={[
-                      styles.createAlbumFloatingArrow,
-                      {
-                        top: createAlbumBtnLayout.y + createAlbumBtnLayout.height + 6,
-                        left: createAlbumBtnLayout.x + createAlbumBtnLayout.width / 2,
-                      },
-                    ]}
-                  />
-                ) : null}
-              </TutorialSpotlight>
+                <Ionicons name="add" size={38} color={palette.textOnBg} />
+              </Pressable>
             ) : null}
           </View>
       </View>
-
-      {tourStep === 'STEP_13_LONG_PRESS_ALBUM' &&
-      tutorialAlbumLayout &&
-      !isTourMenuOpen ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.longPressTutorialWrap,
-            {
-              top: tutorialAlbumLayout.y - insets.top + tutorialAlbumLayout.height / 2 + 30,
-              left: tutorialAlbumLayout.x + tutorialAlbumLayout.width - 7,
-            },
-          ]}
-        >
-          <MovingTutorialArrow
-            direction="left"
-            color="#4EAFF4"
-            size={30}
-            motion="longPress"
-            style={styles.longPressTutorialArrow}
-          />
-        </View>
-      ) : null}
 
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
         <View
@@ -1014,8 +860,6 @@ export default function DeckMainScreenUI({
                 const offsetX = event.nativeEvent.contentOffset.x;
                 const page = Math.round(offsetX / Math.max(albumPageWidth, 1));
                 setCurrentPage(Math.max(0, Math.min(page, albumPages.length - 1)));
-                // grid slide 動畫結束 → 立刻 measure 教學相簿，讓長按箭頭馬上出現
-                measureTutorialAlbum();
               }}
               renderItem={({ item, index }) => renderAlbumPage(item, index)}
               contentContainerStyle={{
@@ -1181,26 +1025,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 20,
-  },
-  createAlbumSpotlight: {
-    position: 'relative',
-  },
-  createAlbumFloatingArrow: {
-    position: 'absolute',
-    zIndex: 999,
-    pointerEvents: 'none',
-    marginLeft: -32,
-  },
-  longPressTutorialWrap: {
-    position: 'absolute',
-    zIndex: 999,
-    pointerEvents: 'none',
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 60,
-  },
-  longPressTutorialArrow: {
-    marginLeft: 0,
   },
   topRightRow: {
     paddingHorizontal: 16,

@@ -25,11 +25,6 @@ export type AppTourStep =
   | 'STEP_9_COACH_SAMPLE'
   | 'STEP_10_QUIZ_SAMPLE'
   | 'STEP_10_QUIZ_FINISH'
-  | 'STEP_11_CREATE_ALBUM'
-  | 'STEP_12_CONFIRM_ALBUM'
-  | 'STEP_13_LONG_PRESS_ALBUM'
-  | 'STEP_14_ALBUM_SETTINGS_COVER'
-  | 'STEP_14_ALBUM_SETTINGS'
   | 'COMPLETED';
 
 export type AppTourLaunchSource = 'first_run' | 'replay';
@@ -79,16 +74,6 @@ function getNextStep(step: AppTourStep): AppTourStep {
     case 'STEP_10_QUIZ_SAMPLE':
       return 'STEP_10_QUIZ_FINISH';
     case 'STEP_10_QUIZ_FINISH':
-      return 'STEP_11_CREATE_ALBUM';
-    case 'STEP_11_CREATE_ALBUM':
-      return 'STEP_12_CONFIRM_ALBUM';
-    case 'STEP_12_CONFIRM_ALBUM':
-      return 'STEP_13_LONG_PRESS_ALBUM';
-    case 'STEP_13_LONG_PRESS_ALBUM':
-      return 'STEP_14_ALBUM_SETTINGS_COVER';
-    case 'STEP_14_ALBUM_SETTINGS_COVER':
-      return 'STEP_14_ALBUM_SETTINGS';
-    case 'STEP_14_ALBUM_SETTINGS':
       return 'COMPLETED';
     default:
       return step;
