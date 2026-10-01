@@ -24,8 +24,6 @@ type TipDefinition = {
 };
 
 const TIP_SEQUENCE: TipDefinition[] = [
-  { id: 'customize_album', delayMs: 36 * 60 * 60 * 1000, target: 'deck' },
-  { id: 'correct_scanned_word', delayMs: 3 * 24 * 60 * 60 * 1000, target: 'cache' },
   { id: 'clear_cache', delayMs: 4 * 24 * 60 * 60 * 1000, target: 'cache' },
   { id: 'rate_app', delayMs: 7 * 24 * 60 * 60 * 1000, target: 'rate' },
 ];

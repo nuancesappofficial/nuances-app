@@ -3,19 +3,30 @@ import test from 'node:test';
 
 import { getTipNotificationCopy } from './tipNotificationCatalog.ts';
 
-test('explains scanned-word spelling correction without OCR jargon in Traditional Chinese', () => {
-  const copy = getTipNotificationCopy('zh-TW', 'correct_scanned_word');
-
-  assert.deepEqual(copy, {
-    title: '拼字怪怪的？',
-    body: '長按掃描出的單字，就能直接修改。',
+test('provides clear_cache tip in Traditional Chinese and English', () => {
+  const copyTW = getTipNotificationCopy('zh-TW', 'clear_cache');
+  assert.deepEqual(copyTW, {
+    title: '小提示',
+    body: '暫存卡片太多時，長按「略過」就能一次清空。',
   });
-  assert.doesNotMatch(`${copy.title}${copy.body}`, /OCR/i);
+
+  const copyEN = getTipNotificationCopy('en', 'clear_cache');
+  assert.deepEqual(copyEN, {
+    title: 'Quick tip',
+    body: 'Press and hold “Skip” to clear every card waiting in your cache.',
+  });
 });
 
-test('provides the scanned-word spelling correction tip in English', () => {
-  assert.deepEqual(getTipNotificationCopy('en', 'correct_scanned_word'), {
-    title: 'Spelling look off?',
-    body: 'Press and hold a scanned word to edit it.',
+test('provides rate_app tip in Traditional Chinese and English', () => {
+  const copyTW = getTipNotificationCopy('zh-TW', 'rate_app');
+  assert.deepEqual(copyTW, {
+    title: '喜歡 Nuances 嗎？',
+    body: '花幾秒留下評分，能幫助我們把 Nuances 做得更好。',
+  });
+
+  const copyEN = getTipNotificationCopy('en', 'rate_app');
+  assert.deepEqual(copyEN, {
+    title: 'Enjoying Nuances?',
+    body: 'A quick rating helps us keep making Nuances better.',
   });
 });

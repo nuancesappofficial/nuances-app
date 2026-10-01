@@ -45,13 +45,8 @@ function toDayKey(input: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function notificationTitle(language: AIReplyLanguage): string {
-  if (language === 'zh-TW' || language === 'zh-CN') return 'Nuances 有待辦';
-  if (language === 'ja') return 'Nuances に未完了の項目があります';
-  if (language === 'ko') return 'Nuances에 할 일이 있어요';
-  if (language === 'es') return 'Tienes tareas pendientes en Nuances';
-  if (language === 'fr') return 'Des éléments vous attendent dans Nuances';
-  return 'Nuances is waiting';
+function notificationTitle(_language: AIReplyLanguage): string {
+  return 'Nuances';
 }
 
 function bodyForCounts(language: AIReplyLanguage, counts: PendingReminderCounts): string {
@@ -95,7 +90,7 @@ function newInputPrompt(language: AIReplyLanguage, date: Date): ReminderCopy {
   const index = date.getDate() % 4;
   if (language === 'zh-CN') {
     return {
-      title: '今天想收进什么？',
+      title: '今天想学什么？',
       body: [
         '看到值得记下的，就分享给 Nuances。',
         '丢一段文字或一张图片给我，我帮你收着。',
@@ -106,7 +101,7 @@ function newInputPrompt(language: AIReplyLanguage, date: Date): ReminderCopy {
   }
   if (language === 'zh-TW') {
     return {
-      title: '今天想收進什麼？',
+      title: '今天想學什麼？',
       body: [
         '看到值得記下的，就分享給 Nuances。',
         '丟一段文字或一張圖片給我，我幫你收著。',
@@ -160,7 +155,7 @@ function newInputPrompt(language: AIReplyLanguage, date: Date): ReminderCopy {
     };
   }
   return {
-    title: 'What will you save today?',
+    title: 'What will you learn today?',
     body: [
       'Found something worth remembering? Share it with Nuances.',
       'Send me a piece of text or an image. I’ll hold onto it.',
