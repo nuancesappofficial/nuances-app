@@ -34,12 +34,15 @@ export function resolveExamplePreviewLayout(
 }
 
 export function shouldOfferExampleExpansion(
-  _exampleCount: number,
+  exampleCount: number,
   measuredHeight: number,
   allocatedHeight: number
 ): boolean {
-  return resolveExamplePreviewLayout(allocatedHeight, measuredHeight, false)
-    .hasOverflow;
+  return (
+    exampleCount > 1 ||
+    resolveExamplePreviewLayout(allocatedHeight, measuredHeight, false)
+      .hasOverflow
+  );
 }
 
 export function resolveCardDetailSectionLayout(

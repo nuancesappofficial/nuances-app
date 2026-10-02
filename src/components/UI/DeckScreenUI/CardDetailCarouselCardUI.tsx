@@ -882,6 +882,7 @@ function CardDetailCarouselCardUI({
     setBackBodyViewportHeight(0);
     setBackBodyContentHeight(0);
     setExamplesMeasuredHeight(0);
+    hasMeasuredExamplesRef.current = false;
     examplesBodyHeightAnim.value = resolveCardDetailSectionLayout(520).examples;
     sentenceExpandProgress.setValue(0);
     contextExpandProgress.setValue(0);
@@ -1063,7 +1064,7 @@ function CardDetailCarouselCardUI({
           ? 40
       : 52) * cardDetailFontScale;
   const referenceWordLineHeight = Math.round(referenceWordFontSize * 1.08);
-  const renderExampleRows = () => (
+  const renderExampleRows = (isMeasurement = false) => (
     <View>
       {apiExampleSentences.map((example, exampleIndex) => (
         <View
@@ -1072,11 +1073,13 @@ function CardDetailCarouselCardUI({
         >
           <View style={localStyles.exampleTextBlock}>
             <Text
+              accessible={!isMeasurement}
+              aria-hidden={isMeasurement}
               style={[
                 styles.referenceExample,
                 localStyles.exampleSentenceText,
                 {
-                  color: ui.primaryText,
+                  color: isMeasurement ? 'transparent' : ui.primaryText,
                   fontSize: backTextFontSize,
                   lineHeight: backTextLineHeight,
                   fontWeight: '600',
@@ -1087,10 +1090,12 @@ function CardDetailCarouselCardUI({
             </Text>
             {example.translation ? (
               <Text
+                accessible={!isMeasurement}
+                aria-hidden={isMeasurement}
                 style={[
                   localStyles.exampleTranslationText,
                   {
-                    color: ui.secondaryText,
+                    color: isMeasurement ? 'transparent' : ui.secondaryText,
                     fontSize: Math.max(12, backTextFontSize - 4),
                     lineHeight: Math.max(16, backTextLineHeight - 4),
                   },
@@ -2203,19 +2208,27 @@ function CardDetailCarouselCardUI({
                             >
                               {tUI(uiLanguage, 'cardDetail.exampleSentence')}
                             </Text>
-                            <View
-                              pointerEvents="none"
-                              accessible={false}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                              style={localStyles.exampleMeasurementLayer}
-                              onLayout={handleFullExamplesLayout}
+                            {examplesMeasuredHeight === 0 ? (
+                              <View
+                                accessible={false}
+                                aria-hidden
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                style={localStyles.exampleMeasurementLayer}
+                                onLayout={handleFullExamplesLayout}
+                              >
+                                {renderExampleRows(true)}
+                              </View>
+                            ) : null}
+                            <Reanimated.View
+                              style={
+                                shouldOfferFullExamples
+                                  ? examplesBodyStyle
+                                  : undefined
+                              }
                             >
-                              {renderExampleRows()}
-                            </View>
-                            <Reanimated.View style={examplesBodyStyle}>
-                              <View onLayout={handleFullExamplesLayout}>
-                                {renderExampleRows()}
+                              <View>
+                                {renderExampleRows(false)}
                               </View>
                             </Reanimated.View>
                             {shouldOfferFullExamples ? (
@@ -2796,7 +2809,7 @@ const localStyles = StyleSheet.create({
     flexBasis: 'auto',
   },
   exampleTranslationText: {
-    flexShrink: 1,
+    flexShrink: 0,
     fontWeight: '500',
     opacity: 0.78,
   },

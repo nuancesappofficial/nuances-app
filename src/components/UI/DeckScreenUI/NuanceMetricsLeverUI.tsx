@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, type DimensionValue } from 'react-native';
 import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -8,8 +8,12 @@ import Reanimated, {
   Easing,
   FadeInDown,
   runOnJS,
+  interpolateColor,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+
+const COLOR_STOPS = [0, 0.5, 1];
+const COLOR_OUTPUT_RANGE = ['#4EAFF4', '#FB923C', '#FF6B6B'];
 
 type LeverColorToken = {
   main: string;
@@ -160,21 +164,81 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
     }
   }, [animate, targetFormalityRatio, targetIntensityRatio, hasIntensity, triggerHaptic]);
 
-  const animatedFormalityTrackStyle = useAnimatedStyle(() => ({
-    width: `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%`,
-  }));
+  const animatedFormalityTrackStyle = useAnimatedStyle(() => {
+    const widthPercent = `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%` as DimensionValue;
+    if (!animate) {
+      return {
+        width: widthPercent,
+        backgroundColor: formalityColor.main,
+      };
+    }
+    const currentColor = interpolateColor(
+      formalityProgress.value,
+      COLOR_STOPS,
+      COLOR_OUTPUT_RANGE
+    );
+    return {
+      width: widthPercent,
+      backgroundColor: currentColor,
+    };
+  });
 
-  const animatedFormalityThumbStyle = useAnimatedStyle(() => ({
-    left: `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%`,
-  }));
+  const animatedFormalityThumbStyle = useAnimatedStyle(() => {
+    const leftPercent = `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%` as DimensionValue;
+    if (!animate) {
+      return {
+        left: leftPercent,
+        borderColor: formalityColor.main,
+      };
+    }
+    const currentColor = interpolateColor(
+      formalityProgress.value,
+      COLOR_STOPS,
+      COLOR_OUTPUT_RANGE
+    );
+    return {
+      left: leftPercent,
+      borderColor: currentColor,
+    };
+  });
 
-  const animatedIntensityTrackStyle = useAnimatedStyle(() => ({
-    width: `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%`,
-  }));
+  const animatedIntensityTrackStyle = useAnimatedStyle(() => {
+    const widthPercent = `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%` as DimensionValue;
+    if (!animate) {
+      return {
+        width: widthPercent,
+        backgroundColor: intensityColor.main,
+      };
+    }
+    const currentColor = interpolateColor(
+      intensityProgress.value,
+      COLOR_STOPS,
+      COLOR_OUTPUT_RANGE
+    );
+    return {
+      width: widthPercent,
+      backgroundColor: currentColor,
+    };
+  });
 
-  const animatedIntensityThumbStyle = useAnimatedStyle(() => ({
-    left: `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%`,
-  }));
+  const animatedIntensityThumbStyle = useAnimatedStyle(() => {
+    const leftPercent = `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%` as DimensionValue;
+    if (!animate) {
+      return {
+        left: leftPercent,
+        borderColor: intensityColor.main,
+      };
+    }
+    const currentColor = interpolateColor(
+      intensityProgress.value,
+      COLOR_STOPS,
+      COLOR_OUTPUT_RANGE
+    );
+    return {
+      left: leftPercent,
+      borderColor: currentColor,
+    };
+  });
 
   const animatedBadgeStyle = useAnimatedStyle(() => ({
     opacity: badgeProgress.value,
@@ -197,14 +261,12 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                 <Reanimated.View
                   style={[
                     styles.activeTrack,
-                    { backgroundColor: formalityColor.main },
                     animatedFormalityTrackStyle,
                   ]}
                 />
                 <Reanimated.View
                   style={[
                     styles.thumb,
-                    { borderColor: formalityColor.main },
                     animatedFormalityThumbStyle,
                   ]}
                 />
@@ -232,14 +294,12 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                 <Reanimated.View
                   style={[
                     styles.activeTrack,
-                    { backgroundColor: intensityColor.main },
                     animatedIntensityTrackStyle,
                   ]}
                 />
                 <Reanimated.View
                   style={[
                     styles.thumb,
-                    { borderColor: intensityColor.main },
                     animatedIntensityThumbStyle,
                   ]}
                 />
