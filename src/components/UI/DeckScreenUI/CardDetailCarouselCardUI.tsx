@@ -62,14 +62,25 @@ import {
   unquoteLearningTermInText,
 } from '../../../features/cards/learningTermQuotes';
 
-function renderSentenceWithBoldTarget(text: string, term: string) {
+function renderSentenceWithBoldTarget(
+  text: string,
+  term: string,
+  targetColor?: string
+) {
   const segments = segmentSentenceWithTargetWord(text, term);
   if (segments.length <= 1 && !segments[0]?.isBold) {
     return text;
   }
   return segments.map((seg, i) =>
     seg.isBold ? (
-      <Text key={`bold-${i}-${seg.text}`} style={{ fontWeight: '700' }}>
+      <Text
+        key={`bold-${i}-${seg.text}`}
+        style={{
+          fontWeight: '800',
+          color: targetColor,
+          fontStyle: 'italic',
+        }}
+      >
         {seg.text}
       </Text>
     ) : (
@@ -535,6 +546,7 @@ function CardDetailCarouselCardUI({
   });
   const itemWord =
     itemPronunciationText || item.targetWord || item.targetPhrase || '-';
+  const targetWordHighlightColor = isLightMode ? '#2E7EC2' : '#4EAFF4';
   const isPhraseCard = isPhraseLikeCardSubject(itemWord, item.partOfSpeech);
   const itemCaption = formatPartOfSpeechLabel(
     isPhraseCard ? 'phrase' : item.partOfSpeech || item.sourceApp || '',
@@ -1661,7 +1673,11 @@ function CardDetailCarouselCardUI({
                             }
                             onTextLayout={handleSourceTextLayout}
                           >
-                            {renderSentenceWithBoldTarget(sourceSentenceText, itemWord)}
+                            {renderSentenceWithBoldTarget(
+                              sourceSentenceText,
+                              itemWord,
+                              targetWordHighlightColor
+                            )}
                           </Text>
                         ) : null}
                         <Text
@@ -1683,7 +1699,11 @@ function CardDetailCarouselCardUI({
                           }
                           onTextLayout={handleTranslationTextLayout}
                         >
-                          {renderSentenceWithBoldTarget(translationDisplayText, itemWord)}
+                          {renderSentenceWithBoldTarget(
+                            translationDisplayText,
+                            itemWord,
+                            targetWordHighlightColor
+                          )}
                         </Text>
                       </Reanimated.View>
                       {shouldOfferFullContent ? (
