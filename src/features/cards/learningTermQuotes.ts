@@ -34,3 +34,68 @@ export function quoteLearningTermInText(text: string, term: string): string {
     ? trimmedText.replace(matcher, (match) => `${openQuote}${match}${closeQuote}`)
     : trimmedText;
 }
+
+export function unquoteLearningTermInText(text: string, term: string): string {
+  const trimmedText = (text || '').trim();
+  const trimmedTerm = (term || '').trim();
+  if (!trimmedText || !trimmedTerm) return trimmedText;
+
+  const escapedTerm = trimmedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const isCjk = CJK_SCRIPT_PATTERN.test(trimmedTerm);
+  const pattern = isCjk
+    ? `[「『“"'‘]\\s*(${escapedTerm})\\s*[」』”"'’]`
+    : `[「『“"'‘]\\s*(${escapedTerm}(?:[a-zA-Z]{1,4})?)\\s*[」』”"'’]`;
+  const alreadyQuoted = new RegExp(pattern, 'i');
+  return trimmedText.replace(alreadyQuoted, '$1');
+}
+
+export type SentenceSegment = {
+  text: string;
+  isBold: boolean;
+};
+
+export function segmentSentenceWithTargetWord(
+  text: string,
+  term: string
+): SentenceSegment[] {
+  const cleanSentence = unquoteLearningTermInText(text, term);
+  const trimmedTerm = (term || '').trim();
+  if (!cleanSentence) return [];
+  if (!trimmedTerm) return [{ text: cleanSentence, isBold: false }];
+
+  const escapedTerm = trimmedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const isCjk = CJK_SCRIPT_PATTERN.test(trimmedTerm);
+  const pattern = isCjk
+    ? `(${escapedTerm})`
+    : `\\b(${escapedTerm}(?:[a-zA-Z]{1,4})?)\\b`;
+  const matcher = new RegExp(pattern, 'i');
+  const parts = cleanSentence.split(matcher);
+
+  if (parts.length <= 1) {
+    const fallbackMatcher = new RegExp(`(${escapedTerm})`, 'i');
+    const fallbackParts = cleanSentence.split(fallbackMatcher);
+    if (fallbackParts.length <= 1) {
+      return [{ text: cleanSentence, isBold: false }];
+    }
+    return fallbackParts
+      .filter(Boolean)
+      .map((part) => ({
+        text: part,
+        isBold: part.toLowerCase() === trimmedTerm.toLowerCase(),
+      }));
+  }
+
+  const segments: SentenceSegment[] = [];
+  const termLower = trimmedTerm.toLowerCase();
+
+  for (const part of parts) {
+    if (!part) continue;
+    const isTargetMatch =
+      part.toLowerCase() === termLower ||
+      (!isCjk && part.toLowerCase().startsWith(termLower));
+    segments.push({ text: part, isBold: isTargetMatch });
+  }
+
+  return segments;
+}
+

@@ -58,7 +58,25 @@ import {
 import {
   formatQuotedLearningTerm,
   quoteLearningTermInText,
+  segmentSentenceWithTargetWord,
+  unquoteLearningTermInText,
 } from '../../../features/cards/learningTermQuotes';
+
+function renderSentenceWithBoldTarget(text: string, term: string) {
+  const segments = segmentSentenceWithTargetWord(text, term);
+  if (segments.length <= 1 && !segments[0]?.isBold) {
+    return text;
+  }
+  return segments.map((seg, i) =>
+    seg.isBold ? (
+      <Text key={`bold-${i}-${seg.text}`} style={{ fontWeight: '700' }}>
+        {seg.text}
+      </Text>
+    ) : (
+      seg.text
+    )
+  );
+}
 import {
   isPhraseLikeCardSubject,
   isSameCardUsage,
@@ -173,7 +191,6 @@ function CollapsibleBackField({
     onExpandedChange(fieldKey, false);
   }, [
     arrowProgress,
-    collapsedHeight,
     fieldKey,
     heightAnim,
     onExpandedChange,
@@ -218,7 +235,7 @@ function CollapsibleBackField({
   return (
     <>
       <Reanimated.View
-        style={contentHeight > 0 ? bodyStyle : undefined}
+        style={contentHeight > 0 && hasOverflow ? bodyStyle : undefined}
       >
         <View
           onLayout={(event) => {
@@ -562,15 +579,15 @@ function CardDetailCarouselCardUI({
     if (contextSections.isStructured) {
       return raw
         .split('\n')
-        .map((line) => quoteLearningTermInText(line, itemWord))
+        .map((line, idx) =>
+          idx === 0
+            ? unquoteLearningTermInText(line, itemWord)
+            : quoteLearningTermInText(line, itemWord)
+        )
         .join('\n');
     }
-    const quotedWord = formatQuotedLearningTerm(itemWord);
-    const replaced = quoteLearningTermInText(raw, itemWord);
-    const separator = /[\u3040-\u30ff\u3400-\u9fff]/u.test(itemWord)
-      ? '：'
-      : ': ';
-    return replaced !== raw ? replaced : `${quotedWord}${separator}${raw}`;
+    const replaced = unquoteLearningTermInText(raw, itemWord);
+    return replaced;
   }, [contextSections.isStructured, sentenceTranslationRaw, itemWord]);
   const cardAIBreakdownMode = React.useMemo(() => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
@@ -590,8 +607,9 @@ function CardDetailCarouselCardUI({
   const isDefinitionCompacted =
     compactDefinitionText !== normalizedRawDefinitionText;
   const sourceSentenceText = React.useMemo(
-    () => (sourceSentence || '').trim() || '-',
-    [sourceSentence]
+    () =>
+      unquoteLearningTermInText(sourceSentence || '', itemWord).trim() || '-',
+    [sourceSentence, itemWord]
   );
   const translationDisplayText = React.useMemo(
     () => (translationText || '').trim() || '-',
@@ -1643,7 +1661,7 @@ function CardDetailCarouselCardUI({
                             }
                             onTextLayout={handleSourceTextLayout}
                           >
-                            {sourceSentenceText}
+                            {renderSentenceWithBoldTarget(sourceSentenceText, itemWord)}
                           </Text>
                         ) : null}
                         <Text
@@ -1665,7 +1683,7 @@ function CardDetailCarouselCardUI({
                           }
                           onTextLayout={handleTranslationTextLayout}
                         >
-                          {translationDisplayText}
+                          {renderSentenceWithBoldTarget(translationDisplayText, itemWord)}
                         </Text>
                       </Reanimated.View>
                       {shouldOfferFullContent ? (
