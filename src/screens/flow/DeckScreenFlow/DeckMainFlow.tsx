@@ -784,16 +784,6 @@ export default function DeckMainFlow({
     }, [])
   );
 
-  React.useEffect(() => {
-    const timer = setInterval(
-      () => {
-        setImageReloadSeed((prev) => prev + 1);
-      },
-      25 * 60 * 1000
-    );
-
-    return () => clearInterval(timer);
-  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
