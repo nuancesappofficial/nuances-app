@@ -71,4 +71,19 @@ test('Word Pop 輪播動畫時長應平緩（>= 600ms）且使用 Ease-Out 軟�
   assert.ok(hasSmoothEasing, 'easing 應使用 bezier(0.22, 1, 0.36, 1) 軟著陸曲線，避免機械生硬感');
 });
 
+test('Slot B 初始 SharedValue 不可為 0，必須停留在離屏距離以防初次載入雙卡片重疊亂碼', () => {
+  const zeroInitMatch = /const\s+slotBX\s*=\s*useSharedValue\(0\);/.test(source);
+  assert.ok(
+    !zeroInitMatch,
+    'slotBX 初始值不可直接為 0，否則初始渲染時 Slot B 會絕對定位疊在 Slot A 正上方產生重疊亂碼',
+  );
+
+  const offscreenInitMatch =
+    /const\s+slotBX\s*=\s*useSharedValue\(\s*getWordPopSlideDistance/.test(source);
+  assert.ok(
+    offscreenInitMatch,
+    'slotBX 應使用 getWordPopSlideDistance 初始值停留在可視範圍外',
+  );
+});
+
 

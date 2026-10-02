@@ -144,7 +144,7 @@ export default function DeckMainScreenUI({
   const [slotAIndex, setSlotAIndex] = React.useState<number>(0);
   const [slotBIndex, setSlotBIndex] = React.useState<number>(1);
   const slotAX = useSharedValue(0);
-  const slotBX = useSharedValue(0);
+  const slotBX = useSharedValue(getWordPopSlideDistance(Math.max(1, screenWidth - 54)));
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
   const lastScrolledAlbumIdRef = React.useRef<string | null>(null);
   const albumsPerPage =

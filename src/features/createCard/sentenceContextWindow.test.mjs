@@ -25,3 +25,19 @@ test('pickSentenceContainingWord does not infinite loop when expanding in both d
   const result = pickSentenceContainingWord(text, 'word');
   assert.equal(result, "First short. Middle contains word. Last short.");
 });
+
+test('pickSentenceContainingWord extracts contiguous sentence for mid-paragraph word without splicing disparate lines', () => {
+  const text = `Griffin cut him off. 'Would you like to know the second and third largest sources of income at Babel?'
+'Legal?'
+'No. Militaries, both state and private,' said Griffin. 'And then slave traders. Legal makes pennies in comparison.'
+'That's... that's impossible.'
+'No, that's just how the world works. Let me paint you a picture, brother. You've noticed by now that London sits at the centre of a vast empire that won't stop growing. The single most important enabler of this growth is Babel. Babel collects foreign languages and foreign talent the same way it hoards silver and uses them to produce translation magic that benefits England and England only. The vast majority of all silver`;
+
+  const result0 = pickSentenceContainingWord(text, 'legal', { targetOccurrence: 0 });
+  assert.ok(result0.includes("'Would you like to know the second and third largest sources of income at Babel?' 'Legal?'"));
+  assert.ok(!result0.includes('benefits England and England only'));
+
+  const result1 = pickSentenceContainingWord(text, 'legal', { targetOccurrence: 1 });
+  assert.ok(result1.includes("Legal makes pennies in comparison"));
+  assert.ok(!result1.includes('benefits England and England only'));
+});

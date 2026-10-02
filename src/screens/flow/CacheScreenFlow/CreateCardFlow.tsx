@@ -66,7 +66,6 @@ import {
   type UILanguage,
 } from '@services/settings/userSettings';
 import {
-  buildTargetAnchoredOCRText,
   extractTextFromImage,
   type OCRBlock,
 } from '@services/ocr/ocrService';
@@ -1506,26 +1505,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const processWord = React.useCallback(
     async (target: SelectedSourceTarget) => {
       const word = target.text;
-      const targetAnchoredOCRText =
-        !editedSourceText.trim() && ocrBlocks.length > 0
-          ? buildTargetAnchoredOCRText(ocrBlocks, word, {
-              targetOccurrence: target.targetOccurrence,
-            })
-          : null;
       const sentenceForCard =
-        pickSentenceContainingWord(targetAnchoredOCRText || sourceText, word, {
+        pickSentenceContainingWord(sourceText, word, {
           targetOccurrence: target.targetOccurrence,
         }) ||
-        targetAnchoredOCRText ||
         sourceText ||
         word;
-      if (__DEV__ && targetAnchoredOCRText) {
-        console.log('[CreateCard][OCR] Using target-anchored region', {
-          target: word,
-          sourceLength: sourceText.length,
-          regionLength: targetAnchoredOCRText.length,
-        });
-      }
       try {
         traceFirstRun('starter_allowance', 'card_generation_started', {
           isTutorial: isDefaultExperienceTutorial,
