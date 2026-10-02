@@ -24,7 +24,11 @@ import Reanimated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { parseCardContextSections } from '../../../features/cards/cardContextSections';
+import {
+  parseCardContextSections,
+  parseCulturalBackgroundInsight,
+} from '../../../features/cards/cardContextSections';
+import { NuanceMetricsLeverUI } from '../DeckScreenUI/NuanceMetricsLeverUI';
 import { quoteLearningTermInText } from '../../../features/cards/learningTermQuotes';
 import { isPhraseLikeCardSubject, isSameCardUsage } from '../../../features/cards/cardUsage';
 import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
@@ -448,6 +452,13 @@ export function CreateCardGhostPreviewScene({
       ? ''
       : buildCulturalBackgroundText(card, uiLanguage)
     : statusText;
+  const previewCulturalInsight = React.useMemo(
+    () => parseCulturalBackgroundInsight(previewCultural),
+    [previewCultural]
+  );
+  const culturalDisplayText = previewCulturalInsight
+    ? previewCulturalInsight.insider_insight
+    : previewCultural;
   const previewPersonalNote = card?.note?.trim() || tUI(uiLanguage, 'cardDetail.addNote');
   const isThinking = phase === 'frontThinking';
   const backVisible = phase === 'backReveal' || phase === 'complete';
@@ -634,7 +645,18 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.context')}
             </FixedText>
-            <ProgressiveText text={previewCultural} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
+            {previewCulturalInsight ? (
+              <NuanceMetricsLeverUI
+                formality={previewCulturalInsight.metrics.formality}
+                intensity={previewCulturalInsight.metrics.intensity}
+                ui={{
+                  noteText: palette.textOnContainer,
+                  secondaryText: palette.secondaryText,
+                  divider: tone.divider,
+                }}
+              />
+            ) : null}
+            <ProgressiveText text={culturalDisplayText} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
           </View>
 
           <View style={styles.previewFooterRow}>

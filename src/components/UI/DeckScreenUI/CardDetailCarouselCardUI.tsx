@@ -21,7 +21,6 @@ import Reanimated, {
   Easing,
   Extrapolation,
   interpolate,
-  Layout,
   ReduceMotion,
   useAnimatedStyle,
   useReducedMotion,
@@ -35,7 +34,11 @@ import {
   normalizeAIBreakdownMode,
   type UILanguage,
 } from '@services/settings/userSettings';
-import { parseCardContextSections } from '../../../features/cards/cardContextSections';
+import {
+  parseCardContextSections,
+  parseCulturalBackgroundInsight,
+} from '../../../features/cards/cardContextSections';
+import { NuanceMetricsLeverUI } from './NuanceMetricsLeverUI';
 import {
   normalizeEnglishExampleDisplayOrder,
   type ExampleDisplayItem,
@@ -115,9 +118,6 @@ const BACK_BODY_SCROLL_OVERFLOW_EPSILON = 8;
 const BACK_BODY_FOOTER_CLEARANCE = 48;
 const FRONT_SENTENCE_COLLAPSED_LINES = 3;
 const FRONT_CONTEXT_COLLAPSED_LINES = 4;
-const DETAIL_EXPAND_LAYOUT = Layout.duration(260).easing(
-  Easing.bezier(0.2, 0, 0, 1)
-);
 
 type CollapsibleBackFieldProps = {
   children: React.ReactNode;
@@ -602,6 +602,10 @@ function CardDetailCarouselCardUI({
     () => (contextSections.culturalBackground || '').trim(),
     [contextSections.culturalBackground]
   );
+  const parsedInsight = React.useMemo(
+    () => parseCulturalBackgroundInsight(rawCulturalBackgroundText),
+    [rawCulturalBackgroundText]
+  );
   const frontSentenceFontSize = Math.round(20 * frontContentScale);
   const frontSentenceLineHeight = Math.round(28 * frontContentScale);
   const frontTextWrapGuard = resolveFrontTextWrapGuard(frontSentenceFontSize);
@@ -663,12 +667,15 @@ function CardDetailCarouselCardUI({
             .join('\n\n'),
     [contextSections.isStructured, sourceSentenceText, translationDisplayText]
   );
+  const insightDisplayText = parsedInsight
+    ? parsedInsight.insider_insight
+    : rawCulturalBackgroundText;
   const isCulturalBackgroundCompacted =
-    Boolean(rawCulturalBackgroundText) &&
+    Boolean(insightDisplayText) &&
     (contextMeasuredHeight > collapsedContextHeight + 1 ||
       contextLineCount > FRONT_CONTEXT_COLLAPSED_LINES ||
-      rawCulturalBackgroundText.length > 190 ||
-      rawCulturalBackgroundText.split(/\n+/).length >
+      insightDisplayText.length > 190 ||
+      insightDisplayText.split(/\n+/).length >
         FRONT_CONTEXT_COLLAPSED_LINES);
   const shouldOfferFullSentence =
     sentenceMeasuredHeight > collapsedSentenceHeight + 1 ||
@@ -1671,58 +1678,123 @@ function CardDetailCarouselCardUI({
                       >
                         {tUI(uiLanguage, 'cardDetail.context')}
                       </Text>
-                      {contextMeasuredHeight === 0 ? (
-                        <View
-                          accessible={false}
-                          aria-hidden
-                          accessibilityElementsHidden
-                          importantForAccessibility="no-hide-descendants"
-                          style={localStyles.textMeasurementPass}
-                          onLayout={handleContextMeasurementLayout}
-                        >
-                          <Text
-                            accessible={false}
-                            aria-hidden
-                            accessibilityElementsHidden
-                            importantForAccessibility="no-hide-descendants"
-                            style={[
-                              styles.referenceSubText,
-                              {
-                                color: 'transparent',
-                                fontSize: Math.round(18 * frontContentScale),
-                                lineHeight: contextLineHeight,
-                                paddingRight: frontTextWrapGuard,
-                              },
-                            ]}
+                      {parsedInsight ? (
+                        <>
+                          <NuanceMetricsLeverUI
+                            formality={parsedInsight.metrics.formality}
+                            intensity={parsedInsight.metrics.intensity}
+                            ui={ui}
+                            fontScale={frontContentScale}
+                          />
+                          {contextMeasuredHeight === 0 ? (
+                            <View
+                              accessible={false}
+                              aria-hidden
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              style={localStyles.textMeasurementPass}
+                              onLayout={handleContextMeasurementLayout}
+                            >
+                              <Text
+                                accessible={false}
+                                aria-hidden
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                style={[
+                                  styles.referenceSubText,
+                                  {
+                                    color: 'transparent',
+                                    fontSize: Math.round(16 * frontContentScale),
+                                    lineHeight: contextLineHeight,
+                                    paddingRight: frontTextWrapGuard,
+                                  },
+                                ]}
+                              >
+                                {parsedInsight.insider_insight ||
+                                  tUI(uiLanguage, 'cardDetail.noContext')}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <Reanimated.View
+                            style={
+                              isCulturalBackgroundCompacted
+                                ? contextBodyStyle
+                                : undefined
+                            }
                           >
-                            {culturalBackgroundText ||
-                              tUI(uiLanguage, 'cardDetail.noContext')}
-                          </Text>
-                        </View>
-                      ) : null}
-                      <Reanimated.View
-                        style={
-                          isCulturalBackgroundCompacted
-                            ? contextBodyStyle
-                            : undefined
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.referenceSubText,
-                            {
-                              color: ui.noteText,
-                              fontSize: Math.round(18 * frontContentScale),
-                              lineHeight: contextLineHeight,
-                              paddingRight: frontTextWrapGuard,
-                            },
-                          ]}
-                          onTextLayout={handleContextTextLayout}
-                        >
-                          {culturalBackgroundText ||
-                            tUI(uiLanguage, 'cardDetail.noContext')}
-                        </Text>
-                      </Reanimated.View>
+                            <Text
+                              style={[
+                                styles.referenceSubText,
+                                {
+                                  color: ui.noteText,
+                                  fontSize: Math.round(16 * frontContentScale),
+                                  lineHeight: contextLineHeight,
+                                  paddingRight: frontTextWrapGuard,
+                                },
+                              ]}
+                              onTextLayout={handleContextTextLayout}
+                            >
+                              {parsedInsight.insider_insight ||
+                                tUI(uiLanguage, 'cardDetail.noContext')}
+                            </Text>
+                          </Reanimated.View>
+                        </>
+                      ) : (
+                        <>
+                          {contextMeasuredHeight === 0 ? (
+                            <View
+                              accessible={false}
+                              aria-hidden
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              style={localStyles.textMeasurementPass}
+                              onLayout={handleContextMeasurementLayout}
+                            >
+                              <Text
+                                accessible={false}
+                                aria-hidden
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                style={[
+                                  styles.referenceSubText,
+                                  {
+                                    color: 'transparent',
+                                    fontSize: Math.round(18 * frontContentScale),
+                                    lineHeight: contextLineHeight,
+                                    paddingRight: frontTextWrapGuard,
+                                  },
+                                ]}
+                              >
+                                {culturalBackgroundText ||
+                                  tUI(uiLanguage, 'cardDetail.noContext')}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <Reanimated.View
+                            style={
+                              isCulturalBackgroundCompacted
+                                ? contextBodyStyle
+                                : undefined
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.referenceSubText,
+                                {
+                                  color: ui.noteText,
+                                  fontSize: Math.round(18 * frontContentScale),
+                                  lineHeight: contextLineHeight,
+                                  paddingRight: frontTextWrapGuard,
+                                },
+                              ]}
+                              onTextLayout={handleContextTextLayout}
+                            >
+                              {culturalBackgroundText ||
+                                tUI(uiLanguage, 'cardDetail.noContext')}
+                            </Text>
+                          </Reanimated.View>
+                        </>
+                      )}
                       {isCulturalBackgroundCompacted ? (
                         <Pressable
                           style={({ pressed }) => [

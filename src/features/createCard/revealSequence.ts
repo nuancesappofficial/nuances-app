@@ -1,5 +1,8 @@
 import * as Haptics from 'expo-haptics';
-import { parseCardContextSections } from '../cards/cardContextSections';
+import {
+  parseCardContextSections,
+  extractCulturalBackgroundDisplayText,
+} from '../cards/cardContextSections';
 import { getPreviewTypingDuration } from '../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import type { CompletedCard, PreviewRevealState } from '../../screens/flow/CacheScreenFlow/types';
 
@@ -52,15 +55,14 @@ function buildSentenceTranslationText(card: CompletedCard): string {
 }
 
 function buildCulturalBackgroundText(card: CompletedCard): string {
-  return (
-    parseCardContextSections({
-      raw: card.cultural,
-      displayWord: card.displayWord,
-      definition: card.definition,
-      sourceSentence: card.sourceSentence,
-      manualMode: card.manualMode,
-    }).culturalBackground || 'No context generated.'
-  );
+  const raw = parseCardContextSections({
+    raw: card.cultural,
+    displayWord: card.displayWord,
+    definition: card.definition,
+    sourceSentence: card.sourceSentence,
+    manualMode: card.manualMode,
+  }).culturalBackground;
+  return extractCulturalBackgroundDisplayText(raw) || 'No context generated.';
 }
 
 function buildExampleSentenceText(card: CompletedCard): string {

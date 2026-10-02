@@ -144,7 +144,7 @@ type GenerateCardResult = {
   contextualExplanation?: string;
   sentenceTranslation?: string;
   sentenceNotes?: string;
-  culturalBackground?: string;
+  culturalBackground?: string | Record<string, unknown>;
   example?: string | Array<{ sentence?: string; translation?: string }>;
   exampleSentence?: string;
   frequentCollocations?: string | Array<{ phrase?: string; translation?: string }>;
@@ -308,10 +308,22 @@ function stringifyExamples(value: GenerateCardResult['example'] | GenerateCardRe
   return isCompleteGeneratedExampleSentence(singleExample) ? singleExample : '';
 }
 
+function normalizeCulturalBackground(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 function buildContextualExplanation(result: GenerateCardResult, originalSentence: string): string {
   const existing = normalizeOptionalString(result.contextualExplanation);
   const sentenceTranslation = normalizeSentenceTranslation(result.sentenceTranslation, originalSentence);
-  const culturalBackground = normalizeOptionalString(result.culturalBackground) || '';
+  const culturalBackground = normalizeCulturalBackground(result.culturalBackground);
   const sentenceNotes = normalizeOptionalString(result.sentenceNotes) || '';
   const exampleSentence = stringifyExamples(result.example || result.exampleSentence);
 
@@ -325,7 +337,7 @@ function buildContextualExplanation(result: GenerateCardResult, originalSentence
           originalSentence
         ),
         sentenceNotes: normalizeOptionalString(parsed.sentenceNotes) || sentenceNotes,
-        culturalBackground: normalizeOptionalString(parsed.culturalBackground) || culturalBackground,
+        culturalBackground: normalizeCulturalBackground(parsed.culturalBackground) || culturalBackground,
         exampleSentence: normalizeOptionalString(parsed.exampleSentence) || exampleSentence,
       });
     } catch {

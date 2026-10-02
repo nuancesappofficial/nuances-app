@@ -11,8 +11,22 @@ export type CardContextSections = {
   isStructured: boolean;
 };
 
+export {
+  type CulturalBackgroundInsight,
+  parseCulturalBackgroundInsight,
+  extractCulturalBackgroundDisplayText,
+} from './culturalBackgroundInsight';
+
 function cleanText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
+  return '';
 }
 
 function escapeRegExp(value: string): string {

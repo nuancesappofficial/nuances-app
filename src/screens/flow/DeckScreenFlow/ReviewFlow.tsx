@@ -72,7 +72,10 @@ import {
   subscribeUserSettings,
   type UILanguage,
 } from '@services/settings/userSettings';
-import { parseCardContextSections } from '../../../features/cards/cardContextSections';
+import {
+  parseCardContextSections,
+  extractCulturalBackgroundDisplayText,
+} from '../../../features/cards/cardContextSections';
 import {
   getLearningTermQuotePair,
   quoteLearningTermInText,
@@ -808,7 +811,10 @@ function buildAnswerDetailText(card: Card): {
   return {
     fullSentence: quoteTargetInText(fullSentence, target),
     sentenceTranslation,
-    contextPreview: contextSections.culturalBackground || card.definition || '',
+    contextPreview:
+      extractCulturalBackgroundDisplayText(contextSections.culturalBackground) ||
+      card.definition ||
+      '',
   };
 }
 
@@ -839,7 +845,10 @@ function buildAnswerDetailTextForSentence(card: Card, sentence: string, translat
   return {
     fullSentence: quoteTargetInText(fullSentence, target),
     sentenceTranslation,
-    contextPreview: contextSections.culturalBackground || card.definition || '',
+    contextPreview:
+      extractCulturalBackgroundDisplayText(contextSections.culturalBackground) ||
+      card.definition ||
+      '',
   };
 }
 

@@ -310,6 +310,58 @@ function extractPartialJSONString(
   return value ? decodePartialJSONString(value).trim() : undefined;
 }
 
+function extractPartialJSONObjectString(
+  raw: string,
+  key: string
+): string | undefined {
+  const keyPattern = new RegExp(
+    `"${escapeRegExpLiteral(key)}"\\s*:\\s*\\{`
+  );
+  const match = raw.match(keyPattern);
+  if (!match || match.index === undefined) return undefined;
+  const startObjIndex = match.index + match[0].length - 1;
+  const slice = raw.slice(startObjIndex);
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+  for (let i = 0; i < slice.length; i++) {
+    const c = slice[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c === '\\') {
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (c === '{') depth++;
+      if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+    }
+  }
+  if (end > 0) {
+    return slice.slice(0, end).trim();
+  }
+  return undefined;
+}
+
+function extractPartialJSONCulturalBackground(raw: string): string | undefined {
+  const asObject = extractPartialJSONObjectString(raw, 'culturalBackground');
+  if (asObject) return asObject;
+  return extractPartialJSONString(raw, 'culturalBackground');
+}
+
 function extractPartialJSONBoolean(
   raw: string,
   key: string
@@ -469,7 +521,7 @@ function parseIncompleteGenerateCardJSON(
     partOfSpeech: extractPartialJSONString(raw, 'partOfSpeech'),
     definition: extractPartialJSONString(raw, 'definition'),
     sentenceTranslation: extractPartialJSONString(raw, 'sentenceTranslation'),
-    culturalBackground: extractPartialJSONString(raw, 'culturalBackground'),
+    culturalBackground: extractPartialJSONCulturalBackground(raw),
     frequentCollocations: extractPartialJSONObjectItems(
       raw,
       'frequentCollocations',
