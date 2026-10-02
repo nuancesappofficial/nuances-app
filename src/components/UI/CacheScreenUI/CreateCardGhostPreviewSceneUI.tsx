@@ -645,7 +645,7 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.context')}
             </FixedText>
-            {previewCulturalInsight ? (
+            {previewCulturalInsight && (phase === 'complete' || revealState.showBackCultural) ? (
               <NuanceMetricsLeverUI
                 formality={previewCulturalInsight.metrics.formality}
                 intensity={previewCulturalInsight.metrics.intensity}
@@ -654,6 +654,7 @@ export function CreateCardGhostPreviewScene({
                   secondaryText: palette.secondaryText,
                   divider: tone.divider,
                 }}
+                animate={shouldAnimateText}
               />
             ) : null}
             <ProgressiveText text={culturalDisplayText} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />

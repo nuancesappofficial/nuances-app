@@ -1,5 +1,45 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+  Easing,
+  FadeInDown,
+  runOnJS,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+
+type LeverColorToken = {
+  main: string;
+  bg: string;
+};
+
+const LEVER_LOW_COLOR: LeverColorToken = {
+  main: '#4EAFF4',
+  bg: 'rgba(78, 175, 244, 0.12)',
+};
+
+const LEVER_MID_COLOR: LeverColorToken = {
+  main: '#FB923C',
+  bg: 'rgba(251, 146, 60, 0.12)',
+};
+
+const LEVER_HIGH_COLOR: LeverColorToken = {
+  main: '#FF6B6B',
+  bg: 'rgba(255, 107, 107, 0.12)',
+};
+
+export function getLeverColorToken(score: number | null): LeverColorToken {
+  if (typeof score !== 'number' || Number.isNaN(score) || score <= 3) {
+    return LEVER_LOW_COLOR;
+  }
+  if (score <= 6) {
+    return LEVER_MID_COLOR;
+  }
+  return LEVER_HIGH_COLOR;
+}
 
 export type NuanceMetricsLeverUIProps = {
   formality: number | null; // 1-10 or null
@@ -15,6 +55,7 @@ export type NuanceMetricsLeverUIProps = {
   };
   fontScale?: number;
   textWrapGuard?: number;
+  animate?: boolean;
   onTextLayout?: (event: any) => void;
 };
 
@@ -25,6 +66,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
   ui,
   fontScale = 1,
   textWrapGuard = 0,
+  animate = false,
   onTextLayout,
 }) => {
   const hasFormality = typeof formality === 'number' && !Number.isNaN(formality);
@@ -42,50 +84,143 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
     ? Math.max(1, Math.min(10, Math.round(intensity!)))
     : null;
 
-  const formalityPercent =
-    clampedFormality !== null
-      ? `${Math.round(((clampedFormality - 1) / 9) * 100)}%`
-      : '0%';
-  const intensityPercent =
-    clampedIntensity !== null
-      ? `${Math.round(((clampedIntensity - 1) / 9) * 100)}%`
-      : '0%';
+  const formalityColor = React.useMemo(
+    () => getLeverColorToken(clampedFormality),
+    [clampedFormality]
+  );
+  const intensityColor = React.useMemo(
+    () => getLeverColorToken(clampedIntensity),
+    [clampedIntensity]
+  );
+
+  const targetFormalityRatio =
+    clampedFormality !== null ? (clampedFormality - 1) / 9 : 0;
+  const targetIntensityRatio =
+    clampedIntensity !== null ? (clampedIntensity - 1) / 9 : 0;
+
+  const formalityProgress = useSharedValue(animate ? 0 : targetFormalityRatio);
+  const intensityProgress = useSharedValue(animate ? 0 : targetIntensityRatio);
+  const badgeProgress = useSharedValue(animate ? 0 : 1);
+
+  const triggerHaptic = React.useCallback(() => {
+    void Haptics.selectionAsync();
+  }, []);
+
+  React.useEffect(() => {
+    if (animate) {
+      formalityProgress.value = 0;
+      intensityProgress.value = 0;
+      badgeProgress.value = 0;
+
+      const onFinished = (finished?: boolean) => {
+        'worklet';
+        if (finished) {
+          runOnJS(triggerHaptic)();
+        }
+      };
+
+      if (hasIntensity) {
+        formalityProgress.value = withTiming(targetFormalityRatio, {
+          duration: 520,
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        });
+        intensityProgress.value = withDelay(
+          80,
+          withTiming(
+            targetIntensityRatio,
+            {
+              duration: 520,
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            },
+            onFinished
+          )
+        );
+      } else {
+        formalityProgress.value = withTiming(
+          targetFormalityRatio,
+          {
+            duration: 520,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+          },
+          onFinished
+        );
+      }
+
+      badgeProgress.value = withDelay(
+        240,
+        withTiming(1, {
+          duration: 320,
+          easing: Easing.out(Easing.ease),
+        })
+      );
+    } else {
+      formalityProgress.value = targetFormalityRatio;
+      intensityProgress.value = targetIntensityRatio;
+      badgeProgress.value = 1;
+    }
+  }, [animate, targetFormalityRatio, targetIntensityRatio, hasIntensity, triggerHaptic]);
+
+  const animatedFormalityTrackStyle = useAnimatedStyle(() => ({
+    width: `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%`,
+  }));
+
+  const animatedFormalityThumbStyle = useAnimatedStyle(() => ({
+    left: `${Math.max(0, Math.min(100, formalityProgress.value * 100))}%`,
+  }));
+
+  const animatedIntensityTrackStyle = useAnimatedStyle(() => ({
+    width: `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%`,
+  }));
+
+  const animatedIntensityThumbStyle = useAnimatedStyle(() => ({
+    left: `${Math.max(0, Math.min(100, intensityProgress.value * 100))}%`,
+  }));
+
+  const animatedBadgeStyle = useAnimatedStyle(() => ({
+    opacity: badgeProgress.value,
+    transform: [{ scale: 0.8 + 0.2 * badgeProgress.value }],
+  }));
 
   return (
     <View style={styles.container}>
       {/* 雙軸量表控制條 (Dual-axis Lever / Slider) */}
       {hasLevers ? (
-        <View
-          style={[
-            styles.leversCard,
-            {
-              borderColor: ui.paperBorder || ui.divider,
-              backgroundColor: ui.paperBg ? 'rgba(0,0,0,0.02)' : 'transparent',
-            },
-          ]}
+        <Reanimated.View
+          {...(animate ? { entering: FadeInDown.duration(280) } : {})}
+          style={styles.leversContainer}
         >
           {/* 正式度 (Formality): 隨意 <-> 正式 */}
           {hasFormality ? (
             <View style={styles.meterRow}>
               <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>隨意</Text>
               <View style={[styles.track, { backgroundColor: ui.divider }]}>
-                <View
+                <Reanimated.View
                   style={[
                     styles.activeTrack,
-                    { width: formalityPercent as any, backgroundColor: '#3B82F6' },
+                    { backgroundColor: formalityColor.main },
+                    animatedFormalityTrackStyle,
                   ]}
                 />
-                <View
+                <Reanimated.View
                   style={[
                     styles.thumb,
-                    { left: formalityPercent as any, borderColor: '#3B82F6' },
+                    { borderColor: formalityColor.main },
+                    animatedFormalityThumbStyle,
                   ]}
                 />
               </View>
               <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>正式</Text>
-              <View style={[styles.badgeContainer, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <Text style={[styles.scoreBadge, { color: '#3B82F6' }]}>{clampedFormality}</Text>
-              </View>
+              <Reanimated.View
+                style={[
+                  styles.badgeContainer,
+                  { backgroundColor: formalityColor.bg },
+                  animatedBadgeStyle,
+                ]}
+              >
+                <Text style={[styles.scoreBadge, { color: formalityColor.main }]}>
+                  {clampedFormality}
+                </Text>
+              </Reanimated.View>
             </View>
           ) : null}
 
@@ -94,26 +229,36 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
             <View style={[styles.meterRow, hasFormality ? { marginTop: 10 } : null]}>
               <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>微妙</Text>
               <View style={[styles.track, { backgroundColor: ui.divider }]}>
-                <View
+                <Reanimated.View
                   style={[
                     styles.activeTrack,
-                    { width: intensityPercent as any, backgroundColor: '#F59E0B' },
+                    { backgroundColor: intensityColor.main },
+                    animatedIntensityTrackStyle,
                   ]}
                 />
-                <View
+                <Reanimated.View
                   style={[
                     styles.thumb,
-                    { left: intensityPercent as any, borderColor: '#F59E0B' },
+                    { borderColor: intensityColor.main },
+                    animatedIntensityThumbStyle,
                   ]}
                 />
               </View>
               <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>強烈</Text>
-              <View style={[styles.badgeContainer, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                <Text style={[styles.scoreBadge, { color: '#F59E0B' }]}>{clampedIntensity}</Text>
-              </View>
+              <Reanimated.View
+                style={[
+                  styles.badgeContainer,
+                  { backgroundColor: intensityColor.bg },
+                  animatedBadgeStyle,
+                ]}
+              >
+                <Text style={[styles.scoreBadge, { color: intensityColor.main }]}>
+                  {clampedIntensity}
+                </Text>
+              </Reanimated.View>
             </View>
           ) : null}
-        </View>
+        </Reanimated.View>
       ) : null}
 
       {/* Insider Insight 語感解析 */}
@@ -143,12 +288,9 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
   },
-  leversCard: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 8,
+  leversContainer: {
+    paddingVertical: 6,
+    marginBottom: 6,
   },
   meterRow: {
     flexDirection: 'row',
@@ -207,3 +349,4 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 });
+
