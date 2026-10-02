@@ -50,6 +50,11 @@ import {
   resolveFrontTextWrapGuard,
   shouldOfferExampleExpansion,
 } from '../../../features/cards/cardDetailSectionLayout';
+import { resolveCardFrontDynamicLayout } from '../../../features/cards/cardFrontDynamicLayout';
+import {
+  resolveCardBackDynamicLayout,
+  type BackSectionKey,
+} from '../../../features/cards/cardBackDynamicLayout';
 import {
   formatQuotedLearningTerm,
   quoteLearningTermInText,
@@ -126,8 +131,10 @@ type CollapsibleBackFieldProps = {
   resetKey: string;
   uiLanguage: UILanguage;
   color: string;
+  shouldOfferExpansion?: boolean;
   onExpandedChange: (fieldKey: string, expanded: boolean) => void;
   onCollapse: () => void;
+  onMeasuredHeightChange?: (fieldKey: string, height: number) => void;
 };
 
 function CollapsibleBackField({
@@ -137,8 +144,10 @@ function CollapsibleBackField({
   resetKey,
   uiLanguage,
   color,
+  shouldOfferExpansion,
   onExpandedChange,
   onCollapse,
+  onMeasuredHeightChange,
 }: CollapsibleBackFieldProps) {
   const [contentHeight, setContentHeight] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -146,7 +155,10 @@ function CollapsibleBackField({
   const arrowProgress = React.useRef(new Animated.Value(0)).current;
   const hasMeasuredRef = React.useRef(false);
   const reduceMotion = useReducedMotion();
-  const hasOverflow = contentHeight > collapsedHeight + 1;
+  const hasOverflow =
+    shouldOfferExpansion !== undefined
+      ? shouldOfferExpansion
+      : contentHeight > collapsedHeight + 1;
   const bodyStyle = useAnimatedStyle(() => ({
     height: heightAnim.value,
     overflow: 'hidden',
@@ -215,6 +227,7 @@ function CollapsibleBackField({
               setContentHeight((current) =>
                 Math.abs(current - nextHeight) > 1 ? nextHeight : current
               );
+              onMeasuredHeightChange?.(fieldKey, nextHeight);
             }
           }}
         >
@@ -438,10 +451,14 @@ function CardDetailCarouselCardUI({
   const [sentenceMeasuredHeight, setSentenceMeasuredHeight] =
     React.useState(0);
   const [contextMeasuredHeight, setContextMeasuredHeight] = React.useState(0);
+  const [meaningMeasuredHeight, setMeaningMeasuredHeight] = React.useState(0);
   const [examplesMeasuredHeight, setExamplesMeasuredHeight] =
     React.useState(0);
   const [backBodyViewportHeight, setBackBodyViewportHeight] = React.useState(0);
   const [backBodyContentHeight, setBackBodyContentHeight] = React.useState(0);
+  const [backMeasuredHeights, setBackMeasuredHeights] = React.useState<
+    Partial<Record<BackSectionKey, number>>
+  >({});
   const [shareSelection, setShareSelection] = React.useState<{
     front: boolean;
     back: boolean;
@@ -611,20 +628,134 @@ function CardDetailCarouselCardUI({
   const frontTextWrapGuard = resolveFrontTextWrapGuard(frontSentenceFontSize);
   const frontSentenceFontWeight = '600' as const;
   const contextLineHeight = Math.round(25 * frontContentScale);
-  const collapsedSentenceHeight =
-    FRONT_SENTENCE_COLLAPSED_LINES * frontSentenceLineHeight;
-  const collapsedContextHeight =
-    FRONT_CONTEXT_COLLAPSED_LINES * contextLineHeight;
-  const backHeightBasis = backBodyViewportHeight || 520;
-  const collapsedBackSectionLayout =
-    resolveCardDetailSectionLayout(backHeightBasis);
-  const collocationsCollapsedLimit =
-    collapsedBackSectionLayout.collocations;
+  const frontDynamicLayout = React.useMemo(
+    () =>
+      resolveCardFrontDynamicLayout({
+        viewportHeight: frontBodyViewportHeight,
+        meaningHeight: meaningMeasuredHeight,
+        sentenceMeasuredHeight,
+        contextMeasuredHeight,
+        sentenceLineHeight: frontSentenceLineHeight,
+        contextLineHeight,
+        hasInsightMetrics: Boolean(parsedInsight),
+        minSentenceLines: FRONT_SENTENCE_COLLAPSED_LINES,
+        minContextLines: FRONT_CONTEXT_COLLAPSED_LINES,
+      }),
+    [
+      frontBodyViewportHeight,
+      meaningMeasuredHeight,
+      sentenceMeasuredHeight,
+      contextMeasuredHeight,
+      frontSentenceLineHeight,
+      contextLineHeight,
+      parsedInsight,
+    ]
+  );
+  const collapsedSentenceHeight = frontDynamicLayout.sentenceBudgetHeight;
+  const collapsedContextHeight = frontDynamicLayout.contextBudgetHeight;
+
+  const collocationItems = React.useMemo<CollocationDisplayItem[]>(() => {
+    return (item.frequentCollocations || '')
+      .split(/[\n;]+/)
+      .map((phrase) => phrase.trim())
+      .filter(Boolean)
+      .map(splitCollocationText)
+      .filter((entry) => !isSameCardUsage(entry.phrase, itemWord))
+      .slice(0, itemCounts.collocations);
+  }, [
+    item.frequentCollocations,
+    itemCounts.collocations,
+    itemWord,
+  ]);
+  const semanticRelations = React.useMemo(() => {
+    const parsed = parseSemanticRelations(item.semanticRelations);
+    return {
+      synonyms: parsed.synonyms.slice(0, itemCounts.synonyms),
+      antonyms: parsed.antonyms.slice(0, itemCounts.antonyms),
+    };
+  }, [item.semanticRelations, itemCounts.antonyms, itemCounts.synonyms]);
+  const semanticRelationItems = React.useMemo(
+    () => [
+      ...semanticRelations.synonyms.map((relation) => ({
+        ...relation,
+        kind: 'synonym' as const,
+      })),
+      ...semanticRelations.antonyms.map((relation) => ({
+        ...relation,
+        kind: 'antonym' as const,
+      })),
+    ],
+    [semanticRelations.antonyms, semanticRelations.synonyms]
+  );
+  const hasStickyNote = Boolean((stickyNoteText || '').trim());
+  const apiExampleSentences = React.useMemo<ExampleDisplayItem[]>(() => {
+    const examples = contextSections.exampleSentence
+      ? splitExampleText(contextSections.exampleSentence, itemCounts.examples)
+          .filter(Boolean)
+          .map(splitExampleDisplayText)
+      : [];
+    return examples.map(normalizeEnglishExampleDisplayOrder);
+  }, [contextSections.exampleSentence, itemCounts.examples]);
+  const backTextScale = React.useMemo(() => {
+    const totalChars =
+      (collocationItems
+        .map((item) => `${item.phrase} ${item.translation || ''}`)
+        .join(' ').length || 0) +
+      (semanticRelationItems
+        .map((item) => `${item.term} ${item.translation || ''}`)
+        .join(' ').length || 0) +
+      (apiExampleSentences
+        .map((item) => `${item.sentence} ${item.translation || ''}`)
+        .join(' ').length || 0) +
+      (stickyNoteText?.length || 0);
+    if (totalChars > 760) return 0.82;
+    if (totalChars > 620) return 0.88;
+    if (totalChars > 500) return 0.94;
+    return 1;
+  }, [
+    apiExampleSentences,
+    collocationItems,
+    semanticRelationItems,
+    stickyNoteText,
+  ]);
+  const backTextFontSize = Math.round(20 * backTextScale);
+  const backTextLineHeight = Math.round(28 * backTextScale);
+
+  const backDynamicLayout = React.useMemo(
+    () =>
+      resolveCardBackDynamicLayout({
+        viewportHeight: backBodyViewportHeight,
+        activeSections: {
+          collocations: collocationItems.length > 0,
+          semanticRelations: semanticRelationItems.length > 0,
+          examples: apiExampleSentences.length > 0,
+          personalNotes: hasStickyNote,
+        },
+        measuredHeights: {
+          ...backMeasuredHeights,
+          examples: examplesMeasuredHeight,
+        },
+        lineHeight: backTextLineHeight,
+        exampleCount: apiExampleSentences.length,
+      }),
+    [
+      backBodyViewportHeight,
+      collocationItems.length,
+      semanticRelationItems.length,
+      apiExampleSentences.length,
+      hasStickyNote,
+      backMeasuredHeights,
+      examplesMeasuredHeight,
+      backTextLineHeight,
+    ]
+  );
+  const collocationsCollapsedLimit = backDynamicLayout.limits.collocations;
   const semanticRelationsCollapsedLimit =
-    collapsedBackSectionLayout.semanticRelations;
-  const examplesCollapsedLimit = collapsedBackSectionLayout.examples;
-  const personalNotesCollapsedLimit =
-    collapsedBackSectionLayout.personalNotes;
+    backDynamicLayout.limits.semanticRelations;
+  const examplesCollapsedLimit = backDynamicLayout.limits.examples;
+  const personalNotesCollapsedLimit = backDynamicLayout.limits.personalNotes;
+  const shouldOfferFullExamples =
+    backDynamicLayout.shouldOfferExpansion.examples;
   const sentenceBodyHeightAnim = useSharedValue(collapsedSentenceHeight);
   const contextBodyHeightAnim = useSharedValue(collapsedContextHeight);
   const examplesBodyHeightAnim = useSharedValue(
@@ -672,18 +803,9 @@ function CardDetailCarouselCardUI({
     : rawCulturalBackgroundText;
   const isCulturalBackgroundCompacted =
     Boolean(insightDisplayText) &&
-    (contextMeasuredHeight > collapsedContextHeight + 1 ||
-      contextLineCount > FRONT_CONTEXT_COLLAPSED_LINES ||
-      insightDisplayText.length > 190 ||
-      insightDisplayText.split(/\n+/).length >
-        FRONT_CONTEXT_COLLAPSED_LINES);
+    frontDynamicLayout.shouldOfferFullContext;
   const shouldOfferFullSentence =
-    sentenceMeasuredHeight > collapsedSentenceHeight + 1 ||
-    sourceLineCount > FRONT_SENTENCE_COLLAPSED_LINES ||
-    translationLineCount > FRONT_SENTENCE_COLLAPSED_LINES ||
-    fullSentenceDisplayText.length > 140 ||
-    fullSentenceDisplayText.split(/\n+/).length >
-      FRONT_SENTENCE_COLLAPSED_LINES;
+    frontDynamicLayout.shouldOfferFullSentence;
   const isFrontBodyScrollable =
     frontBodyViewportHeight > 0 &&
     frontBodyContentHeight - frontBodyViewportHeight >
@@ -857,11 +979,36 @@ function CardDetailCarouselCardUI({
     setContextLineCount(0);
     setSentenceMeasuredHeight(0);
     setContextMeasuredHeight(0);
+    setMeaningMeasuredHeight(0);
+    setBackMeasuredHeights({});
   }, [
     frontContentScale,
     fullSentenceDisplayText,
     rawCulturalBackgroundText,
+    rawDefinitionText,
   ]);
+
+  const handleMeaningLayout = React.useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextHeight = event.nativeEvent.layout.height;
+      if (nextHeight > 0) {
+        setMeaningMeasuredHeight((current) =>
+          Math.abs(current - nextHeight) > 1 ? nextHeight : current
+        );
+      }
+    },
+    []
+  );
+
+  const handleBackSectionMeasuredHeight = React.useCallback(
+    (fieldKey: string, height: number) => {
+      setBackMeasuredHeights((current) => {
+        if (current[fieldKey as BackSectionKey] === height) return current;
+        return { ...current, [fieldKey]: height };
+      });
+    },
+    []
+  );
 
   const resetFrontBodyScroll = React.useCallback((animated = false) => {
     frontBodyScrollRef.current?.scrollTo({ y: 0, animated });
@@ -882,6 +1029,7 @@ function CardDetailCarouselCardUI({
     setBackBodyViewportHeight(0);
     setBackBodyContentHeight(0);
     setExamplesMeasuredHeight(0);
+    setBackMeasuredHeights({});
     hasMeasuredExamplesRef.current = false;
     examplesBodyHeightAnim.value = resolveCardDetailSectionLayout(520).examples;
     sentenceExpandProgress.setValue(0);
@@ -972,85 +1120,14 @@ function CardDetailCarouselCardUI({
     },
     []
   );
-  const collocationItems = React.useMemo<CollocationDisplayItem[]>(() => {
-    return (item.frequentCollocations || '')
-      .split(/[\n;]+/)
-      .map((phrase) => phrase.trim())
-      .filter(Boolean)
-      .map(splitCollocationText)
-      .filter((entry) => !isSameCardUsage(entry.phrase, itemWord))
-      .slice(0, itemCounts.collocations);
-  }, [
-    item.frequentCollocations,
-    itemCounts.collocations,
-    itemWord,
-  ]);
-  const semanticRelations = React.useMemo(() => {
-    const parsed = parseSemanticRelations(item.semanticRelations);
-    return {
-      synonyms: parsed.synonyms.slice(0, itemCounts.synonyms),
-      antonyms: parsed.antonyms.slice(0, itemCounts.antonyms),
-    };
-  }, [item.semanticRelations, itemCounts.antonyms, itemCounts.synonyms]);
-  const semanticRelationItems = React.useMemo(
-    () => [
-      ...semanticRelations.synonyms.map((relation) => ({
-        ...relation,
-        kind: 'synonym' as const,
-      })),
-      ...semanticRelations.antonyms.map((relation) => ({
-        ...relation,
-        kind: 'antonym' as const,
-      })),
-    ],
-    [semanticRelations.antonyms, semanticRelations.synonyms]
-  );
   const definitionText = isFullSentenceExpanded
     ? normalizedRawDefinitionText
     : compactDefinitionText;
-  const hasStickyNote = Boolean((stickyNoteText || '').trim());
-  const apiExampleSentences = React.useMemo<ExampleDisplayItem[]>(() => {
-    const examples = contextSections.exampleSentence
-      ? splitExampleText(contextSections.exampleSentence, itemCounts.examples)
-          .filter(Boolean)
-          .map(splitExampleDisplayText)
-      : [];
-    return examples.map(normalizeEnglishExampleDisplayOrder);
-  }, [contextSections.exampleSentence, itemCounts.examples]);
-  const shouldOfferFullExamples = shouldOfferExampleExpansion(
-    apiExampleSentences.length,
-    examplesMeasuredHeight,
-    examplesCollapsedLimit
-  );
   const culturalBackgroundText = rawCulturalBackgroundText;
   const isBackBodyScrollable =
     backBodyViewportHeight > 0 &&
     backBodyContentHeight - backBodyViewportHeight >
       BACK_BODY_SCROLL_OVERFLOW_EPSILON;
-  const backTextScale = React.useMemo(() => {
-    const totalChars =
-      (collocationItems
-        .map((item) => `${item.phrase} ${item.translation || ''}`)
-        .join(' ').length || 0) +
-      (semanticRelationItems
-        .map((item) => `${item.term} ${item.translation || ''}`)
-        .join(' ').length || 0) +
-      (apiExampleSentences
-        .map((item) => `${item.sentence} ${item.translation || ''}`)
-        .join(' ').length || 0) +
-      (stickyNoteText?.length || 0);
-    if (totalChars > 760) return 0.82;
-    if (totalChars > 620) return 0.88;
-    if (totalChars > 500) return 0.94;
-    return 1;
-  }, [
-    apiExampleSentences,
-    collocationItems,
-    semanticRelationItems,
-    stickyNoteText,
-  ]);
-  const backTextFontSize = Math.round(20 * backTextScale);
-  const backTextLineHeight = Math.round(28 * backTextScale);
   const weightedWordLength = Array.from(itemWord.trim()).reduce((total, ch) => {
     const isCjk = /[\u4E00-\u9FFF]/.test(ch);
     return total + (isCjk ? 1.7 : 1);
@@ -1472,7 +1549,10 @@ function CardDetailCarouselCardUI({
                     onLayout={handleFrontBodyLayout}
                     onContentSizeChange={handleFrontBodyContentSizeChange}
                   >
-                    <View style={styles.referenceMeaningRow}>
+                    <View
+                      style={styles.referenceMeaningRow}
+                      onLayout={handleMeaningLayout}
+                    >
                       <View
                         style={[
                           styles.referencePosBadge,
@@ -1558,7 +1638,7 @@ function CardDetailCarouselCardUI({
                             numberOfLines={
                               shouldOfferFullSentence &&
                               !isFullSentenceExpanded
-                                ? FRONT_SENTENCE_COLLAPSED_LINES
+                                ? frontDynamicLayout.sentenceBudgetLines
                                 : undefined
                             }
                             onTextLayout={handleSourceTextLayout}
@@ -1580,7 +1660,7 @@ function CardDetailCarouselCardUI({
                           numberOfLines={
                             shouldOfferFullSentence &&
                             !isFullSentenceExpanded
-                              ? FRONT_SENTENCE_COLLAPSED_LINES
+                              ? frontDynamicLayout.sentenceBudgetLines
                               : undefined
                           }
                           onTextLayout={handleTranslationTextLayout}
@@ -1737,6 +1817,12 @@ function CardDetailCarouselCardUI({
                                   paddingRight: frontTextWrapGuard,
                                 },
                               ]}
+                              numberOfLines={
+                                isCulturalBackgroundCompacted &&
+                                !isContextExpanded
+                                  ? frontDynamicLayout.contextBudgetLines
+                                  : undefined
+                              }
                               onTextLayout={handleContextTextLayout}
                             >
                               {parsedInsight.insider_insight ||
@@ -1792,6 +1878,12 @@ function CardDetailCarouselCardUI({
                                   paddingRight: frontTextWrapGuard,
                                 },
                               ]}
+                              numberOfLines={
+                                isCulturalBackgroundCompacted &&
+                                !isContextExpanded
+                                  ? frontDynamicLayout.contextBudgetLines
+                                  : undefined
+                              }
                               onTextLayout={handleContextTextLayout}
                             >
                               {culturalBackgroundText ||
@@ -2041,10 +2133,16 @@ function CardDetailCarouselCardUI({
                             fieldKey="collocations"
                             resetKey={`${item.id}-collocations`}
                             collapsedHeight={collocationsCollapsedLimit}
+                            shouldOfferExpansion={
+                              backDynamicLayout.shouldOfferExpansion.collocations
+                            }
                             uiLanguage={uiLanguage}
                             color={ui.secondaryText}
                             onExpandedChange={handleBackFieldExpandedChange}
                             onCollapse={resetBackBodyScroll}
+                            onMeasuredHeightChange={
+                              handleBackSectionMeasuredHeight
+                            }
                           >
                             {collocationItems.map((collocation) => (
                               <View
@@ -2119,10 +2217,17 @@ function CardDetailCarouselCardUI({
                               collapsedHeight={
                                 semanticRelationsCollapsedLimit
                               }
+                              shouldOfferExpansion={
+                                backDynamicLayout.shouldOfferExpansion
+                                  .semanticRelations
+                              }
                               uiLanguage={uiLanguage}
                               color={ui.secondaryText}
                               onExpandedChange={handleBackFieldExpandedChange}
                               onCollapse={resetBackBodyScroll}
+                              onMeasuredHeightChange={
+                                handleBackSectionMeasuredHeight
+                              }
                             >
                               <View style={localStyles.semanticChipWrap}>
                                 {semanticRelationItems.map((relation) => (
@@ -2337,10 +2442,17 @@ function CardDetailCarouselCardUI({
                             fieldKey="personalNotes"
                             resetKey={`${item.id}-personal-notes`}
                             collapsedHeight={personalNotesCollapsedLimit}
+                            shouldOfferExpansion={
+                              backDynamicLayout.shouldOfferExpansion
+                                .personalNotes
+                            }
                             uiLanguage={uiLanguage}
                             color={ui.secondaryText}
                             onExpandedChange={handleBackFieldExpandedChange}
                             onCollapse={resetBackBodyScroll}
+                            onMeasuredHeightChange={
+                              handleBackSectionMeasuredHeight
+                            }
                           >
                             <Text
                               style={[
