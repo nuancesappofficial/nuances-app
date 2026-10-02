@@ -141,8 +141,8 @@ export default function DeckMainScreenUI({
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
   const [activeSlot, setActiveSlot] = React.useState<'A' | 'B'>('A');
-  const [slotAIndex, setSlotAIndex] = React.useState<number | null>(0);
-  const [slotBIndex, setSlotBIndex] = React.useState<number | null>(null);
+  const [slotAIndex, setSlotAIndex] = React.useState<number>(0);
+  const [slotBIndex, setSlotBIndex] = React.useState<number>(1);
   const slotAX = useSharedValue(0);
   const slotBX = useSharedValue(0);
   const albumPagerRef = React.useRef<FlatList<Array<DeckAlbum | null>> | null>(null);
@@ -291,11 +291,6 @@ export default function DeckMainScreenUI({
     (targetSlot: 'A' | 'B', nextIdx: number) => {
       setActiveSlot(targetSlot);
       setWordIndex(nextIdx);
-      if (targetSlot === 'A') {
-        setSlotBIndex(null);
-      } else {
-        setSlotAIndex(null);
-      }
     },
     []
   );
@@ -403,10 +398,11 @@ export default function DeckMainScreenUI({
       setWordIndex(0);
       setActiveSlot('A');
       setSlotAIndex(0);
-      setSlotBIndex(null);
+      setSlotBIndex(slideshowItems.length > 1 ? 1 : 0);
       slotAX.value = 0;
+      slotBX.value = getWordPopSlideDistance(wordSlideWidth);
     }
-  }, [slideshowItems.length, slotAX, wordIndex]);
+  }, [slideshowItems.length, slotAX, slotBX, wordIndex, wordSlideWidth]);
 
   const renderAlbumPage = React.useCallback(
     (pageAlbums: Array<DeckAlbum | null>, pageIndex: number) => {
@@ -793,32 +789,34 @@ export default function DeckMainScreenUI({
               }}
             >
               {/* Slot A */}
-              {slotAIndex !== null && slideshowItems[slotAIndex] ? (
+              {slideshowItems.length > 0 ? (
                 <Reanimated.View
                   style={[
                     styles.wordShowcaseSlideLayer,
                     activeSlot !== 'A' ? styles.wordShowcaseIncomingLayer : null,
                     slotAStyle,
                   ]}
+                  pointerEvents={activeSlot === 'A' ? 'auto' : 'none'}
                 >
                   {renderWordShowcaseSlide(
-                    slideshowItems[slotAIndex],
+                    slideshowItems[slotAIndex % slideshowItems.length],
                     `slotA-${slotAIndex}`
                   )}
                 </Reanimated.View>
               ) : null}
 
               {/* Slot B */}
-              {slotBIndex !== null && slideshowItems[slotBIndex] ? (
+              {slideshowItems.length > 1 ? (
                 <Reanimated.View
                   style={[
                     styles.wordShowcaseSlideLayer,
                     activeSlot !== 'B' ? styles.wordShowcaseIncomingLayer : null,
                     slotBStyle,
                   ]}
+                  pointerEvents={activeSlot === 'B' ? 'auto' : 'none'}
                 >
                   {renderWordShowcaseSlide(
-                    slideshowItems[slotBIndex],
+                    slideshowItems[slotBIndex % slideshowItems.length],
                     `slotB-${slotBIndex}`
                   )}
                 </Reanimated.View>
