@@ -557,30 +557,6 @@ function CardDetailCarouselCardUI({
   const rawDefinitionText = item.definition || '-';
   const hasHeroImage = Boolean(itemImageUri);
   const resolvedHeroImageUri = itemImageUri || undefined;
-  const renderSectionBadge = React.useCallback(
-    (label: string) => (
-      <View
-        style={[
-          localStyles.sectionBadge,
-          {
-            backgroundColor: isLightMode
-              ? 'rgba(231, 233, 239, 0.75)'
-              : 'rgba(51, 65, 85, 0.65)',
-          },
-        ]}
-      >
-        <Text
-          style={[
-            localStyles.sectionLabel,
-            { color: isLightMode ? '#64748B' : '#94A3B8' },
-          ]}
-        >
-          {label}
-        </Text>
-      </View>
-    ),
-    [isLightMode]
-  );
   const sourceSentence = React.useMemo(() => {
     const source = (item.originalSentence || '').trim();
     if (!source) return '-';
@@ -1823,7 +1799,6 @@ function CardDetailCarouselCardUI({
                         { marginTop: 0 },
                       ]}
                     >
-                      {renderSectionBadge(tUI(uiLanguage, 'cardDetail.context'))}
                       {parsedInsight ? (
                         <>
                           <NuanceMetricsLeverUI
@@ -2177,14 +2152,19 @@ function CardDetailCarouselCardUI({
                     >
                       {collocationItems.length > 0 ? (
                         <View style={styles.referenceCollocationSection}>
-                          {renderSectionBadge(
-                            tUI(
+                          <Text
+                            style={[
+                              localStyles.sectionLabel,
+                              { color: ui.secondaryText },
+                            ]}
+                          >
+                            {tUI(
                               uiLanguage,
                               isPhraseCard
                                 ? 'cardDetail.commonUsage'
                                 : 'cardDetail.collocation'
-                            )
-                          )}
+                            )}
+                          </Text>
                           <CollapsibleBackField
                             fieldKey="collocations"
                             resetKey={`${item.id}-collocations`}
@@ -2259,9 +2239,14 @@ function CardDetailCarouselCardUI({
                               { marginTop: 0 },
                             ]}
                           >
-                            {renderSectionBadge(
-                              tUI(uiLanguage, 'cardDetail.semanticRelations')
-                            )}
+                            <Text
+                              style={[
+                                localStyles.sectionLabel,
+                                { color: ui.secondaryText },
+                              ]}
+                            >
+                              {tUI(uiLanguage, 'cardDetail.semanticRelations')}
+                            </Text>
                             <CollapsibleBackField
                               fieldKey="semanticRelations"
                               resetKey={`${item.id}-semantic-relations`}
@@ -2356,9 +2341,14 @@ function CardDetailCarouselCardUI({
                               { marginTop: 0 },
                             ]}
                           >
-                            {renderSectionBadge(
-                              tUI(uiLanguage, 'cardDetail.exampleSentence')
-                            )}
+                            <Text
+                              style={[
+                                localStyles.sectionLabel,
+                                { color: ui.secondaryText },
+                              ]}
+                            >
+                              {tUI(uiLanguage, 'cardDetail.exampleSentence')}
+                            </Text>
                             {examplesMeasuredHeight === 0 ? (
                               <View
                                 accessible={false}
@@ -2475,9 +2465,14 @@ function CardDetailCarouselCardUI({
                       <View
                         style={[styles.referenceSubSection, { marginTop: 0 }]}
                       >
-                        {renderSectionBadge(
-                          tUI(uiLanguage, 'cardDetail.personalNotes')
-                        )}
+                        <Text
+                          style={[
+                            localStyles.sectionLabel,
+                            { color: ui.secondaryText },
+                          ]}
+                        >
+                          {tUI(uiLanguage, 'cardDetail.personalNotes')}
+                        </Text>
                         {hasStickyNote ? (
                           <CollapsibleBackField
                             fieldKey="personalNotes"
@@ -2556,9 +2551,14 @@ function CardDetailCarouselCardUI({
                               { marginTop: 0 },
                             ]}
                           >
-                            {renderSectionBadge(
-                              tUI(uiLanguage, 'cardDetail.otherMeanings')
-                            )}
+                            <Text
+                              style={[
+                                localStyles.sectionLabel,
+                                { color: ui.secondaryText },
+                              ]}
+                            >
+                              {tUI(uiLanguage, 'cardDetail.otherMeanings')}
+                            </Text>
                             <View style={localStyles.supplementarySensesList}>
                               {supplementarySenses.map((sense, sIdx) => (
                                 <View
@@ -2950,19 +2950,13 @@ const localStyles = StyleSheet.create({
     paddingBottom: 18,
     position: 'relative',
   },
-  sectionBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 999,
-    marginBottom: 8,
-  },
   sectionLabel: {
-    fontSize: 11,
+    color: '#94A3B8',
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.6,
+    letterSpacing: 0.7,
     textTransform: 'none',
-    includeFontPadding: false,
+    marginBottom: 6,
   },
   supplementarySensesList: {
     gap: 8,

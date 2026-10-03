@@ -286,10 +286,10 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
             </View>
           ) : null}
 
-          {/* 強烈度 (Intensity): 微妙 <-> 強烈 */}
+          {/* 強烈度 (Intensity): 微弱 <-> 強烈 */}
           {hasIntensity ? (
             <View style={[styles.meterRow, hasFormality ? { marginTop: 10 } : null]}>
-              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>微妙</Text>
+              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>微弱</Text>
               <View style={[styles.track, { backgroundColor: ui.divider }]}>
                 <Reanimated.View
                   style={[
