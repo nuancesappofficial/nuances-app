@@ -530,14 +530,13 @@ export default function CardViewUI({
             </View>
           }
         />
-        {isBatchSelectionActive ? (
-          <BatchActionDockUI
-            selectedCount={selectedCardIds?.size ?? 0}
-            uiLanguage={uiLanguage}
-            onPressMove={onPressBatchMove ?? (() => {})}
-            onPressDelete={onPressBatchDelete ?? (() => {})}
-          />
-        ) : null}
+        <BatchActionDockUI
+          visible={Boolean(isBatchSelectionActive)}
+          selectedCount={selectedCardIds?.size ?? 0}
+          uiLanguage={uiLanguage}
+          onPressMove={onPressBatchMove ?? (() => {})}
+          onPressDelete={onPressBatchDelete ?? (() => {})}
+        />
       </SafeAreaView>
     </Animated.View>
   );
