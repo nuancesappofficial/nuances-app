@@ -24,6 +24,7 @@ import {
 import LightPressable from '../shared/LightPressable';
 import type { UILanguage } from '../../../services/settings/userSettings';
 import { tUI } from '../../../i18n/uiLanguage';
+import BatchActionDockUI from './BatchActionDockUI';
 
 type LearningStatus = {
   label: 'NEW' | 'LEARNING';
@@ -48,11 +49,19 @@ type Props = {
   onPressPlay: () => void;
   onPressReviewTuning: () => void;
   onPressCard: (card: Card) => void;
-  onPressMoreCard: (card: Card) => void;
+  onPressMoreCard?: (card: Card) => void;
   cardImageMap: Record<string, string>;
   getWordText: (card: Card) => string;
   getLearningStatus: (card: Card) => LearningStatus | null;
   withHexAlpha: (color: string, alphaHex: string) => string;
+  isBatchSelectionActive?: boolean;
+  selectedCardIds?: Set<string>;
+  onLongPressCard?: (card: Card) => void;
+  onToggleSelectCard?: (cardId: string) => void;
+  onExitBatchSelection?: () => void;
+  onToggleSelectAll?: () => void;
+  onPressBatchMove?: () => void;
+  onPressBatchDelete?: () => void;
 };
 
 export default function CardViewUI({
@@ -77,6 +86,14 @@ export default function CardViewUI({
   getWordText,
   getLearningStatus,
   withHexAlpha,
+  isBatchSelectionActive = false,
+  selectedCardIds,
+  onLongPressCard,
+  onToggleSelectCard,
+  onExitBatchSelection,
+  onToggleSelectAll,
+  onPressBatchMove,
+  onPressBatchDelete,
 }: Props) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(
@@ -150,9 +167,57 @@ export default function CardViewUI({
     });
   }, [isSearchVisible, searchExpandProgress, searchInputRef]);
 
+  const allSelected = React.useMemo(() => {
+    if (!processedCards.length || !selectedCardIds) return false;
+    return processedCards.every((card) => selectedCardIds.has(card.id));
+  }, [processedCards, selectedCardIds]);
+
+  const selectAllLabel = allSelected
+    ? tUI(uiLanguage, 'deck.batchDeselectAll')
+    : tUI(uiLanguage, 'deck.batchSelectAll');
+
+  const doneLabel = tUI(uiLanguage, 'common.done');
+
   const listHeader = (
     <View style={styles.headerWrap}>
-      <View style={styles.topNavRow}>
+      {isBatchSelectionActive ? (
+        <View style={styles.batchTopBar}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.batchTopButton,
+              pressed ? styles.iconButtonPressed : null,
+            ]}
+            onPress={onToggleSelectAll}
+            hitSlop={8}
+          >
+            <Text
+              style={[styles.batchTopButtonText, { color: palette.textOnBg }]}
+            >
+              {selectAllLabel}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.batchTopButton,
+              styles.batchDoneButton,
+              pressed ? styles.iconButtonPressed : null,
+            ]}
+            onPress={onExitBatchSelection}
+            hitSlop={8}
+          >
+            <Text
+              style={[
+                styles.batchTopButtonText,
+                styles.batchDoneButtonText,
+              ]}
+            >
+              {doneLabel}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.topNavRow}>
         <Animated.View
           style={[
             styles.backAnimatedWrap,
@@ -254,6 +319,7 @@ export default function CardViewUI({
           ) : null}
         </View>
       </View>
+      )}
 
       <Text
         style={[styles.titleText, { color: palette.textOnBg }]}
@@ -345,7 +411,10 @@ export default function CardViewUI({
           data={processedCards}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            isBatchSelectionActive ? { paddingBottom: 110 } : null,
+          ]}
           initialNumToRender={12}
           maxToRenderPerBatch={8}
           windowSize={7}
@@ -353,17 +422,32 @@ export default function CardViewUI({
           renderItem={({ item }) => {
             const status = getLearningStatus(item);
             const imageUri = cardImageMap[item.id];
+            const isSelected = selectedCardIds?.has(item.id);
 
             return (
               <LightPressable
                 style={styles.cardRowPressable}
                 contentStyle={[
                   styles.cardRow,
-                  { backgroundColor: rowBg, borderColor: rowBorder },
+                  {
+                    backgroundColor: rowBg,
+                    borderColor: isSelected ? '#4EAFF4' : rowBorder,
+                  },
                 ]}
                 pressedScale={0.99}
                 pressedOpacity={0.96}
-                onPress={() => onPressCard(item)}
+                onPress={() => {
+                  if (isBatchSelectionActive) {
+                    onToggleSelectCard?.(item.id);
+                  } else {
+                    onPressCard(item);
+                  }
+                }}
+                onLongPress={() => {
+                  if (!isBatchSelectionActive) {
+                    onLongPressCard?.(item);
+                  }
+                }}
               >
                 <View style={styles.thumbnailWrap}>
                   {imageUri ? (
@@ -417,23 +501,22 @@ export default function CardViewUI({
                   ) : null}
                 </View>
 
-                <View style={styles.moreWrap}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.moreButton,
-                      { backgroundColor: palette.mutedSurface },
-                      pressed ? styles.iconButtonPressed : null,
-                    ]}
-                    onPress={(event) => {
-                      event.stopPropagation?.();
-                      onPressMoreCard(item);
-                    }}
-                  >
-                    <Text style={[styles.moreIcon, { color: rowMuted }]}>
-                      ⋯
-                    </Text>
-                  </Pressable>
-                </View>
+                {isBatchSelectionActive ? (
+                  <View style={styles.checkboxWrap}>
+                    <View
+                      style={[
+                        styles.checkboxCircle,
+                        isSelected
+                          ? { backgroundColor: '#4EAFF4', borderColor: '#4EAFF4' }
+                          : { borderColor: isLight ? '#CBD5E1' : '#475569' },
+                      ]}
+                    >
+                      {isSelected ? (
+                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                      ) : null}
+                    </View>
+                  </View>
+                ) : null}
               </LightPressable>
             );
           }}
@@ -447,6 +530,14 @@ export default function CardViewUI({
             </View>
           }
         />
+        {isBatchSelectionActive ? (
+          <BatchActionDockUI
+            selectedCount={selectedCardIds?.size ?? 0}
+            uiLanguage={uiLanguage}
+            onPressMove={onPressBatchMove ?? (() => {})}
+            onPressDelete={onPressBatchDelete ?? (() => {})}
+          />
+        ) : null}
       </SafeAreaView>
     </Animated.View>
   );
@@ -691,7 +782,43 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.985 }],
   },
   iconButtonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.94 }],
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
+  },
+  batchTopBar: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 8,
+  },
+  batchTopButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  batchTopButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  batchDoneButton: {},
+  batchDoneButtonText: {
+    color: '#4EAFF4',
+    fontWeight: '700',
+  },
+  checkboxWrap: {
+    marginLeft: 12,
+    marginRight: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

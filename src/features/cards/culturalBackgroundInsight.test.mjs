@@ -130,3 +130,33 @@ test('extractCulturalBackgroundDisplayText works with markdown fenced input', ()
   );
 });
 
+test('parseCulturalBackgroundInsight parses supplementary_senses when present', () => {
+  const jsonStr = JSON.stringify({
+    metrics: { formality: 6, intensity: 5 },
+    insider_insight: '相較於單純的 structure，frame 更強調...',
+    supplementary_senses: [
+      { pos: 'v.', definition: '陷害；誣陷' },
+      { pos: 'v.', definition: '給…裝框' },
+      { pos: 'extra', definition: 'ignored beyond max 2' },
+    ],
+  });
+  const result = parseCulturalBackgroundInsight(jsonStr);
+  assert.ok(result);
+  assert.equal(result.supplementary_senses?.length, 2);
+  assert.equal(result.supplementary_senses?.[0]?.pos, 'v.');
+  assert.equal(result.supplementary_senses?.[0]?.definition, '陷害；誣陷');
+  assert.equal(result.supplementary_senses?.[1]?.pos, 'v.');
+  assert.equal(result.supplementary_senses?.[1]?.definition, '給…裝框');
+});
+
+test('parseCulturalBackgroundInsight handles empty or missing supplementary_senses gracefully', () => {
+  const jsonStr = JSON.stringify({
+    metrics: { formality: 6, intensity: 5 },
+    insider_insight: '相較於單純的 structure，frame 更強調...',
+    supplementary_senses: [],
+  });
+  const result = parseCulturalBackgroundInsight(jsonStr);
+  assert.ok(result);
+  assert.deepEqual(result.supplementary_senses, []);
+});
+

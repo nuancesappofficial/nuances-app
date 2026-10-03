@@ -11,6 +11,7 @@ export type CardBackLayoutInput = {
   lineHeight?: number;
   exampleCount?: number;
   footerClearance?: number;
+  supplementarySensesCount?: number;
 };
 
 export type CardBackLayoutResult = {
@@ -48,6 +49,7 @@ export function resolveCardBackDynamicLayout(
     measuredHeights,
     lineHeight = 24,
     footerClearance = FOOTER_CLEARANCE,
+    supplementarySensesCount = 0,
   } = input;
 
   const effectiveViewport =
@@ -86,7 +88,18 @@ export function resolveCardBackDynamicLayout(
     };
   }
 
-  const totalOverhead = footerClearance + activeCount * PER_SECTION_CHROME + SAFETY_BUFFER;
+  const SUPPLEMENTARY_SENSE_BASE_CHROME = 28;
+  const SUPPLEMENTARY_SENSE_PER_ITEM = 32;
+  const supplementaryOverhead =
+    supplementarySensesCount > 0
+      ? SUPPLEMENTARY_SENSE_BASE_CHROME + supplementarySensesCount * SUPPLEMENTARY_SENSE_PER_ITEM
+      : 0;
+
+  const totalOverhead =
+    footerClearance +
+    activeCount * PER_SECTION_CHROME +
+    supplementaryOverhead +
+    SAFETY_BUFFER;
   const availableContentHeight = Math.max(0, effectiveViewport - totalOverhead);
 
   // 1. 計算初版權重（依目前存在的區塊重新歸一化）

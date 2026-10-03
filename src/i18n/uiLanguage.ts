@@ -53,7 +53,13 @@ export type UIStringKey =
   | 'deck.albumMyNuances'
   | 'deck.todayReview'
   | 'deck.allCardsReview'
+  | 'deck.batchSelectAll'
+  | 'deck.batchDeselectAll'
+  | 'deck.batchMoveToAlbum'
+  | 'deck.batchDelete'
+  | 'deck.batchSelectedCount'
   | 'cardDetail.context'
+  | 'cardDetail.otherMeanings'
   | 'cardDetail.noContext'
   | 'cardDetail.showFullSentence'
   | 'cardDetail.hideFullSentence'
@@ -486,7 +492,13 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.albumMyNuances': 'My Nuances',
     'deck.todayReview': 'Today Review',
     'deck.allCardsReview': 'All cards',
+    'deck.batchSelectAll': 'Select All',
+    'deck.batchDeselectAll': 'Deselect All',
+    'deck.batchMoveToAlbum': 'Move to folder',
+    'deck.batchDelete': 'Delete',
+    'deck.batchSelectedCount': 'selected',
     'cardDetail.context': 'Context',
+    'cardDetail.otherMeanings': 'Other Senses',
     'cardDetail.noContext': 'No context yet.',
     'cardDetail.showFullSentence': 'View full sentence',
     'cardDetail.hideFullSentence': 'Hide full sentence',
@@ -969,7 +981,13 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.albumMyNuances': '我的 Nuances',
     'deck.todayReview': '今日複習',
     'deck.allCardsReview': '所有卡片',
+    'deck.batchSelectAll': '全選',
+    'deck.batchDeselectAll': '取消全選',
+    'deck.batchMoveToAlbum': '移至資料夾',
+    'deck.batchDelete': '刪除',
+    'deck.batchSelectedCount': '項已選取',
     'cardDetail.context': '語境',
+    'cardDetail.otherMeanings': '其他釋義',
     'cardDetail.noContext': '還沒有語境說明。',
     'cardDetail.showFullSentence': '查看完整語句',
     'cardDetail.hideFullSentence': '收起完整語句',
@@ -1416,7 +1434,13 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'deck.albumMyNuances': '我的 Nuances',
     'deck.todayReview': '今日复习',
     'deck.allCardsReview': '所有卡片',
+    'deck.batchSelectAll': '全选',
+    'deck.batchDeselectAll': '取消全选',
+    'deck.batchMoveToAlbum': '移至文件夹',
+    'deck.batchDelete': '删除',
+    'deck.batchSelectedCount': '项已选择',
     'cardDetail.context': '语境',
+    'cardDetail.otherMeanings': '其他释义',
     'cardDetail.noContext': '还没有语境说明。',
     'cardDetail.showFullSentence': '查看完整语句',
     'cardDetail.hideFullSentence': '收起完整语句',

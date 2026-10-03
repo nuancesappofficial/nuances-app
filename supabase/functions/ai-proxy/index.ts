@@ -589,9 +589,10 @@ function getCulturalBackgroundGuideline(
 
   return [
     `culturalBackground must be a strict JSON object (NOT raw text, NOT markdown code block) in ${replyLanguageLabel} under ${budgetChars} chars total.`,
-    'Schema: {"metrics":{"formality":<integer 1-10 OR null>,"intensity":<integer 1-10 OR null>},"insider_insight":"<string>"}.',
+    'Schema: {"metrics":{"formality":<integer 1-10 OR null>,"intensity":<integer 1-10 OR null>},"insider_insight":"<string>","supplementary_senses":[{"pos":"<string>","definition":"<string>"}]}.',
     'formality: integer 1-10 (1=casual/slang, 10=formal/academic) OR null.',
     'intensity: integer 1-10 (1=weak/subtle, 10=strong/extreme) OR null.',
+    'supplementary_senses: If the target word has other common major meanings or parts of speech outside the current context (e.g., frame(n) vs frame(v)), provide at most 2 in an array of {"pos": "...", "definition": "..."} in the reply language. If none or word is unambiguous, return an empty array [].',
     'LANGUAGE ISOLATION: In insider_insight, BOTH the target word (card subject) and the baseline synonym [Basic Synonym] MUST remain in English verbatim. You are STRICTLY FORBIDDEN from translating either word into the reply language. (e.g., if the target word is "leverage" and the basic synonym is "use", you MUST output "相較於單純的 use，leverage 帶有..." or "比起單純的 use，leverage 帶有...". NEVER output "相較於單純的使用，善用帶有..."; if target is "furious" and synonym is "angry", output "相較於單純的 angry，furious 帶有...", NEVER output "相較於單純的生氣，憤怒帶有...").',
     'CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the Current Context Sentence. Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.',
     'CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., \'table 是一種具備平坦表面與支柱的家具，主要用於放置物品\') without the contrast structure.',
@@ -768,6 +769,18 @@ function buildGenerateCardResponseSchema(sectionBudget: (typeof CARD_SECTION_BUD
           insider_insight: {
             type: 'STRING',
             description: 'Insider insight text following mandatory contrast and dynamic depth rules. Both target word and basic synonym MUST stay in English verbatim (e.g., 相較於單純的 use，leverage 帶有...).',
+          },
+          supplementary_senses: {
+            type: 'ARRAY',
+            description: 'At most 2 other major distinct meanings or parts of speech outside current context. Empty array if none.',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                pos: { type: 'STRING', description: 'Part of speech, e.g. n., v., adj.' },
+                definition: { type: 'STRING', description: 'Concise definition in reply language' },
+              },
+              required: ['pos', 'definition'],
+            },
           },
         },
         required: ['metrics', 'insider_insight'],
@@ -2634,7 +2647,8 @@ Return strict JSON with these exact keys:
   "partOfSpeech": "noun | verb | adjective | adverb | phrasal verb | idiom | fixed expression | phrase | slang | proper noun | other",
   "culturalBackground": {
     "metrics": { "formality": null, "intensity": null },
-    "insider_insight": "<string>"
+    "insider_insight": "<string>",
+    "supplementary_senses": []
   },
   "frequentCollocations": [{ "phrase": "${sourceLanguage.label} collocation", "translation": "direct ${replyLanguage.label} translation" }],
   "example": [{ "sentence": "complete ${sourceLanguage.label} example", "translation": "complete ${replyLanguage.label} translation" }],
@@ -3290,7 +3304,8 @@ Return JSON with exactly these keys:
   "normalizedTargetWord": "base form or verified phrase",
   "culturalBackground": {
     "metrics": { "formality": null, "intensity": null },
-    "insider_insight": "<string>"
+    "insider_insight": "<string>",
+    "supplementary_senses": []
   },
   "frequentCollocations": [{ "phrase": "${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation" }],
   "example": [{ "sentence": "${sourceLanguage.label} example sentence", "translation": "${replyLanguage.label} translation" }],
@@ -3817,9 +3832,10 @@ Part of speech: "${partOfSpeech}"
 Meaning here in ${replyLanguage.label}: "${definition}"
 
 1. Write culturalBackground in ${replyLanguage.label} as a strict JSON object (NOT raw text, NOT markdown):
-   Schema: {"metrics":{"formality":<integer 1-10 OR null>,"intensity":<integer 1-10 OR null>},"insider_insight":"<string>"}
+   Schema: {"metrics":{"formality":<integer 1-10 OR null>,"intensity":<integer 1-10 OR null>},"insider_insight":"<string>","supplementary_senses":[{"pos":"<string>","definition":"<string>"}]}
    - formality: integer 1-10 (1=casual/slang, 10=formal/academic) OR null.
    - intensity: integer 1-10 (1=weak/subtle, 10=strong/extreme) OR null.
+   - supplementary_senses: If the target word has other common major meanings or parts of speech outside the current context (e.g., frame(n) vs frame(v)), provide at most 2 in an array of {"pos": "...", "definition": "..."} in ${replyLanguage.label}. If none or word is unambiguous, return an empty array [].
    - LANGUAGE ISOLATION: In insider_insight, BOTH the target word (card subject) and the baseline synonym [Basic Synonym] MUST remain in English verbatim. You are STRICTLY FORBIDDEN from translating either word into the reply language. (e.g., if the target word is "leverage" and the basic synonym is "use", you MUST output "相較於單純的 use，leverage 帶有..." or "比起單純的 use，leverage 帶有...". NEVER output "相較於單純的使用，善用帶有..."; if target is "furious" and synonym is "angry", output "相較於單純的 angry，furious 帶有...", NEVER output "相較於單純的生氣，憤怒帶有...").
    - CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the "Current Context Sentence". Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.
    - CRITICAL METRICS RULE:
@@ -3836,7 +3852,8 @@ Return JSON in exactly this order:
 {
   "culturalBackground": {
     "metrics": { "formality": null, "intensity": null },
-    "insider_insight": "<string>"
+    "insider_insight": "<string>",
+    "supplementary_senses": []
   },
   "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "brand-new ${sourceLanguage.label} example — NEVER the source sentence", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
   "synonyms": [{ "term": "sense-specific synonym", "translation": "short translation" }],

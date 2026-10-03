@@ -384,6 +384,20 @@ export default function CardAlbumSheetModalUI({
                 );
               })}
             </ScrollView>
+
+            <View style={styles.sheetFooter}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.confirmBtn,
+                  pressed ? styles.confirmBtnPressed : null,
+                ]}
+                onPress={requestComplete}
+              >
+                <Text style={styles.confirmBtnText}>
+                  {tUI(uiLanguage, 'common.done')}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </Animated.View>
 
@@ -571,6 +585,27 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 0,
     gap: 8,
+  },
+  sheetFooter: {
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  confirmBtn: {
+    height: 48,
+    borderRadius: BUTTON_TOKENS.radius.md,
+    backgroundColor: MODAL_CTA_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBtnPressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.99 }],
+  },
+  confirmBtnText: {
+    color: TEXT_ON_CTA,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: BUTTON_TOKENS.weight.strong,
   },
   albumRow: {
     borderRadius: BUTTON_TOKENS.radius.md,

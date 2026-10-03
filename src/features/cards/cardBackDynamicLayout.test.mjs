@@ -104,3 +104,44 @@ test('當內容確實過長需收合時，收合上限嚴格整行對齊（Line-
     '搭配詞收合限制高度必須是行高的整數倍'
   );
 });
+
+test('有 supplementarySensesCount 時，會為其他釋義保留高度預算', () => {
+  const withoutSupplementary = resolveCardBackDynamicLayout({
+    viewportHeight: 450,
+    activeSections: {
+      collocations: true,
+      semanticRelations: false,
+      examples: true,
+      personalNotes: false,
+    },
+    measuredHeights: {
+      collocations: 80,
+      examples: 180,
+    },
+    lineHeight: 24,
+    exampleCount: 3,
+    supplementarySensesCount: 0,
+  });
+
+  const withSupplementary = resolveCardBackDynamicLayout({
+    viewportHeight: 450,
+    activeSections: {
+      collocations: true,
+      semanticRelations: false,
+      examples: true,
+      personalNotes: false,
+    },
+    measuredHeights: {
+      collocations: 80,
+      examples: 180,
+    },
+    lineHeight: 24,
+    exampleCount: 3,
+    supplementarySensesCount: 2,
+  });
+
+  assert.ok(
+    withSupplementary.availableContentHeight < withoutSupplementary.availableContentHeight,
+    '附帶其他釋義時，可用內容高度必須動態扣減以防溢出截斷'
+  );
+});

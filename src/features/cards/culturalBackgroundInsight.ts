@@ -1,9 +1,15 @@
+export type SupplementarySense = {
+  pos: string;
+  definition: string;
+};
+
 export type CulturalBackgroundInsight = {
   metrics: {
     formality: number | null; // 1-10 or null
     intensity: number | null; // 1-10 or null
   };
   insider_insight: string;
+  supplementary_senses?: SupplementarySense[];
 };
 
 export function parseCulturalBackgroundInsight(
@@ -37,9 +43,21 @@ export function parseCulturalBackgroundInsight(
         metrics.intensity === undefined;
 
       if (isValidFormality && isValidIntensity) {
+        let supplementary_senses: SupplementarySense[] | undefined = undefined;
+        if (Array.isArray(parsed.supplementary_senses)) {
+          supplementary_senses = parsed.supplementary_senses
+            .filter((s: any) => s && typeof s.definition === 'string')
+            .slice(0, 2)
+            .map((s: any) => ({
+              pos: String(s.pos || '').trim(),
+              definition: String(s.definition || '').trim(),
+            }));
+        }
+
         return {
           metrics: { formality, intensity },
           insider_insight,
+          ...(supplementary_senses !== undefined ? { supplementary_senses } : {}),
         };
       }
     }

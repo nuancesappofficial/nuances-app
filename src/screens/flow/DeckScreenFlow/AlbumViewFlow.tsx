@@ -8,7 +8,28 @@ import { resolveCardImageUri } from '@services/media/cardImage';
 import CardViewUI from '../../../components/UI/DeckScreenUI/CardViewUI';
 import AlbumSortModalUI from '../../../components/UI/DeckScreenUI/AlbumSortModalUI';
 import CardActionModalUI from '../../../components/UI/DeckScreenUI/CardActionModalUI';
-import { queueDeletedCardForCloudPersistence } from '@services/cards/cardCloudPersistence';
+import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
+import {
+  queueDeletedCardForCloudPersistence,
+  queueSavedCardsForCloudPersistence,
+} from '@services/cards/cardCloudPersistence';
+import * as Haptics from 'expo-haptics';
+import {
+  toggleCardSelection,
+  selectAllCards,
+  deselectAllCards,
+  isAllSelected,
+  filterCardsAfterBatchDelete,
+  calculateAlbumTagsForBatchMove,
+} from '../../../features/deck/batchSelection';
+import {
+  buildDeckAlbums,
+  loadDeckAlbumPreferences,
+  saveDeckAlbumPreferences,
+  createCustomAlbum,
+  getTagsArray,
+  type DeckAlbumPreferences,
+} from '../../../features/deck/albums';
 import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
 import {
@@ -132,6 +153,15 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
   const sortPreferenceRevisionRef = React.useRef(0);
+
+  const [isBatchSelectionActive, setIsBatchSelectionActive] = React.useState(false);
+  const [selectedCardIds, setSelectedCardIds] = React.useState<Set<string>>(new Set());
+  const [showBatchAlbumSheet, setShowBatchAlbumSheet] = React.useState(false);
+  const [batchSelectedAlbums, setBatchSelectedAlbums] = React.useState<string[]>([]);
+  const [availableAlbums, setAvailableAlbums] = React.useState<ReturnType<typeof buildDeckAlbums>>([]);
+  const [isCreateAlbumModalVisible, setIsCreateAlbumModalVisible] = React.useState(false);
+  const [newAlbumName, setNewAlbumName] = React.useState('');
+  const [deckAlbumPrefs, setDeckAlbumPrefs] = React.useState<DeckAlbumPreferences | null>(null);
 
   const closeCardActionModal = React.useCallback(() => {
     setShowCardActionModal(false);
@@ -406,6 +436,207 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
     return result;
   }, [albumCards, searchQuery, sortMode]);
 
+  const handleLongPressCard = React.useCallback((card: Card) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setIsBatchSelectionActive(true);
+    setSelectedCardIds(new Set([card.id]));
+  }, []);
+
+  const handleToggleSelectCard = React.useCallback((cardId: string) => {
+    void Haptics.selectionAsync();
+    setSelectedCardIds((prev) => toggleCardSelection(prev, cardId));
+  }, []);
+
+  const handleExitBatchSelection = React.useCallback(() => {
+    setIsBatchSelectionActive(false);
+    setSelectedCardIds(new Set());
+  }, []);
+
+  const handleToggleSelectAll = React.useCallback(() => {
+    void Haptics.selectionAsync();
+    const allIds = processedCards.map((c) => c.id);
+    setSelectedCardIds((prev) => {
+      if (isAllSelected(prev, allIds)) {
+        return deselectAllCards();
+      }
+      return selectAllCards(allIds);
+    });
+  }, [processedCards]);
+
+  const handlePressBatchDelete = React.useCallback(() => {
+    const count = selectedCardIds.size;
+    if (!count) return;
+
+    Alert.alert(
+      '確認刪除',
+      `確定要刪除選取的 ${count} 張卡片嗎？此操作無法復原。`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '刪除',
+          style: 'destructive',
+          onPress: async () => {
+            const targetIds = Array.from(selectedCardIds);
+            const userId = await getCurrentSessionUserId();
+            const now = new Date();
+
+            setAlbumCards((current) =>
+              filterCardsAfterBatchDelete(current, selectedCardIds)
+            );
+            handleExitBatchSelection();
+
+            void database
+              .write(async () => {
+                const cardsCollection = database.get<Card>('cards');
+                for (const cardId of targetIds) {
+                  try {
+                    const card = await cardsCollection.find(cardId);
+                    if (card) {
+                      await card.update((record) => {
+                        record.deletedAt = now;
+                      });
+                    }
+                  } catch {
+                    // skip missing
+                  }
+                }
+              })
+              .then(() => {
+                if (userId) {
+                  for (const cardId of targetIds) {
+                    queueDeletedCardForCloudPersistence({ userId, cardId });
+                  }
+                }
+              })
+              .catch((error) => {
+                console.error('[AlbumView] batch delete failed:', error);
+                Alert.alert('刪除失敗', '請稍後再試');
+              });
+          },
+        },
+      ]
+    );
+  }, [handleExitBatchSelection, selectedCardIds]);
+
+  const handlePressBatchMove = React.useCallback(async () => {
+    if (!selectedCardIds.size) return;
+    try {
+      const userId = await getCurrentSessionUserId();
+      if (!userId) return;
+      const cardsCol = database.get<Card>('cards');
+      const allCards = await cardsCol
+        .query(Q.where('user_id', userId), Q.where('deleted_at', null))
+        .fetch();
+      const prefs = await loadDeckAlbumPreferences(userId);
+      setDeckAlbumPrefs(prefs);
+      const albums = buildDeckAlbums(allCards, cardImageMap, prefs).filter(
+        (a) => a.id !== 'all'
+      );
+      setAvailableAlbums(albums);
+      setBatchSelectedAlbums([]);
+      setShowBatchAlbumSheet(true);
+    } catch (error) {
+      console.error('[AlbumView] load albums for batch move failed:', error);
+    }
+  }, [cardImageMap, selectedCardIds.size]);
+
+  const handleToggleBatchAlbum = React.useCallback((albumId: string) => {
+    setBatchSelectedAlbums((prev) =>
+      prev.includes(albumId)
+        ? prev.filter((id) => id !== albumId)
+        : [...prev, albumId]
+    );
+  }, []);
+
+  const handleConfirmCreateAlbum = React.useCallback(async () => {
+    const name = newAlbumName.trim();
+    if (!name) return;
+    try {
+      const userId = await getCurrentSessionUserId();
+      const currentPrefs =
+        deckAlbumPrefs || (await loadDeckAlbumPreferences(userId ?? undefined));
+      const newAlbum = createCustomAlbum(name);
+      const nextCustomAlbums = [newAlbum, ...currentPrefs.customAlbums];
+      const nextPrefs: DeckAlbumPreferences = {
+        ...currentPrefs,
+        customAlbums: nextCustomAlbums,
+      };
+      await saveDeckAlbumPreferences(nextPrefs, userId ?? undefined);
+      setDeckAlbumPrefs(nextPrefs);
+      setAvailableAlbums((prev) => [newAlbum, ...prev]);
+      setBatchSelectedAlbums((prev) =>
+        prev.includes(newAlbum.id) ? prev : [...prev, newAlbum.id]
+      );
+      setIsCreateAlbumModalVisible(false);
+      setNewAlbumName('');
+    } catch (error) {
+      console.error('[AlbumView] create album failed:', error);
+      Alert.alert('建立失敗', '建立資料夾時發生問題，請再試一次。');
+    }
+  }, [deckAlbumPrefs, newAlbumName]);
+
+  const handleConfirmBatchMove = React.useCallback(async () => {
+    setShowBatchAlbumSheet(false);
+    if (!batchSelectedAlbums.length || !selectedCardIds.size) return;
+
+    try {
+      const userId = await getCurrentSessionUserId();
+      const targetIds = Array.from(selectedCardIds);
+      const primaryTargetAlbumId = batchSelectedAlbums[0];
+
+      await database.write(async () => {
+        const cardsCol = database.get<Card>('cards');
+        for (const cardId of targetIds) {
+          try {
+            const card = await cardsCol.find(cardId);
+            const sourceAlbumIdToRemove =
+              album.id !== 'all' && album.id !== 'all-cards'
+                ? album.id
+                : undefined;
+            let nextTags = calculateAlbumTagsForBatchMove(
+              getTagsArray(card.tags),
+              primaryTargetAlbumId,
+              sourceAlbumIdToRemove
+            );
+            if (batchSelectedAlbums.length > 1) {
+              const extraAlbumTags = batchSelectedAlbums
+                .slice(1)
+                .map((id) => `album:${id}`);
+              nextTags = Array.from(new Set([...nextTags, ...extraAlbumTags]));
+            }
+            await card.update((record) => {
+              record.tags = nextTags;
+            });
+          } catch {
+            // skip
+          }
+        }
+      });
+      if (userId) {
+        queueSavedCardsForCloudPersistence({
+          userId,
+          cardIds: targetIds,
+        });
+      }
+      if (
+        album.id !== 'all' &&
+        album.id !== 'all-cards' &&
+        !batchSelectedAlbums.includes(album.id)
+      ) {
+        setAlbumCards((prev) => prev.filter((c) => !selectedCardIds.has(c.id)));
+      }
+      handleExitBatchSelection();
+    } catch (error) {
+      console.error('[AlbumView] save batch albums failed:', error);
+      Alert.alert('儲存失敗', '更新資料夾關聯時發生問題');
+    }
+  }, [
+    album.id,
+    batchSelectedAlbums,
+    handleExitBatchSelection,
+    selectedCardIds,
+  ]);
+
   const handleChangeQuestionCount = React.useCallback(
     (nextCount: number) => {
       setReviewQuestionCount(nextCount);
@@ -476,11 +707,18 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
             headerTitle: albumDisplayName,
           })
         }
-        onPressMoreCard={openCardActionModal}
         cardImageMap={cardImageMap}
         getWordText={getWordText}
         getLearningStatus={(card) => getLearningStatus(card, seenCardIds)}
         withHexAlpha={withHexAlpha}
+        isBatchSelectionActive={isBatchSelectionActive}
+        selectedCardIds={selectedCardIds}
+        onLongPressCard={handleLongPressCard}
+        onToggleSelectCard={handleToggleSelectCard}
+        onExitBatchSelection={handleExitBatchSelection}
+        onToggleSelectAll={handleToggleSelectAll}
+        onPressBatchMove={handlePressBatchMove}
+        onPressBatchDelete={handlePressBatchDelete}
       />
 
       <AlbumSortModalUI
@@ -504,6 +742,24 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         uiLanguage={uiLanguage}
         onClose={closeCardActionModal}
         onDelete={handleDeleteCard}
+      />
+
+      <CardAlbumSheetModalUI
+        visible={showBatchAlbumSheet}
+        selectedAlbums={batchSelectedAlbums}
+        allAlbums={availableAlbums}
+        uiLanguage={uiLanguage}
+        onDone={() => void handleConfirmBatchMove()}
+        onOpenCreateAlbum={() => setIsCreateAlbumModalVisible(true)}
+        onToggleAlbum={handleToggleBatchAlbum}
+        createAlbumVisible={isCreateAlbumModalVisible}
+        createAlbumName={newAlbumName}
+        onChangeCreateAlbumName={setNewAlbumName}
+        onCancelCreateAlbum={() => {
+          setIsCreateAlbumModalVisible(false);
+          setNewAlbumName('');
+        }}
+        onConfirmCreateAlbum={() => void handleConfirmCreateAlbum()}
       />
 
       <ReviewTuningModalUI

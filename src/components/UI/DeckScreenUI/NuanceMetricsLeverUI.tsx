@@ -357,10 +357,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   axisLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    width: 32,
+    fontSize: 11,
+    fontWeight: '500',
+    width: 30,
     textAlign: 'center',
+    opacity: 0.72,
   },
   track: {
     flex: 1,
