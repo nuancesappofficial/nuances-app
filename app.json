@@ -21,7 +21,7 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.jeffenglishlearning.nuances",
-      "buildNumber": "96",
+      "buildNumber": "97",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true,
         "ITSAppUsesNonExemptEncryption": false,
