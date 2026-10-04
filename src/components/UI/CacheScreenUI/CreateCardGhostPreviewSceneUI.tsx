@@ -29,7 +29,11 @@ import {
   parseCulturalBackgroundInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from '../DeckScreenUI/NuanceMetricsLeverUI';
-import { quoteLearningTermInText } from '../../../features/cards/learningTermQuotes';
+import {
+  buildProgressiveSentenceSegments,
+  quoteLearningTermInText,
+  sliceSegmentsByCharacterCount,
+} from '../../../features/cards/learningTermQuotes';
 import { isPhraseLikeCardSubject, isSameCardUsage } from '../../../features/cards/cardUsage';
 import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -225,20 +229,28 @@ function getGhostCardTone(params: {
 
 function ProgressiveText({
   text,
+  highlightTerm,
+  highlightColor,
   active,
   animate = true,
   style,
   textProps,
 }: {
   text: string;
+  highlightTerm?: string;
+  highlightColor?: string;
   active: boolean;
   animate?: boolean;
   style: any;
   textProps?: TextProps;
 }) {
-  const textUnits = React.useMemo(() => Array.from(text), [text]);
+  const { segments, cleanText } = React.useMemo(
+    () => buildProgressiveSentenceSegments(text, highlightTerm),
+    [text, highlightTerm]
+  );
+  const textUnits = React.useMemo(() => Array.from(cleanText), [cleanText]);
   const targetUnitsRef = React.useRef(textUnits);
-  const previousTextRef = React.useRef(text);
+  const previousTextRef = React.useRef(cleanText);
   const initialVisibleCount = active && !animate ? textUnits.length : 0;
   const visibleCountRef = React.useRef(initialVisibleCount);
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -273,7 +285,7 @@ function ProgressiveText({
   React.useEffect(() => {
     const previousText = previousTextRef.current;
     targetUnitsRef.current = textUnits;
-    previousTextRef.current = text;
+    previousTextRef.current = cleanText;
 
     if (!active) {
       stopRevealTimer();
@@ -293,7 +305,7 @@ function ProgressiveText({
 
     // Streaming appends should preserve everything already revealed. If the
     // final normalized value differs, retain only its unchanged prefix.
-    if (!text.startsWith(previousText)) {
+    if (!cleanText.startsWith(previousText)) {
       const previousUnits = Array.from(previousText);
       let commonPrefixLength = 0;
       while (
@@ -312,18 +324,44 @@ function ProgressiveText({
   }, [
     active,
     animate,
+    cleanText,
     setVisibleCountSynced,
     startRevealTimer,
     stopRevealTimer,
-    text,
     textUnits,
   ]);
 
   React.useEffect(() => stopRevealTimer, [stopRevealTimer]);
 
+  const isSegmented = segments.length > 1 || Boolean(segments[0]?.isBold);
+
+  const renderedContent = React.useMemo(() => {
+    if (!active) return '';
+    if (!isSegmented) {
+      return textUnits.slice(0, visibleCount).join('');
+    }
+    const sliced = sliceSegmentsByCharacterCount(segments, visibleCount);
+    return sliced.map((seg, i) =>
+      seg.isBold ? (
+        <Text
+          key={`bold-${i}-${seg.text}`}
+          style={{
+            fontWeight: '800',
+            color: highlightColor,
+            fontStyle: 'italic',
+          }}
+        >
+          {seg.text}
+        </Text>
+      ) : (
+        seg.text
+      )
+    );
+  }, [active, isSegmented, segments, visibleCount, textUnits, highlightColor]);
+
   return (
     <FixedText {...textProps} style={style}>
-      {active ? textUnits.slice(0, visibleCount).join('') : ''}
+      {renderedContent}
     </FixedText>
   );
 }
@@ -406,6 +444,7 @@ export function CreateCardGhostPreviewScene({
     [isLight]
   );
   const previewWord = card?.displayWord || processingWord;
+  const targetWordHighlightColor = isLight ? '#2E7EC2' : '#4EAFF4';
   const isPhraseCard = isPhraseLikeCardSubject(previewWord, card?.partOfSpeech);
   const previewPartOfSpeech = card?.partOfSpeech
     ? formatPartOfSpeechLabel(
@@ -637,8 +676,22 @@ export function CreateCardGhostPreviewScene({
           <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
 
           <View style={styles.previewFrontSection}>
-            <ProgressiveText text={previewSourceSentence} active={revealState.showFrontSentence} animate={shouldAnimateText} style={[styles.previewSentenceText, { color: palette.textOnContainer }]} />
-            <ProgressiveText text={previewTranslation} active={revealState.showFrontTranslation} animate={shouldAnimateText} style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]} />
+            <ProgressiveText
+              text={previewSourceSentence}
+              highlightTerm={previewWord}
+              highlightColor={targetWordHighlightColor}
+              active={revealState.showFrontSentence}
+              animate={shouldAnimateText}
+              style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
+            />
+            <ProgressiveText
+              text={previewTranslation}
+              highlightTerm={previewWord}
+              highlightColor={targetWordHighlightColor}
+              active={revealState.showFrontTranslation}
+              animate={shouldAnimateText}
+              style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
+            />
           </View>
 
           <View style={styles.previewSectionBlock}>

@@ -99,3 +99,66 @@ export function segmentSentenceWithTargetWord(
   return segments;
 }
 
+export function sliceSegmentsByCharacterCount(
+  segments: readonly SentenceSegment[],
+  visibleCount: number
+): SentenceSegment[] {
+  if (visibleCount <= 0 || segments.length === 0) {
+    return [];
+  }
+
+  let remaining = visibleCount;
+  const result: SentenceSegment[] = [];
+
+  for (const seg of segments) {
+    if (remaining <= 0) break;
+    const segUnits = Array.from(seg.text);
+    if (segUnits.length === 0) continue;
+
+    const take = Math.min(remaining, segUnits.length);
+    const slicedText = segUnits.slice(0, take).join('');
+    result.push({
+      text: slicedText,
+      isBold: seg.isBold,
+    });
+    remaining -= take;
+  }
+
+  return result;
+}
+
+export function buildProgressiveSentenceSegments(
+  text: string,
+  highlightTerm?: string
+): {
+  segments: SentenceSegment[];
+  cleanText: string;
+} {
+  const trimmedTerm = (highlightTerm || '').trim();
+  if (!text) {
+    return { segments: [], cleanText: '' };
+  }
+
+  if (!trimmedTerm) {
+    return {
+      segments: [{ text, isBold: false }],
+      cleanText: text,
+    };
+  }
+
+  const rawSegments = segmentSentenceWithTargetWord(text, trimmedTerm);
+  if (rawSegments.length === 0) {
+    return {
+      segments: [{ text, isBold: false }],
+      cleanText: text,
+    };
+  }
+
+  const cleanText = rawSegments.map((s) => s.text).join('');
+  return {
+    segments: rawSegments,
+    cleanText,
+  };
+}
+
+
