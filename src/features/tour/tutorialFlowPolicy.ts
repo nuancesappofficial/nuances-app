@@ -97,3 +97,22 @@ export function resolveSaveCardNavigationPlan(params: {
     popDelayMs: 0,
   };
 }
+
+export function shouldShowQuickQuizTutorialArrow(params: {
+  tourStep: string;
+  isTourActive: boolean;
+  showDefaultExperienceQuizHint?: boolean;
+}): boolean {
+  if (!params.isTourActive) return false;
+  return params.tourStep === 'STEP_10_QUIZ_SAMPLE';
+}
+
+export function shouldPurgeStaleDefaultExperienceQuizHint(params: {
+  tourStep: string;
+  isTourActive: boolean;
+  launchSource?: string | null;
+}): boolean {
+  if (!params.isTourActive) return true;
+  return params.tourStep !== 'STEP_10_QUIZ_SAMPLE';
+}
+

@@ -81,6 +81,10 @@ import {
   hydrateScreenshotDemoMode,
   isScreenshotDemoModeEnabled,
 } from '../../../features/dev/screenshotDemoMode';
+import {
+  shouldPurgeStaleDefaultExperienceQuizHint,
+  shouldShowQuickQuizTutorialArrow,
+} from '../../../features/tour/tutorialFlowPolicy';
 
 type Props = {
   navigation: any;
@@ -246,8 +250,14 @@ export default function DeckMainFlow({
       void (async () => {
         const userId = await getCurrentSessionUserId();
         if (!userId) return;
-        // 若當前並非處於等待 Quiz 的特定教學步驟，但處於重播或閒置狀態，防範舊殘留鎖死
-        if (appTour.launchSource === 'replay' && appTour.step !== 'STEP_10_QUIZ_SAMPLE') {
+        // 若當前並非處於等待 Quiz 的特定教學步驟，防範中途離開、更新 App 或閒置狀態的舊殘留鎖死
+        if (
+          shouldPurgeStaleDefaultExperienceQuizHint({
+            tourStep: appTour.step,
+            isTourActive: appTour.isActive,
+            launchSource: appTour.launchSource,
+          })
+        ) {
           await completeDefaultExperienceQuizHint(userId);
           if (!cancelled) setShowDefaultExperienceQuizHint(false);
           return;
@@ -258,7 +268,7 @@ export default function DeckMainFlow({
       return () => {
         cancelled = true;
       };
-    }, [appTour.launchSource, appTour.step])
+    }, [appTour.isActive, appTour.launchSource, appTour.step])
   );
 
   React.useEffect(() => {
@@ -1685,10 +1695,11 @@ export default function DeckMainFlow({
         onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
-        showQuickQuizTutorialArrow={
-          showDefaultExperienceQuizHint ||
-          appTour.step === 'STEP_10_QUIZ_SAMPLE'
-        }
+        showQuickQuizTutorialArrow={shouldShowQuickQuizTutorialArrow({
+          tourStep: appTour.step,
+          isTourActive: appTour.isActive,
+          showDefaultExperienceQuizHint,
+        })}
         scrollToAlbumId={scrollToAlbumId}
         onDidScrollToAlbum={() => setScrollToAlbumId(null)}
         slideshowItems={slideshowItems}
