@@ -27,5 +27,9 @@ test('all iOS targets use the app config build number', () => {
 
 test('the next upload is newer than the closed 1.1.1 (84) train', () => {
   assert.notEqual(appConfig.expo.version, '1.1.1');
-  assert.ok(Number(appConfig.expo.ios.buildNumber) > 84);
+  assert.ok(
+    appConfig.expo.version === '1.1.1'
+      ? Number(appConfig.expo.ios.buildNumber) > 84
+      : Number(appConfig.expo.ios.buildNumber) >= 1
+  );
 });

@@ -657,6 +657,8 @@ export default function App() {
     preloadedFirstPlayerRef.current = player;
   }, []);
   const promptedVersionKeyRef = React.useRef<string | null>(null);
+  const isCheckingAppVersionRef = React.useRef(false);
+  const isPromptingAlertRef = React.useRef(false);
   const authTransitionIdRef = React.useRef(0);
   const activeUserIdRef = React.useRef<string | null>(null);
   const analyticsAppOpenedRef = React.useRef(false);
@@ -854,7 +856,7 @@ export default function App() {
         setVideoTourChecked(true);
       }
 
-      void checkForAppVersionUpdate();
+      void checkForAppVersionUpdate({ delayMs: 2500 });
       setIsReady(true);
       void logDiagnosticEvent({
         severity: 'info',
@@ -888,71 +890,107 @@ export default function App() {
       setNeedsVideoTour(false);
       setVideoTourChecked(true);
       setIsReady(true); // Continue anyway
-      void checkForAppVersionUpdate();
+      void checkForAppVersionUpdate({ delayMs: 2500 });
     }
   };
 
-  const checkForAppVersionUpdate = React.useCallback(async () => {
+  const checkForAppVersionUpdate = React.useCallback(async (options?: { delayMs?: number }) => {
     if (__DEV__) return;
-    const status = await checkAppVersionUpdateStatus();
-    if (!status) return;
-    void logDiagnosticEvent({
-      severity: 'info',
-      category: 'app_lifecycle',
-      event: 'app_version_policy_checked',
-      context: {
-        isRequired: status.isRequired,
-        hasUpdateUrl: Boolean(status.updateUrl),
-        currentBuildNumber: status.currentBuildNumber,
-        latestBuildNumber: status.latestBuildNumber,
-      },
-    });
-    const settings = await loadUserSettings().catch(() => null);
-    const uiLanguage = settings?.uiLanguage ?? 'en';
+    if (isCheckingAppVersionRef.current || isPromptingAlertRef.current) return;
+    isCheckingAppVersionRef.current = true;
 
-    const promptKey = [
-      status.currentVersion,
-      status.currentBuildNumber ?? 'current-build',
-      status.latestVersion || 'latest',
-      status.latestBuildNumber ?? 'latest-build',
-      status.minimumSupportedVersion || 'minimum',
-      status.minimumSupportedBuildNumber ?? 'minimum-build',
-      status.isRequired ? 'required' : 'optional',
-    ].join(':');
-    if (!status.isRequired && promptedVersionKeyRef.current === promptKey) return;
-    promptedVersionKeyRef.current = promptKey;
-
-    const openUpdateUrl = () => {
-      if (!status.updateUrl) {
-        Alert.alert(
-          tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
-          tUI(uiLanguage, 'appVersion.updateUnavailableNoUrl')
-        );
-        return;
+    try {
+      if (options?.delayMs && options.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, options.delayMs));
       }
-      void Linking.openURL(status.updateUrl).catch((error) => {
-        console.warn('[AppVersion] failed to open update URL:', error);
-        Alert.alert(
-          tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
-          tUI(uiLanguage, 'appVersion.updateUnavailableOpenFailed')
-        );
+      const status = await checkAppVersionUpdateStatus();
+      if (!status) return;
+      void logDiagnosticEvent({
+        severity: 'info',
+        category: 'app_lifecycle',
+        event: 'app_version_policy_checked',
+        context: {
+          isRequired: status.isRequired,
+          hasUpdateUrl: Boolean(status.updateUrl),
+          currentBuildNumber: status.currentBuildNumber,
+          latestBuildNumber: status.latestBuildNumber,
+        },
       });
-    };
+      const settings = await loadUserSettings().catch(() => null);
+      const uiLanguage = settings?.uiLanguage ?? 'en';
 
-    const actions = status.isRequired
-      ? [{ text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl }]
-      : [
-          { text: tUI(uiLanguage, 'appVersion.laterAction'), style: 'cancel' as const },
-          { text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl },
-        ];
+      const promptKey = [
+        status.currentVersion,
+        status.currentBuildNumber ?? 'current-build',
+        status.latestVersion || 'latest',
+        status.latestBuildNumber ?? 'latest-build',
+        status.minimumSupportedVersion || 'minimum',
+        status.minimumSupportedBuildNumber ?? 'minimum-build',
+        status.isRequired ? 'required' : 'optional',
+      ].join(':');
+      if (!status.isRequired && promptedVersionKeyRef.current === promptKey) return;
+      promptedVersionKeyRef.current = promptKey;
 
-    Alert.alert(
-      tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredTitle' : 'appVersion.updateAvailableTitle'),
-      tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody'),
-      actions,
-      { cancelable: !status.isRequired }
-    );
+      const openUpdateUrl = () => {
+        isPromptingAlertRef.current = false;
+        if (!status.updateUrl) {
+          Alert.alert(
+            tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
+            tUI(uiLanguage, 'appVersion.updateUnavailableNoUrl')
+          );
+          return;
+        }
+        void Linking.openURL(status.updateUrl).catch((error) => {
+          console.warn('[AppVersion] failed to open update URL:', error);
+          Alert.alert(
+            tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
+            tUI(uiLanguage, 'appVersion.updateUnavailableOpenFailed')
+          );
+        });
+      };
+
+      const actions = status.isRequired
+        ? [{ text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl }]
+        : [
+            {
+              text: tUI(uiLanguage, 'appVersion.laterAction'),
+              style: 'cancel' as const,
+              onPress: () => {
+                isPromptingAlertRef.current = false;
+              },
+            },
+            { text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl },
+          ];
+
+      isPromptingAlertRef.current = true;
+      setTimeout(() => {
+        Alert.alert(
+          tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredTitle' : 'appVersion.updateAvailableTitle'),
+          tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody'),
+          actions,
+          {
+            cancelable: !status.isRequired,
+            onDismiss: () => {
+              isPromptingAlertRef.current = false;
+            },
+          }
+        );
+      }, 400);
+    } finally {
+      isCheckingAppVersionRef.current = false;
+    }
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        void checkForAppVersionUpdate({ delayMs: 500 });
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [checkForAppVersionUpdate]);
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
@@ -1440,7 +1478,8 @@ export default function App() {
 
   const handleBootCurtainOpened = React.useCallback(() => {
     setShowBootCurtain(false);
-  }, []);
+    void checkForAppVersionUpdate({ delayMs: 400 });
+  }, [checkForAppVersionUpdate]);
 
   const handleDevAccountDelete = React.useCallback(async () => {
     if (!activeUserIdRef.current || !isDevFreshUserSimulatorEnabled()) return;

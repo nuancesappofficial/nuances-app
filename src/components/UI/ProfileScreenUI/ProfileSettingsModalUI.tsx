@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Application from 'expo-application';
 import {
   isTTSVoiceCompatibleWithAIReplyLanguage,
   type AIReplyLanguage,
@@ -337,6 +338,11 @@ export default function ProfileSettingsModalUI({
         <Text style={[styles.languageDropdownValue, { color: palette.textOnContainer }]}>{tUI(uiLanguage, 'profile.termsOfService')}</Text>
         <Ionicons name="chevron-forward" size={18} color={palette.secondaryText} />
       </TouchableOpacity>
+      <View style={styles.versionFooter}>
+        <Text style={[styles.versionText, { color: palette.secondaryText }]}>
+          {`Version ${Application.nativeApplicationVersion || '1.3.0'} (${Application.nativeBuildVersion || '97'})`}
+        </Text>
+      </View>
     </View>
   );
 
@@ -828,5 +834,14 @@ const styles = StyleSheet.create({
   },
   languageDropdownItemTextActive: {
     color: TEXT_ON_CTA,
+  },
+  versionFooter: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  versionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.65,
   },
 });
