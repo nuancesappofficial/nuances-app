@@ -342,43 +342,61 @@ export function useCacheQuickAddFlow({
     }
   }, [cropperFlowTarget, onSwipeImageCropCancel, pendingSwipeImageItem, setAddTab, setShowAddModal]);
 
+  const pendingCroppedNavigationRef = React.useRef<(() => void) | null>(null);
+
+  const handleUploadCropDismiss = React.useCallback(() => {
+    const action = pendingCroppedNavigationRef.current;
+    pendingCroppedNavigationRef.current = null;
+    if (action) {
+      // Allow one frame for native UIKit hierarchy to settle before mounting Reanimated heavy tree
+      requestAnimationFrame(() => {
+        action();
+      });
+    }
+  }, []);
+
   const handleUploadCropConfirm = React.useCallback(
     async (croppedUri: string) => {
       if (cropConfirmActiveRef.current) return;
       cropConfirmActiveRef.current = true;
       const originalUri = pendingOriginalImageUri;
-      setShowUploadCropper(false);
       setPendingOriginalImageUri(null);
       setPendingOriginalImageSize(null);
       setPendingOpenCropperAfterAddDismiss(false);
       try {
         if (cropperFlowTarget === 'swipe-image' && pendingSwipeImageItem) {
+          const swipeItem = pendingSwipeImageItem;
           if (
             appTour.step === 'STEP_5_CROP_IMAGE' ||
             appTour.step === 'STEP_5_PROCESS_CACHE_CARD'
           ) {
             appTour.nextStep();
           }
-          navigation.navigate('CreateCard', {
-            cachedItem: pendingSwipeImageItem,
-            croppedImageUri: croppedUri,
-            originalImageUri: originalUri,
-            runOcrOnLoad: true,
-            isDefaultExperienceTutorial:
-              isDefaultExperienceCard(pendingSwipeImageItem) || undefined,
-          });
+          pendingCroppedNavigationRef.current = () => {
+            navigation.navigate('CreateCard', {
+              cachedItem: swipeItem,
+              croppedImageUri: croppedUri,
+              originalImageUri: originalUri,
+              runOcrOnLoad: true,
+              isDefaultExperienceTutorial:
+                isDefaultExperienceCard(swipeItem) || undefined,
+            });
+          };
         } else {
           const quickItem = await createQuickImageCachedItem(croppedUri, originalUri);
           if (!quickItem) return;
-          navigation.navigate('CreateCard', {
-            cachedItem: quickItem,
-            croppedImageUri: croppedUri,
-            originalImageUri: originalUri,
-            runOcrOnLoad: true,
-          });
+          pendingCroppedNavigationRef.current = () => {
+            navigation.navigate('CreateCard', {
+              cachedItem: quickItem,
+              croppedImageUri: croppedUri,
+              originalImageUri: originalUri,
+              runOcrOnLoad: true,
+            });
+          };
         }
         setPendingSwipeImageItem(null);
         setCropperFlowTarget('quick-add');
+        setShowUploadCropper(false);
       } catch (error) {
         console.error('[CacheList] create quick image item failed:', error);
         Alert.alert('建立失敗', '無法建立圖片卡片，請稍後再試。');
@@ -387,6 +405,7 @@ export function useCacheQuickAddFlow({
       }
     },
     [
+      appTour,
       createQuickImageCachedItem,
       cropperFlowTarget,
       navigation,
@@ -444,6 +463,7 @@ export function useCacheQuickAddFlow({
     captureQuickPhoto,
     handleUploadCropCancel,
     handleUploadCropConfirm,
+    handleUploadCropDismiss,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     openCropperForSwipeImage,

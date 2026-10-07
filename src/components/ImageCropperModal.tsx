@@ -57,6 +57,7 @@ type Props = {
   showConfirmTutorialArrow?: boolean;
   onCancel: () => void;
   onConfirm: (croppedUri: string) => void;
+  onDismiss?: () => void;
 };
 
 const MIN_EDGE = 60;
@@ -114,6 +115,7 @@ export default function ImageCropperModal({
   showConfirmTutorialArrow = false,
   onCancel,
   onConfirm,
+  onDismiss,
 }: Props) {
   const insets = useSafeAreaInsets();
   const isFixedCropShape = cropShape === 'circle' || cropShape === 'album';
@@ -771,6 +773,7 @@ export default function ImageCropperModal({
       animationType={modalAnimationType}
       presentationStyle="overFullScreen"
       onRequestClose={onCancel}
+      onDismiss={onDismiss}
     >
       <View style={styles.container}>
         <View

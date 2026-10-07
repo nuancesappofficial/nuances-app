@@ -780,6 +780,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     captureQuickPhoto,
     handleUploadCropCancel,
     handleUploadCropConfirm,
+    handleUploadCropDismiss,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     openCropperForSwipeImage,
@@ -1336,6 +1337,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         showConfirmTutorialArrow={showConfirmTutorialArrow}
         onCancel={handleUploadCropCancel}
         onConfirm={handleUploadCropConfirm}
+        onDismiss={handleUploadCropDismiss}
       />
 
       <CameraModalUI

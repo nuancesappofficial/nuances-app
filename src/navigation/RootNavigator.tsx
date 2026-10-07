@@ -648,6 +648,8 @@ export default function RootNavigator({
 
   const shouldShowTabBar = (tabRootRouteEnabledMap[selectedTabIndex] ?? true) && !tabBarForcedHidden;
 
+  const didCheckInitialCacheTabRef = React.useRef(false);
+
   React.useEffect(() => {
     let unsubscribed = false;
     let subscription: { unsubscribe: () => void } | null = null;
@@ -665,6 +667,15 @@ export default function RootNavigator({
         const count = await query.fetchCount();
         if (unsubscribed) return;
         setCacheBadgeCount(count);
+
+        // If cold start has cache items and not in interactive tutorial, start on Cache tab
+        if (!didCheckInitialCacheTabRef.current) {
+          didCheckInitialCacheTabRef.current = true;
+          if (count > 0 && !startTutorialOnMount && selectedTabIndexRef.current === 0) {
+            switchTabImmediately(1, 0);
+          }
+        }
+
         subscription = query.observeCount().subscribe((nextCount) => setCacheBadgeCount(nextCount));
       } catch {
         if (!unsubscribed) {
@@ -677,7 +688,7 @@ export default function RootNavigator({
       unsubscribed = true;
       subscription?.unsubscribe();
     };
-  }, []);
+  }, [startTutorialOnMount, switchTabImmediately]);
 
   React.useEffect(() => {
     const targetY = shouldShowTabBar ? 0 : 90;
