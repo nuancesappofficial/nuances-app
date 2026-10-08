@@ -4,6 +4,7 @@ import type { DeckAlbum } from '../../components/UI/DeckScreenUI/deckTypes';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import type { UILanguage } from '@services/settings/userSettings';
 import { tUI } from '../../i18n/uiLanguage';
+import { resolveAlbumCoverUri } from './albumCoverResolution';
 
 export type DeckAlbumPreferences = {
   customAlbums: DeckAlbum[];
@@ -109,10 +110,28 @@ export async function loadDeckAlbumPreferences(
     }
 
     const parsed = JSON.parse(raw) as Partial<DeckAlbumPreferences>;
+    const rawCoverOverrides =
+      parsed.albumCoverOverrides &&
+      typeof parsed.albumCoverOverrides === 'object'
+        ? (parsed.albumCoverOverrides as Record<string, string>)
+        : {};
+
+    const resolvedCoverOverrides: Record<string, string> = {};
+    Object.entries(rawCoverOverrides).forEach(([id, uri]) => {
+      resolvedCoverOverrides[id] = resolveAlbumCoverUri(uri) || uri;
+    });
+
+    const resolvedCustomAlbums = (
+      Array.isArray(parsed.customAlbums) ? parsed.customAlbums : []
+    ).map((album) => ({
+      ...album,
+      coverImageUri: album.coverImageUri
+        ? resolveAlbumCoverUri(album.coverImageUri) || album.coverImageUri
+        : undefined,
+    }));
+
     return {
-      customAlbums: Array.isArray(parsed.customAlbums)
-        ? parsed.customAlbums
-        : [],
+      customAlbums: resolvedCustomAlbums,
       albumNameOverrides:
         parsed.albumNameOverrides &&
         typeof parsed.albumNameOverrides === 'object'
@@ -128,11 +147,7 @@ export async function loadDeckAlbumPreferences(
         typeof parsed.albumColorOverrides === 'object'
           ? (parsed.albumColorOverrides as Record<string, string>)
           : {},
-      albumCoverOverrides:
-        parsed.albumCoverOverrides &&
-        typeof parsed.albumCoverOverrides === 'object'
-          ? (parsed.albumCoverOverrides as Record<string, string>)
-          : {},
+      albumCoverOverrides: resolvedCoverOverrides,
       deletedAlbumIds: Array.isArray(parsed.deletedAlbumIds)
         ? parsed.deletedAlbumIds
         : [],
@@ -280,8 +295,9 @@ export function buildDeckAlbums(
         isNameCustomized: Boolean(customName) || customAlbumIds.has(album.id),
         emoji: prefs.albumEmojiOverrides[album.id] || album.emoji,
         color: prefs.albumColorOverrides[album.id] || album.color,
-        coverImageUri:
-          prefs.albumCoverOverrides[album.id] || album.coverImageUri,
+        coverImageUri: resolveAlbumCoverUri(
+          prefs.albumCoverOverrides[album.id] || album.coverImageUri
+        ),
       };
     })
     .filter((album) => !prefs.deletedAlbumIds.includes(album.id));
