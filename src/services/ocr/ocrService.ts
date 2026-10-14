@@ -103,11 +103,16 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     }
 
     const ocrLanguageConfig = await getPreparedOCRVisionLanguageConfig();
-    const primaryResult = await recognizeTextWithVision(imageUri, {
-      languages: ocrLanguageConfig.visionLanguages,
-      usesLanguageCorrection: true,
-      automaticallyDetectsLanguage: ocrLanguageConfig.automaticallyDetectsLanguage,
-    });
+    const primaryResult = await Promise.race([
+      recognizeTextWithVision(imageUri, {
+        languages: ocrLanguageConfig.visionLanguages,
+        usesLanguageCorrection: true,
+        automaticallyDetectsLanguage: ocrLanguageConfig.automaticallyDetectsLanguage,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('OCR recognition timed out after 7s')), 7000)
+      ),
+    ]);
     const blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
     const fullText = normalizeFullText(primaryResult.fullText, blocks);
 

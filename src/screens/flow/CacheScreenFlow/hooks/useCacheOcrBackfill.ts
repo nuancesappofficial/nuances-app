@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import { extractTextFromImage, isOCRAvailable, type OCRBlock } from '@services/ocr';
 import { database } from '@database/index';
 import type CachedItem from '@database/models/CachedItem';
@@ -9,6 +10,7 @@ import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 type UseCacheOcrBackfillArgs = {
   cacheItems: CachedItem[];
   getDetectedPreview: (annotations: unknown) => string | undefined;
+  enabled?: boolean;
 };
 
 const MAX_OCR_ITEMS_PER_PASS = 3;
@@ -84,9 +86,13 @@ async function runLocalOCRForPreview(imageUri: string): Promise<OCRBlock[] | und
       }
     );
 
-    const result = await extractTextFromImage(cropped.uri);
-    if (!Array.isArray(result.blocks) || result.blocks.length === 0) return undefined;
-    return result.blocks;
+    try {
+      const result = await extractTextFromImage(cropped.uri);
+      if (!Array.isArray(result.blocks) || result.blocks.length === 0) return undefined;
+      return result.blocks;
+    } finally {
+      await FileSystem.deleteAsync(cropped.uri, { idempotent: true }).catch(() => undefined);
+    }
   } catch (error) {
     void logDiagnosticEvent({
       severity: 'warn',
@@ -101,6 +107,7 @@ async function runLocalOCRForPreview(imageUri: string): Promise<OCRBlock[] | und
 export function useCacheOcrBackfill({
   cacheItems,
   getDetectedPreview,
+  enabled = true,
 }: UseCacheOcrBackfillArgs) {
   const ocrProcessingIdsRef = React.useRef(new Set<string>());
   const ocrSettledIdsRef = React.useRef(new Set<string>());
@@ -128,6 +135,7 @@ export function useCacheOcrBackfill({
   }, [cacheItems]);
 
   React.useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
 
     const runBackfillOCR = async () => {
@@ -201,7 +209,7 @@ export function useCacheOcrBackfill({
     return () => {
       cancelled = true;
     };
-  }, [cacheItems, getDetectedPreview]);
+  }, [cacheItems, enabled, getDetectedPreview]);
 
   return { liveDetectedPreviewById };
 }

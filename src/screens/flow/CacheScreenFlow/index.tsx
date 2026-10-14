@@ -902,6 +902,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
     getDetectedPreview,
+    enabled: isCacheFocused,
   });
 
   useEffect(() => {

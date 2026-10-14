@@ -11,87 +11,94 @@ private struct VisionOCROptions: Record {
 }
 
 public final class NuancesVisionOCRModule: Module {
+  private static let ocrSerialQueue = DispatchQueue(
+    label: "com.nuances.visionocr.serial",
+    qos: .userInitiated
+  )
+
   public func definition() -> ModuleDefinition {
     Name("VisionOCR")
 
     AsyncFunction("recognizeText") {
       (imageUri: String, options: VisionOCROptions, promise: Promise) in
-      DispatchQueue.global(qos: .userInitiated).async {
-        do {
-          guard let image = Self.loadImage(from: imageUri),
-                let cgImage = image.cgImage else {
-            promise.reject(
-              "VISION_OCR_IMAGE_LOAD_FAILED",
-              "Unable to load image for OCR"
-            )
-            return
-          }
-
-          let imageWidth = CGFloat(cgImage.width)
-          let imageHeight = CGFloat(cgImage.height)
-          let request = VNRecognizeTextRequest { request, error in
-            if let error {
-              promise.reject("VISION_OCR_FAILED", error.localizedDescription)
+      Self.ocrSerialQueue.async {
+        autoreleasepool {
+          do {
+            guard let image = Self.loadImage(from: imageUri),
+                  let cgImage = image.cgImage else {
+              promise.reject(
+                "VISION_OCR_IMAGE_LOAD_FAILED",
+                "Unable to load image for OCR"
+              )
               return
             }
 
-            let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
-            var blocks: [[String: Any]] = []
-            var lines: [String] = []
+            let imageWidth = CGFloat(cgImage.width)
+            let imageHeight = CGFloat(cgImage.height)
+            let request = VNRecognizeTextRequest { request, error in
+              if let error {
+                promise.reject("VISION_OCR_FAILED", error.localizedDescription)
+                return
+              }
 
-            for observation in observations {
-              let candidates = observation.topCandidates(3)
-              guard let candidate = candidates.first else { continue }
-              let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-              guard !text.isEmpty else { continue }
+              let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+              var blocks: [[String: Any]] = []
+              var lines: [String] = []
 
-              let box = observation.boundingBox
-              blocks.append([
-                "text": text,
-                "confidence": Double(candidate.confidence),
-                "candidates": candidates.compactMap { item -> [String: Any]? in
-                  let candidateText = item.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                  guard !candidateText.isEmpty else { return nil }
-                  return [
-                    "text": candidateText,
-                    "confidence": Double(item.confidence),
-                  ]
-                },
-                "frame": [
-                  "x": box.origin.x * imageWidth,
-                  "y": (1.0 - box.origin.y - box.height) * imageHeight,
-                  "width": box.width * imageWidth,
-                  "height": box.height * imageHeight,
-                ],
+              for observation in observations {
+                let candidates = observation.topCandidates(3)
+                guard let candidate = candidates.first else { continue }
+                let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+
+                let box = observation.boundingBox
+                blocks.append([
+                  "text": text,
+                  "confidence": Double(candidate.confidence),
+                  "candidates": candidates.compactMap { item -> [String: Any]? in
+                    let candidateText = item.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !candidateText.isEmpty else { return nil }
+                    return [
+                      "text": candidateText,
+                      "confidence": Double(item.confidence),
+                    ]
+                  },
+                  "frame": [
+                    "x": box.origin.x * imageWidth,
+                    "y": (1.0 - box.origin.y - box.height) * imageHeight,
+                    "width": box.width * imageWidth,
+                    "height": box.height * imageHeight,
+                  ],
+                ])
+                lines.append(text)
+              }
+
+              promise.resolve([
+                "fullText": lines.joined(separator: "\n"),
+                "blocks": blocks,
+                "imageWidth": imageWidth,
+                "imageHeight": imageHeight,
               ])
-              lines.append(text)
             }
 
-            promise.resolve([
-              "fullText": lines.joined(separator: "\n"),
-              "blocks": blocks,
-              "imageWidth": imageWidth,
-              "imageHeight": imageHeight,
-            ])
-          }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = options.usesLanguageCorrection
+            if #available(iOS 16.0, *) {
+              request.automaticallyDetectsLanguage = options.automaticallyDetectsLanguage
+            }
+            if !options.languages.isEmpty {
+              request.recognitionLanguages = options.languages
+            }
 
-          request.recognitionLevel = .accurate
-          request.usesLanguageCorrection = options.usesLanguageCorrection
-          if #available(iOS 16.0, *) {
-            request.automaticallyDetectsLanguage = options.automaticallyDetectsLanguage
+            let handler = VNImageRequestHandler(
+              cgImage: cgImage,
+              orientation: Self.cgImagePropertyOrientation(for: image.imageOrientation),
+              options: [:]
+            )
+            try handler.perform([request])
+          } catch {
+            promise.reject("VISION_OCR_FAILED", error.localizedDescription)
           }
-          if !options.languages.isEmpty {
-            request.recognitionLanguages = options.languages
-          }
-
-          let handler = VNImageRequestHandler(
-            cgImage: cgImage,
-            orientation: Self.cgImagePropertyOrientation(for: image.imageOrientation),
-            options: [:]
-          )
-          try handler.perform([request])
-        } catch {
-          promise.reject("VISION_OCR_FAILED", error.localizedDescription)
         }
       }
     }
