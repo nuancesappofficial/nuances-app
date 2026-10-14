@@ -11,6 +11,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing as ReanimatedEasing,
+  runOnJS,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -107,65 +114,34 @@ export default function CardViewUI({
   const rowText = palette.textOnContainer;
   const rowMuted = palette.secondaryText;
   const { width: screenWidth } = useWindowDimensions();
-  const searchExpandProgress = React.useRef(
-    new Animated.Value(isSearchVisible ? 1 : 0)
-  ).current;
-  const maxSearchWidth = Math.max(220, screenWidth - 16 * 2);
-  const searchAnimatedWidth = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [40, maxSearchWidth],
-  });
-  const searchFieldOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 0.22, 1],
-    outputRange: [0, 0, 1],
-  });
-  const searchFieldTranslateX = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [14, 0],
-  });
-  const searchIconOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
-  const closeIconOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
-  const backOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
-  const backWidth = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [40, 0],
-  });
-  const shellBorderColor = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(78,175,244,0)', 'rgba(78,175,244,0.45)'],
-  });
-  const shellBackgroundColor = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(18,29,45,0)', 'rgba(18,29,45,0)'],
-  });
-  const shellBorderWidth = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
+  const searchProgress = useSharedValue(isSearchVisible ? 1 : 0);
+  const searchTranslateX = useSharedValue(isSearchVisible ? 0 : 30);
+
+  const searchOverlayStyle = useAnimatedStyle(() => ({
+    opacity: searchProgress.value,
+    transform: [{ translateX: searchTranslateX.value }],
+  }));
+
+  const focusSearchInput = React.useCallback(() => {
+    searchInputRef.current?.focus();
+  }, [searchInputRef]);
 
   React.useEffect(() => {
-    Animated.timing(searchExpandProgress, {
-      toValue: isSearchVisible ? 1 : 0,
-      duration: 240,
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (!finished) return;
-      if (isSearchVisible) {
-        requestAnimationFrame(() => searchInputRef.current?.focus());
-      } else {
-        searchInputRef.current?.blur();
-      }
-    });
-  }, [isSearchVisible, searchExpandProgress, searchInputRef]);
+    const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+    if (isSearchVisible) {
+      searchTranslateX.value = 30;
+      searchProgress.value = withTiming(1, { duration: 250, easing });
+      searchTranslateX.value = withTiming(0, { duration: 250, easing }, (finished) => {
+        if (finished) {
+          runOnJS(focusSearchInput)();
+        }
+      });
+    } else {
+      searchInputRef.current?.blur();
+      searchProgress.value = withTiming(0, { duration: 200, easing });
+      searchTranslateX.value = withTiming(30, { duration: 200, easing });
+    }
+  }, [focusSearchInput, isSearchVisible, searchInputRef, searchProgress, searchTranslateX]);
 
   const allSelected = React.useMemo(() => {
     if (!processedCards.length || !selectedCardIds) return false;
@@ -178,198 +154,204 @@ export default function CardViewUI({
 
   const doneLabel = tUI(uiLanguage, 'common.done');
 
-  const listHeader = (
-    <View style={styles.headerWrap}>
-      {isBatchSelectionActive ? (
-        <View style={styles.batchTopBar}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.batchTopButton,
-              pressed ? styles.iconButtonPressed : null,
-            ]}
-            onPress={onToggleSelectAll}
-            hitSlop={8}
-          >
-            <Text
-              style={[styles.batchTopButtonText, { color: palette.textOnBg }]}
-            >
-              {selectAllLabel}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.batchTopButton,
-              styles.batchDoneButton,
-              pressed ? styles.iconButtonPressed : null,
-            ]}
-            onPress={onExitBatchSelection}
-            hitSlop={8}
-          >
-            <Text
-              style={[
-                styles.batchTopButtonText,
-                styles.batchDoneButtonText,
+  const listHeader = React.useMemo(
+    () => (
+      <View style={styles.headerWrap}>
+        {isBatchSelectionActive ? (
+          <View style={styles.batchTopBar}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.batchTopButton,
+                pressed ? styles.iconButtonPressed : null,
               ]}
+              onPress={onToggleSelectAll}
+              hitSlop={8}
             >
-              {doneLabel}
-            </Text>
-          </Pressable>
-        </View>
-      ) : (
-        <View style={styles.topNavRow}>
-        <Animated.View
-          style={[
-            styles.backAnimatedWrap,
-            { width: backWidth, opacity: backOpacity },
-          ]}
-          pointerEvents={isSearchVisible ? 'none' : 'auto'}
-        >
-          <Pressable
-            onPress={onPressBack}
-            style={({ pressed }) => [
-              styles.iconHitArea,
-              pressed ? styles.iconButtonPressed : null,
-            ]}
-          >
-            <Ionicons name="chevron-back" size={30} color={headerIconColor} />
-          </Pressable>
-        </Animated.View>
-
-        <View style={styles.topNavRightRow}>
-          <Animated.View
-            style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}
-          >
-            <Animated.View
-              style={[
-                styles.searchShell,
-                {
-                  borderColor: shellBorderColor,
-                  borderWidth: shellBorderWidth,
-                  backgroundColor: shellBackgroundColor,
-                },
-              ]}
-            >
-              <Animated.View
-                style={[
-                  styles.searchFieldWrap,
-                  {
-                    opacity: searchFieldOpacity,
-                    transform: [{ translateX: searchFieldTranslateX }],
-                  },
-                ]}
-                pointerEvents={isSearchVisible ? 'auto' : 'none'}
+              <Text
+                style={[styles.batchTopButtonText, { color: palette.textOnBg }]}
               >
-                <Ionicons
-                  name="search"
-                  size={20}
-                  color={palette.textOnBg}
-                  style={styles.searchLeadingIcon}
-                />
-                <TextInput
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChangeText={onChangeSearchQuery}
-                  placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
-                  placeholderTextColor={palette.secondaryText}
-                  style={[styles.searchInput, { color: palette.textOnBg }]}
-                  returnKeyType="search"
-                />
-              </Animated.View>
+                {selectAllLabel}
+              </Text>
+            </Pressable>
 
+            <Pressable
+              style={({ pressed }) => [
+                styles.batchTopButton,
+                styles.batchDoneButton,
+                pressed ? styles.iconButtonPressed : null,
+              ]}
+              onPress={onExitBatchSelection}
+              hitSlop={8}
+            >
+              <Text
+                style={[
+                  styles.batchTopButtonText,
+                  styles.batchDoneButtonText,
+                ]}
+              >
+                {doneLabel}
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.topNavRow}>
+            <Pressable
+              onPress={onPressBack}
+              style={({ pressed }) => [
+                styles.iconHitArea,
+                pressed ? styles.iconButtonPressed : null,
+              ]}
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={30} color={headerIconColor} />
+            </Pressable>
+
+            <View style={styles.topNavRightRow}>
               <Pressable
                 style={({ pressed }) => [
-                  styles.searchToggleButton,
+                  styles.rawIconButton,
                   pressed ? styles.iconButtonPressed : null,
                 ]}
                 onPress={onPressSearch}
+                hitSlop={8}
               >
-                <Animated.View
-                  style={[styles.iconLayer, { opacity: searchIconOpacity }]}
-                >
-                  <Ionicons name="search" size={30} color={headerIconColor} />
-                </Animated.View>
-                <Animated.View
-                  style={[
-                    styles.iconLayer,
-                    styles.iconLayerOverlay,
-                    { opacity: closeIconOpacity },
-                  ]}
-                >
-                  <Ionicons name="close" size={30} color={headerIconColor} />
-                </Animated.View>
+                <Ionicons name="search" size={30} color={headerIconColor} />
               </Pressable>
-            </Animated.View>
-          </Animated.View>
 
-          {!isSearchVisible ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.rawIconButton,
-                pressed ? styles.iconButtonPressed : null,
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rawIconButton,
+                  pressed ? styles.iconButtonPressed : null,
+                ]}
+                onPress={onPressSort}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name="swap-vertical"
+                  size={30}
+                  color={headerIconColor}
+                />
+              </Pressable>
+            </View>
+
+            <Reanimated.View
+              style={[
+                styles.searchOverlayBar,
+                {
+                  backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : 'rgba(18,29,45,0.95)',
+                  borderColor: 'rgba(78,175,244,0.45)',
+                },
+                searchOverlayStyle,
               ]}
-              onPress={onPressSort}
+              pointerEvents={isSearchVisible ? 'auto' : 'none'}
             >
               <Ionicons
-                name="swap-vertical"
-                size={30}
-                color={headerIconColor}
+                name="search"
+                size={20}
+                color={palette.textOnBg}
+                style={styles.searchLeadingIcon}
               />
-            </Pressable>
-          ) : null}
+              <TextInput
+                ref={searchInputRef}
+                value={searchQuery}
+                onChangeText={onChangeSearchQuery}
+                placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
+                placeholderTextColor={palette.secondaryText}
+                style={[styles.searchInput, { color: palette.textOnBg }]}
+                returnKeyType="search"
+              />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.searchCloseButton,
+                  pressed ? styles.iconButtonPressed : null,
+                ]}
+                onPress={onPressSearch}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={26} color={headerIconColor} />
+              </Pressable>
+            </Reanimated.View>
+          </View>
+        )}
+
+        <Text
+          style={[styles.titleText, { color: palette.textOnBg }]}
+          numberOfLines={1}
+        >
+          {albumName || tUI(uiLanguage, 'deck.madeForYou')}
+        </Text>
+
+        <View style={styles.progressRow}>
+          <View
+            style={[styles.progressDot, { backgroundColor: palette.textOnBg }]}
+          />
+          <Text style={[styles.progressText, { color: palette.secondaryText }]}>
+            {processedCards.length} {tUI(uiLanguage, 'deck.words')}
+          </Text>
+        </View>
+
+        <View style={styles.actionButtonsRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.playButton,
+              { backgroundColor: MODAL_CTA_COLOR },
+              pressed ? styles.primaryButtonPressed : null,
+            ]}
+            onPress={onPressPlay}
+          >
+            <Ionicons name="play" size={16} color={palette.screenBg} />
+            <Text style={[styles.actionButtonText, { color: palette.screenBg }]}>
+              {tUI(uiLanguage, 'deck.play')}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.tuningButton,
+              {
+                backgroundColor: palette.containerBg,
+                borderColor: palette.borderSubtle,
+              },
+              pressed ? styles.iconButtonPressed : null,
+            ]}
+            onPress={onPressReviewTuning}
+          >
+            <Ionicons
+              name="options-outline"
+              size={18}
+              color={palette.textOnContainer}
+            />
+          </Pressable>
         </View>
       </View>
-      )}
-
-      <Text
-        style={[styles.titleText, { color: palette.textOnBg }]}
-        numberOfLines={1}
-      >
-        {albumName || tUI(uiLanguage, 'deck.madeForYou')}
-      </Text>
-
-      <View style={styles.progressRow}>
-        <View
-          style={[styles.progressDot, { backgroundColor: palette.textOnBg }]}
-        />
-        <Text style={[styles.progressText, { color: palette.secondaryText }]}>
-          {processedCards.length} {tUI(uiLanguage, 'deck.words')}
-        </Text>
-      </View>
-
-      <View style={styles.actionButtonsRow}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.playButton,
-            { backgroundColor: MODAL_CTA_COLOR },
-            pressed ? styles.primaryButtonPressed : null,
-          ]}
-          onPress={onPressPlay}
-        >
-          <Ionicons name="play" size={16} color={palette.screenBg} />
-          <Text style={[styles.actionButtonText, { color: palette.screenBg }]}>
-            {tUI(uiLanguage, 'deck.play')}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [
-            styles.tuningButton,
-            {
-              backgroundColor: palette.containerBg,
-              borderColor: palette.borderSubtle,
-            },
-            pressed ? styles.iconButtonPressed : null,
-          ]}
-          onPress={onPressReviewTuning}
-        >
-          <Ionicons
-            name="options-outline"
-            size={18}
-            color={palette.textOnContainer}
-          />
-        </Pressable>
-      </View>
-    </View>
+    ),
+    [
+      albumName,
+      doneLabel,
+      headerIconColor,
+      isBatchSelectionActive,
+      isLight,
+      isSearchVisible,
+      onChangeSearchQuery,
+      onExitBatchSelection,
+      onPressBack,
+      onPressPlay,
+      onPressReviewTuning,
+      onPressSearch,
+      onPressSort,
+      onToggleSelectAll,
+      palette.borderSubtle,
+      palette.containerBg,
+      palette.screenBg,
+      palette.secondaryText,
+      palette.textOnBg,
+      palette.textOnContainer,
+      processedCards.length,
+      searchInputRef,
+      searchOverlayStyle,
+      searchQuery,
+      selectAllLabel,
+      uiLanguage,
+    ]
   );
 
   return (
@@ -568,29 +550,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   topNavRow: {
+    height: 48,
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  backAnimatedWrap: {
-    overflow: 'hidden',
+    position: 'relative',
   },
   topNavRightRow: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: 10,
   },
   iconHitArea: {
-    minWidth: 36,
-    minHeight: 36,
+    minWidth: 40,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  searchAnimatedWrap: {
-    height: 44,
   },
   rawIconButton: {
     width: 40,
@@ -599,20 +575,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  searchShell: {
-    width: '100%',
-    height: 44,
-    borderRadius: 22,
+  searchOverlayBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 12,
-    paddingRight: 6,
+    paddingLeft: 14,
+    paddingRight: 8,
+    zIndex: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  searchFieldWrap: {
-    flex: 1,
-    flexDirection: 'row',
+  searchCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    marginRight: 6,
+    justifyContent: 'center',
   },
   searchLeadingIcon: {
     marginRight: 8,
@@ -622,20 +609,7 @@ const styles = StyleSheet.create({
     height: 42,
     color: '#FFFFFF',
     paddingVertical: 0,
-  },
-  searchToggleButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconLayer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconLayerOverlay: {
-    position: 'absolute',
+    fontSize: 15,
   },
   titleText: {
     color: '#F7F8FA',

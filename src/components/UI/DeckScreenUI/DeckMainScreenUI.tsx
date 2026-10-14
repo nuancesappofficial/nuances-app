@@ -136,7 +136,14 @@ export default function DeckMainScreenUI({
   const insets = useSafeAreaInsets();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
-  const searchExpandProgress = React.useRef(new Animated.Value(0)).current;
+  const searchProgress = useSharedValue(0);
+  const searchTranslateX = useSharedValue(30);
+
+  const searchOverlayStyle = useAnimatedStyle(() => ({
+    opacity: searchProgress.value,
+    transform: [{ translateX: searchTranslateX.value }],
+  }));
+
   const todayReviewPulse = React.useRef(new Animated.Value(0)).current;
   const todayReviewWhoosh = React.useRef(new Animated.Value(0)).current;
   const [wordIndex, setWordIndex] = React.useState(0);
@@ -203,48 +210,6 @@ export default function DeckMainScreenUI({
     return 3;
   }, [todayReviewTotalCount]);
   const isTodayReviewActive = todayReviewPendingCount > 0;
-
-  const searchAnimatedWidth = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [40, maxSearchWidth],
-  });
-  const searchFieldOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 0.2, 1],
-    outputRange: [0, 0, 1],
-  });
-  const searchFieldTranslateX = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [16, 0],
-  });
-  const searchIconOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
-  const closeIconOpacity = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
-  const searchIconRotate = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '90deg'],
-  });
-  const closeIconRotate = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['-90deg', '0deg'],
-  });
-  const closeIconTranslateX = 1;
-  const searchShellBorderColor = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(78,175,244,0)', 'rgba(78,175,244,0.45)'],
-  });
-  const searchShellBackgroundColor = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(2,33,61,0)', isLight ? 'rgba(255,255,255,0.96)' : 'rgba(2,33,61,0.9)'],
-  });
-  const searchShellBorderWidth = searchExpandProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
 
   const albumPages = React.useMemo(() => {
     if (albums.length <= albumsPerPage) return [albums];
@@ -480,29 +445,33 @@ export default function DeckMainScreenUI({
     ]
   );
 
-  React.useEffect(() => {
-    Animated.timing(searchExpandProgress, {
-      toValue: isSearchExpanded ? 1 : 0,
-      duration: 240,
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (!finished) return;
-      if (isSearchExpanded) {
-        requestAnimationFrame(() => searchInputRef.current?.focus());
-      } else {
-        searchInputRef.current?.blur();
+  const focusSearchInput = React.useCallback(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  const handleSearchOpen = React.useCallback(() => {
+    setIsSearchExpanded(true);
+    const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+    searchTranslateX.value = 30;
+    searchProgress.value = withTiming(1, { duration: 250, easing });
+    searchTranslateX.value = withTiming(0, { duration: 250, easing }, (finished) => {
+      if (finished) {
+        runOnJS(focusSearchInput)();
       }
     });
-  }, [isSearchExpanded, searchExpandProgress]);
+  }, [focusSearchInput, searchProgress, searchTranslateX]);
 
-  const handleSearchToggle = React.useCallback(() => {
-    if (isSearchExpanded) {
-      onClearSearch();
-      setIsSearchExpanded(false);
-      return;
-    }
-    setIsSearchExpanded(true);
-  }, [isSearchExpanded, onClearSearch]);
+  const handleSearchClose = React.useCallback(() => {
+    onClearSearch();
+    searchInputRef.current?.blur();
+    const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+    searchProgress.value = withTiming(0, { duration: 200, easing }, (finished) => {
+      if (finished) {
+        runOnJS(setIsSearchExpanded)(false);
+      }
+    });
+    searchTranslateX.value = withTiming(30, { duration: 200, easing });
+  }, [onClearSearch, searchProgress, searchTranslateX]);
 
   const activeShowcaseItem = slideshowItems[wordIndex];
   const renderWordShowcaseSlide = (
@@ -616,89 +585,61 @@ export default function DeckMainScreenUI({
   }, [onTourTargetPress]);
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.screenBg }]} edges={['top']}>
-      <View style={[styles.topRightRow, isSearchExpanded ? styles.topRightRowExpanded : null]}>
-          {!isSearchExpanded ? (
-            <Pressable
-              style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
-              onPress={() => onPressCacheFab?.()}
-            >
-              <Image source={require('../../../../assets/app_icons/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
-            </Pressable>
-          ) : null}
-          <View style={[styles.topActionsRow, isSearchExpanded ? styles.topActionsRowExpanded : null]}>
-            <Animated.View style={[styles.searchAnimatedWrap, { width: searchAnimatedWidth }]}>
-              <Animated.View
-                style={[
-                  styles.searchInputWrap,
-                  {
-                    borderColor: searchShellBorderColor,
-                    backgroundColor: searchShellBackgroundColor,
-                    borderWidth: searchShellBorderWidth,
-                  },
-                ]}
-              >
-                <Animated.View
-                  style={[
-                    styles.searchFieldWrap,
-                    {
-                      opacity: searchFieldOpacity,
-                      transform: [{ translateX: searchFieldTranslateX }],
-                    },
-                  ]}
-                  pointerEvents={isSearchExpanded ? 'auto' : 'none'}
-                >
-                  <Ionicons name="search" size={20} color={palette.textOnContainer} style={styles.searchLeadingIcon} />
-                  <TextInput
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChangeText={onSearchChange}
-                    placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
-                    placeholderTextColor={palette.secondaryText}
-                    style={[styles.searchInput, { color: palette.textOnContainer }]}
-                    returnKeyType="search"
-                  />
-                </Animated.View>
+      <View style={styles.topRightRow}>
+        <Pressable
+          style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
+          onPress={() => onPressCacheFab?.()}
+        >
+          <Image source={require('../../../../assets/app_icons/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
+        </Pressable>
 
-                <Pressable
-                  style={({ pressed }) => [styles.searchToggleButton, pressed ? styles.deckIconButtonPressed : null]}
-                  onPress={handleSearchToggle}
-                >
-                  <Animated.View
-                    style={[
-                      styles.iconLayer,
-                      {
-                        opacity: searchIconOpacity,
-                        transform: [{ rotate: searchIconRotate }],
-                      },
-                    ]}
-                  >
-                    <Ionicons name="search" size={30} color={palette.textOnBg} />
-                  </Animated.View>
-                  <Animated.View
-                    style={[
-                      styles.iconLayer,
-                      styles.iconLayerOverlay,
-                      {
-                        opacity: closeIconOpacity,
-                        transform: [{ rotate: closeIconRotate }, { translateX: closeIconTranslateX }],
-                      },
-                    ]}
-                  >
-                    <Ionicons name="close" size={30} color={palette.textOnBg} />
-                  </Animated.View>
-                </Pressable>
-              </Animated.View>
-            </Animated.View>
+        <View style={styles.topActionsRow}>
+          <Pressable
+            style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+            onPress={handleSearchOpen}
+            hitSlop={8}
+          >
+            <Ionicons name="search" size={30} color={palette.textOnBg} />
+          </Pressable>
 
-            {!isSearchExpanded ? (
-              <Pressable
-                style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
-                onPress={onOpenCreateAlbum}
-              >
-                <Ionicons name="add" size={38} color={palette.textOnBg} />
-              </Pressable>
-            ) : null}
-          </View>
+          <Pressable
+            style={({ pressed }) => [styles.rawIconButton, pressed ? styles.deckIconButtonPressed : null]}
+            onPress={onOpenCreateAlbum}
+            hitSlop={8}
+          >
+            <Ionicons name="add" size={38} color={palette.textOnBg} />
+          </Pressable>
+        </View>
+
+        <Reanimated.View
+          style={[
+            styles.searchOverlayBar,
+            {
+              backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : 'rgba(2,33,61,0.95)',
+              borderColor: 'rgba(78,175,244,0.45)',
+            },
+            searchOverlayStyle,
+          ]}
+          pointerEvents={isSearchExpanded ? 'auto' : 'none'}
+        >
+          <Ionicons name="search" size={20} color={palette.textOnContainer} style={styles.searchLeadingIcon} />
+          <TextInput
+            ref={searchInputRef}
+            value={searchQuery}
+            onChangeText={onSearchChange}
+            placeholder={tUI(uiLanguage, 'deck.searchPlaceholder')}
+            placeholderTextColor={palette.secondaryText}
+            style={[styles.searchInput, { color: palette.textOnContainer }]}
+            returnKeyType="search"
+          />
+          <Pressable
+            style={({ pressed }) => [styles.searchCloseButton, pressed ? styles.deckIconButtonPressed : null]}
+            onPress={handleSearchClose}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={26} color={palette.textOnBg} />
+          </Pressable>
+        </Reanimated.View>
       </View>
 
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
@@ -750,7 +691,7 @@ export default function DeckMainScreenUI({
       {isSearchExpanded && searchQuery.trim().length > 0 ? (
         <Pressable
           style={[styles.searchBackdropMask, { backgroundColor: palette.searchBackdropMask }]}
-          onPress={handleSearchToggle}
+          onPress={handleSearchClose}
         />
       ) : null}
 
@@ -1033,27 +974,18 @@ const styles = StyleSheet.create({
   topRightRow: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    minHeight: 52,
+    height: 68,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     zIndex: 120,
-  },
-  topRightRowExpanded: {
-    justifyContent: 'flex-end',
-    // 展開時 brandIcon（60 高）被移除，若只靠 minHeight:52 會讓整列縮矮，
-    // 導致下方元件往上位移。固定高度與未展開時一致（60 + paddingTop 8 = 68）。
-    height: 68,
+    position: 'relative',
   },
   topActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     position: 'relative',
-  },
-  topActionsRowExpanded: {
-    flex: 1,
-    justifyContent: 'flex-end',
   },
   brandIcon: {
     width: 60,
@@ -1066,11 +998,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  searchAnimatedWrap: {
-    height: 44,
-    overflow: 'visible',
-    zIndex: 140,
-  },
   rawIconButton: {
     width: 40,
     height: 40,
@@ -1078,20 +1005,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  searchInputWrap: {
-    width: '100%',
-    height: 44,
-    borderRadius: 22,
+  searchOverlayBar: {
+    position: 'absolute',
+    top: 10,
+    left: 16,
+    right: 16,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 14,
-    paddingRight: 6,
+    paddingRight: 8,
+    zIndex: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  searchFieldWrap: {
-    flex: 1,
-    flexDirection: 'row',
+  searchCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    marginRight: 4,
+    justifyContent: 'center',
   },
   searchLeadingIcon: {
     marginRight: 10,
@@ -1101,21 +1039,6 @@ const styles = StyleSheet.create({
     color: '#FBFBFB',
     fontSize: 15,
     paddingVertical: 0,
-  },
-  searchToggleButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  iconLayer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconLayerOverlay: {
-    position: 'absolute',
   },
   albumGroupShadow: {
     alignSelf: 'center',

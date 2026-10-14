@@ -688,9 +688,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         onPressSearch={() => {
           setIsSearchVisible((prev) => {
             const next = !prev;
-            if (next) {
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            } else {
+            if (!next) {
               setSearchQuery('');
             }
             return next;
