@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
   useColorScheme,
+  useWindowDimensions,
 } from 'react-native';
 import {
   NavigationContainer,
@@ -132,7 +133,7 @@ const SyncReviewFlow = withNavBarSync(ReviewFlow);
 const SyncProfileSettingsFlow = withNavBarSync(ProfileSettingsFlow);
 const SyncProfileSettingOptionsFlow = withNavBarSync(ProfileSettingOptionsFlow);
 
-function CacheStack({
+const CacheStack = React.memo(function CacheStack({
   onSwipeEnabledChange,
   navigationRef,
 }: {
@@ -192,9 +193,15 @@ function CacheStack({
       </NavigationContainer>
     </NavigationIndependentTree>
   );
-}
+});
 
-function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledChange: (enabled: boolean) => void; navigationRef: ReturnType<typeof createNavigationContainerRef<any>> }) {
+const CardsStack = React.memo(function CardsStack({
+  onSwipeEnabledChange,
+  navigationRef,
+}: {
+  onSwipeEnabledChange: (enabled: boolean) => void;
+  navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+}) {
   const syncSwipeEnabled = React.useCallback(() => {
     if (!navigationRef.isReady()) return;
     const state = navigationRef.getRootState();
@@ -227,9 +234,9 @@ function CardsStack({ onSwipeEnabledChange, navigationRef }: { onSwipeEnabledCha
       </NavigationContainer>
     </NavigationIndependentTree>
   );
-}
+});
 
-function ProfileStack({
+const ProfileStack = React.memo(function ProfileStack({
   onSwipeEnabledChange,
   navigationRef,
   onReplayVideoTutorial,
@@ -247,6 +254,17 @@ function ProfileStack({
     onSwipeEnabledChange(routeName === 'ProfileHome');
   }, [navigationRef, onSwipeEnabledChange]);
 
+  const renderProfileHome = React.useCallback(
+    (props: any) => (
+      <ProfileMainFlow
+        {...props}
+        onReplayVideoTutorial={onReplayVideoTutorial}
+        onDevAccountDelete={onDevAccountDelete}
+      />
+    ),
+    [onReplayVideoTutorial, onDevAccountDelete]
+  );
+
   return (
     <NavigationIndependentTree>
       <NavigationContainer
@@ -263,13 +281,7 @@ function ProfileStack({
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
           <ProfileStackNav.Screen name="ProfileHome">
-            {(props) => (
-              <ProfileMainFlow
-                {...props}
-                onReplayVideoTutorial={onReplayVideoTutorial}
-                onDevAccountDelete={onDevAccountDelete}
-              />
-            )}
+            {renderProfileHome}
           </ProfileStackNav.Screen>
           <ProfileStackNav.Screen name="ProfileSettings" component={SyncProfileSettingsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
           <ProfileStackNav.Screen name="ProfileSettingOptions" component={SyncProfileSettingOptionsFlow} options={IOS_CARD_SCREEN_OPTIONS} />
@@ -278,7 +290,7 @@ function ProfileStack({
       </NavigationContainer>
     </NavigationIndependentTree>
   );
-}
+});
 
 type RootNavigatorProps = {
   isExpoGo?: boolean;
@@ -288,7 +300,17 @@ type RootNavigatorProps = {
   onDevAccountDelete?: () => Promise<void>;
 };
 
-function LiquidTabBar({ selectedTabIndex, onSelectTab, cacheBadgeCount, navBg, navBorder, navIconActive, navIconInactive, navCapsuleBg, navCapsuleBorder }: any) {
+const LiquidTabBar = React.memo(function LiquidTabBar({
+  selectedTabIndex,
+  onSelectTab,
+  cacheBadgeCount,
+  navBg,
+  navBorder,
+  navIconActive,
+  navIconInactive,
+  navCapsuleBg,
+  navCapsuleBorder,
+}: any) {
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
@@ -359,7 +381,7 @@ function LiquidTabBar({ selectedTabIndex, onSelectTab, cacheBadgeCount, navBg, n
       </View>
     </View>
   );
-}
+});
 
 export default function RootNavigator({
   isExpoGo: _isExpoGo,
@@ -369,9 +391,15 @@ export default function RootNavigator({
   onDevAccountDelete,
 }: RootNavigatorProps) {
   const appTour = useAppTour();
+  const appTourRef = React.useRef(appTour);
+  React.useEffect(() => {
+    appTourRef.current = appTour;
+  }, [appTour]);
+
   const didStartRequestedTutorialRef = React.useRef(false);
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const { width: screenWidth } = useWindowDimensions();
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
@@ -392,11 +420,7 @@ export default function RootNavigator({
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const fallbackTranslateY = React.useRef(new Animated.Value(0)).current;
 
-  const tabOpacities = React.useRef(
-    startTutorialOnMount
-      ? [new Animated.Value(0), new Animated.Value(1), new Animated.Value(0)]
-      : [new Animated.Value(1), new Animated.Value(0), new Animated.Value(0)]
-  ).current;
+  const tabPosition = React.useRef(new Animated.Value(initialTabIndex)).current;
 
   React.useEffect(() => {
     selectedTabIndexRef.current = selectedTabIndex;
@@ -407,8 +431,25 @@ export default function RootNavigator({
     if (nextIndex === selectedTabIndexRef.current) return;
     selectedTabIndexRef.current = nextIndex;
     setSelectedTabIndex(nextIndex);
-    Animated.parallel(tabOpacities.map((anim, i) => Animated.timing(anim, { toValue: i === nextIndex ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true }))).start();
-  }, [tabOpacities]);
+    tabPosition.stopAnimation();
+    if (duration === 0) {
+      tabPosition.setValue(nextIndex);
+      return;
+    }
+    Animated.timing(tabPosition, {
+      toValue: nextIndex,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tabPosition]);
+
+  const handleProfileReplayTutorial = React.useCallback(() => {
+    switchTabImmediately(1);
+    if (!appTourRef.current.isActive) {
+      appTourRef.current.startTour('replay');
+    }
+  }, [switchTabImmediately]);
 
   const onTutorialStartedRef = React.useRef(onTutorialStarted);
   React.useEffect(() => {
@@ -701,6 +742,45 @@ export default function RootNavigator({
     }).start();
   }, [shouldShowTabBar, fallbackTranslateY]);
 
+  const tabSceneStyles = React.useMemo(
+    () =>
+      [0, 1, 2].map((index) => ({
+        transform: [
+          {
+            translateX: tabPosition.interpolate({
+              inputRange: [0, 1, 2],
+              outputRange: [
+                (index - 0) * screenWidth,
+                (index - 1) * screenWidth,
+                (index - 2) * screenWidth,
+              ],
+              extrapolate: 'clamp',
+            }),
+          },
+        ],
+      })),
+    [screenWidth, tabPosition]
+  );
+
+  const handleSelectTab = React.useCallback(
+    (index: number) => {
+      if (
+        index === 0 &&
+        selectedTabIndexRef.current === 0 &&
+        cardsNavigationRef.isReady() &&
+        cardsNavigationRef.canGoBack()
+      ) {
+        cardsNavigationRef.dispatch(StackActions.popToTop());
+      } else if (index === 1) {
+        resetCacheStackToRoot();
+        switchTabImmediately(index);
+      } else {
+        switchTabImmediately(index);
+      }
+    },
+    [cardsNavigationRef, resetCacheStackToRoot, switchTabImmediately]
+  );
+
   const tabSwipeContextValue = React.useMemo(
     () => ({
       setCacheSwipeExclusionRange: (range: SwipeExclusionRange | null) => {
@@ -729,25 +809,32 @@ export default function RootNavigator({
     <TabSwipeContext.Provider value={tabSwipeContextValue}>
       <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[0], zIndex: selectedTabIndex === 0 ? 3 : 1, display: selectedTabIndex === 0 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}>
+          <Animated.View
+            style={[styles.tabScene, tabSceneStyles[0]]}
+            pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}
+            renderToHardwareTextureAndroid={true}
+            shouldRasterizeIOS={true}
+          >
             <CardsStack navigationRef={cardsNavigationRef} onSwipeEnabledChange={handleDeckRootRouteEnabledChange} />
           </Animated.View>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[1], zIndex: selectedTabIndex === 1 ? 3 : 1, display: selectedTabIndex === 1 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}>
+          <Animated.View
+            style={[styles.tabScene, tabSceneStyles[1]]}
+            pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}
+            renderToHardwareTextureAndroid={true}
+            shouldRasterizeIOS={true}
+          >
             <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
-          <Animated.View style={[styles.tabScene, { opacity: tabOpacities[2], zIndex: selectedTabIndex === 2 ? 3 : 1, display: selectedTabIndex === 2 ? 'flex' : 'none' }]} pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}>
+          <Animated.View
+            style={[styles.tabScene, tabSceneStyles[2]]}
+            pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}
+            renderToHardwareTextureAndroid={true}
+            shouldRasterizeIOS={true}
+          >
             <ProfileStack
               navigationRef={profileNavigationRef}
               onSwipeEnabledChange={handleProfileRootRouteEnabledChange}
-              onReplayVideoTutorial={() => {
-                // Rewatch now launches the interactive tutorial (sandbox mode)
-                // instead of the video tour.
-                // Original: onReplayVideoTutorial?.()
-                switchTabImmediately(1);
-                if (!appTour.isActive) {
-                  appTour.startTour('replay');
-                }
-              }}
+              onReplayVideoTutorial={handleProfileReplayTutorial}
               onDevAccountDelete={onDevAccountDelete}
             />
           </Animated.View>
@@ -756,16 +843,7 @@ export default function RootNavigator({
         <Animated.View pointerEvents={shouldShowTabBar ? 'auto' : 'none'} style={[styles.tabBarAnimatedWrap, { transform: [{ translateY: fallbackTranslateY }] }]}>
           <LiquidTabBar
             selectedTabIndex={selectedTabIndex}
-            onSelectTab={(index: number) => {
-              if (index === 0 && selectedTabIndex === 0 && cardsNavigationRef.isReady() && cardsNavigationRef.canGoBack()) {
-                cardsNavigationRef.dispatch(StackActions.popToTop());
-              } else if (index === 1) {
-                resetCacheStackToRoot();
-                switchTabImmediately(index);
-              } else {
-                switchTabImmediately(index);
-              }
-            }}
+            onSelectTab={handleSelectTab}
             cacheBadgeCount={cacheBadgeCount}
             navBg={theme.navBg}
             navBorder={theme.navBorder}
@@ -784,7 +862,7 @@ export default function RootNavigator({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#02213D' },
-  pager: { flex: 1 },
+  pager: { flex: 1, overflow: 'hidden' },
   page: { flex: 1 },
   tabScene: { ...StyleSheet.absoluteFillObject },
   tabBarOuter: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', zIndex: 200 },

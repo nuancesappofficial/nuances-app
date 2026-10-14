@@ -377,7 +377,7 @@ function HeatMapCircle({
   );
 }
 
-export default function ProfileMainScreenUI({
+function ProfileMainScreenUI({
   overlayMode = false,
   title,
   subtitle,
@@ -2292,3 +2292,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
 });
+
+const MemoizedProfileMainScreenUI = React.memo(ProfileMainScreenUI);
+export default MemoizedProfileMainScreenUI;

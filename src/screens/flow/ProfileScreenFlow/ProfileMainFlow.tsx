@@ -246,7 +246,7 @@ function getSinceSourceDate(profile: Profile | null, cards: Card[]): Date {
   return new Date();
 }
 
-export default function ProfileMainFlow({
+function ProfileMainFlow({
   navigation,
   overlayMode = false,
   onRequestClose,
@@ -723,3 +723,6 @@ export default function ProfileMainFlow({
     </>
   );
 }
+
+const MemoizedProfileMainFlow = React.memo(ProfileMainFlow);
+export default MemoizedProfileMainFlow;
