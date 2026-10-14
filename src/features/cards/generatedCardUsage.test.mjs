@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  filterUsageTextPairs,
   isPhraseSubject,
   normalizeGeneratedUsagePairs,
   resolveNormalizedPartOfSpeech,
@@ -284,4 +285,53 @@ test('fallbackExampleSentence kicks in when candidates are completely empty and 
     ],
   });
 });
+
+test('filterUsageTextPairs rejects example identical to originalSentence and deduplicates', () => {
+  const result = filterUsageTextPairs(
+    'got it covered — 搞定\nhave it covered — 處理妥當',
+    'No problem, I got it covered — 沒問題，我搞定了\nNo problem, I got it covered — 沒問題，我搞定了',
+    'covered',
+    'No problem, I got it covered'
+  );
+
+  assert.equal(result.collocations, '');
+  assert.equal(result.examples, '');
+});
+
+test('filterUsageTextPairs accepts brand-new distinct example and deduplicates identical ones', () => {
+  const result = filterUsageTextPairs(
+    'got it covered — 搞定\nhave it covered — 處理妥當',
+    'Don\'t worry about dinner, I got it covered. — 別擔心晚餐，我包了。\nDon\'t worry about dinner, I got it covered. — 別擔心晚餐，我包了。',
+    'covered',
+    'No problem, I got it covered'
+  );
+
+  assert.equal(result.collocations, 'got it covered — 搞定');
+  assert.equal(result.examples, 'Don\'t worry about dinner, I got it covered. — 別擔心晚餐，我包了。');
+});
+
+test('normalizeGeneratedUsagePairs rejects examples identical to originalSentence', () => {
+  assert.throws(
+    () => {
+      normalizeGeneratedUsagePairs(
+        {
+          usagePairs: [
+            {
+              phrase: 'got it covered',
+              translation: '搞定',
+              example: 'No problem, I got it covered',
+              exampleTranslation: '沒問題，我搞定了',
+            },
+          ],
+        },
+        'covered',
+        {
+          originalSentence: 'No problem, I got it covered',
+        }
+      );
+    },
+    /missing valid collocation and example pairs/
+  );
+});
+
 

@@ -154,7 +154,8 @@ export function exampleRealizesCollocation(sentence: string, collocation: string
 export function filterUsageTextPairs(
   collocationText: string,
   exampleText: string,
-  subject: string
+  subject: string,
+  originalSentence?: string
 ): { collocations: string; examples: string } {
   const collocations = collocationText
     .split(/[\n;]+/)
@@ -165,17 +166,32 @@ export function filterUsageTextPairs(
     .map((line) => line.trim())
     .filter(Boolean);
 
+  const normalizedOriginal = originalSentence
+    ? normalizeLexicalSequence(originalSentence)
+    : '';
+  const seenSentences = new Set<string>();
+
   const validPairs = collocations
-    .map((line, index) => ({
-      collocation: line,
-      example: examples[index] || '',
-      phrase: sourceTextFromUsageLine(line),
-      sentence: sourceTextFromUsageLine(examples[index] || ''),
-    }))
+    .map((line, index) => {
+      const sentence = sourceTextFromUsageLine(examples[index] || '');
+      const sentenceKey = normalizeLexicalSequence(sentence);
+      return {
+        collocation: line,
+        example: examples[index] || '',
+        phrase: sourceTextFromUsageLine(line),
+        sentence,
+        sentenceKey,
+      };
+    })
     .filter(({ phrase }) => isValidCollocationForSubject(phrase, subject))
-    .filter(({ example, phrase, sentence }) =>
-      Boolean(example && exampleRealizesCollocation(sentence, phrase))
-    );
+    .filter(({ example, phrase, sentence, sentenceKey }) => {
+      if (!example || !sentenceKey) return false;
+      if (normalizedOriginal && sentenceKey === normalizedOriginal) return false;
+      if (seenSentences.has(sentenceKey)) return false;
+      if (!exampleRealizesCollocation(sentence, phrase)) return false;
+      seenSentences.add(sentenceKey);
+      return true;
+    });
 
   return {
     collocations: validPairs.map(({ collocation }) => collocation).join('\n'),
@@ -316,6 +332,7 @@ export type NormalizeGeneratedUsageOptions = {
   definition?: string | null;
   isPartOfPhrase?: boolean | null;
   allowEmptyCollocations?: boolean;
+  originalSentence?: string | null;
   fallbackExampleSentence?: string | null;
   fallbackExampleTranslation?: string | null;
 };
@@ -345,16 +362,25 @@ export function normalizeGeneratedUsagePairs(
         });
       });
 
+  const normalizedOriginal = options?.originalSentence
+    ? normalizeLexicalSequence(options.originalSentence)
+    : '';
+  const seenSentences = new Set<string>();
+
   const validPairs = candidates
     .filter(({ collocation }) =>
       isValidCollocationForSubject(collocation.phrase, subject)
     )
-    .filter(({ collocation, example }) =>
-      Boolean(
-        example.sentence &&
-        exampleRealizesCollocation(example.sentence, collocation.phrase)
-      )
-    );
+    .filter(({ collocation, example }) => {
+      if (!example.sentence) return false;
+      const sentenceKey = normalizeLexicalSequence(example.sentence);
+      if (!sentenceKey) return false;
+      if (normalizedOriginal && sentenceKey === normalizedOriginal) return false;
+      if (seenSentences.has(sentenceKey)) return false;
+      if (!exampleRealizesCollocation(example.sentence, collocation.phrase)) return false;
+      seenSentences.add(sentenceKey);
+      return true;
+    });
 
   // If we have valid pairs (both collocation and example match), use them
   if (validPairs.length > 0) {
@@ -371,15 +397,19 @@ export function normalizeGeneratedUsagePairs(
   if (allowEmptyCollocations) {
     const validExamples = candidates
       .map(({ example }) => example)
-      .filter((example) =>
-        Boolean(
-          example.sentence &&
-          (
-            containsLexicalAnchors(example.sentence, subject) ||
-            (isPhrase && containsLexicalAnchors(subject, example.sentence))
-          )
-        )
-      );
+      .filter((example) => {
+        if (!example.sentence) return false;
+        const sentenceKey = normalizeLexicalSequence(example.sentence);
+        if (!sentenceKey) return false;
+        if (normalizedOriginal && sentenceKey === normalizedOriginal) return false;
+        if (seenSentences.has(sentenceKey)) return false;
+        const matchesSubject =
+          containsLexicalAnchors(example.sentence, subject) ||
+          (isPhrase && containsLexicalAnchors(subject, example.sentence));
+        if (!matchesSubject) return false;
+        seenSentences.add(sentenceKey);
+        return true;
+      });
 
     if (validExamples.length > 0) {
       return {

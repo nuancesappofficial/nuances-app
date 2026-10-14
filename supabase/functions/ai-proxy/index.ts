@@ -1274,7 +1274,8 @@ function exampleRealizesCollocation(sentence: string, collocation: string): bool
 function filterUsagePairs(
   collocationValue: unknown,
   exampleValue: unknown,
-  subject: string
+  subject: string,
+  originalSentence = ''
 ): { collocations: unknown[]; examples: unknown[] } {
   const collocations = Array.isArray(collocationValue)
     ? collocationValue
@@ -1289,17 +1290,31 @@ function filterUsagePairs(
       .map((item) => item.trim())
       .filter(Boolean);
 
+  const normalizedOriginal = originalSentence ? normalizeLexicalSequence(originalSentence) : '';
+  const seenSentences = new Set<string>();
+
   const validPairs = collocations
-    .map((collocation, index) => ({
-      collocation,
-      example: examples[index],
-      phrase: collocationPhraseFromValue(collocation),
-      sentence: exampleSentenceFromValue(examples[index]),
-    }))
+    .map((collocation, index) => {
+      const phrase = collocationPhraseFromValue(collocation);
+      const sentence = exampleSentenceFromValue(examples[index]);
+      const sentenceKey = normalizeLexicalSequence(sentence);
+      return {
+        collocation,
+        example: examples[index],
+        phrase,
+        sentence,
+        sentenceKey,
+      };
+    })
     .filter(({ phrase }) => collocationContainsSubject(phrase, subject))
-    .filter(({ example, phrase, sentence }) =>
-      Boolean(example && exampleRealizesCollocation(sentence, phrase))
-    );
+    .filter(({ example, phrase, sentence, sentenceKey }) => {
+      if (!example || !sentenceKey) return false;
+      if (normalizedOriginal && sentenceKey === normalizedOriginal) return false;
+      if (seenSentences.has(sentenceKey)) return false;
+      if (!exampleRealizesCollocation(sentence, phrase)) return false;
+      seenSentences.add(sentenceKey);
+      return true;
+    });
 
   return {
     collocations: validPairs.map(({ collocation }) => collocation),
@@ -1340,26 +1355,48 @@ function normalizeCollocations(
     .join('\n');
 }
 
-function normalizeExamples(value: unknown, limit = 1, maxTotalChars = 140): string {
+function normalizeExamples(
+  value: unknown,
+  limit = 1,
+  maxTotalChars = 140,
+  originalSentence = ''
+): string {
   const maxItemChars = Math.max(260, Math.floor(maxTotalChars / Math.max(1, limit)));
-  const normalizeExampleItem = (item: unknown): string => {
+  const normalizedOriginal = originalSentence ? normalizeLexicalSequence(originalSentence) : '';
+  const seenSentences = new Set<string>();
+
+  const normalizeExampleItem = (item: unknown): string | null => {
+    let sentence = '';
+    let translation = '';
     if (item && typeof item === 'object' && !Array.isArray(item)) {
       const record = item as Record<string, unknown>;
       const contentBudget = Math.max(240, maxItemChars - 3);
       const sentenceBudget = Math.max(120, Math.floor(contentBudget * 0.58));
       const translationBudget = Math.max(100, contentBudget - sentenceBudget);
-      const sentence = sanitizeText(
+      sentence = sanitizeText(
         record.sentence || record.example || record.source || record.text,
         sentenceBudget
       );
-      const translation = sanitizeText(
+      translation = sanitizeText(
         record.translation || record.meaning || record.translated || record.replyLanguageTranslation,
         translationBudget
       );
-      if (sentence && translation) return `${sentence} — ${translation}`;
-      return sanitizeText(sentence || translation, maxItemChars);
+    } else {
+      const raw = sanitizeText(item, maxItemChars);
+      const parts = raw.split(/\s+[—–-]\s+/);
+      sentence = parts[0]?.trim() || '';
+      translation = parts.slice(1).join(' — ').trim();
     }
-    return sanitizeText(item, maxItemChars);
+
+    if (!sentence) return null;
+    const sentenceKey = normalizeLexicalSequence(sentence);
+    if (!sentenceKey) return null;
+    if (normalizedOriginal && sentenceKey === normalizedOriginal) return null;
+    if (seenSentences.has(sentenceKey)) return null;
+    seenSentences.add(sentenceKey);
+
+    if (sentence && translation) return `${sentence} — ${translation}`;
+    return sanitizeText(sentence || translation, maxItemChars);
   };
   const rawItems = Array.isArray(value)
     ? value
@@ -1370,7 +1407,7 @@ function normalizeExamples(value: unknown, limit = 1, maxTotalChars = 140): stri
 
   return rawItems
     .map((item) => normalizeExampleItem(item))
-    .filter(Boolean)
+    .filter((item): item is string => Boolean(item))
     .slice(0, limit)
     .join('\n');
 }
@@ -1487,7 +1524,8 @@ function buildStructuredContextExplanation(params: {
   const exampleSentence = normalizeExamples(
     parsed.example || parsed.exampleSentence || parsed.naturalExample || contextObject.exampleSentence || contextObject.example,
     exampleCount,
-    exampleMaxChars
+    exampleMaxChars,
+    originalSentence
   );
 
   return JSON.stringify({
@@ -2626,7 +2664,7 @@ Canonical card subject:
 	- Proper nouns are allowed: translate/transliterate them naturally and explain only the visible sentence usage.
 	- Use one final subject consistently across every field.
 	- Each frequentCollocations.phrase must be a reusable pattern containing the final subject or its normal inflection.
-	- Each example must be a complete sentence that naturally uses the matching pattern.
+	- Each example must be a complete sentence that naturally uses the matching pattern. CRITICAL FOR EXAMPLES: Every example MUST be a brand-new distinct sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Every example MUST include a complete sentence in ${sourceLanguage.label} and a complete natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.
 	- ${lexicalDefinitionScopeInstruction}
 
 Return strict JSON with these exact keys:
@@ -2690,7 +2728,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     'Do not invent background facts for proper nouns; explain only visible sentence usage.',
     lowContextInstruction,
     `Effective subject: use "${canonicalCardSubject}" if explicit; otherwise use verified detectedPhrase; otherwise "${targetWord}". Use it consistently in all fields.`,
-    `Use ${replyLanguage.label} for sentenceTranslation, definition, and culturalBackground; examples stay in the source language.`,
+    `Use ${replyLanguage.label} for sentenceTranslation, definition, culturalBackground, and each example's translation. The example sentence text stays in ${sourceLanguage.label}, while its translation field MUST be in ${replyLanguage.label}.`,
     getSourceLanguageInstruction(sourceLanguage),
     naturalReplyLanguageInstruction,
     domainRegisterSenseInstruction,
@@ -2698,7 +2736,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     'sentenceTranslation has exactly two lines: full source sentence with quoted target, then clean translation with quoted translated target.',
     'Keep definition compact. In culturalBackground, return a strict JSON object with metrics (formality: integer 1-10 or null, intensity: integer 1-10 or null) and insider_insight. CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., \'table 是一種具備平坦表面與支柱的家具，主要用於放置物品\') without the contrast structure. IF metrics are not null, insider_insight MUST start with "相較於單純的 [Basic Synonym]，[Target Word] 帶有..." (or reply language equivalent) with BOTH [Basic Synonym] and [Target Word] kept in English verbatim. Follow the dynamic depth rules for the active mode. No generic filler.',
     `semanticRelations must match the effective subject's meaning, part of speech, and register. Return up to ${sectionBudget.synonymCount} synonym(s) and up to ${sectionBudget.antonymCount} true antonym(s); either array may be empty when no natural sense-specific relation exists. Phrase cards require related phrases. Never repeat collocations.`,
-    'Return reusable usage patterns containing the effective subject or its normal inflection. Each example must be a complete sentence using the matching pattern.',
+    `Return reusable usage patterns containing the effective subject or its normal inflection. Each example must be a brand-new complete sentence using the matching pattern, completely different from "${originalSentence}" (NEVER copy or repeat the source sentence), with a natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.`,
     modeInstruction,
     `Hard card layout limits: definition <= ${sectionBudget.definitionChars} chars, sentenceTranslation <= ${sectionBudget.sentenceTranslationChars} chars total, culturalBackground <= ${sectionBudget.contextChars} chars, example <= ${sectionBudget.exampleChars} chars total, each collocation <= ${sectionBudget.collocationChars} chars.`,
     `Return ${sectionBudget.collocationCount} collocation object(s), each paired with one matching example object, unless fewer genuinely exist.`
@@ -3160,7 +3198,8 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
   const safeUsagePairs = filterUsagePairs(
     rawFrequentCollocations,
     rawExamples,
-    safeNormalizedTargetWord || targetWord
+    safeNormalizedTargetWord || targetWord,
+    originalSentence
   );
   const safeFrequentCollocations = normalizeCollocations(
     safeUsagePairs.collocations,
@@ -3171,7 +3210,8 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
   const safeExample = normalizeExamples(
     safeUsagePairs.examples,
     sectionBudget.exampleCount,
-    sectionBudget.exampleChars
+    sectionBudget.exampleChars,
+    originalSentence
   );
   const safeSemanticRelations = normalizeSemanticRelations(
     parsed.semanticRelations || parsed.semantic_relations,
@@ -3267,7 +3307,7 @@ async function handleGenerateCardStream(payload: GenerateCardPayload): Promise<R
     'For English/Latin source text use English curly quotes “...”, never Chinese quotes.',
     'For low-context input use the neutral common meaning. Otherwise use the local in-sentence meaning by default.',
     `semanticRelations must match the effective subject's meaning, part of speech, and register. Return up to ${sectionBudget.synonymCount} synonym(s) and up to ${sectionBudget.antonymCount} true antonym(s); either array may be empty when no natural sense-specific relation exists. Phrase cards require related phrases. Never repeat collocations.`,
-    'Return reusable usage patterns containing the final subject or its normal inflection. Each example must be a complete sentence using the matching pattern.',
+    `Return reusable usage patterns containing the final subject or its normal inflection. Each example must be a brand-new complete sentence using the matching pattern, completely different from "${originalSentence}" (NEVER copy or repeat the source sentence), with a natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.`,
     `Hard limits: definition <= ${sectionBudget.definitionChars} chars, sentenceTranslation <= ${sectionBudget.sentenceTranslationChars} chars, culturalBackground <= ${sectionBudget.contextChars} chars.`,
     `Return ${sectionBudget.collocationCount} collocation object(s), each paired with one matching example object, unless fewer genuinely exist.`,
     modeInstruction,
@@ -3286,7 +3326,7 @@ Instructions:
 - Proper nouns are allowed: translate/transliterate them naturally and explain only visible sentence usage.
 - sentenceTranslation line 1 must be complete and quote the effective subject; English/Latin uses “...”.
 - Return ${sectionBudget.collocationCount} reusable usage pattern(s) containing the effective subject or its normal inflection, unless fewer genuinely exist.
-- Each example must be a complete sentence using the matching usage pattern.
+- Each example must be a complete sentence using the matching usage pattern. CRITICAL FOR EXAMPLES: Every example MUST be a brand-new distinct sentence completely different from the source sentence "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Every example MUST include a complete sentence in ${sourceLanguage.label} and a complete natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.
 - ${getLexicalDefinitionScopeInstruction(replyLanguage)}
 
 Return JSON with exactly these keys:

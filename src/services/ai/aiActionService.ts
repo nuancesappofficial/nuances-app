@@ -816,14 +816,11 @@ async function streamAndNormalizeEnrichmentWithRetry(
   console.warn('[AI][pipeline] enrichment attempts exhausted, falling back to minimal card usage', {
     lastError: lastError instanceof Error ? lastError.message : String(lastError),
   });
-  const fallbackExample = payload.originalSentence
-    ? [{ sentence: payload.originalSentence, translation: core.sentenceTranslation || '' }]
-    : [];
   return {
     enrichment: {
       culturalBackground: '',
       frequentCollocations: [],
-      example: fallbackExample,
+      example: [],
     },
   };
 }

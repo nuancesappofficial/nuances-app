@@ -605,7 +605,8 @@ function buildPartialGhostCard(params: {
   const usagePairs = filterUsageTextPairs(
     fields.frequentCollocations || '',
     fields.example || '',
-    displayWord
+    displayWord,
+    sourceSentence
   );
   const cultural = JSON.stringify({
     sentenceTranslation,
