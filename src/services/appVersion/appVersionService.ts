@@ -8,6 +8,17 @@ const DEFAULT_APP_STORE_URL = (
   process.env.EXPO_PUBLIC_APP_STORE_URL ||
   'https://apps.apple.com/app/id6772143495'
 ).trim();
+const DEFAULT_PLAY_STORE_URL = (
+  process.env.EXPO_PUBLIC_PLAY_STORE_URL ||
+  'https://play.google.com/store/apps/details?id=com.jeffenglishlearning.nuances'
+).trim();
+
+function getDefaultUpdateUrl(): string | null {
+  if (Platform.OS === 'android') {
+    return DEFAULT_PLAY_STORE_URL || null;
+  }
+  return DEFAULT_APP_STORE_URL || null;
+}
 
 type PlatformKey = 'ios' | 'android';
 
@@ -52,7 +63,9 @@ function getCurrentBuildNumber(): number | null {
   return normalizeBuildNumber(
     Application.nativeBuildVersion ||
     Constants.expoConfig?.ios?.buildNumber ||
-    null
+    (Constants.expoConfig?.android?.versionCode != null
+      ? String(Constants.expoConfig.android.versionCode)
+      : null)
   );
 }
 
@@ -120,7 +133,7 @@ function buildStatus(
   const minimumSupportedVersion = policy.minimum_supported_version?.trim() || null;
   const latestBuildNumber = normalizeBuildNumber(policy.latest_build_number);
   const minimumSupportedBuildNumber = normalizeBuildNumber(policy.minimum_supported_build_number);
-  const updateUrl = policy.update_url?.trim() || DEFAULT_APP_STORE_URL || null;
+  const updateUrl = policy.update_url?.trim() || getDefaultUpdateUrl();
   const belowMinimum = minimumSupportedVersion
     ? compareVersions(currentVersion, minimumSupportedVersion) < 0
     : false;
@@ -138,6 +151,7 @@ function buildStatus(
     isSameMarketingVersion(currentVersion, latestVersion) &&
     currentBuildNumber < latestBuildNumber;
   const isRequired = Boolean(policy.required || belowMinimum || belowMinimumBuild || belowLatestBuild);
+  const storeName = Platform.OS === 'android' ? 'Google Play' : 'the App Store';
 
   return {
     shouldPrompt: belowMinimum || belowLatest || belowMinimumBuild || belowLatestBuild,
@@ -153,8 +167,8 @@ function buildStatus(
     message:
       policy.message_body?.trim() ||
       (isRequired
-        ? 'Please update Nuances from the App Store to continue using the latest supported version.'
-        : 'A newer version of Nuances is available. Update from the App Store for the latest fixes and improvements.'),
+        ? `Please update Nuances from ${storeName} to continue using the latest supported version.`
+        : `A newer version of Nuances is available. Update from ${storeName} for the latest fixes and improvements.`),
   };
 }
 

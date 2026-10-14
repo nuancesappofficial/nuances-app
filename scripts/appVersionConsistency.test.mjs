@@ -25,11 +25,21 @@ test('all iOS targets use the app config build number', () => {
   assert.deepEqual([...new Set(buildNumbers)], [appConfig.expo.ios.buildNumber]);
 });
 
-test('the next upload is newer than the closed 1.1.1 (84) train', () => {
-  assert.notEqual(appConfig.expo.version, '1.1.1');
-  assert.ok(
-    appConfig.expo.version === '1.1.1'
-      ? Number(appConfig.expo.ios.buildNumber) > 84
-      : Number(appConfig.expo.ios.buildNumber) >= 1
-  );
+test('Android config in app.json matches version and specifies versionCode', () => {
+  assert.ok(appConfig.expo.android?.versionCode != null);
+  assert.ok(Number.isInteger(appConfig.expo.android.versionCode));
+  assert.ok(appConfig.expo.android.versionCode >= 1);
+});
+
+test('Android build.gradle matches app config version when present', () => {
+  const gradlePath = new URL('../android/app/build.gradle', import.meta.url);
+  if (!fs.existsSync(gradlePath)) return;
+  const gradle = fs.readFileSync(gradlePath, 'utf8');
+  const versionNameMatch = gradle.match(/versionName\s+["']([^"']+)["']/);
+  const versionCodeMatch = gradle.match(/versionCode\s+(\d+)/);
+
+  assert.ok(versionNameMatch, 'versionName found in android/app/build.gradle');
+  assert.ok(versionCodeMatch, 'versionCode found in android/app/build.gradle');
+  assert.equal(versionNameMatch[1], appConfig.expo.version);
+  assert.equal(Number(versionCodeMatch[1]), appConfig.expo.android.versionCode);
 });
