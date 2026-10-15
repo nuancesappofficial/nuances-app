@@ -21,18 +21,15 @@ export function getGreetingVideoHeight(windowHeight: number): number {
 
 export function getGreetingVideoWidth(
   videoHeight: number,
-  platform: string = 'ios'
+  _platform: string = 'ios'
 ): number {
-  if (platform === 'android') {
-    return Math.round(videoHeight * (9 / 16));
-  }
-  return Math.round(videoHeight * 0.48);
+  return Math.round(videoHeight * (9 / 16));
 }
 
 export function shouldShowGreetingPhoneSpeaker(
-  platform: string = 'ios'
+  _platform: string = 'ios'
 ): boolean {
-  return platform !== 'android';
+  return false;
 }
 
 export function getGreetingVideoContentFit(): 'contain' {

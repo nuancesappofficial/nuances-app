@@ -25,17 +25,17 @@ test('the Greeting gives the raw video a larger responsive frame', () => {
   assert.equal(getGreetingVideoHeight(874), 454);
   assert.equal(getGreetingVideoHeight(667), 347);
   assert.equal(getGreetingVideoHeight(450), 260);
-  assert.equal(getGreetingVideoWidth(480), 230);
-  assert.equal(getGreetingVideoWidth(347), 167);
-  assert.equal(getGreetingVideoWidth(480, 'ios'), 230);
+  assert.equal(getGreetingVideoWidth(480), 270);
+  assert.equal(getGreetingVideoWidth(347), 195);
+  assert.equal(getGreetingVideoWidth(480, 'ios'), 270);
   assert.equal(getGreetingVideoWidth(480, 'android'), 270);
   assert.equal(getGreetingVideoWidth(347, 'android'), 195);
 });
 
-test('the Greeting hides phone speaker cutout on android', () => {
-  assert.equal(shouldShowGreetingPhoneSpeaker('ios'), true);
+test('the Greeting hides phone speaker cutout on all platforms', () => {
+  assert.equal(shouldShowGreetingPhoneSpeaker('ios'), false);
   assert.equal(shouldShowGreetingPhoneSpeaker('android'), false);
-  assert.equal(shouldShowGreetingPhoneSpeaker(), true);
+  assert.equal(shouldShowGreetingPhoneSpeaker(), false);
 });
 
 test('the Greeting loops the Share Sheet demonstration only while visible', () => {

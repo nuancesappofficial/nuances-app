@@ -19,12 +19,15 @@ import {
 } from '../../../features/tour/tutorialPresentation';
 import { resolveThemeColors } from '../../../theme/colors';
 
-const SHARE_SHEET_VIDEO_IOS = require('../../../../assets/tutorial/raw/Chinese/01_share_or_capture.mov');
-const SHARE_SHEET_VIDEO_ANDROID = require('../../../../assets/tutorial/raw/android_share_v1.mp4');
+const SHARE_SHEET_VIDEO_IOS = require('../../../../assets/tutorial/raw/ios_share_final_1080p60.mp4');
+const SHARE_SHEET_VIDEO_ANDROID = require('../../../../assets/tutorial/raw/android_share_final_1080p60.mp4');
+
+const ANDROID_PLAYTHROUGH_DURATION_MS = 7200;
+const IOS_PLAYTHROUGH_DURATION_MS = 7850;
 
 type Props = {
   visible: boolean;
-  title: string;
+  title?: string;
   body?: string;
   shareLabel?: string;
   uploadLabel: string;
@@ -36,7 +39,6 @@ type Props = {
 
 export default function TourCompletionGreetingUI({
   visible,
-  title,
   uploadLabel,
   onShare,
   onClose,
@@ -56,7 +58,11 @@ export default function TourCompletionGreetingUI({
     ? SHARE_SHEET_VIDEO_ANDROID
     : SHARE_SHEET_VIDEO_IOS;
 
-  const [videoEnded, setVideoEnded] = React.useState(!isAndroid);
+  const [videoEnded, setVideoEnded] = React.useState(false);
+
+  const playthroughDurationMs = isAndroid
+    ? ANDROID_PLAYTHROUGH_DURATION_MS
+    : IOS_PLAYTHROUGH_DURATION_MS;
 
   const player = useVideoPlayer(videoSource, (nextPlayer) => {
     nextPlayer.audioMixingMode = 'mixWithOthers';
@@ -65,11 +71,6 @@ export default function TourCompletionGreetingUI({
   });
 
   React.useEffect(() => {
-    if (!isAndroid) {
-      setVideoEnded(true);
-      return;
-    }
-
     if (!visible) {
       setVideoEnded(false);
       return;
@@ -80,16 +81,16 @@ export default function TourCompletionGreetingUI({
       setVideoEnded(true);
     });
 
-    // Show continue button after first playthrough (7.2s) while video keeps looping
+    // Show continue button after first playthrough while video keeps looping
     const timer = setTimeout(() => {
       setVideoEnded(true);
-    }, 7200);
+    }, playthroughDurationMs);
 
     return () => {
       sub?.remove();
       clearTimeout(timer);
     };
-  }, [isAndroid, player, visible]);
+  }, [player, playthroughDurationMs, visible]);
 
   React.useEffect(() => {
     player.loop = playback.loop;
@@ -118,21 +119,15 @@ export default function TourCompletionGreetingUI({
         <View
           style={[
             styles.card,
-            isAndroid && styles.androidCard,
             {
               backgroundColor: palette.modalBg,
               borderColor: palette.modalOptionBorder,
             },
           ]}
         >
-          {!isAndroid && (
-            <Text style={[styles.title, { color: palette.textOnContainer }]}>
-              {title}
-            </Text>
-          )}
           <View
             style={[
-              isAndroid ? styles.androidVideoFrame : styles.videoFrame,
+              styles.videoFrame,
               {
                 height: videoHeight,
                 width: videoWidth,
@@ -140,7 +135,7 @@ export default function TourCompletionGreetingUI({
             ]}
           >
             {showSpeaker && <View style={styles.phoneSpeaker} />}
-            <View style={isAndroid ? styles.androidVideoViewport : styles.videoViewport}>
+            <View style={styles.videoViewport}>
               <VideoView
                 player={player}
                 nativeControls={false}
@@ -172,33 +167,21 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  androidCard: {
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 16,
   },
-  androidVideoFrame: {
+  videoFrame: {
     alignSelf: 'center',
     overflow: 'hidden',
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
   },
-  androidVideoViewport: {
+  videoViewport: {
     flex: 1,
     overflow: 'hidden',
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
-  },
-  title: {
-    fontSize: 26,
-    lineHeight: 32,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 16,
   },
   primaryButton: {
     minHeight: 52,
@@ -214,18 +197,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
-  videoFrame: {
-    alignSelf: 'center',
-    padding: 6,
-    overflow: 'hidden',
-    borderRadius: 32,
-    backgroundColor: '#020617',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 0.28,
-    shadowRadius: 22,
-    elevation: 14,
-  },
   phoneSpeaker: {
     position: 'absolute',
     top: 11,
@@ -235,12 +206,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#000000',
     zIndex: 2,
-  },
-  videoViewport: {
-    flex: 1,
-    overflow: 'hidden',
-    borderRadius: 27,
-    backgroundColor: '#000000',
   },
   video: {
     flex: 1,
