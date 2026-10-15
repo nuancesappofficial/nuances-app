@@ -2663,7 +2663,7 @@ Canonical card subject:
 	- Otherwise respect the requested subject "${canonicalCardSubject}".
 	- Proper nouns are allowed: translate/transliterate them naturally and explain only the visible sentence usage.
 	- Use one final subject consistently across every field.
-	- Each frequentCollocations.phrase must be a reusable pattern containing the final subject or its normal inflection.
+	- Each frequentCollocations.phrase must be a reusable pattern explicitly containing the exact card subject "${canonicalCardSubject || targetWord}" verbatim. Do not omit inflectional endings (e.g., if the subject is "covered", phrases must contain "covered", not just "cover").
 	- Each example must be a complete sentence that naturally uses the matching pattern. CRITICAL FOR EXAMPLES: Every example MUST be a brand-new distinct sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Every example MUST include a complete sentence in ${sourceLanguage.label} and a complete natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.
 	- ${lexicalDefinitionScopeInstruction}
 
@@ -3325,7 +3325,7 @@ Instructions:
 - ${CARD_SUBJECT_SELECTION_INSTRUCTION}
 - Proper nouns are allowed: translate/transliterate them naturally and explain only visible sentence usage.
 - sentenceTranslation line 1 must be complete and quote the effective subject; English/Latin uses “...”.
-- Return ${sectionBudget.collocationCount} reusable usage pattern(s) containing the effective subject or its normal inflection, unless fewer genuinely exist.
+- Return ${sectionBudget.collocationCount} reusable usage pattern(s) explicitly containing the effective subject "${canonicalCardSubject || targetWord}" verbatim without omitting inflectional endings, unless fewer genuinely exist.
 - Each example must be a complete sentence using the matching usage pattern. CRITICAL FOR EXAMPLES: Every example MUST be a brand-new distinct sentence completely different from the source sentence "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Every example MUST include a complete sentence in ${sourceLanguage.label} and a complete natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.
 - ${getLexicalDefinitionScopeInstruction(replyLanguage)}
 
@@ -3883,8 +3883,8 @@ Meaning here in ${replyLanguage.label}: "${definition}"
      2. ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., 'table', 'oxygen', 'keyboard') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., 'table 是一種具備平坦表面與支柱的家具，主要用於放置物品') without the contrast structure.
    - CRITICAL BASE RULE: IF metrics are not null, insider_insight MUST contrast the target word with a basic synonym and start with "相較於單純的 [Basic Synonym]，[Target Word] 帶有..." (or "比起單純的 [Basic Synonym]，[Target Word] 帶有...", or reply language equivalent, e.g. "Compared to just [Basic Synonym], [Target Word] carries..."). BOTH [Basic Synonym] and [Target Word] MUST stay in English verbatim. No dictionary definitions. No generic endings.
    - ${depthRule}
-2. Choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s), unless fewer genuinely exist, and give the natural ${replyLanguage.label} meaning of each.
-3. Write one complete ${sourceLanguage.label} example sentence per collocation. CRITICAL: The example MUST be a brand-new sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Then give the complete ${replyLanguage.label} translation.
+2. Choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s), unless fewer genuinely exist, and give the natural ${replyLanguage.label} meaning of each. CRITICAL FOR COLLOCATIONS: Every collocation phrase MUST explicitly contain the exact target subject ("${canonicalSubject}") or target word ("${targetWord}") verbatim. If the subject is an inflected form like "covered", phrases MUST contain "covered" (e.g. "got you covered", "have it covered"), NEVER a truncated form like "cover" that omits the inflection.
+3. Write one complete ${sourceLanguage.label} example sentence per collocation. CRITICAL FOR EXAMPLES: The example MUST naturally use that exact collocation and MUST be a brand-new sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Then give the complete ${replyLanguage.label} translation.
 4. Give up to ${sectionBudget.synonymCount} sense-specific synonym(s) and ${sectionBudget.antonymCount} true antonym(s), only when they naturally exist.
 ${isLowContextSource ? 'For a standalone lookup, use common usage for the resolved meaning.' : ''}
 

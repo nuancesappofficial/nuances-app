@@ -65,12 +65,8 @@ export function useCacheSwipeActions(params: Params) {
         hideCacheCardImmediately(itemId);
         return;
       }
-
-      if (isImageCacheCard(target)) {
-        hideCacheCardFromStack(itemId);
-      }
     },
-    [appTour, cards, hideCacheCardFromStack, hideCacheCardImmediately, isImageCacheCard]
+    [appTour, cards, hideCacheCardImmediately]
   );
 
   const handleCardSwipe = React.useCallback(

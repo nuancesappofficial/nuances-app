@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   View,
   useColorScheme,
-  useWindowDimensions,
 } from 'react-native';
 import {
   NavigationContainer,
@@ -18,7 +17,12 @@ import {
   StackActions,
   createNavigationContainerRef,
 } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import {
+  CardStyleInterpolators,
+  TransitionPresets,
+  createStackNavigator,
+  type StackNavigationOptions,
+} from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
@@ -91,10 +95,11 @@ const APP_DARK_THEME = {
   },
 };
 
-const IOS_CARD_SCREEN_OPTIONS = {
-  presentation: 'card' as const,
+const IOS_CARD_SCREEN_OPTIONS: StackNavigationOptions = {
+  presentation: 'card',
   gestureEnabled: true,
   gestureResponseDistance: 28,
+  ...TransitionPresets.SlideFromRightIOS,
 };
 
 function getActiveRouteName(state?: unknown): string | null {
@@ -110,15 +115,6 @@ function getActiveRouteName(state?: unknown): string | null {
 
 function withNavBarSync<P extends object>(Component: React.ComponentType<P>) {
   return function WrappedComponent(props: P) {
-    const tabSwipeContext = React.useContext(TabSwipeContext);
-
-    React.useEffect(() => {
-      tabSwipeContext?.setTabBarHidden?.(true);
-      return () => {
-        tabSwipeContext?.setTabBarHidden?.(false);
-      };
-    }, [tabSwipeContext]);
-
     return <Component {...props} />;
   };
 }
@@ -140,13 +136,41 @@ const CacheStack = React.memo(function CacheStack({
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
 }) {
-  const syncSwipeEnabled = React.useCallback(() => {
-    if (!navigationRef.isReady()) return;
-    const state = navigationRef.getRootState();
-    const routeName = getActiveRouteName(state);
-    const isRootRoute = routeName === 'CacheList';
-    onSwipeEnabledChange(isRootRoute);
-  }, [navigationRef, onSwipeEnabledChange]);
+  const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateSwipeState = React.useCallback(
+    (immediateIfRoot = false) => {
+      if (!navigationRef.isReady()) return;
+      const state = navigationRef.getRootState();
+      const routeName = getActiveRouteName(state);
+      const isRootRoute = routeName === 'CacheList' || routeName === null;
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+      if (!isRootRoute) {
+        onSwipeEnabledChange(false);
+      } else if (immediateIfRoot) {
+        onSwipeEnabledChange(true);
+      } else {
+        // Delay restoring the tab bar until the ~400ms back transition finishes
+        swipeRestoreTimerRef.current = setTimeout(() => {
+          swipeRestoreTimerRef.current = null;
+          onSwipeEnabledChange(true);
+        }, 420);
+      }
+    },
+    [navigationRef, onSwipeEnabledChange]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <NavigationIndependentTree>
@@ -154,14 +178,14 @@ const CacheStack = React.memo(function CacheStack({
         ref={navigationRef}
         theme={APP_DARK_THEME}
         onReady={() => onSwipeEnabledChange(true)}
-        onStateChange={(state) => {
-          const routeName = getActiveRouteName(state);
-          onSwipeEnabledChange(routeName === 'CacheList');
-        }}
+        onStateChange={() => updateSwipeState(false)}
       >
         <CacheStackNav.Navigator
           screenOptions={{ headerShown: false, gestureEnabled: false }}
-          screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
+          screenListeners={{
+            transitionStart: () => updateSwipeState(false),
+            transitionEnd: () => updateSwipeState(true),
+          }}
         >
           <CacheStackNav.Screen name="CacheList" component={CacheScreenFlow} />
           <CacheStackNav.Screen
@@ -186,9 +210,9 @@ const CacheStack = React.memo(function CacheStack({
           <CacheStackNav.Screen
             name="CreateCard"
             component={SyncCreateCardFlow}
-            options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }}
+            options={IOS_CARD_SCREEN_OPTIONS}
           />
-          <CacheStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: true, gestureResponseDistance: 28 }} />
+          <CacheStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={IOS_CARD_SCREEN_OPTIONS} />
         </CacheStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>
@@ -225,11 +249,18 @@ const CardsStack = React.memo(function CardsStack({
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
           <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
-          <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="AlbumView" component={SyncAlbumViewFlow} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={{ presentation: 'card', gestureEnabled: Platform.OS === 'ios', gestureResponseDistance: 28 }} />
-          <CardsStackNav.Screen name="DayView" component={SyncDayViewFlow} options={{ presentation: 'card' }} />
-          <CardsStackNav.Screen name="CardReview" component={SyncReviewFlow} options={{ presentation: 'card' }} />
+          <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen name="AlbumView" component={SyncAlbumViewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen
+            name="CardDetail"
+            component={SyncCardDetailFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
+          <CardsStackNav.Screen name="DayView" component={SyncDayViewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen name="CardReview" component={SyncReviewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
         </CardsStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>
@@ -399,7 +430,6 @@ export default function RootNavigator({
   const didStartRequestedTutorialRef = React.useRef(false);
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
-  const { width: screenWidth } = useWindowDimensions();
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
@@ -412,6 +442,7 @@ export default function RootNavigator({
   // 直接以 cache 作為初始 tab，避免先顯示 Deck 再延遲切換造成閃爍。
   const initialTabIndex = startTutorialOnMount ? 1 : 0;
   const [selectedTabIndex, setSelectedTabIndex] = React.useState(initialTabIndex);
+  const [settledTabIndex, setSettledTabIndex] = React.useState(initialTabIndex);
   const selectedTabIndexRef = React.useRef(initialTabIndex);
   const [cacheBadgeCount, setCacheBadgeCount] = React.useState(0);
   const [tabRootRouteEnabledMap, setTabRootRouteEnabledMap] = React.useState<Record<number, boolean>>({ 0: true, 1: true, 2: true });
@@ -420,29 +451,70 @@ export default function RootNavigator({
   const cacheAddActionHandlerRef = React.useRef<(() => void) | null>(null);
   const fallbackTranslateY = React.useRef(new Animated.Value(0)).current;
 
-  const tabPosition = React.useRef(new Animated.Value(initialTabIndex)).current;
+  const tabOpacities = React.useRef(
+    startTutorialOnMount
+      ? [new Animated.Value(0), new Animated.Value(1), new Animated.Value(0)]
+      : [new Animated.Value(1), new Animated.Value(0), new Animated.Value(0)]
+  ).current;
 
   React.useEffect(() => {
     selectedTabIndexRef.current = selectedTabIndex;
   }, [selectedTabIndex]);
 
-  const switchTabImmediately = React.useCallback((index: number, duration = 260) => {
-    const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
-    if (nextIndex === selectedTabIndexRef.current) return;
-    selectedTabIndexRef.current = nextIndex;
-    setSelectedTabIndex(nextIndex);
-    tabPosition.stopAnimation();
-    if (duration === 0) {
-      tabPosition.setValue(nextIndex);
-      return;
-    }
-    Animated.timing(tabPosition, {
-      toValue: nextIndex,
-      duration,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [tabPosition]);
+  const [outgoingTabIndex, setOutgoingTabIndex] = React.useState<number | null>(null);
+  const outgoingTabIndexRef = React.useRef<number | null>(null);
+
+  const switchTabImmediately = React.useCallback(
+    (index: number, duration = 150) => {
+      const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
+      const fromIndex = selectedTabIndexRef.current;
+      if (nextIndex === fromIndex) return;
+
+      selectedTabIndexRef.current = nextIndex;
+      outgoingTabIndexRef.current = fromIndex;
+      setOutgoingTabIndex(fromIndex);
+      setSelectedTabIndex(nextIndex);
+
+      // Stop any ongoing animations
+      tabOpacities.forEach((anim) => anim.stopAnimation());
+
+      // Ensure any unused tab is completely hidden
+      [0, 1, 2].forEach((i) => {
+        if (i !== fromIndex && i !== nextIndex) {
+          tabOpacities[i].setValue(0);
+        }
+      });
+
+      // Outgoing tab stays 100% opaque underneath (zero offscreen alpha layer on Android)
+      tabOpacities[fromIndex].setValue(1);
+
+      if (duration === 0) {
+        tabOpacities[nextIndex].setValue(1);
+        tabOpacities[fromIndex].setValue(0);
+        outgoingTabIndexRef.current = null;
+        setOutgoingTabIndex(null);
+        setSettledTabIndex(nextIndex);
+        return;
+      }
+
+      // ONLY the incoming tab fades in over the outgoing tab (0 -> 1)
+      tabOpacities[nextIndex].setValue(0);
+      Animated.timing(tabOpacities[nextIndex], {
+        toValue: 1,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          tabOpacities[fromIndex].setValue(0);
+          outgoingTabIndexRef.current = null;
+          setOutgoingTabIndex(null);
+          setSettledTabIndex(nextIndex);
+        }
+      });
+    },
+    [tabOpacities]
+  );
 
   const handleProfileReplayTutorial = React.useCallback(() => {
     switchTabImmediately(1);
@@ -742,26 +814,6 @@ export default function RootNavigator({
     }).start();
   }, [shouldShowTabBar, fallbackTranslateY]);
 
-  const tabSceneStyles = React.useMemo(
-    () =>
-      [0, 1, 2].map((index) => ({
-        transform: [
-          {
-            translateX: tabPosition.interpolate({
-              inputRange: [0, 1, 2],
-              outputRange: [
-                (index - 0) * screenWidth,
-                (index - 1) * screenWidth,
-                (index - 2) * screenWidth,
-              ],
-              extrapolate: 'clamp',
-            }),
-          },
-        ],
-      })),
-    [screenWidth, tabPosition]
-  );
-
   const handleSelectTab = React.useCallback(
     (index: number) => {
       if (
@@ -772,14 +824,19 @@ export default function RootNavigator({
       ) {
         cardsNavigationRef.dispatch(StackActions.popToTop());
       } else if (index === 1) {
-        resetCacheStackToRoot();
-        switchTabImmediately(index);
+        if (selectedTabIndexRef.current === 1 && cacheNavigationRef.isReady() && cacheNavigationRef.canGoBack()) {
+          resetCacheStackToRoot();
+        } else {
+          switchTabImmediately(index);
+        }
       } else {
         switchTabImmediately(index);
       }
     },
-    [cardsNavigationRef, resetCacheStackToRoot, switchTabImmediately]
+    [cardsNavigationRef, cacheNavigationRef, resetCacheStackToRoot, switchTabImmediately]
   );
+
+  const isCacheSettledActive = settledTabIndex === 1;
 
   const tabSwipeContextValue = React.useMemo(
     () => ({
@@ -801,8 +858,9 @@ export default function RootNavigator({
       triggerCacheAddAction: () => cacheAddActionHandlerRef.current?.(),
       setTabBarHidden: setTabBarForcedHidden,
       fallbackTranslateY,
+      isCacheTabActive: isCacheSettledActive,
     }),
-    [fallbackTranslateY, openMembershipPaywall, switchTabImmediately]
+    [fallbackTranslateY, isCacheSettledActive, openMembershipPaywall, switchTabImmediately]
   );
 
   return (
@@ -810,26 +868,38 @@ export default function RootNavigator({
       <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
           <Animated.View
-            style={[styles.tabScene, tabSceneStyles[0]]}
+            style={[
+              styles.tabScene,
+              {
+                opacity: tabOpacities[0],
+                zIndex: selectedTabIndex === 0 ? 3 : outgoingTabIndex === 0 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}
-            renderToHardwareTextureAndroid={true}
-            shouldRasterizeIOS={true}
           >
             <CardsStack navigationRef={cardsNavigationRef} onSwipeEnabledChange={handleDeckRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View
-            style={[styles.tabScene, tabSceneStyles[1]]}
+            style={[
+              styles.tabScene,
+              {
+                opacity: tabOpacities[1],
+                zIndex: selectedTabIndex === 1 ? 3 : outgoingTabIndex === 1 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}
-            renderToHardwareTextureAndroid={true}
-            shouldRasterizeIOS={true}
           >
             <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
           </Animated.View>
           <Animated.View
-            style={[styles.tabScene, tabSceneStyles[2]]}
+            style={[
+              styles.tabScene,
+              {
+                opacity: tabOpacities[2],
+                zIndex: selectedTabIndex === 2 ? 3 : outgoingTabIndex === 2 ? 2 : 1,
+              },
+            ]}
             pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}
-            renderToHardwareTextureAndroid={true}
-            shouldRasterizeIOS={true}
           >
             <ProfileStack
               navigationRef={profileNavigationRef}

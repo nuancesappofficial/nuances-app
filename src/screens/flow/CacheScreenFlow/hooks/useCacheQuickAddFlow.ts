@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
@@ -328,6 +328,7 @@ export function useCacheQuickAddFlow({
     const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
     const cancelledSwipeItemId =
       cropperFlowTarget === 'swipe-image' ? pendingSwipeImageItem?.id ?? null : null;
+    pendingCroppedNavigationRef.current = null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);
@@ -344,7 +345,7 @@ export function useCacheQuickAddFlow({
 
   const pendingCroppedNavigationRef = React.useRef<(() => void) | null>(null);
 
-  const handleUploadCropDismiss = React.useCallback(() => {
+  const executePendingCroppedNavigation = React.useCallback(() => {
     const action = pendingCroppedNavigationRef.current;
     pendingCroppedNavigationRef.current = null;
     if (action) {
@@ -354,6 +355,10 @@ export function useCacheQuickAddFlow({
       });
     }
   }, []);
+
+  const handleUploadCropDismiss = React.useCallback(() => {
+    executePendingCroppedNavigation();
+  }, [executePendingCroppedNavigation]);
 
   const handleUploadCropConfirm = React.useCallback(
     async (croppedUri: string) => {
@@ -397,6 +402,19 @@ export function useCacheQuickAddFlow({
         setPendingSwipeImageItem(null);
         setCropperFlowTarget('quick-add');
         setShowUploadCropper(false);
+
+        if (Platform.OS === 'android') {
+          // Android Modal does not trigger onDismiss; wait for modal slide-down animation to finish (~180ms)
+          // so CreateCard's horizontal slide-in transition is fully visible and not hidden behind the fading modal
+          setTimeout(() => {
+            executePendingCroppedNavigation();
+          }, 180);
+        } else {
+          // iOS safety fallback in case onDismiss does not fire
+          setTimeout(() => {
+            executePendingCroppedNavigation();
+          }, 350);
+        }
       } catch (error) {
         console.error('[CacheList] create quick image item failed:', error);
         Alert.alert('建立失敗', '無法建立圖片卡片，請稍後再試。');
@@ -408,6 +426,7 @@ export function useCacheQuickAddFlow({
       appTour,
       createQuickImageCachedItem,
       cropperFlowTarget,
+      executePendingCroppedNavigation,
       navigation,
       pendingOriginalImageUri,
       pendingSwipeImageItem,

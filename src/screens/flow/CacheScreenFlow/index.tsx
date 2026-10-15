@@ -10,6 +10,8 @@ import {
   useColorScheme,
   useWindowDimensions,
   DeviceEventEmitter,
+  InteractionManager,
+  Platform,
 } from 'react-native';
 import Svg, { Text as SvgText } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
@@ -318,7 +320,7 @@ function TiltSticker({
                 {labelText}
               </SvgText>
             </Svg>
-            {obscured ? (
+            {obscured && Platform.OS !== 'android' ? (
               <BlurView
                 pointerEvents="none"
                 style={styles.stickerWordBlurOverlay}
@@ -342,6 +344,7 @@ function VocabStickerCloud({
   hapticsEnabled = true,
   disabled = false,
   obscured = false,
+  isPhysicsActive = true,
 }: {
   items: TodayUploadSticker[];
   emptyLabel: string;
@@ -352,6 +355,7 @@ function VocabStickerCloud({
   hapticsEnabled?: boolean;
   disabled?: boolean;
   obscured?: boolean;
+  isPhysicsActive?: boolean;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -450,6 +454,7 @@ function VocabStickerCloud({
 
   useFrameCallback((frameInfo) => {
     'worklet';
+    if (!isPhysicsActive || disabled || obscured) return;
     if (frameInfo.timeSincePreviousFrame == null) return;
     const dt = frameInfo.timeSincePreviousFrame / 1000;
     const count = limitedStickers.length;
@@ -811,6 +816,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   }, [closeQuickCamera, forceCloseUploadCropper]);
 
   const [isCacheFocused, setIsCacheFocused] = useState<boolean>(navigation?.isFocused?.() ?? true);
+  const isCacheTabActive = tabSwipeContext?.isCacheTabActive ?? true;
   const [stickerFontKey, setStickerFontKey] = useState<StickerFontKey>(DEFAULT_STICKER_FONT_KEY);
   const [stickerFontScalePercent, setStickerFontScalePercent] = useState(
     DEFAULT_USER_SETTINGS.stickerFontScalePercent
@@ -819,9 +825,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     () => getInitialUserSettings().uiLanguage
   );
   const applyCacheSettings = useCallback((settings: UserAppSettings) => {
-    setStickerFontKey(settings.stickerFontKey);
-    setStickerFontScalePercent(settings.stickerFontScalePercent);
-    setUiLanguage(settings.uiLanguage);
+    setStickerFontKey((prev) => (prev === settings.stickerFontKey ? prev : settings.stickerFontKey));
+    setStickerFontScalePercent((prev) =>
+      prev === settings.stickerFontScalePercent ? prev : settings.stickerFontScalePercent
+    );
+    setUiLanguage((prev) => (prev === settings.uiLanguage ? prev : settings.uiLanguage));
   }, []);
   const previousCardCountRef = React.useRef<number | null>(null);
   const hasSeenCacheOnceRef = React.useRef(false);
@@ -851,22 +859,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     };
   }, [openAddModal, tabSwipeContext]);
 
-  useEffect(() => {
-    if (!navigation?.addListener) return;
-    const offFocus = navigation.addListener('focus', () => {
-      setIsCacheFocused(true);
-      void loadUserSettings()
-        .then(applyCacheSettings)
-        .catch((error) => console.error('[CacheList] load sticker font failed:', error));
-    });
-    const offBlur = navigation.addListener('blur', () => {
-      setIsCacheFocused(false);
-    });
-    return () => {
-      offFocus?.();
-      offBlur?.();
-    };
-  }, [applyCacheSettings, navigation]);
+
 
   useEffect(() => {
     void loadUserSettings()
@@ -902,7 +895,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const { liveDetectedPreviewById } = useCacheOcrBackfill({
     cacheItems,
     getDetectedPreview,
-    enabled: isCacheFocused,
+    enabled: isCacheFocused && isCacheTabActive,
   });
 
   useEffect(() => {
@@ -924,6 +917,120 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       cacheItems,
       deletionLocked: appTour.isActive,
     });
+
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  const appTourRef = useRef(appTour);
+  appTourRef.current = appTour;
+
+  const isReturningFromBlurRef = useRef(false);
+  const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const postFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runPostFocusTasks = useCallback(() => {
+    // Safety check: ensure visibleCacheIds contains all current cards without triggering needless re-renders
+    const currentCards = cardsRef.current;
+    const allCardIds = currentCards.map((c) => c.id);
+    setVisibleCacheIds((prev) => {
+      if (prev.length === allCardIds.length && allCardIds.every((id, i) => prev[i] === id)) {
+        return prev;
+      }
+      return allCardIds;
+    });
+
+    // Rollback tutorial step only after back transition completes smoothly
+    const currentTour = appTourRef.current;
+    if (
+      currentTour.isActive &&
+      (currentTour.step === 'STEP_5_CROP_IMAGE' ||
+        currentTour.step === 'STEP_5_SELECT_TARGET' ||
+        currentTour.step === 'STEP_6_GENERATE_SAMPLE' ||
+        currentTour.step === 'STEP_7_SAVE_SAMPLE')
+    ) {
+      currentTour.goToStep('STEP_5_PROCESS_CACHE_CARD');
+    }
+
+    void loadUserSettings()
+      .then(applyCacheSettings)
+      .catch((error) => console.error('[CacheList] load sticker font failed:', error));
+  }, [applyCacheSettings]);
+
+  useEffect(() => {
+    if (!navigation?.addListener) return;
+
+    const executePostFocusTasks = () => {
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+      isReturningFromBlurRef.current = false;
+      runPostFocusTasks();
+    };
+
+    const offTransitionEnd = navigation.addListener('transitionEnd', () => {
+      if (navigation.isFocused?.() ?? true) {
+        // Returned to CacheList and transition physically finished
+        executePostFocusTasks();
+      }
+    });
+
+    const offFocus = navigation.addListener('focus', () => {
+      // If restoreTimer is still pending (e.g. rapid back before 450ms),
+      // clear it and restore immediately so the swiped card is never invisible!
+      if (restoreTimerRef.current) {
+        clearTimeout(restoreTimerRef.current);
+        restoreTimerRef.current = null;
+        setRestoreSeed((prev) => prev + 1);
+      }
+
+      setIsCacheFocused((prev) => (prev ? prev : true));
+
+      if (isReturningFromBlurRef.current) {
+        // Returning from CreateCard: wait strictly for transitionEnd, with 500ms safety fallback
+        if (postFocusTimerRef.current) {
+          clearTimeout(postFocusTimerRef.current);
+        }
+        postFocusTimerRef.current = setTimeout(() => {
+          executePostFocusTasks();
+        }, 500);
+      } else {
+        // Initial mount or tab switch: run via InteractionManager
+        InteractionManager.runAfterInteractions(() => {
+          executePostFocusTasks();
+        });
+      }
+    });
+
+    const offBlur = navigation.addListener('blur', () => {
+      isReturningFromBlurRef.current = true;
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+      if (restoreTimerRef.current) {
+        clearTimeout(restoreTimerRef.current);
+      }
+      // Silently reset swiped cards back to x = 0 at 450ms (when covered by CreateCard)
+      restoreTimerRef.current = setTimeout(() => {
+        restoreTimerRef.current = null;
+        setRestoreSeed((prev) => prev + 1);
+      }, 450);
+    });
+
+    return () => {
+      if (restoreTimerRef.current) {
+        clearTimeout(restoreTimerRef.current);
+        restoreTimerRef.current = null;
+      }
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+      offTransitionEnd?.();
+      offFocus?.();
+      offBlur?.();
+    };
+  }, [navigation, runPostFocusTasks]);
 
   useEffect(() => {
     if (optimisticallyHiddenCacheIds.size === 0) return;
@@ -1264,12 +1371,25 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
             stickerFontScalePercent={stickerFontScalePercent}
             gridHeight={todayUploadGridHeight}
             onPressSticker={handlePressTodaySticker}
-            hapticsEnabled={isCacheFocused && !isTodayUploadObscured}
-            disabled={isTodayUploadObscured}
+            hapticsEnabled={isCacheFocused && isCacheTabActive && !isTodayUploadObscured}
+            disabled={isTodayUploadObscured || !isCacheTabActive}
             obscured={isTodayUploadObscured}
+            isPhysicsActive={isCacheFocused && isCacheTabActive && !isTodayUploadObscured}
           />
           {isTodayUploadObscured ? (
-            <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />
+            Platform.OS === 'android' ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.vocabBlurOverlay,
+                  {
+                    backgroundColor: isLight ? 'rgba(255, 255, 255, 0.72)' : 'rgba(2, 33, 61, 0.78)',
+                  },
+                ]}
+              />
+            ) : (
+              <BlurView pointerEvents="none" style={styles.vocabBlurOverlay} intensity={65} tint={isLight ? 'light' : 'dark'} />
+            )
           ) : null}
         </View>
       </View>

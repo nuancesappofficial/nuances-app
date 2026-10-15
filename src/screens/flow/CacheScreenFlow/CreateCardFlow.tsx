@@ -4,6 +4,7 @@ import {
   Alert,
   DeviceEventEmitter,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -705,6 +706,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     isDefaultExperienceTutorial?: boolean;
   };
   const goToCacheHome = React.useCallback(() => {
+    Keyboard.dismiss();
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
       navigation.goBack();
       return;

@@ -153,10 +153,18 @@ export default function CacheCardUI({
         // Background OCR updates or re-renders must not interrupt or snap the in-flight drop animation.
         return;
       }
-      x.value = withSpring(0, ELEGANT_SPRING);
-      y.value = withSpring(toY, ELEGANT_SPRING);
-      scale.value = withSpring(1, ELEGANT_SPRING);
-      rot.value = withSpring(targetRot, ELEGANT_SPRING);
+      cancelAnimation(x);
+      cancelAnimation(y);
+      cancelAnimation(scale);
+      cancelAnimation(rot);
+      if (isTopCard) {
+        cancelAnimation(topCardDragX);
+        topCardDragX.value = 0;
+      }
+      x.value = 0;
+      y.value = toY;
+      scale.value = 1;
+      rot.value = targetRot;
       return;
     }
 
@@ -171,12 +179,14 @@ export default function CacheCardUI({
     animationSeed,
     delay,
     isPressed,
+    isTopCard,
     itemId,
     rot,
     scale,
     shouldAnimateEntrance,
     targetRot,
     toY,
+    topCardDragX,
     x,
     y,
   ]);
@@ -256,15 +266,38 @@ export default function CacheCardUI({
     if (shouldAnimateEntrance) {
       return;
     }
-    isPressed.value = false;
-    x.value = 0;
+    cancelAnimation(x);
+    cancelAnimation(y);
+    cancelAnimation(scale);
+    cancelAnimation(rot);
+    cancelAnimation(tutorialTugX);
+    cancelAnimation(tutorialPulse);
+    tutorialTugX.value = 0;
+    tutorialPulse.value = 0;
     if (isTopCard) {
+      cancelAnimation(topCardDragX);
       topCardDragX.value = 0;
     }
+    isPressed.value = false;
+    x.value = 0;
     y.value = toY;
     scale.value = 1;
     rot.value = targetRot;
-  }, [isTopCard, restoreSeed, isPressed, rot, scale, targetRot, toY, topCardDragX, x, y, shouldAnimateEntrance]);
+  }, [
+    isPressed,
+    isTopCard,
+    restoreSeed,
+    rot,
+    scale,
+    shouldAnimateEntrance,
+    targetRot,
+    toY,
+    topCardDragX,
+    tutorialPulse,
+    tutorialTugX,
+    x,
+    y,
+  ]);
 
   React.useEffect(() => {
     if (!isTopCard || !swipeTrigger) return;
