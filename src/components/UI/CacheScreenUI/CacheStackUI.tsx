@@ -117,6 +117,19 @@ export default function CacheStackUI({
     );
   }, []);
 
+  React.useEffect(() => {
+    // Clear lingering swipeTrigger whenever card restoration is triggered (e.g. cancelled modal or back transition)
+    setSwipeTrigger(null);
+  }, [restoreSeed]);
+
+  const handleInternalCardSwipe = React.useCallback(
+    (itemId: string, direction: 'left' | 'right') => {
+      setSwipeTrigger(null);
+      onCardSwipe(itemId, direction);
+    },
+    [onCardSwipe]
+  );
+
   const triggerTopCardSwipe = React.useCallback(
     (direction: 'left' | 'right') => {
       if (!topCard) return;
@@ -126,11 +139,16 @@ export default function CacheStackUI({
         swipingItemIdsRef.current.delete(topCard.id);
       }, 600);
       swipeSeqRef.current += 1;
+      const currentSeq = swipeSeqRef.current;
       setSwipeTrigger({
-        seq: swipeSeqRef.current,
+        seq: currentSeq,
         itemId: topCard.id,
         direction,
       });
+      // Clear swipeTrigger once swipe animation is in-flight (~300ms) to prevent phantom re-triggers
+      setTimeout(() => {
+        setSwipeTrigger((prev) => (prev?.seq === currentSeq ? null : prev));
+      }, 300);
     },
     [topCard]
   );
@@ -222,7 +240,7 @@ export default function CacheStackUI({
             onImageError={onCardImageError}
             restoreSeed={restoreSeed}
             onSwipeStart={onCardSwipeStart}
-            onSwipe={onCardSwipe}
+            onSwipe={handleInternalCardSwipe}
             animationSeed={animationSeed}
             shouldAnimateEntrance={shouldAnimateEntrance}
             entranceOrder={entranceOrder}

@@ -25,6 +25,7 @@ import CacheImageCardFace from './CacheImageCardFace';
 import MovingTutorialArrow from '../shared/MovingTutorialArrow';
 import { useAppIsActive } from '../../../hooks/useAppIsActive';
 import { clampTutorialCacheDragX } from '../../../features/tour/tutorialCachePolicy';
+import { shouldTriggerCardSwipe } from '../../../features/cache/cacheSwipeTriggerPolicy';
 
 export const CACHE_CARD_HORIZONTAL_INSET = 40;
 export const CACHE_CARD_HEIGHT = 480;
@@ -261,7 +262,13 @@ export default function CacheCardUI({
   React.useEffect(() => {
     if (!hasRestoreInitialized.current) {
       hasRestoreInitialized.current = true;
+      if (swipeTrigger) {
+        lastSwipeTriggerSeq.current = swipeTrigger.seq;
+      }
       return;
+    }
+    if (swipeTrigger) {
+      lastSwipeTriggerSeq.current = swipeTrigger.seq;
     }
     if (shouldAnimateEntrance) {
       return;
@@ -290,6 +297,7 @@ export default function CacheCardUI({
     rot,
     scale,
     shouldAnimateEntrance,
+    swipeTrigger,
     targetRot,
     toY,
     topCardDragX,
@@ -300,9 +308,17 @@ export default function CacheCardUI({
   ]);
 
   React.useEffect(() => {
-    if (!isTopCard || !swipeTrigger) return;
-    if (swipeTrigger.itemId !== itemId) return;
-    if (lastSwipeTriggerSeq.current === swipeTrigger.seq) return;
+    if (
+      !shouldTriggerCardSwipe({
+        isTopCard,
+        cardItemId: itemId,
+        swipeTrigger,
+        lastSwipeTriggerSeq: lastSwipeTriggerSeq.current,
+      })
+    ) {
+      return;
+    }
+    if (!swipeTrigger) return;
     lastSwipeTriggerSeq.current = swipeTrigger.seq;
 
     if (deletionLocked && swipeTrigger.direction === 'left') {

@@ -769,8 +769,19 @@ export default function App() {
         console.log('✅ Running in Expo Go mode');
       }
 
-      const { session } = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
+      let sessionResult: Awaited<ReturnType<typeof getCurrentSession>> | null = null;
+      try {
+        sessionResult = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
+      } catch (sessionErr) {
+        console.warn('[App] initial getSession timed out or failed, retrying once...', sessionErr);
+        try {
+          sessionResult = await withTimeout(getCurrentSession(), 3000, 'getCurrentSessionRetry');
+        } catch {
+          sessionResult = null;
+        }
+      }
       if (stopForNewerAuthTransition()) return;
+      const session = sessionResult?.session;
       if (session?.access_token) {
         void logDiagnosticEvent({
           severity: 'info',
