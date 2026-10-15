@@ -284,7 +284,14 @@ const CardsStack = React.memo(function CardsStack({
             }}
           />
           <CardsStackNav.Screen name="DayView" component={SyncDayViewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
-          <CardsStackNav.Screen name="CardReview" component={SyncReviewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen
+            name="CardReview"
+            component={SyncReviewFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
         </CardsStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>

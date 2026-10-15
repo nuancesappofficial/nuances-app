@@ -1814,6 +1814,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
   ]);
 
   React.useEffect(() => {
+    if (loading || !questions.length) return;
+    const rafId = requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [loading, questions.length]);
+
+  React.useEffect(() => {
     if (isScreenshotDemoQuiz) {
       void buildSession();
       return;
@@ -2984,7 +2992,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
                   placeholderTextColor={palette.secondaryText}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  autoFocus={isSpellingQuestion && !selectedAnswer}
+                  autoFocus={false}
                   returnKeyType="done"
                   editable={!selectedAnswer}
                   onSubmitEditing={() => answerSpellingQuestion(question)}
@@ -3631,6 +3639,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
           scrollEnabled={false}
           showsHorizontalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={3}
           renderItem={renderItem}
           onMomentumScrollEnd={handleMomentumEnd}
           getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}

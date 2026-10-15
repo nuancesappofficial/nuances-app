@@ -2,7 +2,7 @@ import React from 'react';
 import { traceFirstRun } from '../../../services/logging/firstRunTraceRuntime';
 import { analytics } from '../../../services/analytics';
 import { trackFirstRunMilestone } from '../../../services/analytics/firstRunMilestones';
-import { Alert, DeviceEventEmitter, Linking } from 'react-native';
+import { Alert, DeviceEventEmitter, InteractionManager, Linking } from 'react-native';
 import { Q } from '@nozbe/watermelondb';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSharedValue } from 'react-native-reanimated';
@@ -197,6 +197,9 @@ export default function DeckMainFlow({
   const [quizReviewedCardIds, setQuizReviewedCardIds] = React.useState<
     Set<string>
   >(new Set());
+  const isReturningFromBlurRef = React.useRef(false);
+  const postFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isDeckFocused, setIsDeckFocused] = React.useState(true);
   const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] =
     React.useState(false);
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] =
@@ -1246,11 +1249,61 @@ export default function DeckMainFlow({
   }, [completeTour]);
 
   React.useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (!didOpenTourQuizRef.current) return;
-      didOpenTourQuizRef.current = false;
+    if (!navigation?.addListener) return;
+
+    const executePostFocusTasks = () => {
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+      isReturningFromBlurRef.current = false;
+      setIsDeckFocused(true);
+      if (didOpenTourQuizRef.current) {
+        didOpenTourQuizRef.current = false;
+      }
+    };
+
+    const offTransitionEnd = navigation.addListener('transitionEnd', () => {
+      if (navigation.isFocused?.() ?? true) {
+        executePostFocusTasks();
+      }
     });
-    return unsubscribe;
+
+    const offFocus = navigation.addListener('focus', () => {
+      if (isReturningFromBlurRef.current) {
+        // Returning from CardReview / child screen: wait for transitionEnd with 500ms safety fallback
+        if (postFocusTimerRef.current) {
+          clearTimeout(postFocusTimerRef.current);
+        }
+        postFocusTimerRef.current = setTimeout(() => {
+          executePostFocusTasks();
+        }, 500);
+      } else {
+        // Initial mount or tab switch: run via InteractionManager
+        InteractionManager.runAfterInteractions(() => {
+          executePostFocusTasks();
+        });
+      }
+    });
+
+    const offBlur = navigation.addListener('blur', () => {
+      isReturningFromBlurRef.current = true;
+      setIsDeckFocused(false);
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+    });
+
+    return () => {
+      if (postFocusTimerRef.current) {
+        clearTimeout(postFocusTimerRef.current);
+        postFocusTimerRef.current = null;
+      }
+      offTransitionEnd?.();
+      offFocus?.();
+      offBlur?.();
+    };
   }, [navigation]);
 
   const handleChangeTodayReviewQuestionCount = React.useCallback(
@@ -1704,7 +1757,7 @@ export default function DeckMainFlow({
         onDidScrollToAlbum={() => setScrollToAlbumId(null)}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
-        wordPopEnabled={mainScreenWordPopEnabled}
+        wordPopEnabled={mainScreenWordPopEnabled && isDeckFocused}
         albumGridCount={mainScreenAlbumGridCount}
         onPressSlideshowItem={handlePressWordPopItem}
         searchResults={searchResults}

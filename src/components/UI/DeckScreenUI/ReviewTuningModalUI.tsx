@@ -13,8 +13,10 @@ import {
   Text,
   View,
   useColorScheme,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tUI } from '../../../i18n/uiLanguage';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
@@ -50,7 +52,6 @@ type Props = {
   onChangeSelectedSourceAlbumIds?: (value: string[]) => void;
 };
 
-const MODAL_ENTRY_TRANSLATE_Y = 420;
 const MODAL_ENTRY_DURATION_MS = 360;
 const MODAL_BACKDROP_DURATION_MS = 240;
 const MODAL_EXIT_DURATION_MS = 220;
@@ -114,6 +115,11 @@ export default function ReviewTuningModalUI({
   onChangeSelectedQuestionTypes,
   onChangeSelectedSourceAlbumIds,
 }: Props) {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const modalTravelY = Math.max(windowHeight, 850);
+  const sheetMaxHeight = Math.round(windowHeight * 0.88);
+  const scrollMaxHeight = sheetMaxHeight - 90;
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const palette = React.useMemo(
@@ -130,7 +136,7 @@ export default function ReviewTuningModalUI({
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [sliderWidth, setSliderWidth] = React.useState(0);
   const entranceY = React.useRef(
-    new Animated.Value(MODAL_ENTRY_TRANSLATE_Y)
+    new Animated.Value(modalTravelY)
   ).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const sliderProgress = React.useMemo(() => {
@@ -210,7 +216,7 @@ export default function ReviewTuningModalUI({
   React.useEffect(() => {
     if (visible) {
       setShouldRender(true);
-      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      entranceY.setValue(modalTravelY);
       backdropOpacity.setValue(0);
       Animated.parallel([
         Animated.timing(entranceY, {
@@ -232,7 +238,7 @@ export default function ReviewTuningModalUI({
     if (!shouldRender) return;
     Animated.parallel([
       Animated.timing(entranceY, {
-        toValue: MODAL_ENTRY_TRANSLATE_Y,
+        toValue: modalTravelY,
         duration: MODAL_EXIT_DURATION_MS,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
@@ -247,7 +253,7 @@ export default function ReviewTuningModalUI({
       if (!finished) return;
       setShouldRender(false);
     });
-  }, [backdropOpacity, entranceY, shouldRender, visible]);
+  }, [backdropOpacity, entranceY, modalTravelY, shouldRender, visible]);
 
   if (!shouldRender) return null;
 
@@ -261,11 +267,18 @@ export default function ReviewTuningModalUI({
           style={[styles.sheetWrap, { transform: [{ translateY: entranceY }] }]}
         >
           <Pressable
-            style={[styles.sheet, { backgroundColor: modalSurface }]}
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: modalSurface,
+                maxHeight: sheetMaxHeight,
+                paddingBottom: Math.max(insets.bottom, 22),
+              },
+            ]}
             onPress={() => undefined}
           >
             <ScrollView
-              style={styles.contentScroll}
+              style={[styles.contentScroll, { maxHeight: scrollMaxHeight }]}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -694,7 +707,6 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 22,
     gap: 16,
-    maxHeight: '92%',
     flexShrink: 1,
   },
   contentScroll: {
@@ -703,7 +715,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16,
-    paddingBottom: 2,
+    paddingBottom: 32,
   },
   eyebrow: {
     color: '#8D93A1',
@@ -880,6 +892,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
     minHeight: BUTTON_TOKENS.height.prominent,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
