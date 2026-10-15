@@ -22,7 +22,6 @@ import {
 import { tUI } from '../i18n/uiLanguage';
 import MovingTutorialArrow from './UI/shared/MovingTutorialArrow';
 import TutorialSpotlight from './UI/shared/TutorialSpotlight';
-import TutorialOverlayMask from './UI/shared/TutorialOverlayMask';
 import TutorialHeaderOverlay from './UI/shared/TutorialHeaderOverlay';
 
 type Size = {
@@ -1151,7 +1150,6 @@ export default function ImageCropperModal({
             </TutorialSpotlight>
           </View>
         </View>
-        {cropShape !== 'album' ? <TutorialOverlayMask /> : null}
         <TutorialHeaderOverlay />
       </View>
     </Modal>

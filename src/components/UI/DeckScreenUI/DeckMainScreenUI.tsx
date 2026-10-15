@@ -10,6 +10,7 @@ import Reanimated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import AlbumIconItemUI from './AlbumIconItemUI';
 import LightPressable from '../shared/LightPressable';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
@@ -340,9 +341,10 @@ export default function DeckMainScreenUI({
     );
     const whooshLoop = Animated.loop(
       Animated.sequence([
+        Animated.delay(600),
         Animated.timing(todayReviewWhoosh, {
           toValue: 1,
-          duration: 1600,
+          duration: 1500,
           useNativeDriver: true,
         }),
         Animated.timing(todayReviewWhoosh, {
@@ -350,7 +352,7 @@ export default function DeckMainScreenUI({
           duration: 0,
           useNativeDriver: true,
         }),
-        Animated.delay(400),
+        Animated.delay(1800),
       ])
     );
     loop.start();
@@ -515,6 +517,10 @@ export default function DeckMainScreenUI({
       </View>
     </View>
   );
+  const activeReviewScale = todayReviewPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.018],
+  });
   const activeReviewShadowOpacity = todayReviewPulse.interpolate({
     inputRange: [0, 1],
     outputRange: [0.28, 0.55],
@@ -525,11 +531,11 @@ export default function DeckMainScreenUI({
   });
   const activeReviewWhooshTranslateX = todayReviewWhoosh.interpolate({
     inputRange: [0, 1],
-    outputRange: [-260, 260],
+    outputRange: [-160, screenWidth + 20],
   });
   const activeReviewWhooshOpacity = todayReviewWhoosh.interpolate({
-    inputRange: [0, 0.12, 0.85, 1],
-    outputRange: [0, 0.2, 0.2, 0],
+    inputRange: [0, 0.15, 0.85, 1],
+    outputRange: [0, 1, 1, 0],
   });
   const activeReviewCardTone = React.useMemo(() => {
     if (isLight) {
@@ -840,6 +846,7 @@ export default function DeckMainScreenUI({
               styles.todayReviewQuickQuizShell,
               isTodayReviewActive
                 ? {
+                    transform: [{ scale: activeReviewScale }],
                     shadowOpacity: activeReviewShadowOpacity,
                     shadowRadius: activeReviewShadowRadius,
                   }
@@ -889,10 +896,24 @@ export default function DeckMainScreenUI({
                     styles.todayReviewWhoosh,
                     {
                       opacity: activeReviewWhooshOpacity,
-                      transform: [{ translateX: activeReviewWhooshTranslateX }, { rotate: '-18deg' }],
+                      transform: [
+                        { translateX: activeReviewWhooshTranslateX },
+                        { rotate: '-22deg' },
+                      ],
                     },
                   ]}
-                />
+                >
+                  <LinearGradient
+                    colors={[
+                      'rgba(255,255,255,0)',
+                      'rgba(255,255,255,0.46)',
+                      'rgba(255,255,255,0)',
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                </Animated.View>
                 <View style={styles.todayReviewHeaderRow}>
                   <Text style={[styles.todayReviewLabel, { color: palette.textOnContainer }]}>
                     {tUI(uiLanguage, 'deck.newWords')}
@@ -1212,10 +1233,9 @@ const styles = StyleSheet.create({
   },
   todayReviewWhoosh: {
     position: 'absolute',
-    top: -28,
-    bottom: -28,
-    width: 120,
-    backgroundColor: 'rgba(255,255,255,0.38)',
+    top: -36,
+    bottom: -36,
+    width: 96,
   },
   todayReviewTintLayer: {
     ...StyleSheet.absoluteFillObject,

@@ -12,12 +12,14 @@ export default function TutorialOverlayMask() {
 
   if (!appTour.isActive) return null;
 
-  // Scrollable CreateCard flows (OCR token selection, generate button, ghost card preview)
-  // and quick quiz finish screen do not use fullscreen blocking mask to allow free vertical scrolling
+  // Interactive image crop modal, scrollable CreateCard flows (OCR token selection, generate button, ghost card preview),
+  // quick quiz sample step, and quick quiz finish screen do not use fullscreen blocking mask
   if (
+    appTour.step === 'STEP_5_CROP_IMAGE' ||
     appTour.step === 'STEP_5_SELECT_TARGET' ||
     appTour.step === 'STEP_6_GENERATE_SAMPLE' ||
     appTour.step === 'STEP_7_SAVE_SAMPLE' ||
+    appTour.step === 'STEP_10_QUIZ_SAMPLE' ||
     appTour.step === 'STEP_10_QUIZ_FINISH'
   ) {
     return null;
