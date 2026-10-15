@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,10 +15,12 @@ import {
   getGreetingVideoHeight,
   getGreetingVideoPlayback,
   getGreetingVideoWidth,
+  shouldShowGreetingPhoneSpeaker,
 } from '../../../features/tour/tutorialPresentation';
 import { resolveThemeColors } from '../../../theme/colors';
 
-const SHARE_SHEET_VIDEO = require('../../../../assets/tutorial/raw/Chinese/01_share_or_capture.mov');
+const SHARE_SHEET_VIDEO_IOS = require('../../../../assets/tutorial/raw/Chinese/01_share_or_capture.mov');
+const SHARE_SHEET_VIDEO_ANDROID = require('../../../../assets/tutorial/raw/android_share_v1.mp4');
 
 type Props = {
   visible: boolean;
@@ -28,6 +31,7 @@ type Props = {
   onShare?: () => void;
   onClose?: () => void;
   onUpload: () => void;
+  platform?: 'ios' | 'android';
 };
 
 export default function TourCompletionGreetingUI({
@@ -37,18 +41,55 @@ export default function TourCompletionGreetingUI({
   onShare,
   onClose,
   onUpload,
+  platform: platformOverride,
 }: Props) {
+  const activePlatform = platformOverride ?? Platform.OS;
+  const isAndroid = activePlatform === 'android';
   const palette = resolveThemeColors(useColorScheme());
   const { height: windowHeight } = useWindowDimensions();
   const videoHeight = getGreetingVideoHeight(windowHeight);
-  const videoWidth = getGreetingVideoWidth(videoHeight);
+  const videoWidth = getGreetingVideoWidth(videoHeight, activePlatform);
   const videoContentFit = getGreetingVideoContentFit();
-  const playback = getGreetingVideoPlayback(visible);
-  const player = useVideoPlayer(SHARE_SHEET_VIDEO, (nextPlayer) => {
+  const playback = getGreetingVideoPlayback(visible, activePlatform);
+  const showSpeaker = shouldShowGreetingPhoneSpeaker(activePlatform);
+  const videoSource = isAndroid
+    ? SHARE_SHEET_VIDEO_ANDROID
+    : SHARE_SHEET_VIDEO_IOS;
+
+  const [videoEnded, setVideoEnded] = React.useState(!isAndroid);
+
+  const player = useVideoPlayer(videoSource, (nextPlayer) => {
     nextPlayer.audioMixingMode = 'mixWithOthers';
     nextPlayer.loop = playback.loop;
     nextPlayer.muted = playback.muted;
   });
+
+  React.useEffect(() => {
+    if (!isAndroid) {
+      setVideoEnded(true);
+      return;
+    }
+
+    if (!visible) {
+      setVideoEnded(false);
+      return;
+    }
+
+    setVideoEnded(false);
+    const sub = player.addListener('playToEnd', () => {
+      setVideoEnded(true);
+    });
+
+    // Show continue button after first playthrough (7.2s) while video keeps looping
+    const timer = setTimeout(() => {
+      setVideoEnded(true);
+    }, 7200);
+
+    return () => {
+      sub?.remove();
+      clearTimeout(timer);
+    };
+  }, [isAndroid, player, visible]);
 
   React.useEffect(() => {
     player.loop = playback.loop;
@@ -77,26 +118,29 @@ export default function TourCompletionGreetingUI({
         <View
           style={[
             styles.card,
+            isAndroid && styles.androidCard,
             {
               backgroundColor: palette.modalBg,
               borderColor: palette.modalOptionBorder,
             },
           ]}
         >
-          <Text style={[styles.title, { color: palette.textOnContainer }]}>
-            {title}
-          </Text>
+          {!isAndroid && (
+            <Text style={[styles.title, { color: palette.textOnContainer }]}>
+              {title}
+            </Text>
+          )}
           <View
             style={[
-              styles.videoFrame,
+              isAndroid ? styles.androidVideoFrame : styles.videoFrame,
               {
                 height: videoHeight,
                 width: videoWidth,
               },
             ]}
           >
-            <View style={styles.phoneSpeaker} />
-            <View style={styles.videoViewport}>
+            {showSpeaker && <View style={styles.phoneSpeaker} />}
+            <View style={isAndroid ? styles.androidVideoViewport : styles.videoViewport}>
               <VideoView
                 player={player}
                 nativeControls={false}
@@ -107,9 +151,11 @@ export default function TourCompletionGreetingUI({
               />
             </View>
           </View>
-          <Pressable style={styles.primaryButton} onPress={onUpload}>
-            <Text style={styles.primaryButtonText}>{uploadLabel}</Text>
-          </Pressable>
+          {videoEnded && (
+            <Pressable style={styles.primaryButton} onPress={onUpload}>
+              <Text style={styles.primaryButtonText}>{uploadLabel}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Modal>
@@ -129,6 +175,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 16,
+  },
+  androidCard: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  androidVideoFrame: {
+    alignSelf: 'center',
+    overflow: 'hidden',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+  },
+  androidVideoViewport: {
+    flex: 1,
+    overflow: 'hidden',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
   },
   title: {
     fontSize: 26,

@@ -1,0 +1,241 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Nuances share-sheet promo — Android (Samsung One UI-style, generic, no brand marks). renderFrame(t) is deterministic. -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#fff}
+body{font-family:'Inter Display','Noto Sans CJK TC',sans-serif;-webkit-font-smoothing:antialiased;color:#1C1C1E}
+.cjk{font-family:'Noto Sans CJK TC';font-weight:500}
+#stage{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 40%,#fff 0%,#F2F4F8 100%)}
+#tag{position:absolute;left:0;right:0;top:118px;text-align:center}
+#tag span{display:inline-block;padding:12px 30px;border-radius:40px;background:#1C1C1E;color:#fff;font:600 34px 'Inter Display';letter-spacing:.5px}
+.cap{position:absolute;left:0;right:0;top:196px;text-align:center;font-size:76px;line-height:1.1;white-space:nowrap}
+.cap b{font:700 76px 'Inter Display';color:#2F8FE0;margin-right:22px}
+#end{position:absolute;left:0;right:0;top:250px;text-align:center;font-size:150px;line-height:1.18}
+#end div{background:linear-gradient(90deg,#3F97E8,#6DBCF6);-webkit-background-clip:text;color:transparent;opacity:0}
+#phone{position:absolute;left:50%;top:0;transform-origin:50% 0}
+.frame{position:absolute;inset:0;background:#202124;box-shadow:0 60px 120px rgba(20,30,50,.22),0 12px 30px rgba(20,30,50,.18),inset 0 0 0 3px #45474c}
+#scr{position:absolute;overflow:hidden;background:#fff}
+#scrin{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden}
+.sb{position:absolute;left:0;right:0;top:0;height:40px;display:flex;align-items:center;justify-content:space-between;padding:4px 26px 0 28px;font:500 15px 'Inter Display';color:#111;z-index:3}
+.sbi{display:flex;gap:6px;align-items:center}
+.hole{position:absolute;left:50%;top:12px;width:18px;height:18px;margin-left:-9px;background:#000;border-radius:50%;z-index:99}
+/* article */
+.app{position:absolute;inset:0;background:#fff}
+.nav{position:absolute;top:44px;left:0;right:0;height:48px;display:flex;align-items:center;padding:0 18px;color:#1C1C1E;font:400 22px 'Inter Display'}
+.art{position:absolute;top:100px;left:24px;right:24px}
+.art .k{font:600 13px 'Inter Display';letter-spacing:.8px;color:#8E8E93}
+.art h1{font:700 30px/1.15 'Inter Display';letter-spacing:-.6px;margin:8px 0 10px}
+.art .by{font:400 14px 'Inter Display';color:#8E8E93;margin-bottom:18px}
+.art .hero{height:150px;border-radius:16px;background:linear-gradient(135deg,#232733,#10131a);position:relative;overflow:hidden;margin-bottom:20px}
+.art .hero:after{content:'';position:absolute;left:55%;top:30%;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,#3c8f4a 0%,transparent 65%);opacity:.8}
+.art p{font:400 19px/1.55 'Inter Display';color:#2c2c2e;margin-bottom:14px}
+.art p u{text-decoration:none;background:linear-gradient(transparent 60%,#FFE58A 60%)}
+#thumb,#fly{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden;background:#fff}
+#thumb{z-index:30}#fly{z-index:70;opacity:0;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:40}
+#scrim{position:absolute;inset:0;background:#000;opacity:0;z-index:45}
+/* One UI screenshot toolbar */
+#bar{position:absolute;left:122px;right:12px;bottom:26px;height:56px;border-radius:28px;background:rgba(34,34,36,.86);display:flex;align-items:center;justify-content:space-around;z-index:35;opacity:0}
+.tb{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative}
+/* One UI share sheet: floating rounded card, grouped white blocks */
+#sheet{position:absolute;left:10px;right:10px;bottom:10px;height:548px;border-radius:32px;background:#F2F2F4;box-shadow:0 -6px 40px rgba(0,0,0,.22);z-index:50;transform:translateY(700px);overflow:hidden;padding:16px 12px}
+.hd{display:flex;align-items:center;gap:14px;padding:6px 8px 14px}
+.hd .im{width:50px;height:70px;border-radius:10px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+.hd .t1{font:700 18px 'Noto Sans CJK TC'}
+.hd .t2{font:400 13px 'Inter Display';color:#8a8a8e;margin-top:3px}
+.hd .rb{margin-left:auto;display:flex;gap:10px}
+.rbtn{width:42px;height:42px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center}
+.blk{background:#fff;border-radius:22px;padding:14px 10px 12px;margin-bottom:10px}
+.blk .ttl{font:600 13px 'Noto Sans CJK TC';color:#6e6e73;padding:0 8px 10px}
+.row{display:flex;justify-content:space-between;padding:0 6px}
+.it{width:72px;text-align:center;position:relative}
+.it .ic{width:56px;height:56px;margin:0 auto;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.it .sq{border-radius:18px}.it .ci{border-radius:50%}
+.it .lb{font:400 13px 'Noto Sans CJK TC';color:#1C1C1E;margin-top:7px;white-space:nowrap}
+.it .badge{position:absolute;right:4px;top:38px;width:22px;height:22px;border-radius:7px;border:2px solid #fff;display:flex;align-items:center;justify-content:center}
+.ini{font:600 22px 'Noto Sans CJK TC';color:#fff}
+.near{display:flex;align-items:center;gap:14px;padding:4px 10px}
+.near .nb{width:46px;height:46px;border-radius:50%;background:#E3EEFF;display:flex;align-items:center;justify-content:center}
+.near .t1{font:500 16px 'Noto Sans CJK TC'}.near .t2{font:400 13px 'Noto Sans CJK TC';color:#8a8a8e;margin-top:2px}
+/* One UI toast */
+#toast{position:absolute;left:50%;bottom:110px;height:52px;border-radius:26px;background:rgba(48,48,50,.94);color:#fff;z-index:60;display:flex;align-items:center;gap:10px;padding:0 20px 0 10px;font:500 16px 'Noto Sans CJK TC';opacity:0;white-space:nowrap}
+/* virtual taps */
+.press{position:absolute;inset:-6px;border-radius:inherit;background:rgba(0,0,0,.12);opacity:0;pointer-events:none}
+#hl{position:absolute;border:4px solid #2F8FE0;box-shadow:0 0 0 8px rgba(47,143,224,.25),0 0 24px rgba(47,143,224,.5);z-index:88;opacity:0;pointer-events:none}
+#dot{position:absolute;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(40,40,48,.38);border:3.5px solid #fff;box-shadow:0 6px 18px rgba(0,0,0,.35);z-index:90;opacity:0}
+#ring{position:absolute;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;border:4px solid #2F8FE0;z-index:89;opacity:0}
+</style></head>
+<body>
+<div id="stage">
+  <div id="tag"><span id="tagt">Android</span></div>
+  <div class="cap cjk" id="c0"></div><div class="cap cjk" id="c1"></div><div class="cap cjk" id="c2"></div>
+  <div id="end" class="cjk"><div id="e0"></div><div id="e1"></div></div>
+  <div id="phone"><div class="frame" id="frame"></div><div id="scr"><div id="scrin"></div></div></div>
+</div>
+<script>
+// ===== copy (localize here) =====
+const STR = {
+  'zh-TW': { steps: ['截圖', '分享', '選 Nuances'], end: ['不開app', '就能傳'], sent: '已傳送到 Nuances',
+    head: '1 張圖片', headS: 'PNG · 164 KB', near: '附近分享', nearS: '傳送到附近的裝置', sug: '建議',
+    people: [['小', '小美', '#F28B54'], ['傑', '阿傑', '#5B8DEF'], ['媽', '媽媽', '#E66A9A'], ['志', '志明', '#47B39C']],
+    apps: ['訊息', '電子郵件', '相簿', 'Nuances', '雲端', '筆記', '藍牙', '更多'] }
+};
+const q = new URLSearchParams(location.search), L = STR[q.get('locale') || 'zh-TW'];
+const $ = id => document.getElementById(id);
+
+// ===== geometry =====
+const PT = [412, 915], SW = 640, K = SW / PT[0], SH = PT[1] * K, BZ = 12, PR = 58;
+const PW = SW + 2 * BZ, PH = SH + 2 * BZ, PTOP = 330;
+const phone = $('phone'), scr = $('scr'), sin = $('scrin');
+Object.assign(phone.style, {width: PW + 'px', height: PH + 'px', marginLeft: -PW / 2 + 'px'});
+$('frame').style.borderRadius = PR + 'px';
+Object.assign(scr.style, {left: BZ + 'px', top: BZ + 'px', width: SW + 'px', height: SH + 'px', borderRadius: (PR - BZ) + 'px'});
+Object.assign(sin.style, {width: PT[0] + 'px', height: PT[1] + 'px', transform: `scale(${K})`});
+
+// ===== generic glyphs (no brand marks) =====
+const W = (w, d, f = '#fff') => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="${f}">${d}</svg>`;
+const G = {
+  msg: W(30, '<path d="M12 3C6.5 3 2 6.6 2 11c0 2.5 1.4 4.7 3.6 6.1L5 21l4-2.2c1 .3 2 .4 3 .4 5.5 0 10-3.6 10-8.1S17.5 3 12 3z"/>'),
+  mail: W(30, '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5" stroke="#E2483D" stroke-width="1.6" fill="none"/>'),
+  photo: W(28, '<path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/>'),
+  cloud: W(30, '<path d="M7 18a5 5 0 01-.6-10A6 6 0 0118 9a4.5 4.5 0 01-.5 9z"/>'),
+  note: W(30, '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="#F3A614" stroke-width="1.6"/>'),
+  bt: W(26, '<path d="M7 7l10 10-5 4V3l5 4L7 17" stroke="#fff" stroke-width="2" fill="none" stroke-linejoin="round"/>'),
+  more: W(26, '<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>', '#555'),
+  share: c => W(24, `<circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.8l7.4-4.4M8.3 13.2l7.4 4.4" stroke="${c}" stroke-width="1.8"/>`, c),
+  scroll: W(24, '<path d="M6 6l6 6 6-6M6 12l6 6 6-6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>', 'none'),
+  edit: W(22, '<path d="M3 17.2V21h3.8L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 000-1.4l-2.3-2.3a1 1 0 00-1.4 0l-1.8 1.8 3.7 3.7z"/>'),
+  tagi: W(22, '<path d="M9 3L7 21M17 3l-2 18M4 8.5h17M3 15.5h17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>', 'none'),
+  copy: W(20, '<rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="#333" stroke-width="1.8"/><path d="M16 5.5V5a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h.5" fill="none" stroke="#333" stroke-width="1.8"/>', 'none'),
+  pen: W(20, '<path d="M3 17.2V21h3.8L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 000-1.4l-2.3-2.3a1 1 0 00-1.4 0l-1.8 1.8 3.7 3.7z"/>', '#333'),
+  near: W(24, '<circle cx="12" cy="12" r="3" fill="#2F7BF6"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4" stroke="#2F7BF6" stroke-width="2" fill="none" stroke-linecap="round"/>', 'none'),
+  check: W(18, '<path d="M5 12.5l4.5 4.5L19 7.5" stroke="#7FD18B" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>', 'none'),
+};
+const nIcon = r => `<img src="icon.svg" style="width:100%;height:100%;border-radius:${r}">`;
+
+// ===== screen content =====
+const statusBar = () => `<div class="sb"><span>9:41</span><span class="sbi">
+  <svg width="16" height="12" viewBox="0 0 16 12"><path fill="#111" d="M8 12l2.3-2.6a3.3 3.3 0 00-4.6 0zM3.7 7.2a6 6 0 018.6 0l1.4-1.6a8.2 8.2 0 00-11.4 0zM.4 3.6a10.7 10.7 0 0115.2 0L16.9 2A12.8 12.8 0 00-.9 2z"/></svg>
+  <svg width="14" height="14" viewBox="0 0 14 14"><path fill="#111" d="M14 0v14H0z"/></svg>
+  <svg width="11" height="17" viewBox="0 0 11 17"><rect x="3.5" y="0" width="4" height="2" rx=".5" fill="#111"/><rect x=".5" y="1.5" width="10" height="15" rx="2" fill="none" stroke="#111"/><rect x="2" y="5" width="7" height="10" rx="1" fill="#111"/></svg>
+  <span style="font-size:13px">82%</span></span></div>`;
+const article = (st = '') => `<div class="app" ${st}>${statusBar()}<div class="nav">←</div>
+  <div class="art"><div class="k">BIOGRAPHY</div><h1>Jensen Huang: From Dishwasher to AI Pioneer</h1>
+  <div class="by">8 min read</div><div class="hero"></div>
+  <p>Born in Tainan, Jensen Huang moved to America at nine, where his first job was cleaning toilets.</p>
+  <p><u>Undeterred</u>, he worked his way through school, an <u>unassuming</u> kid with a <u>relentless</u> drive.</p>
+  <p>Decades later, the company he co-founded would reshape computing.</p></div></div>`;
+const mini = s => article(`style="transform:scale(${s});transform-origin:0 0;width:412px;height:915px"`);
+
+const APPS = [['#2EB872', G.msg], ['#E2483D', G.mail], ['#F2549B', G.photo], [null], ['#3B82F6', G.cloud], ['#F3A614', G.note], ['#2F6FE4', G.bt], ['#E9E9EC', G.more]];
+const item = (inner, cls, bg, lb, id, extra = '') =>
+  `<div class="it" ${id ? `id="${id}"` : ''}><div class="ic ${cls}" style="background:${bg}">${inner}<div class="press"></div></div>${extra}<div class="lb">${lb}</div></div>`;
+
+sin.innerHTML = article() + `<div id="thumb">${article()}</div><div id="flash"></div><div id="scrim"></div>
+<div id="bar"><div class="tb">${G.scroll}</div><div class="tb">${G.edit}</div><div class="tb">${G.tagi}</div>
+  <div class="tb" id="shareBtn">${G.share('#fff')}<div class="press" style="inset:0;border-radius:50%;background:rgba(255,255,255,.25)"></div></div></div>
+<div id="sheet">
+  <div class="hd"><div class="im">${mini(50 / 412)}</div><div><div class="t1">${L.head}</div><div class="t2">${L.headS}</div></div>
+    <div class="rb"><div class="rbtn">${G.copy}</div><div class="rbtn">${G.pen}</div></div></div>
+  <div class="blk"><div class="near"><div class="nb">${G.near}</div><div><div class="t1">${L.near}</div><div class="t2">${L.nearS}</div></div></div></div>
+  <div class="blk"><div class="ttl">${L.sug}</div><div class="row">${L.people.map(p =>
+    item(`<span class="ini">${p[0]}</span>`, 'ci', p[2], p[1], '', `<div class="badge" style="background:#2EB872">${W(12, '<path d="M12 3C6.5 3 2 6.6 2 11c0 2.5 1.4 4.7 3.6 6.1L5 21l4-2.2c1 .3 2 .4 3 .4 5.5 0 10-3.6 10-8.1S17.5 3 12 3z"/>')}</div>`)).join('')}</div></div>
+  <div class="blk"><div class="row">${APPS.slice(0, 4).map((a, i) => item(a[0] ? a[1] : nIcon('18px'), 'sq', a[0] || '#fff', L.apps[i], i == 3 ? 'nApp' : '')).join('')}</div>
+    <div class="row" style="margin-top:16px">${APPS.slice(4).map((a, i) => item(a[1], 'sq', a[0], L.apps[i + 4])).join('')}</div></div>
+</div>
+<div id="toast"><div style="width:34px;height:34px" id="tIcon">${nIcon('10px')}</div><span>${L.sent}</span>${G.check}</div>
+<div id="fly">${article()}</div><div id="hl"></div><div id="ring"></div><div id="dot"></div><div class="hole"></div>`;
+
+L.steps.forEach((s, i) => $('c' + i).innerHTML = `<b>${i + 1}</b>${s}`);
+$('e0').textContent = L.end[0]; $('e1').textContent = L.end[1];
+
+// ===== timing (s) =====
+const T = {shot: .6, bar: .95, tapShare: 1.8, sheet: 1.95, tapN: 3.25, out: 3.45, fly: 3.5, check: 4.1, end: 4.9, dur: 7.2};
+const STEP = [.25, 1.35, 2.6];
+const TAPS = [{t: T.tapShare, id: 'shareBtn', r: '50%'}, {t: T.tapN, id: 'nApp', sel: '.ic', r: '18px'}];
+
+// ===== helpers =====
+const cl = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), seg = (t, a, b) => cl((t - a) / (b - a));
+const eo = x => 1 - Math.pow(1 - x, 3), eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const lerp = (a, b, x) => a + (b - a) * x;
+const TW = 100, TH = TW * PT[1] / PT[0], TX = 12, TY = PT[1] - TH - 20;
+function box(el, x, y, w, r, op = 1) {
+  const s = w / PT[0];
+  Object.assign(el.style, {width: PT[0] + 'px', height: PT[1] + 'px', transform: `translate(${x}px,${y}px) scale(${s})`, borderRadius: r / s + 'px', opacity: op});
+}
+function rectOf(el) {
+  const e = el.getBoundingClientRect(), s = sin.getBoundingClientRect(), k = s.width / PT[0];
+  return {x: (e.left - s.left) / k, y: (e.top - s.top) / k, w: e.width / k, h: e.height / k};
+}
+// Virtual tap: dot glides in (0.45 s), target gets a blue highlight, contact = dot squashes + ripple ring + pressed state.
+function taps(t) {
+  const dot = $('dot'), ring = $('ring'), hl = $('hl');
+  dot.style.opacity = ring.style.opacity = hl.style.opacity = 0;
+  document.querySelectorAll('.press').forEach(p => p.style.opacity = 0);
+  for (const tp of TAPS) {
+    const a = tp.t - .45, z = tp.t + .45;
+    if (t < a || t > z) continue;
+    const host = $(tp.id), tgt = tp.sel ? host.querySelector(tp.sel) : host, r = rectOf(tgt);
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    const app = eo(seg(t, a, tp.t)), rel = seg(t, tp.t, z);
+    const sx = cx + 70 * (1 - app), sy = cy + 120 * (1 - app);           // comes in from lower right, like a thumb
+    const squash = t >= tp.t ? 1 - .25 * Math.sin(Math.PI * seg(t, tp.t, tp.t + .18)) : 1;
+    Object.assign(dot.style, {left: sx + 'px', top: sy + 'px', opacity: Math.min(app * 1.6, 1) * (1 - seg(rel, .45, 1)), transform: `scale(${lerp(1.25, 1, app) * squash})`});
+    const rp = seg(t, tp.t, tp.t + .45);
+    Object.assign(ring.style, {left: cx + 'px', top: cy + 'px', opacity: rp > 0 ? (1 - rp) : 0, transform: `scale(${1 + 1.8 * eo(rp)})`});
+    const h = seg(t, a + .15, tp.t - .05) * (1 - seg(t, tp.t + .1, tp.t + .3)), pad = 6;
+    Object.assign(hl.style, {left: r.x - pad + 'px', top: r.y - pad + 'px', width: r.w + 2 * pad + 'px', height: r.h + 2 * pad + 'px',
+      borderRadius: tp.r === '50%' ? '50%' : `calc(${tp.r} + ${pad}px)`, opacity: h});
+    const pr = seg(t, tp.t - .02, tp.t + .05) * (1 - seg(t, tp.t + .2, tp.t + .35));
+    const p = tgt.querySelector('.press'); if (p) p.style.opacity = pr;
+    tgt.style.transform = `scale(${1 - .08 * pr})`;
+  }
+}
+
+// ===== frame =====
+window.renderFrame = function (t) {
+  const intro = eo(seg(t, 0, .5)), outro = eio(seg(t, T.end, T.end + .7));
+  const sc = lerp(.97, 1, intro) * lerp(1, .64, outro), py = lerp(PTOP + 20, PTOP, intro) + outro * 460;
+  phone.style.transform = `translateY(${py}px) scale(${sc})`;
+  [0, 1, 2].forEach(i => {
+    const a = STEP[i], b = i < 2 ? STEP[i + 1] : T.end, pin = eo(seg(t, a, a + .3)), pout = seg(t, b - .12, b + .12);
+    $('c' + i).style.opacity = pin * (1 - pout);
+    $('c' + i).style.transform = `translateY(${(1 - pin) * 26 - pout * 20}px)`;
+  });
+  $('tag').style.opacity = 1 - seg(t, T.end, T.end + .3);
+  [['e0', T.end + .35], ['e1', T.end + .7]].forEach(([id, a]) => { const e = eo(seg(t, a, a + .4));
+    $(id).style.cssText = `opacity:${e};transform:translateY(${(1 - e) * 40}px);filter:blur(${(1 - e) * 10}px)`; });
+
+  // screenshot: flash, shrink to bottom-left, toolbar slides in
+  $('flash').style.opacity = t > T.shot ? Math.max(0, 1 - (t - T.shot) / .22) * .9 : 0;
+  const sh = eo(seg(t, T.shot + .05, T.shot + .5)), th = $('thumb'), tw = lerp(PT[0], TW, sh), k = tw / PT[0];
+  const gone = seg(t, T.sheet - .05, T.sheet + .15);
+  box(th, lerp(0, TX, sh), lerp(0, TY, sh), tw, lerp(PR / K, 12, sh), t > T.shot ? 1 - gone : 0);
+  th.style.boxShadow = sh > 0 ? `0 0 0 ${2.5 / k}px #fff, 0 ${8 / k}px ${24 / k}px rgba(0,0,0,${.3 * sh})` : 'none';
+  const ab = eo(seg(t, T.bar, T.bar + .3));
+  $('bar').style.opacity = ab * (1 - gone);
+  $('bar').style.transform = `translateX(${(1 - ab) * 40}px)`;
+
+  // share sheet (floating card) up / down
+  const so = eo(seg(t, T.sheet, T.sheet + .45)), sd = eio(seg(t, T.out, T.out + .35));
+  $('sheet').style.transform = `translateY(${(1 - so) * 700 + sd * 700}px)`;
+  $('scrim').style.opacity = .35 * so * (1 - sd);
+
+  // screenshot flies from the sheet preview into the toast icon
+  const f = seg(t, T.fly, T.check);
+  if (f > 0 && f < 1) {
+    const fe = eio(f), ir = rectOf($('tIcon')), tx = ir.x, ty = ir.y - (1 - eo(seg(t, T.check - .3, T.check))) * 30;
+    box($('fly'), lerp(32, tx, fe), lerp(PT[1] - 548 + 10 + 22, ty, fe) - Math.sin(fe * Math.PI) * 120, lerp(50, 34, fe), lerp(10, 10, fe), 1 - seg(f, .85, 1));
+  } else $('fly').style.opacity = 0;
+  const ti = eo(seg(t, T.check - .3, T.check)), to = seg(t, T.end - .2, T.end + .1);
+  $('toast').style.opacity = ti * (1 - to);
+  $('toast').style.transform = `translateX(-50%) translateY(${(1 - ti) * 30}px) scale(${lerp(.9, 1, ti)})`;
+  taps(t);
+};
+
+window.TIMELINE = {duration: T.dur, events: [{type: 'shutter', t: T.shot}, {type: 'tap', t: T.tapShare}, {type: 'slide', t: T.sheet},
+  {type: 'tap', t: T.tapN}, {type: 'whoosh', t: T.fly}, {type: 'chirp', t: T.check - .05}, {type: 'done', t: T.check},
+  {type: 'swipe', t: T.end + .35}, {type: 'pop', t: T.end + .7}]};
+renderFrame(0);
+</script></body></html>

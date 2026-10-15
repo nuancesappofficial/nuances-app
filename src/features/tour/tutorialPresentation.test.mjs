@@ -6,6 +6,7 @@ import {
   getGreetingVideoHeight,
   getGreetingVideoWidth,
   getGreetingVideoPlayback,
+  shouldShowGreetingPhoneSpeaker,
   getTutorialArrowRenderSize,
   getVisibleTourSlides,
 } from './tutorialPresentation.ts';
@@ -26,6 +27,15 @@ test('the Greeting gives the raw video a larger responsive frame', () => {
   assert.equal(getGreetingVideoHeight(450), 260);
   assert.equal(getGreetingVideoWidth(480), 230);
   assert.equal(getGreetingVideoWidth(347), 167);
+  assert.equal(getGreetingVideoWidth(480, 'ios'), 230);
+  assert.equal(getGreetingVideoWidth(480, 'android'), 270);
+  assert.equal(getGreetingVideoWidth(347, 'android'), 195);
+});
+
+test('the Greeting hides phone speaker cutout on android', () => {
+  assert.equal(shouldShowGreetingPhoneSpeaker('ios'), true);
+  assert.equal(shouldShowGreetingPhoneSpeaker('android'), false);
+  assert.equal(shouldShowGreetingPhoneSpeaker(), true);
 });
 
 test('the Greeting loops the Share Sheet demonstration only while visible', () => {
@@ -38,6 +48,11 @@ test('the Greeting loops the Share Sheet demonstration only while visible', () =
     loop: true,
     muted: true,
     shouldPlay: false,
+  });
+  assert.deepEqual(getGreetingVideoPlayback(true, 'android'), {
+    loop: true,
+    muted: true,
+    shouldPlay: true,
   });
 });
 
