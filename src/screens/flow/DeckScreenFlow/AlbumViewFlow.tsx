@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, TextInput } from 'react-native';
+import { Alert, Keyboard, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
@@ -672,7 +672,10 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         onChangeSearchQuery={setSearchQuery}
         isSearchVisible={isSearchVisible}
         searchInputRef={searchInputRef}
-        onPressBack={() => navigation.goBack()}
+        onPressBack={() => {
+          Keyboard.dismiss();
+          navigation.goBack();
+        }}
         onPressSearch={() => {
           setIsSearchVisible((prev) => {
             const next = !prev;
