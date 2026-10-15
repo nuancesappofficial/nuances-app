@@ -651,20 +651,24 @@ export default function DeckMainFlow({
 
   useFocusEffect(
     React.useCallback(() => {
-      setImageReloadSeed((prev) => prev + 1);
-    }, [])
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
       let active = true;
       const hydrateSeenCards = async () => {
         try {
           const nextSeen = await loadSeenCardIds();
-          if (active) setSeenCardIds(nextSeen);
+          if (active) {
+            setSeenCardIds((prev) => {
+              if (
+                prev.size === nextSeen.size &&
+                Array.from(nextSeen).every((id) => prev.has(id))
+              ) {
+                return prev;
+              }
+              return nextSeen;
+            });
+          }
         } catch (error) {
           console.warn('[DeckMain] load seen cards failed:', error);
-          if (active) setSeenCardIds(new Set());
+          if (active) setSeenCardIds((prev) => (prev.size === 0 ? prev : new Set()));
         }
       };
       void hydrateSeenCards();
@@ -696,16 +700,26 @@ export default function DeckMainFlow({
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
-      const hydrateSeenCards = async () => {
+      const hydrateQuizReviewedCards = async () => {
         try {
           const nextReviewed = await loadQuizReviewedCardIds();
-          if (active) setQuizReviewedCardIds(nextReviewed);
+          if (active) {
+            setQuizReviewedCardIds((prev) => {
+              if (
+                prev.size === nextReviewed.size &&
+                Array.from(nextReviewed).every((id) => prev.has(id))
+              ) {
+                return prev;
+              }
+              return nextReviewed;
+            });
+          }
         } catch (error) {
           console.warn('[DeckMain] load quiz-reviewed cards failed:', error);
-          if (active) setQuizReviewedCardIds(new Set());
+          if (active) setQuizReviewedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
         }
       };
-      void hydrateSeenCards();
+      void hydrateQuizReviewedCards();
       return () => {
         active = false;
       };
@@ -844,7 +858,17 @@ export default function DeckMainFlow({
       });
 
       if (!cancelled) {
-        setCardImageMap(nextMap);
+        setCardImageMap((prev) => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(nextMap);
+          if (
+            prevKeys.length === nextKeys.length &&
+            nextKeys.every((k) => prev[k] === nextMap[k])
+          ) {
+            return prev;
+          }
+          return nextMap;
+        });
       }
     };
 
@@ -1399,8 +1423,19 @@ export default function DeckMainFlow({
     setCustomAlbums((prev) => [...prev, newAlbum]);
     pendingAlbumToEditRef.current = newAlbum;
 
+    const existingAlbumIds = mergedAlbums.map((album) => album.id);
+    const baseOrder =
+      mainScreenAlbumOrder.length > 0
+        ? [
+            ...mainScreenAlbumOrder,
+            ...existingAlbumIds.filter(
+              (id) => !mainScreenAlbumOrder.includes(id)
+            ),
+          ]
+        : existingAlbumIds;
+
     const nextOrder = placeNewAlbumInSlotOrder(
-      mainScreenAlbumOrder,
+      baseOrder,
       newAlbum.id
     );
     setMainScreenAlbumOrder(nextOrder);
@@ -1414,7 +1449,7 @@ export default function DeckMainFlow({
     setIsCreateModalVisible(false);
     setNewAlbumName('');
     pendingScrollAfterSettingsRef.current = newAlbum.id;
-  }, [mainScreenAlbumOrder, newAlbumName]);
+  }, [mainScreenAlbumOrder, mergedAlbums, newAlbumName]);
 
   const handleCreateAlbumDidClose = React.useCallback(() => {
     const album = pendingAlbumToEditRef.current;

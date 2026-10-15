@@ -109,6 +109,7 @@ const IOS_CARD_SCREEN_OPTIONS: StackNavigationOptions = {
   gestureEnabled: true,
   gestureResponseDistance: 28,
   ...TransitionPresets.SlideFromRightIOS,
+  cardOverlayEnabled: false,
 };
 
 function getActiveRouteName(state?: unknown): string | null {
@@ -247,12 +248,41 @@ const CardsStack = React.memo(function CardsStack({
   theme: ReturnType<typeof resolveThemeColors>;
   navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
-  const syncSwipeEnabled = React.useCallback(() => {
-    if (!navigationRef.isReady()) return;
-    const state = navigationRef.getRootState();
-    const routeName = getActiveRouteName(state);
-    onSwipeEnabledChange(routeName === 'CardsList' || routeName === 'Deck');
-  }, [navigationRef, onSwipeEnabledChange]);
+  const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateSwipeState = React.useCallback(
+    (immediateIfRoot = false) => {
+      if (!navigationRef.isReady()) return;
+      const state = navigationRef.getRootState();
+      const routeName = getActiveRouteName(state);
+      const isRootRoute = routeName === 'CardsList' || routeName === 'Deck' || routeName === null;
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+      if (!isRootRoute) {
+        onSwipeEnabledChange(false);
+      } else if (immediateIfRoot) {
+        onSwipeEnabledChange(true);
+      } else {
+        // Delay restoring the tab bar until the ~400ms back transition finishes
+        swipeRestoreTimerRef.current = setTimeout(() => {
+          swipeRestoreTimerRef.current = null;
+          onSwipeEnabledChange(true);
+        }, 420);
+      }
+    },
+    [navigationRef, onSwipeEnabledChange]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <NavigationIndependentTree>
@@ -260,22 +290,43 @@ const CardsStack = React.memo(function CardsStack({
         ref={navigationRef}
         theme={navTheme}
         onReady={() => onSwipeEnabledChange(true)}
-        onStateChange={(state) => {
-          const routeName = getActiveRouteName(state);
-          onSwipeEnabledChange(routeName === 'CardsList' || routeName === 'Deck');
-        }}
+        onStateChange={() => updateSwipeState(false)}
       >
         <CardsStackNav.Navigator
           screenOptions={{
             headerShown: false,
-            gestureEnabled: true,
+            gestureEnabled: Platform.OS === 'ios',
             cardStyle: { backgroundColor: theme.screenBg },
           }}
-          screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
+          screenListeners={{
+            transitionStart: () => updateSwipeState(false),
+            transitionEnd: () => updateSwipeState(true),
+          }}
         >
-          <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
-          <CardsStackNav.Screen name="Deck" component={DeckMainFlow} options={IOS_CARD_SCREEN_OPTIONS} />
-          <CardsStackNav.Screen name="AlbumView" component={SyncAlbumViewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen
+            name="CardsList"
+            component={DeckMainFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
+          <CardsStackNav.Screen
+            name="Deck"
+            component={DeckMainFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
+          <CardsStackNav.Screen
+            name="AlbumView"
+            component={SyncAlbumViewFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
           <CardsStackNav.Screen
             name="CardDetail"
             component={SyncCardDetailFlow}
@@ -284,7 +335,14 @@ const CardsStack = React.memo(function CardsStack({
               gestureEnabled: Platform.OS === 'ios',
             }}
           />
-          <CardsStackNav.Screen name="DayView" component={SyncDayViewFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CardsStackNav.Screen
+            name="DayView"
+            component={SyncDayViewFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
           <CardsStackNav.Screen
             name="CardReview"
             component={SyncReviewFlow}

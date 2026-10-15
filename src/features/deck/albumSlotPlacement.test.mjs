@@ -59,3 +59,11 @@ test('returns [newAlbumId] when current order is empty', () => {
   const result = placeNewAlbumInSlotOrder([], 'first-album');
   assert.deepEqual(result, ['first-album']);
 });
+
+test('places new album at the end when fallback default albums are provided', () => {
+  const defaultAlbums = ['all-cards', 'favorites', 'slang'];
+  const newAlbumId = 'japanese-vocab';
+  const result = placeNewAlbumInSlotOrder(defaultAlbums, newAlbumId);
+  assert.deepEqual(result, ['all-cards', 'favorites', 'slang', 'japanese-vocab']);
+});
+

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Animated,
   FlatList,
   Image,
   Pressable,
@@ -40,7 +39,6 @@ type LearningStatus = {
 };
 
 type Props = {
-  screenOpacity: Animated.Value;
   themeColor: string;
   albumName: string;
   uiLanguage: UILanguage;
@@ -72,7 +70,6 @@ type Props = {
 };
 
 export default function CardViewUI({
-  screenOpacity,
   themeColor,
   albumName,
   uiLanguage,
@@ -355,7 +352,7 @@ export default function CardViewUI({
   );
 
   return (
-    <Animated.View style={[styles.screenWrap, { opacity: screenOpacity }]}>
+    <View style={styles.screenWrap}>
       <SafeAreaView
         style={[styles.container, { backgroundColor: palette.screenBg }]}
         edges={['top']}
@@ -520,7 +517,7 @@ export default function CardViewUI({
           onPressDelete={onPressBatchDelete ?? (() => {})}
         />
       </SafeAreaView>
-    </Animated.View>
+    </View>
   );
 }
 

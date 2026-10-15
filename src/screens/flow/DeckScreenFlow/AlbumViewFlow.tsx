@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Animated, Easing, TextInput } from 'react-native';
+import { Alert, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
@@ -150,7 +150,6 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   const [selectedQuestionTypes, setSelectedQuestionTypes] = React.useState<ReviewQuestionType[]>(
     DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
   );
-  const screenOpacity = React.useRef(new Animated.Value(0)).current;
   const searchInputRef = React.useRef<TextInput | null>(null);
   const sortPreferenceRevisionRef = React.useRef(0);
 
@@ -216,16 +215,6 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
       },
     ]);
   }, [closeCardActionModal, selectedCard]);
-
-  React.useEffect(() => {
-    screenOpacity.setValue(0);
-    Animated.timing(screenOpacity, {
-      toValue: 1,
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [screenOpacity]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -674,7 +663,6 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   return (
     <>
       <CardViewUI
-        screenOpacity={screenOpacity}
         themeColor={themeColor}
         albumName={albumDisplayName}
         uiLanguage={uiLanguage}
