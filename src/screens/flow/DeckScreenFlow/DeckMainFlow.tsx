@@ -1757,7 +1757,8 @@ export default function DeckMainFlow({
         onDidScrollToAlbum={() => setScrollToAlbumId(null)}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
-        wordPopEnabled={mainScreenWordPopEnabled && isDeckFocused}
+        wordPopEnabled={mainScreenWordPopEnabled}
+        wordPopPaused={!isDeckFocused}
         albumGridCount={mainScreenAlbumGridCount}
         onPressSlideshowItem={handlePressWordPopItem}
         searchResults={searchResults}

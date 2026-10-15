@@ -74,6 +74,7 @@ type Props = {
   slideshowItems: Array<{ cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }>;
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
+  wordPopPaused?: boolean;
   albumGridCount: number;
   onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
   searchResults: Array<{ cardId: string; text: string; translation?: string }>;
@@ -113,6 +114,7 @@ export default function DeckMainScreenUI({
   slideshowItems,
   wordPopSlideMs,
   wordPopEnabled,
+  wordPopPaused = false,
   albumGridCount,
   onPressSlideshowItem,
   searchResults,
@@ -262,7 +264,7 @@ export default function DeckMainScreenUI({
 
   React.useEffect(() => {
     const itemCount = slideshowItems.length;
-    if (itemCount <= 1) return;
+    if (itemCount <= 1 || wordPopPaused) return;
 
     const timer = setTimeout(() => {
       const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
@@ -301,6 +303,7 @@ export default function DeckMainScreenUI({
     slotAX,
     slotBX,
     wordIndex,
+    wordPopPaused,
     wordPopSlideMs,
     wordSlideWidth,
   ]);
