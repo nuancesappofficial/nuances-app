@@ -77,6 +77,7 @@ import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetail
 import CardDetailHeaderActionsUI from '../../../components/UI/DeckScreenUI/CardDetailHeaderActionsUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
 import CardDetailCarouselCardUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselCardUI';
+import CardDetailSkeletonUI from '../../../components/UI/DeckScreenUI/CardDetailSkeletonUI';
 import PronunciationCoachUI from '../../../components/UI/DeckScreenUI/PronunciationCoachUI';
 import { useCardDetailPlayback } from './hooks/useCardDetailPlayback';
 import { useCardDetailPronunciation } from './hooks/useCardDetailPronunciation';
@@ -731,6 +732,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setCurrentIndex(targetIndex);
     setDisplayIndex(targetIndex);
   }, [activeIndexUI, cardId, scopedCards, scopedCards.length]);
+
+  React.useEffect(() => {
+    if (!loading && scopedCards.length === 0) {
+      navigation.goBack();
+    }
+  }, [loading, navigation, scopedCards.length]);
 
   React.useEffect(() => {
     let active = true;
@@ -2060,42 +2067,26 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     ]
   );
 
-  if (loading) {
+  if (loading || !card || currentIndex === null || displayIndex === null) {
     return (
-      <View
-        style={[
-          styles.loadingWrap,
-          isLightMode ? { backgroundColor: '#FFFFFF' } : null,
-        ]}
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: palette.screenBg }]}
+        edges={[]}
       >
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
+        <CardDetailHeaderActionsUI
+          floatingHeaderTop={floatingHeaderTop}
+          isLightMode={isLightMode}
+          headerTitle={headerTitle}
+          displayIndex={displayIndex ?? 0}
+          totalCount={scopedCards.length || 1}
+          onBack={() => navigation.goBack()}
+          styles={styles}
+        />
 
-  if (!card || currentIndex === null || displayIndex === null) {
-    return (
-      <View
-        style={[
-          styles.loadingWrap,
-          isLightMode ? { backgroundColor: '#FFFFFF' } : null,
-        ]}
-      >
-        <Text
-          style={[styles.errorText, isLightMode ? { color: '#111111' } : null]}
-        >
-          找不到這張卡片
-        </Text>
-        <Pressable
-          style={({ pressed }) => [
-            styles.errorBackBtn,
-            pressed ? styles.pressablePrimaryPressed : null,
-          ]}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.errorBackText}>返回</Text>
-        </Pressable>
-      </View>
+        <View style={styles.content}>
+          <CardDetailSkeletonUI isLightMode={isLightMode} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -2460,22 +2451,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SCREEN_BG },
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    backgroundColor: SCREEN_BG,
-  },
-  errorText: { color: '#F4EDE6', fontSize: 16, fontWeight: '600' },
-  errorBackBtn: {
-    marginTop: 10,
-    backgroundColor: '#7D2A2E',
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  errorBackText: { color: '#F9F4EE', fontWeight: '700' },
   floatingHeaderLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
@@ -2604,11 +2579,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     overflow: 'hidden',
+    backfaceVisibility: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 24 },
     shadowOpacity: 0.12,
     shadowRadius: 30,
-    elevation: 20,
+    ...Platform.select({
+      android: {
+        // Android 在 3D rotateY 翻轉時，若存在 elevation 會計算動態投影多邊形，
+        // 導致通過 90 度時陰影劇烈破面閃爍，且首幀因編譯 3D 陰影 Shader 嚴重卡頓。
+        // iOS 因 overflow: 'hidden' 原先即未渲染此陰影，設為 0 可完全消弭雙端差異與卡頓。
+        elevation: 0,
+      },
+      default: {
+        elevation: 20,
+      },
+    }),
     padding: 18,
     gap: 18,
   },

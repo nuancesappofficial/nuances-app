@@ -1268,6 +1268,7 @@ function CardDetailCarouselCardUI({
 
   // Flip 內部動畫
   const flipAnim = useSharedValue(0);
+  const isCapturingShare = useSharedValue(false);
   const tourFlipTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -1334,16 +1335,21 @@ function CardDetailCarouselCardUI({
       const ref =
         face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
       if (!ref) return;
-      const uri = await captureRef(ref, {
-        format: 'png',
-        quality: 1,
-        result: 'tmpfile',
-      });
-      await Share.share({
-        url: uri,
-      });
+      isCapturingShare.value = true;
+      try {
+        const uri = await captureRef(ref, {
+          format: 'png',
+          quality: 1,
+          result: 'tmpfile',
+        });
+        await Share.share({
+          url: uri,
+        });
+      } finally {
+        isCapturingShare.value = false;
+      }
     },
-    []
+    [isCapturingShare]
   );
   const captureFacePreview = React.useCallback(
     async (face: 'front' | 'back') => {
@@ -1365,13 +1371,18 @@ function CardDetailCarouselCardUI({
   );
   const openSharePicker = React.useCallback(async () => {
     if (!isActiveCard) return;
+    isCapturingShare.value = true;
     setIsSharePickerVisible(true);
-    const [front, back] = await Promise.all([
-      captureFacePreview('front'),
-      captureFacePreview('back'),
-    ]);
-    setSharePreviewUri({ front, back });
-  }, [captureFacePreview, isActiveCard]);
+    try {
+      const [front, back] = await Promise.all([
+        captureFacePreview('front'),
+        captureFacePreview('back'),
+      ]);
+      setSharePreviewUri({ front, back });
+    } finally {
+      isCapturingShare.value = false;
+    }
+  }, [captureFacePreview, isActiveCard, isCapturingShare]);
   React.useEffect(() => {
     if (!isSharePickerVisible) return;
     shareModalAnim.setValue(0);
@@ -1428,9 +1439,11 @@ function CardDetailCarouselCardUI({
 
   const frontAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipAnim.value, [0, 1], [0, 180]);
+    const opacity = isCapturingShare.value ? 1 : (flipAnim.value < 0.5 ? 1 : 0);
     return {
       transform: [{ perspective: 1200 }, { rotateY: `${rotateY}deg` }],
       backfaceVisibility: 'hidden',
+      opacity,
       // 當翻轉進度小於一半時，正面擁有較高層級以接收點擊
       zIndex: flipAnim.value < 0.5 ? 1 : 0,
     };
@@ -1438,9 +1451,11 @@ function CardDetailCarouselCardUI({
 
   const backAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipAnim.value, [0, 1], [-180, 0]);
+    const opacity = isCapturingShare.value ? 1 : (flipAnim.value >= 0.5 ? 1 : 0);
     return {
       transform: [{ perspective: 1200 }, { rotateY: `${rotateY}deg` }],
       backfaceVisibility: 'hidden',
+      opacity,
       position: 'absolute',
       top: 0,
       left: 0,

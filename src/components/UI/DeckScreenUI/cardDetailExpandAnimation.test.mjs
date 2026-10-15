@@ -9,6 +9,10 @@ const source = readFileSync(
   join(__dirname, 'CardDetailCarouselCardUI.tsx'),
   'utf8',
 );
+const flowSource = readFileSync(
+  join(__dirname, '../../../screens/flow/DeckScreenFlow/CardDetailFlow.tsx'),
+  'utf8',
+);
 
 // 回饋迴圈：展開/收合動畫的 height 動畫必須在 UI thread（reanimated）執行，
 // 不能用 JS 驅動的 Animated.timing（useNativeDriver: false）——後者每幀透過
@@ -90,4 +94,30 @@ test('例句翻譯文字樣式必須維持 flexShrink: 0 防止中文截斷', ()
     ].join('\n'),
   );
 });
+
+test('卡片翻轉動畫必須具備正面與背面 90 度 opacity 切換與 backfaceVisibility 防止 Android 重複光柵化', () => {
+  const hasFrontOpacity =
+    /frontAnimatedStyle\s*=\s*useAnimatedStyle[\s\S]*?opacity[\s\S]*?flipAnim\.value\s*<\s*0\.5/.test(source);
+  const hasBackOpacity =
+    /backAnimatedStyle\s*=\s*useAnimatedStyle[\s\S]*?opacity[\s\S]*?flipAnim\.value\s*>=\s*0\.5/.test(source);
+  const hasBackfaceHidden =
+    /frontAnimatedStyle[\s\S]*?backfaceVisibility:\s*'hidden'/.test(source) &&
+    /backAnimatedStyle[\s\S]*?backfaceVisibility:\s*'hidden'/.test(source);
+
+  assert.ok(
+    hasFrontOpacity && hasBackOpacity && hasBackfaceHidden,
+    '❌ [Android 翻轉重疊/效能風險] frontAnimatedStyle 或 backAnimatedStyle 缺少 90 度 opacity 切換或 backfaceVisibility！',
+  );
+});
+
+test('CardDetailFlow 的 detailPaper 必須在 Android 上關閉 elevation 避免 3D 陰影反轉破面與首幀卡頓', () => {
+  const hasAndroidZeroElevation =
+    /detailPaper:\s*\{[\s\S]*?android:\s*\{[\s\S]*?elevation:\s*0/.test(flowSource);
+
+  assert.ok(
+    hasAndroidZeroElevation,
+    '❌ [Android 3D 陰影破面風險] CardDetailFlow.tsx 中 detailPaper 必須在 Android 平台將 elevation 設為 0！',
+  );
+});
+
 
