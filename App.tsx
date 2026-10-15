@@ -33,6 +33,7 @@ import Reanimated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
+import { fetchUserHasCacheItems } from './src/navigation/navigationStartTab';
 import OnboardingFlow from './src/screens/flow/OnboardingFlow';
 import VideoTourFlow from './src/screens/flow/VideoTourFlow';
 import { type VideoPlayer } from 'expo-video';
@@ -651,6 +652,7 @@ export default function App() {
     useState(false);
   const [manualVideoTourRequested, setManualVideoTourRequested] = useState(false);
   const [startTutorialAfterVideoTour, setStartTutorialAfterVideoTour] = useState(false);
+  const [initialTabIndex, setInitialTabIndex] = useState(0);
   const videoTourEntryOpacity = React.useRef(new Animated.Value(1)).current;
   const preloadedFirstPlayerRef = React.useRef<VideoPlayer | null>(null);
   const handleFirstTourPlayerReady = useCallback((player: VideoPlayer) => {
@@ -812,8 +814,16 @@ export default function App() {
             synced ? processPendingCardImageUploads(user.id) : undefined
           );
           triggerBackgroundAccountRefresh(user.id, 'startup');
-          void checkOnboardingStatus(user.id).then((completed) => {
+          void Promise.allSettled([
+            fetchUserHasCacheItems(user.id),
+            checkOnboardingStatus(user.id),
+          ]).then(async ([cacheRes, onboardingRes]) => {
             if (activeUserIdRef.current !== user.id) return;
+            const hasCache = cacheRes.status === 'fulfilled' ? cacheRes.value : false;
+            if (hasCache) {
+              setInitialTabIndex(1);
+            }
+            const completed = onboardingRes.status === 'fulfilled' ? onboardingRes.value : true;
             setNeedsOnboarding(!completed);
             void shouldShowVideoTour(user.id)
               .then((showVideoTour) => {
@@ -1124,8 +1134,12 @@ export default function App() {
             setOnboardingChecked(false);
             setNeedsVideoTour(false);
             setVideoTourChecked(false);
-            const completed = await checkOnboardingStatus(nextUserId);
+            const [completed, hasCache] = await Promise.all([
+              checkOnboardingStatus(nextUserId),
+              fetchUserHasCacheItems(nextUserId),
+            ]);
             if (isStaleTransition()) return;
+            setInitialTabIndex(hasCache ? 1 : 0);
             traceFirstRun('auth', 'onboarding_status_resolved', { completed });
             setNeedsOnboarding(!completed);
             setOnboardingChecked(true);
@@ -1506,6 +1520,7 @@ export default function App() {
     setActiveDevFreshUserId(null);
     activeUserIdRef.current = null;
     setUserId(null);
+    setInitialTabIndex(0);
     setIsReady(true);
   }, []);
 
@@ -1631,6 +1646,7 @@ export default function App() {
                   <RootNavigator
                     key={userId}
                     isExpoGo={isExpoGo}
+                    initialTabIndex={initialTabIndex}
                     startTutorialOnMount={startTutorialAfterVideoTour}
                     onTutorialStarted={handleTutorialStarted}
                     onDevAccountDelete={handleDevAccountDelete}
