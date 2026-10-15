@@ -14,6 +14,7 @@ import {
   NavigationContainer,
   NavigationIndependentTree,
   DarkTheme,
+  DefaultTheme,
   StackActions,
   createNavigationContainerRef,
 } from '@react-navigation/native';
@@ -83,17 +84,24 @@ function getNotificationCacheCount(response: Notifications.NotificationResponse 
   return Number.isFinite(count) ? count : 0;
 }
 
-const APP_DARK_THEME = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: '#02213D',
-    card: '#02213D',
-    text: '#FBFBFB',
-    border: '#1A1A1A',
-    primary: ACTIVE_COLOR,
-  },
-};
+function getAppNavTheme(
+  colorScheme: 'light' | 'dark' | null | undefined,
+  theme: ReturnType<typeof resolveThemeColors>
+) {
+  const isLight = colorScheme === 'light';
+  const base = isLight ? DefaultTheme : DarkTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      background: theme.screenBg,
+      card: theme.screenBg,
+      text: theme.textOnBg,
+      border: theme.borderSubtle,
+      primary: ACTIVE_COLOR,
+    },
+  };
+}
 
 const IOS_CARD_SCREEN_OPTIONS: StackNavigationOptions = {
   presentation: 'card',
@@ -132,9 +140,13 @@ const SyncProfileSettingOptionsFlow = withNavBarSync(ProfileSettingOptionsFlow);
 const CacheStack = React.memo(function CacheStack({
   onSwipeEnabledChange,
   navigationRef,
+  theme,
+  navTheme,
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+  theme: ReturnType<typeof resolveThemeColors>;
+  navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
   const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -176,12 +188,16 @@ const CacheStack = React.memo(function CacheStack({
     <NavigationIndependentTree>
       <NavigationContainer
         ref={navigationRef}
-        theme={APP_DARK_THEME}
+        theme={navTheme}
         onReady={() => onSwipeEnabledChange(true)}
         onStateChange={() => updateSwipeState(false)}
       >
         <CacheStackNav.Navigator
-          screenOptions={{ headerShown: false, gestureEnabled: false }}
+          screenOptions={{
+            headerShown: false,
+            gestureEnabled: false,
+            cardStyle: { backgroundColor: theme.screenBg },
+          }}
           screenListeners={{
             transitionStart: () => updateSwipeState(false),
             transitionEnd: () => updateSwipeState(true),
@@ -222,9 +238,13 @@ const CacheStack = React.memo(function CacheStack({
 const CardsStack = React.memo(function CardsStack({
   onSwipeEnabledChange,
   navigationRef,
+  theme,
+  navTheme,
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
+  theme: ReturnType<typeof resolveThemeColors>;
+  navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
   const syncSwipeEnabled = React.useCallback(() => {
     if (!navigationRef.isReady()) return;
@@ -237,7 +257,7 @@ const CardsStack = React.memo(function CardsStack({
     <NavigationIndependentTree>
       <NavigationContainer
         ref={navigationRef}
-        theme={APP_DARK_THEME}
+        theme={navTheme}
         onReady={() => onSwipeEnabledChange(true)}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
@@ -245,7 +265,11 @@ const CardsStack = React.memo(function CardsStack({
         }}
       >
         <CardsStackNav.Navigator
-          screenOptions={{ headerShown: false, gestureEnabled: true }}
+          screenOptions={{
+            headerShown: false,
+            gestureEnabled: true,
+            cardStyle: { backgroundColor: theme.screenBg },
+          }}
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
           <CardsStackNav.Screen name="CardsList" component={DeckMainFlow} />
@@ -272,11 +296,15 @@ const ProfileStack = React.memo(function ProfileStack({
   navigationRef,
   onReplayVideoTutorial,
   onDevAccountDelete,
+  theme,
+  navTheme,
 }: {
   onSwipeEnabledChange: (enabled: boolean) => void;
   navigationRef: ReturnType<typeof createNavigationContainerRef<any>>;
   onReplayVideoTutorial: () => void;
   onDevAccountDelete?: () => Promise<void>;
+  theme: ReturnType<typeof resolveThemeColors>;
+  navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
   const syncSwipeEnabled = React.useCallback(() => {
     if (!navigationRef.isReady()) return;
@@ -300,7 +328,7 @@ const ProfileStack = React.memo(function ProfileStack({
     <NavigationIndependentTree>
       <NavigationContainer
         ref={navigationRef}
-        theme={APP_DARK_THEME}
+        theme={navTheme}
         onReady={() => onSwipeEnabledChange(true)}
         onStateChange={(state) => {
           const routeName = getActiveRouteName(state);
@@ -308,7 +336,11 @@ const ProfileStack = React.memo(function ProfileStack({
         }}
       >
         <ProfileStackNav.Navigator
-          screenOptions={{ headerShown: false, gestureEnabled: false }}
+          screenOptions={{
+            headerShown: false,
+            gestureEnabled: false,
+            cardStyle: { backgroundColor: theme.screenBg },
+          }}
           screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
         >
           <ProfileStackNav.Screen name="ProfileHome">
@@ -430,6 +462,7 @@ export default function RootNavigator({
   const didStartRequestedTutorialRef = React.useRef(false);
   const colorScheme = useColorScheme();
   const theme = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
+  const navTheme = React.useMemo(() => getAppNavTheme(colorScheme, theme), [colorScheme, theme]);
   const cardsNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const cacheNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
   const profileNavigationRef = React.useMemo(() => createNavigationContainerRef<any>(), []);
@@ -461,54 +494,41 @@ export default function RootNavigator({
     selectedTabIndexRef.current = selectedTabIndex;
   }, [selectedTabIndex]);
 
-  const [outgoingTabIndex, setOutgoingTabIndex] = React.useState<number | null>(null);
-  const outgoingTabIndexRef = React.useRef<number | null>(null);
-
   const switchTabImmediately = React.useCallback(
-    (index: number, duration = 150) => {
+    (index: number, duration = 180) => {
       const nextIndex = Math.min(MAIN_TAB_ORDER.length - 1, Math.max(0, index));
       const fromIndex = selectedTabIndexRef.current;
       if (nextIndex === fromIndex) return;
 
       selectedTabIndexRef.current = nextIndex;
-      outgoingTabIndexRef.current = fromIndex;
-      setOutgoingTabIndex(fromIndex);
       setSelectedTabIndex(nextIndex);
 
-      // Stop any ongoing animations
-      tabOpacities.forEach((anim) => anim.stopAnimation());
-
-      // Ensure any unused tab is completely hidden
-      [0, 1, 2].forEach((i) => {
-        if (i !== fromIndex && i !== nextIndex) {
-          tabOpacities[i].setValue(0);
-        }
-      });
-
-      // Outgoing tab stays 100% opaque underneath (zero offscreen alpha layer on Android)
-      tabOpacities[fromIndex].setValue(1);
-
       if (duration === 0) {
-        tabOpacities[nextIndex].setValue(1);
-        tabOpacities[fromIndex].setValue(0);
-        outgoingTabIndexRef.current = null;
-        setOutgoingTabIndex(null);
+        [0, 1, 2].forEach((i) => {
+          tabOpacities[i].stopAnimation();
+          tabOpacities[i].setValue(i === nextIndex ? 1 : 0);
+        });
         setSettledTabIndex(nextIndex);
         return;
       }
 
-      // ONLY the incoming tab fades in over the outgoing tab (0 -> 1)
-      tabOpacities[nextIndex].setValue(0);
-      Animated.timing(tabOpacities[nextIndex], {
-        toValue: 1,
-        duration,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) {
-          tabOpacities[fromIndex].setValue(0);
-          outgoingTabIndexRef.current = null;
-          setOutgoingTabIndex(null);
+      // Do NOT call stopAnimation() or setValue() here!
+      // Animated.timing with useNativeDriver: true automatically hijacks the in-flight
+      // native UI-thread value seamlessly without any 1-frame JS/UI sync glitch.
+      Animated.parallel(
+        [0, 1, 2].map((i) =>
+          Animated.timing(tabOpacities[i], {
+            toValue: i === nextIndex ? 1 : 0,
+            duration,
+            easing:
+              i === nextIndex
+                ? Easing.out(Easing.quad)
+                : Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          })
+        )
+      ).start(({ finished }) => {
+        if (finished && selectedTabIndexRef.current === nextIndex) {
           setSettledTabIndex(nextIndex);
         }
       });
@@ -868,40 +888,52 @@ export default function RootNavigator({
       <View style={[styles.container, { backgroundColor: theme.screenBg }]}>
         <View style={styles.pager}>
           <Animated.View
+            collapsable={false}
             style={[
               styles.tabScene,
               {
                 opacity: tabOpacities[0],
-                zIndex: selectedTabIndex === 0 ? 3 : outgoingTabIndex === 0 ? 2 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 0 ? 'auto' : 'none'}
           >
-            <CardsStack navigationRef={cardsNavigationRef} onSwipeEnabledChange={handleDeckRootRouteEnabledChange} />
+            <CardsStack
+              theme={theme}
+              navTheme={navTheme}
+              navigationRef={cardsNavigationRef}
+              onSwipeEnabledChange={handleDeckRootRouteEnabledChange}
+            />
           </Animated.View>
           <Animated.View
+            collapsable={false}
             style={[
               styles.tabScene,
               {
                 opacity: tabOpacities[1],
-                zIndex: selectedTabIndex === 1 ? 3 : outgoingTabIndex === 1 ? 2 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 1 ? 'auto' : 'none'}
           >
-            <CacheStack navigationRef={cacheNavigationRef} onSwipeEnabledChange={handleCacheRootRouteEnabledChange} />
+            <CacheStack
+              theme={theme}
+              navTheme={navTheme}
+              navigationRef={cacheNavigationRef}
+              onSwipeEnabledChange={handleCacheRootRouteEnabledChange}
+            />
           </Animated.View>
           <Animated.View
+            collapsable={false}
             style={[
               styles.tabScene,
               {
                 opacity: tabOpacities[2],
-                zIndex: selectedTabIndex === 2 ? 3 : outgoingTabIndex === 2 ? 2 : 1,
               },
             ]}
             pointerEvents={selectedTabIndex === 2 ? 'auto' : 'none'}
           >
             <ProfileStack
+              theme={theme}
+              navTheme={navTheme}
               navigationRef={profileNavigationRef}
               onSwipeEnabledChange={handleProfileRootRouteEnabledChange}
               onReplayVideoTutorial={handleProfileReplayTutorial}
