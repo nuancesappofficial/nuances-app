@@ -315,6 +315,7 @@ export type UIStringKey =
   | 'review.questionType.contextMeaning'
   | 'review.questionType.partOfSpeech'
   | 'review.questionType.pronunciation'
+  | 'review.clampedNotice'
   | 'cardAction.eyebrow'
   | 'cardAction.title'
   | 'cardAction.delete'
@@ -788,6 +789,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.questionType.contextMeaning': 'Meaning in Context',
     'review.questionType.partOfSpeech': 'Part of Speech',
     'review.questionType.pronunciation': 'Pronunciation',
+    'review.clampedNotice': 'Available vocabulary combinations reached. Generated {count} distinct questions.',
     'cardAction.eyebrow': 'Card options',
     'cardAction.title': 'Card options',
     'cardAction.delete': 'Delete',
@@ -1256,6 +1258,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.questionType.contextMeaning': '判斷語境意思',
     'review.questionType.partOfSpeech': '判斷詞性',
     'review.questionType.pronunciation': '發音挑戰',
+    'review.clampedNotice': '單字庫題型已達上限，已生成 {count} 道不重複題型測驗',
     'cardAction.eyebrow': '卡片選項',
     'cardAction.title': '卡片選項',
     'cardAction.delete': '刪除',
@@ -1709,6 +1712,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.questionType.contextMeaning': '判断语境意思',
     'review.questionType.partOfSpeech': '判断词性',
     'review.questionType.pronunciation': '发音挑战',
+    'review.clampedNotice': '单词库题型已达上限，已生成 {count} 道不重复题型测验',
     'cardAction.eyebrow': '卡片选项',
     'cardAction.title': '卡片选项',
     'cardAction.delete': '删除',

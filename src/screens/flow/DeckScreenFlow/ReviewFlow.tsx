@@ -50,6 +50,7 @@ import {
   calculateKeyboardLift,
   getReviewKeyboardEvents,
 } from '../../../features/deck/reviewKeyboardLift';
+import { planReviewQuestions } from '../../../features/deck/reviewQuestionPlanner';
 import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
@@ -976,39 +977,30 @@ function buildReviewQuestions(
   skippedPronunciationCardIds: string[],
   selectedQuestionTypes: ReviewQuestionType[],
   uiLanguage: UILanguage
-): ReviewQuestion[] {
+): { questions: ReviewQuestion[]; isClamped: boolean; maxAvailable: number } {
   const questionTypes =
     selectedQuestionTypes.length > 0
       ? selectedQuestionTypes
       : DEFAULT_REVIEW_QUESTION_TYPES;
-  const eligibleSourceCards = sourceCards.filter((card) =>
-    questionTypes.some((type) => canBuildQuestionTypeForCard(card, type))
-  );
-  const sourceById = new Map(eligibleSourceCards.map((card) => [card.id, card] as const));
-  const skippedPronunciationCards = questionTypes.includes('pronunciation')
-    ? skippedPronunciationCardIds
-    .map((id) => sourceById.get(id))
-    .filter((card): card is Card => Boolean(card))
-    : [];
-  const skippedPronunciationSet = new Set(skippedPronunciationCards.map((card) => card.id));
-  const pinnedCards = pinnedCardIds
-    .map((id) => sourceById.get(id))
-    .filter((card): card is Card => Boolean(card && !skippedPronunciationSet.has(card.id)));
-  const pinnedSet = new Set([...pinnedCards.map((card) => card.id), ...skippedPronunciationSet]);
-  const randomPool = shuffleArray(eligibleSourceCards.filter((card) => !pinnedSet.has(card.id)));
-  const baseQuestionCount = Math.min(
-    Math.max(0, eligibleSourceCards.length - skippedPronunciationCards.length),
-    Math.max(questionCount, pinnedCards.length)
-  );
-  const selected = [...skippedPronunciationCards, ...[...pinnedCards, ...randomPool].slice(0, baseQuestionCount)].slice(
-    0,
-    eligibleSourceCards.length
-  );
+
+  const plan = planReviewQuestions({
+    cards: sourceCards,
+    questionCount,
+    selectedQuestionTypes: questionTypes,
+    pinnedCardIds,
+    skippedPronunciationCardIds,
+    canBuildQuestionType: (card, type) => canBuildQuestionTypeForCard(card, type),
+  });
+
+  const sourceById = new Map(sourceCards.map((card) => [card.id, card] as const));
   let translationVariantIndex = Math.floor(
     Math.random() * TRANSLATION_QUESTION_VARIANTS.length
   );
 
-  const generated = selected.flatMap<ReviewQuestion>((card, index) => {
+  const generated = plan.items.flatMap<ReviewQuestion>((item) => {
+    const card = sourceById.get(item.cardId);
+    if (!card) return [];
+
     const word = pickDisplayAnswer(card);
     const pronunciationSubject = pickPronunciationSubject(card);
     const definition = pickDefinitionText(card);
@@ -1023,30 +1015,27 @@ function buildReviewQuestions(
       answerTranslation: pickAnswerQuickTranslation(card),
     };
 
-    const shouldGuaranteePronunciation =
-      skippedPronunciationCards.length === 0 &&
-      questionTypes.includes('pronunciation') &&
-      index === selected.length - 1;
-    const selectedQuestionType = shouldGuaranteePronunciation
-      ? 'pronunciation'
-      : questionTypes[index % questionTypes.length];
-    const preferredQuestionType =
-      selectedQuestionType === 'word_to_translation'
-        ? TRANSLATION_QUESTION_VARIANTS[
-            translationVariantIndex++ % TRANSLATION_QUESTION_VARIANTS.length
-          ]
-        : selectedQuestionType;
-    const questionType = skippedPronunciationSet.has(card.id)
-      ? 'pronunciation'
-      : resolveQuestionTypeForCard(card, preferredQuestionType, questionTypes);
-    if (!questionType) return [];
+    let questionType = item.questionType;
+    if (questionType === 'word_to_translation') {
+      const preferred =
+        TRANSLATION_QUESTION_VARIANTS[
+          translationVariantIndex++ % TRANSLATION_QUESTION_VARIANTS.length
+        ];
+      questionType = resolveQuestionTypeForCard(card, preferred, questionTypes) || questionType;
+    }
+
+    if (!canBuildQuestionTypeForCard(card, questionType)) {
+      const resolved = resolveQuestionTypeForCard(card, questionType, questionTypes);
+      if (!resolved) return [];
+      questionType = resolved;
+    }
 
     if (questionType === 'translation_to_word') {
       const vocabularyAnswer = pickDefinitionToWordAnswer(card);
       const distractors = buildDefinitionToWordOptionPool(allCards, card).slice(0, 3);
       const options = shuffleArray([vocabularyAnswer, ...distractors]);
       return [{
-        id: card.id,
+        id: item.questionId,
         cardId: card.id,
         questionType,
         prompt: tUI(uiLanguage, 'review.prompt.chooseWord'),
@@ -1067,7 +1056,7 @@ function buildReviewQuestions(
     if (questionType === 'word_to_translation') {
       const distractors = buildDefinitionOptionPool(allCards, card).slice(0, 3);
       return [{
-        id: card.id,
+        id: item.questionId,
         cardId: card.id,
         questionType,
         prompt: tUI(uiLanguage, 'review.prompt.chooseTranslation'),
@@ -1094,7 +1083,7 @@ function buildReviewQuestions(
           )
         : answerDetail;
       return [{
-        id: card.id,
+        id: item.questionId,
         cardId: card.id,
         questionType,
         prompt: tUI(uiLanguage, 'review.prompt.chooseSentenceMeaning'),
@@ -1122,7 +1111,7 @@ function buildReviewQuestions(
         false
       );
       return [{
-        id: card.id,
+        id: item.questionId,
         cardId: card.id,
         questionType,
         prompt: tUI(uiLanguage, 'review.prompt.choosePartOfSpeech'),
@@ -1140,7 +1129,7 @@ function buildReviewQuestions(
 
     if (questionType === 'pronunciation') {
       return [{
-        id: card.id,
+        id: item.questionId,
         cardId: card.id,
         questionType,
         prompt: tUI(uiLanguage, 'review.prompt.pronounceWord'),
@@ -1168,7 +1157,7 @@ function buildReviewQuestions(
         }
         const exampleAnswerDetail = buildAnswerDetailTextForSentence(card, exampleSentence, example.translation, false);
         return {
-          id: `${card.id}:spelling:${exampleIndex}`,
+          id: `${item.questionId}:${exampleIndex}`,
           cardId: card.id,
           questionVariantIndex: exampleIndex,
           questionType,
@@ -1198,7 +1187,7 @@ function buildReviewQuestions(
       const distractors = buildOptionPool(allCards, card, exampleTarget).slice(0, 3);
       const options = shuffleArray([exampleTarget, ...distractors]);
       return {
-        id: `${card.id}:fill_blank:${exampleIndex}`,
+        id: `${item.questionId}:${exampleIndex}`,
         cardId: card.id,
         questionVariantIndex: exampleIndex,
         questionType,
@@ -1217,14 +1206,19 @@ function buildReviewQuestions(
     }).filter((item): item is ReviewQuestion => Boolean(item));
   });
 
-  const seenAnswers = new Set<string>();
-  return generated.filter((question) => {
-    const key = normalizeTypedAnswer(question.answerWord || question.correctAnswer);
-    if (!key) return true;
-    if (seenAnswers.has(key)) return false;
-    seenAnswers.add(key);
+  const seenQuestionKeys = new Set<string>();
+  const questions = generated.filter((question) => {
+    const key = `${question.cardId}:${question.questionType}`;
+    if (seenQuestionKeys.has(key)) return false;
+    seenQuestionKeys.add(key);
     return true;
   });
+
+  return {
+    questions,
+    isClamped: plan.isClamped,
+    maxAvailable: plan.maxAvailable,
+  };
 }
 
 function buildRecordingBypassReviewQuestions(
@@ -1598,6 +1592,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [allCards, setAllCards] = React.useState<Card[]>([]);
   const [cardsHydrated, setCardsHydrated] = React.useState(false);
   const [questions, setQuestions] = React.useState<ReviewQuestion[]>([]);
+  const [clampedNotice, setClampedNotice] = React.useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
   const [spellingDrafts, setSpellingDrafts] = React.useState<Record<string, string>>({});
@@ -1754,26 +1749,39 @@ export default function ReviewFlow({ navigation, route }: Props) {
       setPronunciationRecordingQuestionId(null);
       setPronunciationAnalyzingQuestionId(null);
       setCurrentIndex(0);
+      setClampedNotice(null);
       flipValuesRef.current = new Map();
-      const nextQuestions = isScreenshotDemoQuiz
-        ? buildDefaultExperienceTutorialReviewQuestions(uiLanguage)
-        : isDefaultExperienceTutorial
-        ? buildRecordingBypassReviewQuestions(sourceCards, allCards, uiLanguage, [
-            'fill_blank',
-            'word_to_translation',
-            'pronunciation',
-          ])
-        : SubscriptionService.isPremiumBypassEnabled() && sourceCards.length > 0
-        ? buildRecordingBypassReviewQuestions(sourceCards, allCards, uiLanguage)
-        : buildReviewQuestions(
-            sourceCards,
-            allCards,
-            effectiveCount,
-            nextPinned,
-            nextSkippedPronunciation,
-            effectiveQuestionTypes,
-            uiLanguage
+      let sessionClampedNotice: string | null = null;
+      let nextQuestions: ReviewQuestion[];
+      if (isScreenshotDemoQuiz) {
+        nextQuestions = buildDefaultExperienceTutorialReviewQuestions(uiLanguage);
+      } else if (isDefaultExperienceTutorial) {
+        nextQuestions = buildRecordingBypassReviewQuestions(sourceCards, allCards, uiLanguage, [
+          'fill_blank',
+          'word_to_translation',
+          'pronunciation',
+        ]);
+      } else if (SubscriptionService.isPremiumBypassEnabled() && sourceCards.length > 0) {
+        nextQuestions = buildRecordingBypassReviewQuestions(sourceCards, allCards, uiLanguage);
+      } else {
+        const reviewPlan = buildReviewQuestions(
+          sourceCards,
+          allCards,
+          effectiveCount,
+          nextPinned,
+          nextSkippedPronunciation,
+          effectiveQuestionTypes,
+          uiLanguage
+        );
+        nextQuestions = reviewPlan.questions;
+        if (reviewPlan.isClamped && reviewPlan.questions.length > 0) {
+          sessionClampedNotice = tUI(uiLanguage, 'review.clampedNotice').replace(
+            '{count}',
+            String(reviewPlan.questions.length)
           );
+        }
+      }
+      setClampedNotice(sessionClampedNotice);
       setRecoveredPronunciationIpa(
         usesDemoPronunciationBackend
           ? Object.fromEntries(
@@ -3630,6 +3638,27 @@ export default function ReviewFlow({ navigation, route }: Props) {
           />
         </View>
 
+        {clampedNotice ? (
+          <View
+            style={[
+              styles.clampedNoticeBanner,
+              {
+                backgroundColor: palette.softButtonBg,
+                borderColor: palette.softButtonBorder,
+              },
+            ]}
+          >
+            <Ionicons
+              name="information-circle-outline"
+              size={15}
+              color={palette.secondaryText}
+            />
+            <Text style={[styles.clampedNoticeText, { color: palette.secondaryText }]}>
+              {clampedNotice}
+            </Text>
+          </View>
+        ) : null}
+
         <FlatList
           ref={listRef}
           data={slides}
@@ -3714,6 +3743,24 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 999,
+  },
+  clampedNoticeBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  clampedNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
   },
   slide: {
     flex: 1,
