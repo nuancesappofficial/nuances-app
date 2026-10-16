@@ -284,7 +284,7 @@ function TiltSticker({
                   strokeWidth={strokeWidth + 2.2}
                   strokeLinejoin="round"
                   fontSize={dynamicFontSize}
-                  fontWeight="900"
+                  fontWeight={stickerFont.fontWeight ?? '900'}
                   fontFamily={stickerFont.fontFamily}
                   textAnchor="middle"
                   letterSpacing={stickerFont.letterSpacing}
@@ -300,7 +300,7 @@ function TiltSticker({
                 strokeWidth={strokeWidth}
                 strokeLinejoin="round"
                 fontSize={dynamicFontSize}
-                fontWeight="900"
+                fontWeight={stickerFont.fontWeight ?? '900'}
                 fontFamily={stickerFont.fontFamily}
                 textAnchor="middle"
                 letterSpacing={stickerFont.letterSpacing}
@@ -312,7 +312,7 @@ function TiltSticker({
                 y={textY}
                 fill="#050505"
                 fontSize={dynamicFontSize}
-                fontWeight="900"
+                fontWeight={stickerFont.fontWeight ?? '900'}
                 fontFamily={stickerFont.fontFamily}
                 textAnchor="middle"
                 letterSpacing={stickerFont.letterSpacing}

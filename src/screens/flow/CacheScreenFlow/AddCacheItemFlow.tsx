@@ -3,6 +3,7 @@ import {
   View,
   StyleSheet,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -61,7 +62,11 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
     let cancelled = false;
     void loadUserSettings()
       .then((settings) => {
-        if (!cancelled) setUiLanguage(settings.uiLanguage);
+        if (!cancelled) {
+          setUiLanguage((prev) =>
+            prev === settings.uiLanguage ? prev : settings.uiLanguage
+          );
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -72,12 +77,15 @@ export default function AddCacheItemScreen({ navigation, route }: Props) {
   React.useEffect(
     () =>
       subscribeUserSettings((settings) => {
-        setUiLanguage(settings.uiLanguage);
+        setUiLanguage((prev) =>
+          prev === settings.uiLanguage ? prev : settings.uiLanguage
+        );
       }),
     []
   );
 
   const goToCacheHome = React.useCallback(() => {
+    Keyboard.dismiss();
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
       navigation.goBack();
       return;

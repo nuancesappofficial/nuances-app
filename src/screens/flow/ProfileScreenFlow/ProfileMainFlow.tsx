@@ -418,12 +418,14 @@ function ProfileMainFlow({
   const refreshAppSettings = React.useCallback(async () => {
     try {
       const settings = await loadUserSettings();
-      setEntitlementMode(settings.planType);
-      setUiLanguage(settings.uiLanguage);
-      setWordPopSlideMs(settings.wordPopSlideMs);
-      setStickerFontKey(settings.stickerFontKey);
-      setStickerFontScalePercent(settings.stickerFontScalePercent);
-      setThemeMode(settings.themeMode);
+      setEntitlementMode((prev) => (prev === settings.planType ? prev : settings.planType));
+      setUiLanguage((prev) => (prev === settings.uiLanguage ? prev : settings.uiLanguage));
+      setWordPopSlideMs((prev) => (prev === settings.wordPopSlideMs ? prev : settings.wordPopSlideMs));
+      setStickerFontKey((prev) => (prev === settings.stickerFontKey ? prev : settings.stickerFontKey));
+      setStickerFontScalePercent((prev) =>
+        prev === settings.stickerFontScalePercent ? prev : settings.stickerFontScalePercent
+      );
+      setThemeMode((prev) => (prev === settings.themeMode ? prev : settings.themeMode));
     } catch (error) {
       console.error('[Profiles] load app settings failed:', error);
     }
@@ -435,7 +437,18 @@ function ProfileMainFlow({
 
   useFocusEffect(
     React.useCallback(() => {
-      void refreshAppSettings();
+      let active = true;
+      let rafId: number | null = null;
+      const task = InteractionManager.runAfterInteractions(() => {
+        rafId = requestAnimationFrame(() => {
+          if (active) void refreshAppSettings();
+        });
+      });
+      return () => {
+        active = false;
+        task.cancel();
+        if (rafId !== null) cancelAnimationFrame(rafId);
+      };
     }, [refreshAppSettings])
   );
 

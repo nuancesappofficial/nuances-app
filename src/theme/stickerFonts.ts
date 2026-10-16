@@ -5,14 +5,53 @@ export type StickerFontOption = {
   label: string;
   fontFamily: string;
   letterSpacing: number;
+  fontWeight?: 'normal' | 'bold' | '700' | '900';
+};
+
+export const STICKER_FONT_ASSETS = {
+  'PermanentMarker-Regular': require('../../assets/fonts/PermanentMarker-Regular.ttf'),
+  'GochiHand-Regular': require('../../assets/fonts/GochiHand-Regular.ttf'),
+  'PatrickHand-Regular': require('../../assets/fonts/PatrickHand-Regular.ttf'),
+  'Pacifico-Regular': require('../../assets/fonts/Pacifico-Regular.ttf'),
+  'DancingScript-Bold': require('../../assets/fonts/DancingScript-Bold.ttf'),
 };
 
 export const STICKER_FONT_OPTIONS: StickerFontOption[] = [
-  { key: 'marker', label: 'Marker', fontFamily: 'MarkerFelt-Wide', letterSpacing: -0.8 },
-  { key: 'chalkboard', label: 'Chalk', fontFamily: 'ChalkboardSE-Bold', letterSpacing: -1.1 },
-  { key: 'noteworthy', label: 'Note', fontFamily: 'Noteworthy-Bold', letterSpacing: -0.7 },
-  { key: 'party', label: 'Party', fontFamily: 'PartyLET', letterSpacing: -0.5 },
-  { key: 'snell', label: 'Script', fontFamily: 'SnellRoundhand-Black', letterSpacing: -0.35 },
+  {
+    key: 'marker',
+    label: 'Marker',
+    fontFamily: 'PermanentMarker-Regular',
+    letterSpacing: 0,
+    fontWeight: 'normal',
+  },
+  {
+    key: 'chalkboard',
+    label: 'Chalk',
+    fontFamily: 'GochiHand-Regular',
+    letterSpacing: 0,
+    fontWeight: 'bold',
+  },
+  {
+    key: 'noteworthy',
+    label: 'Note',
+    fontFamily: 'PatrickHand-Regular',
+    letterSpacing: 0,
+    fontWeight: 'bold',
+  },
+  {
+    key: 'party',
+    label: 'Party',
+    fontFamily: 'Pacifico-Regular',
+    letterSpacing: 0,
+    fontWeight: 'normal',
+  },
+  {
+    key: 'snell',
+    label: 'Script',
+    fontFamily: 'DancingScript-Bold',
+    letterSpacing: 0,
+    fontWeight: 'bold',
+  },
 ];
 
 export const DEFAULT_STICKER_FONT_KEY: StickerFontKey = 'marker';

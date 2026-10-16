@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Keyboard } from 'react-native';
 import ProfileSettingsModalUI from '../../../components/UI/ProfileScreenUI/ProfileSettingsModalUI';
 import {
   DEFAULT_USER_SETTINGS,
@@ -169,7 +169,10 @@ export default function ProfileSettingsFlow({ navigation, route }: Props) {
       ttsVoiceLanguage={ttsVoiceLanguage}
       ttsVoice={ttsVoice}
       wordPopSlideMs={wordPopSlideMs}
-      onClose={() => navigation.goBack()}
+      onClose={() => {
+        Keyboard.dismiss();
+        navigation.goBack();
+      }}
       onPressUploadProfilePic={() => {
         route.params?.onPressUploadProfilePic?.();
       }}

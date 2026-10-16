@@ -218,7 +218,7 @@ export default function DeckMainFlow({
   >(new Set());
   const isReturningFromBlurRef = React.useRef(false);
   const postFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isDeckFocused, setIsDeckFocused] = React.useState(true);
+  const isDeckFocusedRef = React.useRef(true);
   const [showTodayReviewTuningModal, setShowTodayReviewTuningModal] =
     React.useState(false);
   const [todayReviewQuestionCount, setTodayReviewQuestionCount] =
@@ -265,40 +265,6 @@ export default function DeckMainFlow({
   const didTrackTutorialCompletedRef = React.useRef(false);
   const pressTodayReviewRef = React.useRef<() => void>(() => {});
   const didOpenTourQuizRef = React.useRef(false);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let cancelled = false;
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          const userId = await getCurrentSessionUserId();
-          if (!userId || cancelled) return;
-          // 若當前並非處於等待 Quiz 的特定教學步驟，防範中途離開、更新 App 或閒置狀態的舊殘留鎖死
-          if (
-            shouldPurgeStaleDefaultExperienceQuizHint({
-              tourStep: appTour.step,
-              isTourActive: appTour.isActive,
-              launchSource: appTour.launchSource,
-            })
-          ) {
-            await completeDefaultExperienceQuizHint(userId);
-            if (!cancelled) {
-              setShowDefaultExperienceQuizHint((prev) => (prev ? false : prev));
-            }
-            return;
-          }
-          const pending = await isDefaultExperienceQuizHintPending(userId);
-          if (!cancelled) {
-            setShowDefaultExperienceQuizHint((prev) => (prev === pending ? prev : pending));
-          }
-        })();
-      });
-      return () => {
-        cancelled = true;
-        task.cancel();
-      };
-    }, [appTour.isActive, appTour.launchSource, appTour.step])
-  );
 
   React.useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
@@ -631,15 +597,6 @@ export default function DeckMainFlow({
     };
   }, [appTour]);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => {
-        void hydrateAlbumPrefs();
-      });
-      return () => task.cancel();
-    }, [hydrateAlbumPrefs])
-  );
-
   React.useEffect(() => {
     if (!isAlbumPrefsHydrated) return;
     const payload: DeckAlbumPreferences = {
@@ -748,37 +705,6 @@ export default function DeckMainFlow({
     };
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          try {
-            const nextSeen = await loadSeenCardIds();
-            if (active) {
-              setSeenCardIds((prev) => {
-                if (
-                  prev.size === nextSeen.size &&
-                  Array.from(nextSeen).every((id) => prev.has(id))
-                ) {
-                  return prev;
-                }
-                return nextSeen;
-              });
-            }
-          } catch (error) {
-            console.warn('[DeckMain] load seen cards failed:', error);
-            if (active) setSeenCardIds((prev) => (prev.size === 0 ? prev : new Set()));
-          }
-        })();
-      });
-      return () => {
-        active = false;
-        task.cancel();
-      };
-    }, [])
-  );
-
   React.useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
       QUIZ_REVIEWED_CARD_EVENT,
@@ -798,76 +724,6 @@ export default function DeckMainFlow({
     };
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          try {
-            const nextReviewed = await loadQuizReviewedCardIds();
-            if (active) {
-              setQuizReviewedCardIds((prev) => {
-                if (
-                  prev.size === nextReviewed.size &&
-                  Array.from(nextReviewed).every((id) => prev.has(id))
-                ) {
-                  return prev;
-                }
-                return nextReviewed;
-              });
-            }
-          } catch (error) {
-            console.warn('[DeckMain] load quiz-reviewed cards failed:', error);
-            if (active) setQuizReviewedCardIds((prev) => (prev.size === 0 ? prev : new Set()));
-          }
-        })();
-      });
-      return () => {
-        active = false;
-        task.cancel();
-      };
-    }, [])
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          try {
-            const settings = await loadUserSettings();
-            if (active) {
-              applyMainScreenSettings(settings);
-            }
-            const userId = await getCurrentSessionUserId();
-            if (userId) {
-              try {
-                await localizeDefaultExperienceSavedCard(
-                  userId,
-                  settings.uiLanguage
-                );
-              } catch (error) {
-                console.warn(
-                  '[DeckMain] localize default experience card failed:',
-                  error
-                );
-              }
-            }
-          } catch (error) {
-            console.warn('[DeckMain] load main screen settings failed:', error);
-            if (active) {
-              applyMainScreenSettings(DEFAULT_USER_SETTINGS);
-            }
-          }
-        })();
-      });
-      return () => {
-        active = false;
-        task.cancel();
-      };
-    }, [applyMainScreenSettings])
-  );
-
   React.useEffect(
     () =>
       subscribeUserSettings((settings) => {
@@ -879,64 +735,181 @@ export default function DeckMainFlow({
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+      let rafId1: number | null = null;
+      let rafId2: number | null = null;
+
       const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          try {
-            const prefs = await loadAlbumReviewPreferences('today-added');
-            if (active) {
-              setTodayReviewQuestionCount((prev) =>
-                prev === prefs.questionCount ? prev : prefs.questionCount
-              );
-              setTodayNewWordsOnly((prev) => {
-                const nextVal = prefs.todayNewWordsOnly ?? false;
-                return prev === nextVal ? prev : nextVal;
-              });
-              setTodayReviewQuestionTypes((prev) => {
-                if (
-                  prev.length === prefs.selectedQuestionTypes.length &&
-                  prev.every((v, i) => v === prefs.selectedQuestionTypes[i])
-                ) {
-                  return prev;
+        rafId1 = requestAnimationFrame(() => {
+          rafId2 = requestAnimationFrame(() => {
+            void (async () => {
+              try {
+                const userId = await getCurrentSessionUserId();
+                if (!active) return;
+
+                const [
+                  pendingHintResult,
+                  prefs,
+                  nextSeen,
+                  nextReviewed,
+                  settings,
+                  todayPrefs,
+                ] = await Promise.all([
+                  (async () => {
+                    if (!userId) return false;
+                    if (
+                      shouldPurgeStaleDefaultExperienceQuizHint({
+                        tourStep: appTour.step,
+                        isTourActive: appTour.isActive,
+                        launchSource: appTour.launchSource,
+                      })
+                    ) {
+                      await completeDefaultExperienceQuizHint(userId);
+                      return false;
+                    }
+                    return await isDefaultExperienceQuizHintPending(userId);
+                  })().catch(() => false),
+                  loadDeckAlbumPreferences().catch(() => null),
+                  loadSeenCardIds().catch(() => new Set<string>()),
+                  loadQuizReviewedCardIds().catch(() => new Set<string>()),
+                  loadUserSettings().catch(() => null),
+                  loadAlbumReviewPreferences('today-added').catch(() => null),
+                ]);
+
+                if (!active) return;
+
+                // --- SINGLE SYNCHRONOUS BATCH PASS ---
+                // 1. Quiz hint
+                setShowDefaultExperienceQuizHint((prev) =>
+                  prev === pendingHintResult ? prev : pendingHintResult
+                );
+
+                // 2. Album preferences
+                if (prefs) {
+                  setCustomAlbums((prev) =>
+                    JSON.stringify(prev) === JSON.stringify(prefs.customAlbums)
+                      ? prev
+                      : prefs.customAlbums
+                  );
+                  setAlbumNameOverrides((prev) =>
+                    areObjectsShallowEqual(prev, prefs.albumNameOverrides)
+                      ? prev
+                      : prefs.albumNameOverrides
+                  );
+                  setAlbumEmojiOverrides((prev) =>
+                    areObjectsShallowEqual(prev, prefs.albumEmojiOverrides)
+                      ? prev
+                      : prefs.albumEmojiOverrides
+                  );
+                  setAlbumColorOverrides((prev) =>
+                    areObjectsShallowEqual(prev, prefs.albumColorOverrides)
+                      ? prev
+                      : prefs.albumColorOverrides
+                  );
+                  setAlbumCoverOverrides((prev) =>
+                    areObjectsShallowEqual(prev, prefs.albumCoverOverrides)
+                      ? prev
+                      : prefs.albumCoverOverrides
+                  );
+                  setDeletedAlbumIds((prev) =>
+                    areStringArraysEqual(prev, prefs.deletedAlbumIds)
+                      ? prev
+                      : prefs.deletedAlbumIds
+                  );
+                  setIsAlbumPrefsHydrated((prev) => (prev ? prev : true));
                 }
-                return prefs.selectedQuestionTypes;
-              });
-              setTodayReviewSourceAlbumIds((prev) => {
-                if (
-                  prev.length === prefs.selectedSourceAlbumIds.length &&
-                  prev.every((v, i) => v === prefs.selectedSourceAlbumIds[i])
-                ) {
-                  return prev;
+
+                // 3. Seen cards (Set equality bail-out)
+                setSeenCardIds((prev) => {
+                  if (
+                    prev.size === nextSeen.size &&
+                    Array.from(nextSeen).every((id) => prev.has(id))
+                  ) {
+                    return prev;
+                  }
+                  return nextSeen;
+                });
+
+                // 4. Quiz reviewed cards (Set equality bail-out)
+                setQuizReviewedCardIds((prev) => {
+                  if (
+                    prev.size === nextReviewed.size &&
+                    Array.from(nextReviewed).every((id) => prev.has(id))
+                  ) {
+                    return prev;
+                  }
+                  return nextReviewed;
+                });
+
+                // 5. Main screen settings
+                if (settings) {
+                  applyMainScreenSettings(settings);
+                  if (userId) {
+                    void localizeDefaultExperienceSavedCard(
+                      userId,
+                      settings.uiLanguage
+                    ).catch(() => undefined);
+                  }
                 }
-                return prefs.selectedSourceAlbumIds;
-              });
-            }
-          } catch (error) {
-            console.warn(
-              '[DeckMain] load today review preferences failed:',
-              error
-            );
-            if (active) {
-              setTodayReviewQuestionCount(
-                DEFAULT_ALBUM_REVIEW_PREFERENCES.questionCount
-              );
-              setTodayNewWordsOnly(
-                DEFAULT_ALBUM_REVIEW_PREFERENCES.todayNewWordsOnly ?? false
-              );
-              setTodayReviewQuestionTypes(
-                DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedQuestionTypes
-              );
-              setTodayReviewSourceAlbumIds(
-                DEFAULT_ALBUM_REVIEW_PREFERENCES.selectedSourceAlbumIds
-              );
-            }
-          }
-        })();
+
+                // 6. Today review preferences
+                if (todayPrefs) {
+                  setTodayReviewQuestionCount((prev) =>
+                    prev === todayPrefs.questionCount
+                      ? prev
+                      : todayPrefs.questionCount
+                  );
+                  setTodayNewWordsOnly((prev) => {
+                    const nextVal = todayPrefs.todayNewWordsOnly ?? false;
+                    return prev === nextVal ? prev : nextVal;
+                  });
+                  setTodayReviewQuestionTypes((prev) => {
+                    if (
+                      prev.length ===
+                        todayPrefs.selectedQuestionTypes.length &&
+                      prev.every(
+                        (v, i) => v === todayPrefs.selectedQuestionTypes[i]
+                      )
+                    ) {
+                      return prev;
+                    }
+                    return todayPrefs.selectedQuestionTypes;
+                  });
+                  setTodayReviewSourceAlbumIds((prev) => {
+                    if (
+                      prev.length ===
+                        todayPrefs.selectedSourceAlbumIds.length &&
+                      prev.every(
+                        (v, i) => v === todayPrefs.selectedSourceAlbumIds[i]
+                      )
+                    ) {
+                      return prev;
+                    }
+                    return todayPrefs.selectedSourceAlbumIds;
+                  });
+                }
+              } catch (error) {
+                console.warn(
+                  '[DeckMain] consolidated focus hydration error:',
+                  error
+                );
+              }
+            })();
+          });
+        });
       });
+
       return () => {
         active = false;
         task.cancel();
+        if (rafId1 !== null) cancelAnimationFrame(rafId1);
+        if (rafId2 !== null) cancelAnimationFrame(rafId2);
       };
-    }, [])
+    }, [
+      appTour.isActive,
+      appTour.launchSource,
+      appTour.step,
+      applyMainScreenSettings,
+    ])
   );
 
 
@@ -1420,6 +1393,7 @@ export default function DeckMainFlow({
         postFocusTimerRef.current = null;
       }
       isReturningFromBlurRef.current = false;
+      isDeckFocusedRef.current = true;
       if (didOpenTourQuizRef.current) {
         didOpenTourQuizRef.current = false;
       }
@@ -1456,6 +1430,7 @@ export default function DeckMainFlow({
     const offBlur = navigation.addListener('blur', () => {
       cancelTransitionRafs();
       isReturningFromBlurRef.current = true;
+      isDeckFocusedRef.current = false;
       if (postFocusTimerRef.current) {
         clearTimeout(postFocusTimerRef.current);
         postFocusTimerRef.current = null;
@@ -1892,6 +1867,31 @@ export default function DeckMainFlow({
     [allCards, navigation, uiLanguage]
   );
 
+  const handleClearSearch = React.useCallback(() => setSearchQuery(''), []);
+  const handleOpenCreateAlbum = React.useCallback(
+    () => setIsCreateModalVisible(true),
+    []
+  );
+  const handleToggleSort = React.useCallback(
+    () => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc')),
+    []
+  );
+  const handlePressTodayReviewProp = React.useCallback(() => {
+    if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
+      handleTourTargetPress();
+      return;
+    }
+    handlePressTodayReview();
+  }, [appTour.step, handlePressTodayReview, handleTourTargetPress]);
+  const handlePressTodayReviewTuning = React.useCallback(
+    () => setShowTodayReviewTuningModal(true),
+    []
+  );
+  const handleDidScrollToAlbum = React.useCallback(
+    () => setScrollToAlbumId(null),
+    []
+  );
+
   return (
     <>
       <DeckMainScreenUI
@@ -1903,28 +1903,20 @@ export default function DeckMainFlow({
         uiLanguage={uiLanguage}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onClearSearch={() => setSearchQuery('')}
+        onClearSearch={handleClearSearch}
         onPressAvatar={handleAvatarPress}
         onPressCacheFab={handleCacheFabPress}
-        onOpenCreateAlbum={() => setIsCreateModalVisible(true)}
+        onOpenCreateAlbum={handleOpenCreateAlbum}
         sortOrder={sortOrder}
-        onToggleSort={() =>
-          setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
-        }
+        onToggleSort={handleToggleSort}
         filterPills={filterPills}
         todayReviewTotalCount={sourceTodayQuizUsableCardIds.length}
         todayReviewPendingCount={
           todayNewWordsOnly ? sourceTodayUnreviewedQuizUsableCardIds.length : 0
         }
         todayNewWordsOnly={todayNewWordsOnly}
-        onPressTodayReview={() => {
-          if (appTour.step === 'STEP_10_QUIZ_SAMPLE') {
-            handleTourTargetPress();
-            return;
-          }
-          handlePressTodayReview();
-        }}
-        onPressTodayReviewTuning={() => setShowTodayReviewTuningModal(true)}
+        onPressTodayReview={handlePressTodayReviewProp}
+        onPressTodayReviewTuning={handlePressTodayReviewTuning}
         tourStep={appTour.step}
         onTourTargetPress={handleTourTargetPress}
         showQuickQuizTutorialArrow={shouldShowQuickQuizTutorialArrow({
@@ -1933,11 +1925,12 @@ export default function DeckMainFlow({
           showDefaultExperienceQuizHint,
         })}
         scrollToAlbumId={scrollToAlbumId}
-        onDidScrollToAlbum={() => setScrollToAlbumId(null)}
+        onDidScrollToAlbum={handleDidScrollToAlbum}
         slideshowItems={slideshowItems}
         wordPopSlideMs={wordPopSlideMs}
         wordPopEnabled={mainScreenWordPopEnabled}
-        wordPopPaused={!isDeckFocused}
+        wordPopPaused={false}
+        isDeckFocusedRef={isDeckFocusedRef}
         albumGridCount={mainScreenAlbumGridCount}
         onPressSlideshowItem={handlePressWordPopItem}
         searchResults={searchResults}

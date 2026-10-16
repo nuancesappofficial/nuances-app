@@ -24,6 +24,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
+import { STICKER_FONT_ASSETS } from './src/theme/stickerFonts';
 import Reanimated, {
   runOnJS,
   SensorType,
@@ -631,6 +633,7 @@ function GlobalThemeCrossFadeOverlay() {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts(STICKER_FONT_ASSETS);
   const colorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -1566,6 +1569,7 @@ export default function App() {
     (needsVideoTour || manualVideoTourRequested)
   );
   const appSurfaceReady = Boolean(
+    (fontsLoaded || fontError) &&
     isReady && (!userId || (onboardingChecked && videoTourChecked))
   );
 

@@ -23,6 +23,8 @@ import {
   Vibration,
   Platform,
   KeyboardAvoidingView,
+  Keyboard,
+  InteractionManager,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -143,6 +145,29 @@ type PronunciationResult = {
   phonemeFeedback: CloudPhonemeFeedback[];
   showFeedback: boolean;
 };
+
+function areObjectsShallowEqual(
+  a: Record<string, string>,
+  b: Record<string, string>
+): boolean {
+  if (a === b) return true;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
   android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
@@ -517,23 +542,71 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   const hydrateAlbumPrefs = React.useCallback(async () => {
     const prefs = await loadDeckAlbumPreferences();
-    setCustomAlbums(prefs.customAlbums);
-    setAlbumNameOverrides(prefs.albumNameOverrides);
-    setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
-    setAlbumColorOverrides(prefs.albumColorOverrides);
-    setAlbumCoverOverrides(prefs.albumCoverOverrides);
-    setDeletedAlbumIds(prefs.deletedAlbumIds);
+    setCustomAlbums((prev) =>
+      JSON.stringify(prev) === JSON.stringify(prefs.customAlbums)
+        ? prev
+        : prefs.customAlbums
+    );
+    setAlbumNameOverrides((prev) =>
+      areObjectsShallowEqual(prev, prefs.albumNameOverrides)
+        ? prev
+        : prefs.albumNameOverrides
+    );
+    setAlbumEmojiOverrides((prev) =>
+      areObjectsShallowEqual(prev, prefs.albumEmojiOverrides)
+        ? prev
+        : prefs.albumEmojiOverrides
+    );
+    setAlbumColorOverrides((prev) =>
+      areObjectsShallowEqual(prev, prefs.albumColorOverrides)
+        ? prev
+        : prefs.albumColorOverrides
+    );
+    setAlbumCoverOverrides((prev) =>
+      areObjectsShallowEqual(prev, prefs.albumCoverOverrides)
+        ? prev
+        : prefs.albumCoverOverrides
+    );
+    setDeletedAlbumIds((prev) =>
+      areStringArraysEqual(prev, prefs.deletedAlbumIds)
+        ? prev
+        : prefs.deletedAlbumIds
+    );
   }, []);
 
   React.useEffect(
     () =>
       subscribeDeckAlbumPreferences((prefs) => {
-        setCustomAlbums(prefs.customAlbums);
-        setAlbumNameOverrides(prefs.albumNameOverrides);
-        setAlbumEmojiOverrides(prefs.albumEmojiOverrides);
-        setAlbumColorOverrides(prefs.albumColorOverrides);
-        setAlbumCoverOverrides(prefs.albumCoverOverrides);
-        setDeletedAlbumIds(prefs.deletedAlbumIds);
+        setCustomAlbums((prev) =>
+          JSON.stringify(prev) === JSON.stringify(prefs.customAlbums)
+            ? prev
+            : prefs.customAlbums
+        );
+        setAlbumNameOverrides((prev) =>
+          areObjectsShallowEqual(prev, prefs.albumNameOverrides)
+            ? prev
+            : prefs.albumNameOverrides
+        );
+        setAlbumEmojiOverrides((prev) =>
+          areObjectsShallowEqual(prev, prefs.albumEmojiOverrides)
+            ? prev
+            : prefs.albumEmojiOverrides
+        );
+        setAlbumColorOverrides((prev) =>
+          areObjectsShallowEqual(prev, prefs.albumColorOverrides)
+            ? prev
+            : prefs.albumColorOverrides
+        );
+        setAlbumCoverOverrides((prev) =>
+          areObjectsShallowEqual(prev, prefs.albumCoverOverrides)
+            ? prev
+            : prefs.albumCoverOverrides
+        );
+        setDeletedAlbumIds((prev) =>
+          areStringArraysEqual(prev, prefs.deletedAlbumIds)
+            ? prev
+            : prefs.deletedAlbumIds
+        );
       }),
     []
   );
@@ -612,7 +685,18 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     React.useCallback(() => {
-      void hydrateAlbumPrefs();
+      let active = true;
+      let rafId: number | null = null;
+      const task = InteractionManager.runAfterInteractions(() => {
+        rafId = requestAnimationFrame(() => {
+          if (active) void hydrateAlbumPrefs();
+        });
+      });
+      return () => {
+        active = false;
+        task.cancel();
+        if (rafId !== null) cancelAnimationFrame(rafId);
+      };
     }, [hydrateAlbumPrefs])
   );
 
@@ -2079,7 +2163,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           headerTitle={headerTitle}
           displayIndex={displayIndex ?? 0}
           totalCount={scopedCards.length || 1}
-          onBack={() => navigation.goBack()}
+          onBack={() => {
+            Keyboard.dismiss();
+            navigation.goBack();
+          }}
           styles={styles}
         />
 
@@ -2101,7 +2188,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         headerTitle={headerTitle}
         displayIndex={displayIndex}
         totalCount={scopedCards.length}
-        onBack={() => navigation.goBack()}
+        onBack={() => {
+          Keyboard.dismiss();
+          navigation.goBack();
+        }}
         styles={styles}
       />
 

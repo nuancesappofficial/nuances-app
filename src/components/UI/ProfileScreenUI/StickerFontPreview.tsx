@@ -31,7 +31,7 @@ export default function StickerFontPreview({
         strokeWidth={strokeWidth}
         strokeLinejoin="round"
         fontSize={fontSize}
-        fontWeight="900"
+        fontWeight={stickerFont.fontWeight ?? '900'}
         fontFamily={stickerFont.fontFamily}
         textAnchor="middle"
         letterSpacing={stickerFont.letterSpacing}
@@ -43,7 +43,7 @@ export default function StickerFontPreview({
         y={Math.round(height * 0.69)}
         fill="#050505"
         fontSize={fontSize}
-        fontWeight="900"
+        fontWeight={stickerFont.fontWeight ?? '900'}
         fontFamily={stickerFont.fontFamily}
         textAnchor="middle"
         letterSpacing={stickerFont.letterSpacing}

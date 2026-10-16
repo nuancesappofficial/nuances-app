@@ -3419,6 +3419,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
         isScreenshotDemo: isScreenshotDemoQuiz,
       })
     ) {
+      Keyboard.dismiss();
       tabSwipeContext?.openMembershipPaywall({ source: 'review' });
       navigation.goBack();
       return;
@@ -3431,10 +3432,12 @@ export default function ReviewFlow({ navigation, route }: Props) {
       DeviceEventEmitter.emit(
         DEFAULT_EXPERIENCE_TUTORIAL_COMPLETED_EVENT
       );
+      Keyboard.dismiss();
       navigation.goBack();
       return;
     }
     void AppReviewService.recordCompletedQuiz(completedQuestions.length);
+    Keyboard.dismiss();
     navigation.goBack();
   }, [
     isDefaultExperienceTutorial,
@@ -3544,7 +3547,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
               { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
               pressed ? styles.iconButtonPressed : null,
             ]}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              Keyboard.dismiss();
+              navigation.goBack();
+            }}
           >
             <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
           </Pressable>
@@ -3588,7 +3594,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
               { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
               pressed ? styles.iconButtonPressed : null,
             ]}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              Keyboard.dismiss();
+              navigation.goBack();
+            }}
           >
             <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
           </Pressable>
@@ -3614,7 +3623,10 @@ export default function ReviewFlow({ navigation, route }: Props) {
               { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
               pressed ? styles.iconButtonPressed : null,
             ]}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              Keyboard.dismiss();
+              navigation.goBack();
+            }}
           >
             <Ionicons name="chevron-back" size={22} color={palette.primaryText} />
           </Pressable>

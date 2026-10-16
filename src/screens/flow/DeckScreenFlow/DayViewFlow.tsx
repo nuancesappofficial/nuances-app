@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SCREEN_BG } from '../../../theme/colors';
 import { Q } from '@nozbe/watermelondb';
@@ -88,7 +88,11 @@ export default function DayViewScreen({ navigation, route }: Props) {
     let cancelled = false;
     void loadUserSettings()
       .then((settings) => {
-        if (!cancelled) setUiLanguage(settings.uiLanguage);
+        if (!cancelled) {
+          setUiLanguage((prev) =>
+            prev === settings.uiLanguage ? prev : settings.uiLanguage
+          );
+        }
       })
       .catch((error) => {
         console.warn('[DayView] load UI language failed:', error);
@@ -101,7 +105,9 @@ export default function DayViewScreen({ navigation, route }: Props) {
   React.useEffect(
     () =>
       subscribeUserSettings((settings) => {
-        setUiLanguage(settings.uiLanguage);
+        setUiLanguage((prev) =>
+          prev === settings.uiLanguage ? prev : settings.uiLanguage
+        );
       }),
     []
   );
@@ -154,7 +160,10 @@ export default function DayViewScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            Keyboard.dismiss();
+            navigation.goBack();
+          }}
           style={({ pressed }) => [
             styles.backButton,
             pressed ? styles.iconButtonPressed : null,

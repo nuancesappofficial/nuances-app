@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Keyboard, TextInput } from 'react-native';
+import { Alert, InteractionManager, Keyboard, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
@@ -316,36 +316,60 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+      let rafId1: number | null = null;
+      let rafId2: number | null = null;
 
-      const hydrateSeenCards = async () => {
-        const nextSeenCardIds = await loadSeenCardIds();
-        if (active) {
-          setSeenCardIds(nextSeenCardIds);
-        }
-      };
+      const task = InteractionManager.runAfterInteractions(() => {
+        rafId1 = requestAnimationFrame(() => {
+          rafId2 = requestAnimationFrame(() => {
+            void (async () => {
+              try {
+                const [nextSeenCardIds, prefs] = await Promise.all([
+                  loadSeenCardIds().catch(() => new Set<string>()),
+                  loadAlbumReviewPreferences(album.id).catch(() => null),
+                ]);
 
-      void hydrateSeenCards();
+                if (!active) return;
+
+                // 1. Seen cards with Set equality bail-out
+                setSeenCardIds((prev) => {
+                  if (
+                    prev.size === nextSeenCardIds.size &&
+                    Array.from(nextSeenCardIds).every((id) => prev.has(id))
+                  ) {
+                    return prev;
+                  }
+                  return nextSeenCardIds;
+                });
+
+                // 2. Review preferences with equality bail-out
+                if (prefs) {
+                  setReviewQuestionCount((prev) =>
+                    prev === prefs.questionCount ? prev : prefs.questionCount
+                  );
+                  setSelectedQuestionTypes((prev) => {
+                    if (
+                      prev.length === prefs.selectedQuestionTypes.length &&
+                      prev.every((v, i) => v === prefs.selectedQuestionTypes[i])
+                    ) {
+                      return prev;
+                    }
+                    return prefs.selectedQuestionTypes;
+                  });
+                }
+              } catch (error) {
+                console.warn('[AlbumView] focus hydration error:', error);
+              }
+            })();
+          });
+        });
+      });
+
       return () => {
         active = false;
-      };
-    }, [])
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-
-      const hydrateReviewPreferences = async () => {
-        const prefs = await loadAlbumReviewPreferences(album.id);
-        if (active) {
-          setReviewQuestionCount(prefs.questionCount);
-          setSelectedQuestionTypes(prefs.selectedQuestionTypes);
-        }
-      };
-
-      void hydrateReviewPreferences();
-      return () => {
-        active = false;
+        task.cancel();
+        if (rafId1 !== null) cancelAnimationFrame(rafId1);
+        if (rafId2 !== null) cancelAnimationFrame(rafId2);
       };
     }, [album.id])
   );

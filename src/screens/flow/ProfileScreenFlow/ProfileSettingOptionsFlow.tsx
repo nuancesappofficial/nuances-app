@@ -5,6 +5,7 @@ import {
   Easing,
   Image,
   InteractionManager,
+  Keyboard,
   Linking,
   type GestureResponderEvent,
   PanResponder,
@@ -709,6 +710,7 @@ export default function ProfileSettingOptionsFlow({
     console.log(
       '[Membership] Premium bypass active; closing membership screen.'
     );
+    Keyboard.dismiss();
     navigation.goBack?.();
   }, [kind, navigation]);
 
@@ -720,6 +722,7 @@ export default function ProfileSettingOptionsFlow({
       kind !== 'font' &&
       kind !== 'membership'
     ) {
+      Keyboard.dismiss();
       navigation.goBack();
       return;
     }
@@ -1099,6 +1102,7 @@ export default function ProfileSettingOptionsFlow({
       }
       tabSwipeContext?.goToTab(1, { animation: 'fade', durationMs: 360 });
     } else {
+      Keyboard.dismiss();
       navigation.goBack?.();
     }
     if (premiumGreetingShownRef.current) return;
@@ -2091,7 +2095,10 @@ export default function ProfileSettingOptionsFlow({
                 styles.backButton,
                 pressed ? styles.backButtonPressed : null,
               ]}
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                Keyboard.dismiss();
+                navigation.goBack();
+              }}
             >
               <Ionicons
                 name="chevron-back"
@@ -2358,7 +2365,10 @@ export default function ProfileSettingOptionsFlow({
                 styles.backButton,
                 pressed ? styles.backButtonPressed : null,
               ]}
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                Keyboard.dismiss();
+                navigation.goBack();
+              }}
             >
               <Ionicons
                 name="chevron-back"
@@ -2877,7 +2887,10 @@ export default function ProfileSettingOptionsFlow({
               styles.backButton,
               pressed ? styles.backButtonPressed : null,
             ]}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              Keyboard.dismiss();
+              navigation.goBack();
+            }}
           >
             <Ionicons name="chevron-back" size={20} color={palette.textOnBg} />
             <Text style={[styles.backText, { color: palette.textOnBg }]}>

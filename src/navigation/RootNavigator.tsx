@@ -151,6 +151,15 @@ const CacheStack = React.memo(function CacheStack({
   navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
   const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeRafId1Ref = React.useRef<number | null>(null);
+  const swipeRafId2Ref = React.useRef<number | null>(null);
+
+  const cancelSwipeRafs = React.useCallback(() => {
+    if (swipeRafId1Ref.current !== null) cancelAnimationFrame(swipeRafId1Ref.current);
+    if (swipeRafId2Ref.current !== null) cancelAnimationFrame(swipeRafId2Ref.current);
+    swipeRafId1Ref.current = null;
+    swipeRafId2Ref.current = null;
+  }, []);
 
   const updateSwipeState = React.useCallback(
     (immediateIfRoot = false) => {
@@ -162,19 +171,26 @@ const CacheStack = React.memo(function CacheStack({
         clearTimeout(swipeRestoreTimerRef.current);
         swipeRestoreTimerRef.current = null;
       }
+      cancelSwipeRafs();
+
       if (!isRootRoute) {
         onSwipeEnabledChange(false);
       } else if (immediateIfRoot) {
-        onSwipeEnabledChange(true);
+        // Transition physically ended: cushion with 2 RAFs before triggering TabBar translation
+        swipeRafId1Ref.current = requestAnimationFrame(() => {
+          swipeRafId2Ref.current = requestAnimationFrame(() => {
+            onSwipeEnabledChange(true);
+          });
+        });
       } else {
-        // Delay restoring the tab bar until the ~400ms back transition finishes
+        // Pop transition started: keep swipe disabled, set 650ms fallback in case transitionEnd doesn't fire
         swipeRestoreTimerRef.current = setTimeout(() => {
           swipeRestoreTimerRef.current = null;
           onSwipeEnabledChange(true);
-        }, 420);
+        }, 650);
       }
     },
-    [navigationRef, onSwipeEnabledChange]
+    [cancelSwipeRafs, navigationRef, onSwipeEnabledChange]
   );
 
   React.useEffect(() => {
@@ -183,8 +199,9 @@ const CacheStack = React.memo(function CacheStack({
         clearTimeout(swipeRestoreTimerRef.current);
         swipeRestoreTimerRef.current = null;
       }
+      cancelSwipeRafs();
     };
-  }, []);
+  }, [cancelSwipeRafs]);
 
   return (
     <NavigationIndependentTree>
@@ -249,6 +266,15 @@ const CardsStack = React.memo(function CardsStack({
   navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
   const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeRafId1Ref = React.useRef<number | null>(null);
+  const swipeRafId2Ref = React.useRef<number | null>(null);
+
+  const cancelSwipeRafs = React.useCallback(() => {
+    if (swipeRafId1Ref.current !== null) cancelAnimationFrame(swipeRafId1Ref.current);
+    if (swipeRafId2Ref.current !== null) cancelAnimationFrame(swipeRafId2Ref.current);
+    swipeRafId1Ref.current = null;
+    swipeRafId2Ref.current = null;
+  }, []);
 
   const updateSwipeState = React.useCallback(
     (immediateIfRoot = false) => {
@@ -260,19 +286,26 @@ const CardsStack = React.memo(function CardsStack({
         clearTimeout(swipeRestoreTimerRef.current);
         swipeRestoreTimerRef.current = null;
       }
+      cancelSwipeRafs();
+
       if (!isRootRoute) {
         onSwipeEnabledChange(false);
       } else if (immediateIfRoot) {
-        onSwipeEnabledChange(true);
+        // Transition physically ended: cushion with 2 RAFs before triggering TabBar translation
+        swipeRafId1Ref.current = requestAnimationFrame(() => {
+          swipeRafId2Ref.current = requestAnimationFrame(() => {
+            onSwipeEnabledChange(true);
+          });
+        });
       } else {
-        // Delay restoring the tab bar until the ~400ms back transition finishes
+        // Pop transition started: keep swipe disabled, set 650ms fallback in case transitionEnd doesn't fire
         swipeRestoreTimerRef.current = setTimeout(() => {
           swipeRestoreTimerRef.current = null;
           onSwipeEnabledChange(true);
-        }, 420);
+        }, 650);
       }
     },
-    [navigationRef, onSwipeEnabledChange]
+    [cancelSwipeRafs, navigationRef, onSwipeEnabledChange]
   );
 
   React.useEffect(() => {
@@ -281,8 +314,9 @@ const CardsStack = React.memo(function CardsStack({
         clearTimeout(swipeRestoreTimerRef.current);
         swipeRestoreTimerRef.current = null;
       }
+      cancelSwipeRafs();
     };
-  }, []);
+  }, [cancelSwipeRafs]);
 
   return (
     <NavigationIndependentTree>
@@ -372,12 +406,58 @@ const ProfileStack = React.memo(function ProfileStack({
   theme: ReturnType<typeof resolveThemeColors>;
   navTheme: ReturnType<typeof getAppNavTheme>;
 }) {
-  const syncSwipeEnabled = React.useCallback(() => {
-    if (!navigationRef.isReady()) return;
-    const state = navigationRef.getRootState();
-    const routeName = getActiveRouteName(state);
-    onSwipeEnabledChange(routeName === 'ProfileHome');
-  }, [navigationRef, onSwipeEnabledChange]);
+  const swipeRestoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeRafId1Ref = React.useRef<number | null>(null);
+  const swipeRafId2Ref = React.useRef<number | null>(null);
+
+  const cancelSwipeRafs = React.useCallback(() => {
+    if (swipeRafId1Ref.current !== null) cancelAnimationFrame(swipeRafId1Ref.current);
+    if (swipeRafId2Ref.current !== null) cancelAnimationFrame(swipeRafId2Ref.current);
+    swipeRafId1Ref.current = null;
+    swipeRafId2Ref.current = null;
+  }, []);
+
+  const updateSwipeState = React.useCallback(
+    (immediateIfRoot = false) => {
+      if (!navigationRef.isReady()) return;
+      const state = navigationRef.getRootState();
+      const routeName = getActiveRouteName(state);
+      const isRootRoute = routeName === 'ProfileHome' || routeName === null;
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+      cancelSwipeRafs();
+
+      if (!isRootRoute) {
+        onSwipeEnabledChange(false);
+      } else if (immediateIfRoot) {
+        // Transition physically ended: cushion with 2 RAFs before triggering TabBar translation
+        swipeRafId1Ref.current = requestAnimationFrame(() => {
+          swipeRafId2Ref.current = requestAnimationFrame(() => {
+            onSwipeEnabledChange(true);
+          });
+        });
+      } else {
+        // Pop transition started: keep swipe disabled, set 650ms fallback in case transitionEnd doesn't fire
+        swipeRestoreTimerRef.current = setTimeout(() => {
+          swipeRestoreTimerRef.current = null;
+          onSwipeEnabledChange(true);
+        }, 650);
+      }
+    },
+    [cancelSwipeRafs, navigationRef, onSwipeEnabledChange]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (swipeRestoreTimerRef.current) {
+        clearTimeout(swipeRestoreTimerRef.current);
+        swipeRestoreTimerRef.current = null;
+      }
+      cancelSwipeRafs();
+    };
+  }, [cancelSwipeRafs]);
 
   const renderProfileHome = React.useCallback(
     (props: any) => (
@@ -396,10 +476,7 @@ const ProfileStack = React.memo(function ProfileStack({
         ref={navigationRef}
         theme={navTheme}
         onReady={() => onSwipeEnabledChange(true)}
-        onStateChange={(state) => {
-          const routeName = getActiveRouteName(state);
-          onSwipeEnabledChange(routeName === 'ProfileHome');
-        }}
+        onStateChange={() => updateSwipeState(false)}
       >
         <ProfileStackNav.Navigator
           screenOptions={{
@@ -407,7 +484,10 @@ const ProfileStack = React.memo(function ProfileStack({
             gestureEnabled: false,
             cardStyle: { backgroundColor: theme.screenBg },
           }}
-          screenListeners={{ transitionStart: () => syncSwipeEnabled() }}
+          screenListeners={{
+            transitionStart: () => updateSwipeState(false),
+            transitionEnd: () => updateSwipeState(true),
+          }}
         >
           <ProfileStackNav.Screen name="ProfileHome">
             {renderProfileHome}

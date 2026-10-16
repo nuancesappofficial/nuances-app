@@ -76,6 +76,7 @@ type Props = {
   wordPopSlideMs: number;
   wordPopEnabled: boolean;
   wordPopPaused?: boolean;
+  isDeckFocusedRef?: React.RefObject<boolean>;
   albumGridCount: number;
   onPressSlideshowItem: (item: { cardId: string; text: string; translation?: string; sentence?: string; imageUri?: string }) => void;
   searchResults: Array<{ cardId: string; text: string; translation?: string }>;
@@ -92,7 +93,7 @@ type Props = {
   onActionEnd: (album: DeckAlbum, action: 'none' | 'edit' | 'delete') => void;
 };
 
-export default function DeckMainScreenUI({
+function DeckMainScreenUI({
   uiLanguage,
   searchQuery,
   onSearchChange,
@@ -116,6 +117,7 @@ export default function DeckMainScreenUI({
   wordPopSlideMs,
   wordPopEnabled,
   wordPopPaused = false,
+  isDeckFocusedRef,
   albumGridCount,
   onPressSlideshowItem,
   searchResults,
@@ -267,39 +269,57 @@ export default function DeckMainScreenUI({
     const itemCount = slideshowItems.length;
     if (itemCount <= 1 || wordPopPaused) return;
 
-    const timer = setTimeout(() => {
-      const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
-      const nextIndex = (safeCurrent + 1) % itemCount;
+    let isCancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-      const duration = 680;
-      const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
-      const slideDistance = getWordPopSlideDistance(wordSlideWidth);
+    const scheduleNextSlide = () => {
+      timer = setTimeout(() => {
+        if (isCancelled) return;
+        if (isDeckFocusedRef && !isDeckFocusedRef.current) {
+          // Deck is covered by a child screen (e.g. CardDetail): wait without moving slides
+          scheduleNextSlide();
+          return;
+        }
 
-      if (activeSlot === 'A') {
-        setSlotBIndex(nextIndex);
-        slotBX.value = slideDistance;
-        slotAX.value = withTiming(-slideDistance, { duration, easing });
-        slotBX.value = withTiming(0, { duration, easing }, (finished) => {
-          if (finished) {
-            runOnJS(handleSlideComplete)('B', nextIndex);
-          }
-        });
-      } else {
-        setSlotAIndex(nextIndex);
-        slotAX.value = slideDistance;
-        slotBX.value = withTiming(-slideDistance, { duration, easing });
-        slotAX.value = withTiming(0, { duration, easing }, (finished) => {
-          if (finished) {
-            runOnJS(handleSlideComplete)('A', nextIndex);
-          }
-        });
-      }
-    }, wordPopSlideMs + WORD_POP_DWELL_EXTENSION_MS);
+        const safeCurrent = wordIndex >= itemCount ? 0 : wordIndex;
+        const nextIndex = (safeCurrent + 1) % itemCount;
 
-    return () => clearTimeout(timer);
+        const duration = 680;
+        const easing = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+        const slideDistance = getWordPopSlideDistance(wordSlideWidth);
+
+        if (activeSlot === 'A') {
+          setSlotBIndex(nextIndex);
+          slotBX.value = slideDistance;
+          slotAX.value = withTiming(-slideDistance, { duration, easing });
+          slotBX.value = withTiming(0, { duration, easing }, (finished) => {
+            if (finished) {
+              runOnJS(handleSlideComplete)('B', nextIndex);
+            }
+          });
+        } else {
+          setSlotAIndex(nextIndex);
+          slotAX.value = slideDistance;
+          slotBX.value = withTiming(-slideDistance, { duration, easing });
+          slotAX.value = withTiming(0, { duration, easing }, (finished) => {
+            if (finished) {
+              runOnJS(handleSlideComplete)('A', nextIndex);
+            }
+          });
+        }
+      }, wordPopSlideMs + WORD_POP_DWELL_EXTENSION_MS);
+    };
+
+    scheduleNextSlide();
+
+    return () => {
+      isCancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [
     activeSlot,
     handleSlideComplete,
+    isDeckFocusedRef,
     slideshowItems.length,
     slotAX,
     slotBX,
@@ -1399,3 +1419,5 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
 });
+
+export default React.memo(DeckMainScreenUI);

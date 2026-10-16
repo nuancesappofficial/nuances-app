@@ -4,6 +4,7 @@ import {
   Alert,
   DeviceEventEmitter,
   Image,
+  InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   NativeScrollEvent,
@@ -1316,7 +1317,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           }
         );
         if (!options?.cancelled?.()) {
-          setEntitlementSnapshot(snapshot);
+          setEntitlementSnapshot((prev) =>
+            JSON.stringify(prev) === JSON.stringify(snapshot) ? prev : snapshot
+          );
         }
       } catch (error) {
         console.error('[CreateCard] load entitlement snapshot failed:', error);
@@ -1336,9 +1339,18 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   useFocusEffect(
     React.useCallback(() => {
       let cancelled = false;
-      void refreshEntitlementSnapshot({ cancelled: () => cancelled });
+      let rafId: number | null = null;
+      const task = InteractionManager.runAfterInteractions(() => {
+        rafId = requestAnimationFrame(() => {
+          if (!cancelled) {
+            void refreshEntitlementSnapshot({ cancelled: () => cancelled });
+          }
+        });
+      });
       return () => {
         cancelled = true;
+        task.cancel();
+        if (rafId !== null) cancelAnimationFrame(rafId);
       };
     }, [refreshEntitlementSnapshot])
   );

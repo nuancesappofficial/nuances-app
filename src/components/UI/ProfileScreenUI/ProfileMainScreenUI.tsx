@@ -286,7 +286,7 @@ function HeatMapCircle({
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
             fontSize={fontSize}
-            fontWeight="900"
+            fontWeight={stickerFont.fontWeight ?? '900'}
             fontFamily={stickerFont.fontFamily}
             textAnchor="middle"
             letterSpacing={stickerFont.letterSpacing * 0.52}
@@ -298,7 +298,7 @@ function HeatMapCircle({
             y={18}
             fill="#050505"
             fontSize={fontSize}
-            fontWeight="900"
+            fontWeight={stickerFont.fontWeight ?? '900'}
             fontFamily={stickerFont.fontFamily}
             textAnchor="middle"
             letterSpacing={stickerFont.letterSpacing * 0.52}
