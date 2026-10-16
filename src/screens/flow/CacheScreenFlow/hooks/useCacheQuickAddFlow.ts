@@ -60,12 +60,14 @@ export function useCacheQuickAddFlow({
     async (imageUris: string[]): Promise<string[]> => {
       const userId = await getCurrentSessionUserId();
       if (!userId) {
+        onBatchQuickAddCreated?.([]);
         Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
         return [];
       }
 
       const remainingCapacity = await getRemainingCacheCapacity(userId);
       if (remainingCapacity <= 0) {
+        onBatchQuickAddCreated?.([]);
         Alert.alert('暫存區已滿', '請先處理或刪除部分暫存卡片後再新增。');
         return [];
       }
@@ -73,7 +75,10 @@ export function useCacheQuickAddFlow({
         0,
         Math.min(10, remainingCapacity)
       );
-      if (validUris.length === 0) return [];
+      if (validUris.length === 0) {
+        onBatchQuickAddCreated?.([]);
+        return [];
+      }
 
       const collection = database.get<CachedItem>('cached_items');
       const existingItems = await collection
@@ -90,7 +95,11 @@ export function useCacheQuickAddFlow({
         existingItems.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean)
       );
       const newUris = validUris.filter((uri) => !existingUris.has(uri));
-      if (newUris.length === 0) return [];
+      if (newUris.length === 0) {
+        onBatchQuickAddCreated?.([]);
+        Alert.alert('已在暫存區', '所選取的圖片均已存在於暫存區中。');
+        return [];
+      }
 
       const preparedItems = newUris.map((uri) =>
         collection.prepareCreate((item) => {
@@ -159,17 +168,19 @@ export function useCacheQuickAddFlow({
     }, 1500);
 
     try {
-      // iOS PHPicker grants access only to the photos the user chooses and does
-      // not require a full-library permission prompt. Keep the input modal
-      // mounted underneath, matching the original interaction.
+      // iOS PHPicker grants access only to the photos the user chooses.
+      // Use quality: 1.0 to eliminate expensive native software JPEG transcoding
+      // so multiple high-res photos resolve into JS in zero delay.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
         allowsMultipleSelection: true,
         selectionLimit: 10,
-        quality: 0.85,
+        quality: 1.0,
       });
-      if (result.canceled || !result.assets?.length) return;
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
 
       const pickedAssets = result.assets.filter((asset) => Boolean(asset.uri));
       if (pickedAssets.length === 0) {
@@ -177,20 +188,15 @@ export function useCacheQuickAddFlow({
         return;
       }
 
+      // Set creating indicator right when closing modal so the button lock is active during processing
       setCreatingImage(true);
       setSuppressAddModalAnimation(true);
       setShowAddModal(false);
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
       try {
-        const createdItemIds = await createQuickImageCachedItems(
+        await createQuickImageCachedItems(
           pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
         );
-        if (createdItemIds.length > 0) {
-          // The pending ids were registered before the DB batch, so the stack
-          // is ready before WatermelonDB emits the newly inserted rows.
-        } else {
-          Alert.alert('新增失敗', '沒有成功新增任何圖片快取。');
-        }
       } catch (error) {
         onBatchQuickAddCreated?.([]);
         console.error('[CacheList] batch image create failed:', error);

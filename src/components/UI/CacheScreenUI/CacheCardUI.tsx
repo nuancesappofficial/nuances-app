@@ -108,6 +108,7 @@ export default function CacheCardUI({
   const scale = useSharedValue(startsInEntrancePose ? 1.5 : 1);
   const rot = useSharedValue(startsInEntrancePose ? 0 : targetRot);
   const isPressed = useSharedValue(false);
+  const hasCommittedSwipe = useSharedValue(false);
   const hasRestoreInitialized = React.useRef(false);
   const lastSwipeTriggerSeq = React.useRef<number | null>(null);
   const lastEntranceTokenRef = React.useRef<string | null>(null);
@@ -346,6 +347,7 @@ export default function CacheCardUI({
       topCardDragX.value = 0;
       runOnJS(cancelPendingTugHint)();
       isPressed.value = true;
+      hasCommittedSwipe.value = false;
     })
     .onUpdate((e) => {
       const dragX = clampTutorialCacheDragX(e.translationX, deletionLocked);
@@ -386,6 +388,7 @@ export default function CacheCardUI({
           }
           return;
         }
+        hasCommittedSwipe.value = true;
         x.value = withSpring(width * 2 * dir, { velocity: e.velocityX });
         if (isTopCard) {
           topCardDragX.value = width * 2 * dir;
@@ -400,6 +403,19 @@ export default function CacheCardUI({
         }
         y.value = withSpring(toY, ELEGANT_SPRING);
         rot.value = withSpring(targetRot, ELEGANT_SPRING);
+      }
+    })
+    .onFinalize((_e, _success) => {
+      if (hasCommittedSwipe.value) return;
+      isPressed.value = false;
+      x.value = withSpring(0, ELEGANT_SPRING);
+      if (isTopCard) {
+        topCardDragX.value = withSpring(0, ELEGANT_SPRING);
+      }
+      y.value = withSpring(toY, ELEGANT_SPRING);
+      rot.value = withSpring(targetRot, ELEGANT_SPRING);
+      if (showSwipeTugHint && isTopCard) {
+        runOnJS(restartTutorialTug)();
       }
     });
 

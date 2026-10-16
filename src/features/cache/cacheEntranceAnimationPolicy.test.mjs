@@ -214,3 +214,30 @@ test('swiping a card away increments restoreSeed once and immediately settles at
   assert.equal(step2.nextRestoreSeed, 1, 'Restore seed must not increment again');
 });
 
+test('partial batch readiness resolves without deadlock when one card is skipped or deduplicated', () => {
+  const state = {
+    visibleCardIds: ['card-0'],
+    enteringCardIds: [],
+    lastSeenCardIds: ['card-0'],
+    pendingBatchEnterIds: ['card-batch-1', 'card-batch-2-skipped'],
+    hasSeenCacheOnce: true,
+    animationSeed: 1,
+    restoreSeed: 0,
+  };
+  // Only card-batch-1 was actually inserted; card-batch-2-skipped was deduplicated
+  const currentIds = ['card-0', 'card-batch-1'];
+
+  const result = resolveCacheCardTransition({
+    currentIds,
+    state,
+    isCacheFocused: true,
+    showAddModal: false,
+  });
+
+  assert.equal(result.transitionType, 'batch_ready');
+  assert.deepEqual(result.nextEnteringCardIds, ['card-batch-1']);
+  assert.deepEqual(result.nextPendingBatchEnterIds, []);
+  assert.deepEqual(result.nextVisibleCardIds, ['card-0', 'card-batch-1']);
+  assert.equal(result.nextAnimationSeed, 2);
+});
+

@@ -118,9 +118,16 @@ export default function CacheStackUI({
   }, []);
 
   React.useEffect(() => {
-    // Clear lingering swipeTrigger whenever card restoration is triggered (e.g. cancelled modal or back transition)
+    // Clear lingering swipeTrigger and active swipe locks whenever card restoration is triggered
     setSwipeTrigger(null);
+    swipingItemIdsRef.current.clear();
   }, [restoreSeed]);
+
+  React.useEffect(() => {
+    return () => {
+      swipingItemIdsRef.current.clear();
+    };
+  }, []);
 
   const handleInternalCardSwipe = React.useCallback(
     (itemId: string, direction: 'left' | 'right') => {

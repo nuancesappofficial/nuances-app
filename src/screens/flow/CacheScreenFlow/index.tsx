@@ -1124,6 +1124,14 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     return () => clearTimeout(timer);
   }, [enteringCardIds]);
 
+  useEffect(() => {
+    if (pendingBatchEnterIds.length === 0) return;
+    const timer = setTimeout(() => {
+      setPendingBatchEnterIds([]);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [pendingBatchEnterIds]);
+
   const handlePressTodaySticker = React.useCallback(
     (item: TodayUploadSticker) => {
       if (!item.cardId) return;

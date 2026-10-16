@@ -82,20 +82,20 @@ export function resolveCacheCardTransition(
     }
 
     const readyIds = pendingBatchEnterIds.filter((id) => currentIds.includes(id));
-    if (readyIds.length !== pendingBatchEnterIds.length) {
-      return makeNoopResult(state);
+    if (readyIds.length > 0) {
+      return {
+        nextVisibleCardIds: currentIds,
+        nextEnteringCardIds: readyIds,
+        nextLastSeenCardIds: currentIds,
+        nextPendingBatchEnterIds: [],
+        nextHasSeenCacheOnce: true,
+        nextAnimationSeed: animationSeed + 1,
+        nextRestoreSeed: restoreSeed,
+        transitionType: 'batch_ready',
+      };
     }
 
-    return {
-      nextVisibleCardIds: currentIds,
-      nextEnteringCardIds: readyIds,
-      nextLastSeenCardIds: currentIds,
-      nextPendingBatchEnterIds: [],
-      nextHasSeenCacheOnce: true,
-      nextAnimationSeed: animationSeed + 1,
-      nextRestoreSeed: restoreSeed,
-      transitionType: 'batch_ready',
-    };
+    return makeNoopResult(state);
   }
 
   // Initial load when cache screen is opened:

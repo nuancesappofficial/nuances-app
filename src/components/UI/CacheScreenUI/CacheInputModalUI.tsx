@@ -224,7 +224,18 @@ export default function CacheInputModalUI({
       onDismiss();
       return;
     }
-    Animated.parallel([
+    let isSettled = false;
+    const finalizeDismissal = () => {
+      if (isSettled) return;
+      isSettled = true;
+      entranceY.setValue(MODAL_ENTRY_TRANSLATE_Y);
+      backdropOpacity.setValue(0);
+      keyboardLift.setValue(0);
+      setShouldRender(false);
+      onDismiss();
+    };
+
+    const exitAnimation = Animated.parallel([
       Animated.timing(entranceY, {
         toValue: MODAL_ENTRY_TRANSLATE_Y,
         duration: MODAL_EXIT_DURATION_MS,
@@ -243,11 +254,22 @@ export default function CacheInputModalUI({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (!finished) return;
-      setShouldRender(false);
-      onDismiss();
+    ]);
+
+    exitAnimation.start(() => {
+      // Regardless of whether animation finished cleanly or was interrupted,
+      // we MUST guarantee the native Modal unmounts so it never stays as an invisible blocker!
+      finalizeDismissal();
     });
+
+    const fallbackTimer = setTimeout(() => {
+      exitAnimation.stop();
+      finalizeDismissal();
+    }, MODAL_EXIT_DURATION_MS + 90);
+
+    return () => {
+      clearTimeout(fallbackTimer);
+    };
   }, [backdropOpacity, entranceY, keyboardLift, onDismiss, shouldRender, suppressAnimation, visible]);
 
   React.useEffect(() => {
