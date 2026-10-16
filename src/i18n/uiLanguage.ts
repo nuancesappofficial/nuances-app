@@ -829,7 +829,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
       'Please update Nuances from the App Store to continue using the latest supported version.',
     'appVersion.updateAvailableBody':
       'A newer version of Nuances is available. Update from the App Store for the latest fixes and improvements.',
-    'appVersion.updateAction': 'Update App',
+    'appVersion.updateAction': 'Tap to Update',
     'appVersion.laterAction': 'Later',
     'auth.connecting': 'Connecting...',
     'auth.continueWithApple': 'Continue with Apple',
@@ -1296,7 +1296,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
       '請從 App Store 更新 Nuances，才能繼續使用目前支援的版本。',
     'appVersion.updateAvailableBody':
       'Nuances 有新版本可用。更新後可取得最新修正與改進。',
-    'appVersion.updateAction': '更新 App',
+    'appVersion.updateAction': '點我更新',
     'appVersion.laterAction': '稍後',
     'auth.connecting': '連線中...',
     'auth.continueWithApple': '使用 Apple 繼續',
@@ -1750,7 +1750,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
       '请从 App Store 更新 Nuances，才能继续使用当前支持的版本。',
     'appVersion.updateAvailableBody':
       'Nuances 有新版本可用。更新后可获得最新修复与改进。',
-    'appVersion.updateAction': '更新 App',
+    'appVersion.updateAction': '点我更新',
     'appVersion.laterAction': '稍后',
     'auth.connecting': '连接中...',
     'auth.continueWithApple': '使用 Apple 继续',

@@ -61,6 +61,37 @@ function extractMainAppBuildSettings() {
   return { marketingVersion, buildNumber: numericBuildNumber };
 }
 
+function extractAndroidBuildSettings() {
+  const gradlePath = path.join(PROJECT_ROOT, 'android', 'app', 'build.gradle');
+  if (fs.existsSync(gradlePath)) {
+    const gradle = fs.readFileSync(gradlePath, 'utf8');
+    const versionName = gradle.match(/versionName\s+["']([^"']+)["']/)?.[1]?.trim();
+    const versionCode = gradle.match(/versionCode\s+(\d+)/)?.[1]?.trim();
+    if (versionName && versionCode) {
+      return { marketingVersion: versionName, buildNumber: Number.parseInt(versionCode, 10) };
+    }
+  }
+
+  const appJsonPath = path.join(PROJECT_ROOT, 'app.json');
+  if (fs.existsSync(appJsonPath)) {
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    const marketingVersion = appJson.expo?.version?.trim();
+    const buildNumber = appJson.expo?.android?.versionCode;
+    if (marketingVersion && typeof buildNumber === 'number') {
+      return { marketingVersion, buildNumber };
+    }
+  }
+
+  throw new Error('Could not read Android versionName / versionCode from build.gradle or app.json.');
+}
+
+function extractBuildSettings(platform) {
+  if (platform === 'android') {
+    return extractAndroidBuildSettings();
+  }
+  return extractMainAppBuildSettings();
+}
+
 function parseArgs(argv) {
   const options = {
     dryRun: false,
@@ -81,7 +112,7 @@ async function main() {
   const env = loadEnv();
   const supabaseUrl = (env.EXPO_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || '').replace(/\/+$/, '');
   const syncToken = env.APP_VERSION_POLICY_SYNC_TOKEN || env.SUPABASE_APP_VERSION_POLICY_SYNC_TOKEN || '';
-  const { marketingVersion, buildNumber } = extractMainAppBuildSettings();
+  const { marketingVersion, buildNumber } = extractBuildSettings(options.platform);
 
   const payload = {
     platform: options.platform,

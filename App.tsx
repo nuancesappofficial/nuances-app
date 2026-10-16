@@ -955,12 +955,19 @@ export default function App() {
       if (!status.isRequired && promptedVersionKeyRef.current === promptKey) return;
       promptedVersionKeyRef.current = promptKey;
 
+      const formatStoreText = (text: string) => {
+        if (Platform.OS === 'android') {
+          return text.replace(/App Store/g, 'Google Play');
+        }
+        return text;
+      };
+
       const openUpdateUrl = () => {
         isPromptingAlertRef.current = false;
         if (!status.updateUrl) {
           Alert.alert(
             tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
-            tUI(uiLanguage, 'appVersion.updateUnavailableNoUrl')
+            formatStoreText(tUI(uiLanguage, 'appVersion.updateUnavailableNoUrl'))
           );
           return;
         }
@@ -968,13 +975,14 @@ export default function App() {
           console.warn('[AppVersion] failed to open update URL:', error);
           Alert.alert(
             tUI(uiLanguage, 'appVersion.updateUnavailableTitle'),
-            tUI(uiLanguage, 'appVersion.updateUnavailableOpenFailed')
+            formatStoreText(tUI(uiLanguage, 'appVersion.updateUnavailableOpenFailed'))
           );
         });
       };
 
+      const updateActionLabel = tUI(uiLanguage, 'appVersion.updateAction') || '點我更新';
       const actions = status.isRequired
-        ? [{ text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl }]
+        ? [{ text: updateActionLabel, onPress: openUpdateUrl }]
         : [
             {
               text: tUI(uiLanguage, 'appVersion.laterAction'),
@@ -983,14 +991,16 @@ export default function App() {
                 isPromptingAlertRef.current = false;
               },
             },
-            { text: tUI(uiLanguage, 'appVersion.updateAction'), onPress: openUpdateUrl },
+            { text: updateActionLabel, onPress: openUpdateUrl },
           ];
 
       isPromptingAlertRef.current = true;
       setTimeout(() => {
         Alert.alert(
           tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredTitle' : 'appVersion.updateAvailableTitle'),
-          tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody'),
+          formatStoreText(
+            tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody')
+          ),
           actions,
           {
             cancelable: !status.isRequired,

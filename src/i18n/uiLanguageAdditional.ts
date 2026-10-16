@@ -405,7 +405,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
       'サポートされている最新バージョンを引き続き使用するには、App Store から Nuance を更新してください。',
     'appVersion.updateAvailableBody':
       '新しいバージョンのNuancesが利用可能です。最新の修正と改善については、App Store からアップデートしてください。',
-    'appVersion.updateAction': 'アプリを更新する',
+    'appVersion.updateAction': 'タップして更新',
     'appVersion.laterAction': '後で',
     'auth.connecting': '接続中...',
     'auth.continueWithApple': 'Appleで続ける',
@@ -900,7 +900,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
       '지원되는 최신 버전을 계속 사용하려면 App Store에서 Nuances를 업데이트하세요.',
     'appVersion.updateAvailableBody':
       'Nuances의 최신 버전을 사용할 수 있습니다. 최신 수정 사항 및 개선 사항을 보려면 App Store에서 업데이트하세요.',
-    'appVersion.updateAction': '앱 업데이트',
+    'appVersion.updateAction': '탭하여 업데이트',
     'appVersion.laterAction': '나중에',
     'auth.connecting': '연결 중...',
     'auth.continueWithApple': 'Apple과 함께 계속하세요',
@@ -1407,7 +1407,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
       'Actualice Nuances desde la App Store para continuar usando la última versión compatible.',
     'appVersion.updateAvailableBody':
       'Hay disponible una versión más reciente de Nuances. Actualice desde App Store para obtener las últimas correcciones y mejoras.',
-    'appVersion.updateAction': 'Actualizar aplicación',
+    'appVersion.updateAction': 'Toca para actualizar',
     'appVersion.laterAction': 'Más tarde',
     'auth.connecting': 'Conectando...',
     'auth.continueWithApple': 'Continuar con Apple',
@@ -1919,7 +1919,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
       "Veuillez mettre à jour Nuances depuis l'App Store pour continuer à utiliser la dernière version prise en charge.",
     'appVersion.updateAvailableBody':
       "Une version plus récente de Nuances est disponible. Mise à jour depuis l'App Store pour les derniers correctifs et améliorations.",
-    'appVersion.updateAction': "Mettre à jour l'application",
+    'appVersion.updateAction': 'Toucher pour mettre à jour',
     'appVersion.laterAction': 'Plus tard',
     'auth.connecting': 'Connexion...',
     'auth.continueWithApple': 'Continuer avec Apple',
