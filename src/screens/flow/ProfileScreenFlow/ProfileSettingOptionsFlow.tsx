@@ -687,6 +687,8 @@ export default function ProfileSettingOptionsFlow({
     React.useState(false);
   const premiumGreetingShownRef = React.useRef(false);
   const dragTranslate = React.useRef(new Animated.ValueXY()).current;
+  const dragScale = React.useRef(new Animated.Value(1)).current;
+  const isReleasingDragRef = React.useRef(false);
   const previewPositionValuesRef = React.useRef<
     Record<string, Animated.ValueXY>
   >({});
@@ -703,6 +705,7 @@ export default function ProfileSettingOptionsFlow({
   } | null>(null);
   const activeDragAlbumIdRef = React.useRef<string | null>(null);
   const previewPanActiveRef = React.useRef(false);
+  const pendingAlbumToEditRef = React.useRef<DeckAlbum | null>(null);
 
   React.useEffect(() => {
     if (kind !== 'membership') return;
@@ -929,19 +932,19 @@ export default function ProfileSettingOptionsFlow({
           toValue: 1,
           duration: 92,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(previewWiggleValue, {
           toValue: -1,
           duration: 120,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(previewWiggleValue, {
           toValue: 0,
           duration: 92,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ])
     );
@@ -1524,6 +1527,7 @@ export default function ProfileSettingOptionsFlow({
       setMainScreenAlbums((prev) => [...prev, newAlbum]);
       await persistRawAlbumSlots(nextSlots);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      pendingAlbumToEditRef.current = newAlbum;
       cancelCreateAlbumAtSlot();
     } catch (error) {
       console.error(
@@ -1553,6 +1557,16 @@ export default function ProfileSettingOptionsFlow({
     },
     [settings.uiLanguage]
   );
+
+  const handleCreateAlbumDidClose = React.useCallback(() => {
+    const album = pendingAlbumToEditRef.current;
+    pendingAlbumToEditRef.current = null;
+    if (album) {
+      setTimeout(() => {
+        openAlbumSettings(album);
+      }, 50);
+    }
+  }, [openAlbumSettings]);
 
   const handleCancelAlbumSettings = React.useCallback(() => {
     setAlbumSettingsModalVisible(false);
@@ -1779,14 +1793,22 @@ export default function ProfileSettingOptionsFlow({
 
   const beginPreviewAlbumDrag = React.useCallback(
     (albumId: string, startIndex: number) => {
+      if (isReleasingDragRef.current) return;
       const startPosition = getPreviewSlotPosition(startIndex);
       dragBasePositionRef.current = startPosition;
       lastPreviewTargetIndexRef.current = startIndex;
       activeDragAlbumIdRef.current = albumId;
-      setDraggingAlbumId(albumId);
       dragTranslate.setValue({ x: 0, y: 0 });
+      dragScale.setValue(1);
+      Animated.spring(dragScale, {
+        toValue: 1.04,
+        tension: 300,
+        friction: 20,
+        useNativeDriver: false,
+      }).start();
+      setDraggingAlbumId(albumId);
     },
-    [dragTranslate, getPreviewSlotPosition]
+    [dragScale, dragTranslate, getPreviewSlotPosition]
   );
 
   const getPreviewTargetIndexFromGesture = React.useCallback(
@@ -1889,28 +1911,76 @@ export default function ProfileSettingOptionsFlow({
   const endPreviewAlbumDrag = React.useCallback(
     (shouldPersist: boolean) => {
       const albumId = activeDragAlbumIdRef.current;
-      if (albumId) {
-        const releaseTargetIndex = draftAlbumSlotsRef.current.indexOf(albumId);
-        if (
-          releaseTargetIndex >= 0 &&
-          previewPositionValuesRef.current[albumId]
-        ) {
-          const releasePosition = getPreviewSlotPosition(releaseTargetIndex);
+      if (!albumId || isReleasingDragRef.current) {
+        if (!albumId) {
+          setDraggingAlbumId(null);
+          pendingDragAlbumRef.current = null;
+          previewPanActiveRef.current = false;
+        }
+        return;
+      }
+
+      const releaseTargetIndex = draftAlbumSlotsRef.current.indexOf(albumId);
+      if (
+        releaseTargetIndex < 0 ||
+        previewCellWidth <= 0 ||
+        previewCellHeight <= 0
+      ) {
+        setDraggingAlbumId(null);
+        activeDragAlbumIdRef.current = null;
+        pendingDragAlbumRef.current = null;
+        previewPanActiveRef.current = false;
+        lastPreviewTargetIndexRef.current = null;
+        if (shouldPersist) {
+          void persistAlbumOrder(draftAlbumSlotsRef.current);
+        }
+        return;
+      }
+
+      isReleasingDragRef.current = true;
+      const releasePosition = getPreviewSlotPosition(releaseTargetIndex);
+      const targetTranslateX =
+        releasePosition.x - dragBasePositionRef.current.x;
+      const targetTranslateY =
+        releasePosition.y - dragBasePositionRef.current.y;
+
+      Animated.parallel([
+        Animated.spring(dragTranslate, {
+          toValue: { x: targetTranslateX, y: targetTranslateY },
+          tension: 280,
+          friction: 26,
+          useNativeDriver: false,
+        }),
+        Animated.spring(dragScale, {
+          toValue: 1,
+          tension: 280,
+          friction: 26,
+          useNativeDriver: false,
+        }),
+      ]).start(() => {
+        if (previewPositionValuesRef.current[albumId]) {
           previewPositionValuesRef.current[albumId].setValue(releasePosition);
           previewPositionTargetsRef.current[albumId] = releasePosition;
         }
-      }
-      setDraggingAlbumId(null);
-      activeDragAlbumIdRef.current = null;
-      pendingDragAlbumRef.current = null;
-      previewPanActiveRef.current = false;
-      dragTranslate.setValue({ x: 0, y: 0 });
-      lastPreviewTargetIndexRef.current = null;
-      if (shouldPersist) {
-        void persistAlbumOrder(draftAlbumSlotsRef.current);
-      }
+        setDraggingAlbumId(null);
+        activeDragAlbumIdRef.current = null;
+        pendingDragAlbumRef.current = null;
+        previewPanActiveRef.current = false;
+        isReleasingDragRef.current = false;
+        lastPreviewTargetIndexRef.current = null;
+        if (shouldPersist) {
+          void persistAlbumOrder(draftAlbumSlotsRef.current);
+        }
+      });
     },
-    [dragTranslate, getPreviewSlotPosition, persistAlbumOrder]
+    [
+      dragScale,
+      dragTranslate,
+      getPreviewSlotPosition,
+      persistAlbumOrder,
+      previewCellHeight,
+      previewCellWidth,
+    ]
   );
 
   const previewGridPanResponder = React.useMemo(
@@ -1919,14 +1989,17 @@ export default function ProfileSettingOptionsFlow({
         onStartShouldSetPanResponder: () => false,
         onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, gestureState) =>
+          !isReleasingDragRef.current &&
           (previewEditMode || !!activeDragAlbumIdRef.current) &&
           (!!pendingDragAlbumRef.current || !!activeDragAlbumIdRef.current) &&
           (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
         onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          !isReleasingDragRef.current &&
           (previewEditMode || !!activeDragAlbumIdRef.current) &&
           (!!pendingDragAlbumRef.current || !!activeDragAlbumIdRef.current) &&
           (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4),
         onPanResponderGrant: () => {
+          if (isReleasingDragRef.current) return;
           previewPanActiveRef.current = true;
           if (activeDragAlbumIdRef.current) return;
           const pendingDrag = pendingDragAlbumRef.current;
@@ -1934,6 +2007,7 @@ export default function ProfileSettingOptionsFlow({
           beginPreviewAlbumDrag(pendingDrag.albumId, pendingDrag.index);
         },
         onPanResponderMove: (_, gestureState) => {
+          if (isReleasingDragRef.current) return;
           const albumId = activeDragAlbumIdRef.current;
           if (!albumId) return;
           dragTranslate.setValue({ x: gestureState.dx, y: gestureState.dy });
@@ -2579,7 +2653,13 @@ export default function ProfileSettingOptionsFlow({
                           ? {
                               opacity: 0,
                             }
-                          : previewEditMode
+                          : null,
+                      ]}
+                    >
+                      <Animated.View
+                        style={[
+                          styles.previewAlbumInner,
+                          previewEditMode
                             ? {
                                 transform: [
                                   { translateY: wiggleTranslateY },
@@ -2587,106 +2667,111 @@ export default function ProfileSettingOptionsFlow({
                                 ],
                               }
                             : null,
-                      ]}
-                    >
-                      <Pressable
-                        onPressIn={() => {
-                          pendingDragAlbumRef.current = {
-                            albumId: album.id,
-                            index,
-                          };
-                        }}
-                        onPressOut={() => {
-                          if (
-                            activeDragAlbumIdRef.current === album.id &&
-                            !previewPanActiveRef.current
-                          ) {
-                            endPreviewAlbumDrag(false);
-                            return;
-                          }
-                          if (
-                            !activeDragAlbumIdRef.current &&
-                            !previewPanActiveRef.current
-                          ) {
-                            pendingDragAlbumRef.current = null;
-                          }
-                        }}
-                        onLongPress={() => {
-                          pendingDragAlbumRef.current = {
-                            albumId: album.id,
-                            index,
-                          };
-                          ensurePreviewEditPage();
-                          beginPreviewAlbumDrag(album.id, index);
-                        }}
-                        delayLongPress={220}
-                        onPress={() => {
-                          if (
-                            previewEditMode ||
-                            activeDragAlbumIdRef.current ||
-                            previewPanActiveRef.current ||
-                            draggingAlbumId
-                          ) {
-                            return;
-                          }
-                          openAlbumSettings(album);
-                        }}
-                        style={styles.previewAlbumPressable}
+                        ]}
                       >
-                        {previewEditMode ? (
-                          <Pressable
-                            hitSlop={8}
-                            style={({ pressed }) => [
-                              styles.previewDeleteButton,
+                        <Pressable
+                          onPressIn={() => {
+                            if (isReleasingDragRef.current) return;
+                            pendingDragAlbumRef.current = {
+                              albumId: album.id,
+                              index,
+                            };
+                          }}
+                          onPressOut={() => {
+                            if (isReleasingDragRef.current) return;
+                            if (
+                              activeDragAlbumIdRef.current === album.id &&
+                              !previewPanActiveRef.current
+                            ) {
+                              endPreviewAlbumDrag(false);
+                              return;
+                            }
+                            if (
+                              !activeDragAlbumIdRef.current &&
+                              !previewPanActiveRef.current
+                            ) {
+                              pendingDragAlbumRef.current = null;
+                            }
+                          }}
+                          onLongPress={() => {
+                            if (isReleasingDragRef.current) return;
+                            pendingDragAlbumRef.current = {
+                              albumId: album.id,
+                              index,
+                            };
+                            ensurePreviewEditPage();
+                            beginPreviewAlbumDrag(album.id, index);
+                          }}
+                          delayLongPress={220}
+                          onPress={() => {
+                            if (
+                              previewEditMode ||
+                              activeDragAlbumIdRef.current ||
+                              previewPanActiveRef.current ||
+                              draggingAlbumId ||
+                              isReleasingDragRef.current
+                            ) {
+                              return;
+                            }
+                            openAlbumSettings(album);
+                          }}
+                          style={styles.previewAlbumPressable}
+                        >
+                          {previewEditMode ? (
+                            <Pressable
+                              hitSlop={8}
+                              style={({ pressed }) => [
+                                styles.previewDeleteButton,
+                                {
+                                  backgroundColor: isLight
+                                    ? 'rgba(148,163,184,0.78)'
+                                    : 'rgba(71,85,105,0.86)',
+                                },
+                                pressed
+                                  ? styles.previewDeleteButtonPressed
+                                  : null,
+                              ]}
+                              onPress={() => confirmDeletePreviewAlbum(album)}
+                            >
+                              <Ionicons name="close" size={13} color="#FFFFFF" />
+                            </Pressable>
+                          ) : null}
+                          <View
+                            style={[
+                              styles.previewAlbumCover,
                               {
-                                backgroundColor: isLight
-                                  ? 'rgba(148,163,184,0.78)'
-                                  : 'rgba(71,85,105,0.86)',
+                                backgroundColor: album.coverImageUri
+                                  ? palette.modalOptionBg
+                                  : album.color || palette.modalOptionBg,
+                                borderColor: isLight
+                                  ? palette.borderSubtle
+                                  : CONTAINER_NEON_OUTLINE,
                               },
-                              pressed
-                                ? styles.previewDeleteButtonPressed
-                                : null,
                             ]}
-                            onPress={() => confirmDeletePreviewAlbum(album)}
                           >
-                            <Ionicons name="close" size={13} color="#FFFFFF" />
-                          </Pressable>
-                        ) : null}
-                        <View
-                          style={[
-                            styles.previewAlbumCover,
-                            {
-                              backgroundColor: album.coverImageUri
-                                ? palette.modalOptionBg
-                                : album.color || palette.modalOptionBg,
-                              borderColor: isLight
-                                ? palette.borderSubtle
-                                : CONTAINER_NEON_OUTLINE,
-                            },
-                          ]}
-                        >
-                          {album.coverImageUri ? (
-                            <Image
-                              source={{ uri: album.coverImageUri }}
-                              style={styles.previewAlbumImage}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <Text style={styles.previewAlbumEmoji}>
-                              {album.emoji || '📁'}
-                            </Text>
-                          )}
-                        </View>
-                        <Text
-                          style={[
-                            styles.previewAlbumName,
-                            { color: palette.textOnContainer },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {getDeckAlbumDisplayName(album, settings.uiLanguage)}
-                        </Text>
-                      </Pressable>
+                            {album.coverImageUri ? (
+                              <Image
+                                source={{ uri: album.coverImageUri }}
+                                style={styles.previewAlbumImage}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Text style={styles.previewAlbumEmoji}>
+                                {album.emoji || '📁'}
+                              </Text>
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.previewAlbumName,
+                              { color: palette.textOnContainer },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {getDeckAlbumDisplayName(album, settings.uiLanguage)}
+                          </Text>
+                        </Pressable>
+                      </Animated.View>
                     </Animated.View>
                   );
                 })}
@@ -2710,7 +2795,7 @@ export default function ProfileSettingOptionsFlow({
                               transform: [
                                 { translateX: dragTranslate.x },
                                 { translateY: dragTranslate.y },
-                                { scale: 1.04 },
+                                { scale: dragScale },
                               ],
                             },
                           ]}
@@ -2830,6 +2915,7 @@ export default function ProfileSettingOptionsFlow({
           onChangeAlbumName={setNewAlbumName}
           onCancel={cancelCreateAlbumAtSlot}
           onConfirm={() => void confirmCreateAlbumAtSlot()}
+          onDidClose={handleCreateAlbumDidClose}
         />
         <AlbumSettingsModalUI
           visible={albumSettingsModalVisible}
@@ -3669,6 +3755,9 @@ const styles = StyleSheet.create({
   },
   previewAlbumCell: {
     width: '31%',
+  },
+  previewAlbumInner: {
+    width: '100%',
   },
   previewAbsoluteCell: {
     position: 'absolute',

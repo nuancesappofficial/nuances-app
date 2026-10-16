@@ -279,7 +279,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.language.updateFailedTitle': 'アップデートに失敗しました',
     'settings.language.updateFailedBody':
       '言語設定を保存できません。後でもう一度試してください。',
-    'settings.main.albumReorderInstruction': '長押ししてドラッグ',
+    'settings.main.albumReorderInstruction': 'タップで編集、長押しでドラッグ',
     'settings.main.albumsPerPage': 'ページあたりのアルバム数',
     'settings.main.perPageSuffix': 'ページあたり',
     'settings.main.wordPop': 'ワードポップ',
@@ -777,7 +777,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.language.updateFailedTitle': '업데이트 실패',
     'settings.language.updateFailedBody':
       '언어 설정을 저장할 수 없습니다. 나중에 다시 시도해 주세요.',
-    'settings.main.albumReorderInstruction': '길게 눌러 드래그',
+    'settings.main.albumReorderInstruction': '탭하여 편집, 길게 눌러 드래그',
     'settings.main.albumsPerPage': '페이지당 앨범',
     'settings.main.perPageSuffix': '페이지당',
     'settings.main.wordPop': '워드팝',
@@ -1279,7 +1279,8 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.language.updateFailedTitle': 'La actualización falló',
     'settings.language.updateFailedBody':
       'No se puede guardar la configuración de idioma. Inténtelo de nuevo más tarde.',
-    'settings.main.albumReorderInstruction': 'Mantén pulsado y arrastra',
+    'settings.main.albumReorderInstruction':
+      'Toca para editar, mantén pulsado para arrastrar',
     'settings.main.albumsPerPage': 'Álbumes por página',
     'settings.main.perPageSuffix': 'por página',
     'settings.main.wordPop': 'palabra pop',
@@ -1791,7 +1792,8 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.language.updateFailedTitle': 'La mise à jour a échoué',
     'settings.language.updateFailedBody':
       "Impossible d'enregistrer les paramètres de langue. Veuillez réessayer plus tard.",
-    'settings.main.albumReorderInstruction': 'Maintenir et faire glisser',
+    'settings.main.albumReorderInstruction':
+      'Appuyer pour modifier, maintenir pour faire glisser',
     'settings.main.albumsPerPage': 'Albums par page',
     'settings.main.perPageSuffix': 'par page',
     'settings.main.wordPop': 'Mot pop',
