@@ -67,6 +67,9 @@ import {
 import SubscriptionService from './src/services/subscription/SubscriptionService';
 import ReminderNotificationService from './src/services/notifications/ReminderNotificationService';
 import TipNotificationService from './src/services/notifications/TipNotificationService';
+import { registerPushTokenForUser, unregisterPushTokenForUser } from './src/services/notifications/pushTokenService';
+import { inAppMessageService } from './src/services/notifications/inAppMessageService';
+import InAppMessageModal from './src/components/UI/shared/InAppMessageModal';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
 import { syncIfNeeded } from './src/services/sync';
 import {
@@ -828,6 +831,8 @@ export default function App() {
             synced ? processPendingCardImageUploads(user.id) : undefined
           );
           triggerBackgroundAccountRefresh(user.id, 'startup');
+          void registerPushTokenForUser(user.id);
+          void inAppMessageService.init(user.id);
           void Promise.allSettled([
             fetchUserHasCacheItems(user.id),
             checkOnboardingStatus(user.id),
@@ -915,6 +920,7 @@ export default function App() {
       setVideoTourChecked(true);
       setIsReady(true); // Continue anyway
       void checkForAppVersionUpdate({ delayMs: 2500 });
+      void inAppMessageService.init(null);
     }
   };
 
@@ -1019,6 +1025,7 @@ export default function App() {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
         void checkForAppVersionUpdate({ delayMs: 500 });
+        void inAppMessageService.checkForUnreadMessages();
       }
     });
     return () => {
@@ -1048,8 +1055,12 @@ export default function App() {
         // Hide the previous account immediately. Cleanup may touch many local
         // rows/files and must not leave the old navigator interactive.
         setAllowOfflineAccess(false);
+        if (activeUserIdRef.current) {
+          void unregisterPushTokenForUser(activeUserIdRef.current);
+        }
         activeUserIdRef.current = null;
         setUserId(null);
+        inAppMessageService.updateUserId(null);
         setNeedsOnboarding(false);
         setOnboardingChecked(true);
         setNeedsVideoTour(false);
@@ -1145,6 +1156,8 @@ export default function App() {
             // let subscription/profile bootstrap expose the AuthGate.
             activeUserIdRef.current = nextUserId;
             setUserId(nextUserId);
+            void registerPushTokenForUser(nextUserId);
+            inAppMessageService.updateUserId(nextUserId);
             traceFirstRun('auth', 'local_identity_ready');
             // Keep card backup independent from subscription service failures.
             void triggerBackgroundCardSync('auth').then((synced) =>
@@ -1717,6 +1730,7 @@ export default function App() {
           />
         ) : null}
         <GlobalThemeCrossFadeOverlay />
+        <InAppMessageModal />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
