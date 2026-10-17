@@ -44,7 +44,7 @@ export const ALLOW_BILLABLE_WITHOUT_KV = String(
 ).toLowerCase() === 'true';
 
 export const OPENAI_ALLOWED_MODELS = (Deno.env.get('OPENAI_ALLOWED_MODELS')
-  ?? 'gpt-4o-mini')
+  ?? 'gpt-5.6-terra')
   .split(',')
   .map((item: string) => item.trim())
   .filter(Boolean);

@@ -82,7 +82,7 @@ export function routeOpenAIModelForAction(params: {
     };
   }
 
-  const fast = OPENAI_ALLOWED_MODELS[0] ?? 'gpt-4o-mini';
+  const fast = OPENAI_ALLOWED_MODELS[0] ?? 'gpt-5.6-terra';
   const balanced = OPENAI_ALLOWED_MODELS[Math.min(1, OPENAI_ALLOWED_MODELS.length - 1)] ?? fast;
   const quality = OPENAI_ALLOWED_MODELS[Math.min(2, OPENAI_ALLOWED_MODELS.length - 1)] ?? balanced;
 

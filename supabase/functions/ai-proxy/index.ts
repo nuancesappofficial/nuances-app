@@ -337,7 +337,7 @@ const GENERATE_CARD_MAX_MODEL_ATTEMPTS = 3;
 const GENERATE_CARD_ATTEMPT_TIMEOUTS_MS = [15000, 15000, 15000] as const;
 const OPENAI_GENERATE_CARD_MODEL =
   sanitizeText(Deno.env.get('OPENAI_GENERATE_CARD_MODEL') || '', 120) ||
-  'gpt-4o-mini';
+  'gpt-5.6-terra';
   const GEMINI_GENERATE_CARD_FALLBACK_MODEL =
   sanitizeText(Deno.env.get('GEMINI_GENERATE_CARD_FALLBACK_MODEL') || '', 120) ||
   'gemini-3.1-flash-lite'; // ⬅️ 換成最新最快的穩定輕量版！
