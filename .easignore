@@ -45,3 +45,6 @@ output/
 # Heavy assets not needed for building the binary
 store-assets/
 qa/
+.scratch/
+promo-vids/
+Claude outputs/

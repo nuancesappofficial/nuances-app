@@ -90,6 +90,12 @@ check(
   'SYSTEM_ALERT_WINDOW 已由 Expo config 阻擋，不會進入 production manifest。',
   'production 仍可能包含不必要的 SYSTEM_ALERT_WINDOW。'
 );
+check(
+  blocked.has('android.permission.ACTIVITY_RECOGNITION'),
+  'Activity recognition permission',
+  'ACTIVITY_RECOGNITION 已由 Expo config 阻擋，不會進入 production manifest。',
+  'production 仍可能包含不必要的 ACTIVITY_RECOGNITION。'
+);
 
 let trackedSensitive = '';
 try {
