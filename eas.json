@@ -18,7 +18,23 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_INTERNAL_TESTER_TOOLS": "true",
-        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true"
+        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://cjmfobjitkmmideecfsw.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B",
+        "EXPO_PUBLIC_AUTH_REDIRECT_SCHEME": "nuances",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "209409749377-go8sidkq8is8uecc76l7vl4ph6omot1r.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "209409749377-oh9gnelel2bod85spsnbsmcqdc3ehg9h.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "209409749377-rr7otmr4fqle2pvkihg3o1rdv2f26vr0.apps.googleusercontent.com",
+        "EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME": "ai-proxy",
+        "EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME": "tts-proxy",
+        "EXPO_PUBLIC_SYNC_ENTITLEMENT_FUNCTION_NAME": "sync-entitlement",
+        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "appl_FeIfofVwUjWhKyZuyCanbxuskdQ",
+        "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY": "goog_OFgwWAlPfeGsyutUAJpgLAnUJWr",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "premium",
+        "EXPO_PUBLIC_REVENUECAT_USER_DEFAULTS_SUITE": "group.com.jeffenglishlearning.nuances.v2",
+        "EXPO_PUBLIC_ANALYTICS_ENABLED": "true",
+        "EXPO_PUBLIC_POSTHOG_API_KEY": "phc_uRTSSTrhXkz6SeVcfvDQqaejQPPfhSdUWBCFfHEKRVHq",
+        "EXPO_PUBLIC_POSTHOG_HOST": "https://us.i.posthog.com"
       },
       "ios": {
         "resourceClass": "m-medium"
@@ -31,7 +47,23 @@
       "env": {
         "EXPO_PUBLIC_INTERNAL_TESTER_TOOLS": "false",
         "EXPO_PUBLIC_SUBSCRIPTION_DEV_BYPASS": "false",
-        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true"
+        "EXPO_PUBLIC_VIDEO_TOUR_ENABLED": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://cjmfobjitkmmideecfsw.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B",
+        "EXPO_PUBLIC_AUTH_REDIRECT_SCHEME": "nuances",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "209409749377-go8sidkq8is8uecc76l7vl4ph6omot1r.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "209409749377-oh9gnelel2bod85spsnbsmcqdc3ehg9h.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "209409749377-rr7otmr4fqle2pvkihg3o1rdv2f26vr0.apps.googleusercontent.com",
+        "EXPO_PUBLIC_AI_EDGE_FUNCTION_NAME": "ai-proxy",
+        "EXPO_PUBLIC_TTS_EDGE_FUNCTION_NAME": "tts-proxy",
+        "EXPO_PUBLIC_SYNC_ENTITLEMENT_FUNCTION_NAME": "sync-entitlement",
+        "EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY": "appl_FeIfofVwUjWhKyZuyCanbxuskdQ",
+        "EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY": "goog_OFgwWAlPfeGsyutUAJpgLAnUJWr",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "premium",
+        "EXPO_PUBLIC_REVENUECAT_USER_DEFAULTS_SUITE": "group.com.jeffenglishlearning.nuances.v2",
+        "EXPO_PUBLIC_ANALYTICS_ENABLED": "true",
+        "EXPO_PUBLIC_POSTHOG_API_KEY": "phc_uRTSSTrhXkz6SeVcfvDQqaejQPPfhSdUWBCFfHEKRVHq",
+        "EXPO_PUBLIC_POSTHOG_HOST": "https://us.i.posthog.com"
       },
       "ios": {
         "resourceClass": "m-medium"
