@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export type StickerFontKey = 'marker' | 'chalkboard' | 'noteworthy' | 'party' | 'snell';
 
 export type StickerFontOption = {
@@ -9,48 +11,48 @@ export type StickerFontOption = {
 };
 
 export const STICKER_FONT_ASSETS = {
-  'PermanentMarker-Regular': require('../../assets/fonts/PermanentMarker-Regular.ttf'),
-  'GochiHand-Regular': require('../../assets/fonts/GochiHand-Regular.ttf'),
-  'PatrickHand-Regular': require('../../assets/fonts/PatrickHand-Regular.ttf'),
-  'Pacifico-Regular': require('../../assets/fonts/Pacifico-Regular.ttf'),
-  'DancingScript-Bold': require('../../assets/fonts/DancingScript-Bold.ttf'),
+  'NerkoOne-Regular': require('../../assets/fonts/NerkoOne-Regular.ttf'),
+  'ComicNeue-Bold': require('../../assets/fonts/ComicNeue-Bold.ttf'),
+  'Handlee-Regular': require('../../assets/fonts/Handlee-Regular.ttf'),
+  'StyleScript-Regular': require('../../assets/fonts/StyleScript-Regular.ttf'),
+  'PinyonScript-Regular': require('../../assets/fonts/PinyonScript-Regular.ttf'),
 };
 
 export const STICKER_FONT_OPTIONS: StickerFontOption[] = [
   {
     key: 'marker',
     label: 'Marker',
-    fontFamily: 'PermanentMarker-Regular',
-    letterSpacing: 0,
-    fontWeight: 'normal',
+    fontFamily: Platform.select({ ios: 'MarkerFelt-Wide', default: 'NerkoOne-Regular' })!,
+    letterSpacing: Platform.select({ ios: -0.8, default: 0 })!,
+    fontWeight: Platform.select({ ios: undefined, default: 'normal' }),
   },
   {
     key: 'chalkboard',
     label: 'Chalk',
-    fontFamily: 'GochiHand-Regular',
-    letterSpacing: 0,
-    fontWeight: 'bold',
+    fontFamily: Platform.select({ ios: 'ChalkboardSE-Bold', default: 'ComicNeue-Bold' })!,
+    letterSpacing: Platform.select({ ios: -1.1, default: 0 })!,
+    fontWeight: Platform.select({ ios: undefined, default: 'bold' }),
   },
   {
     key: 'noteworthy',
     label: 'Note',
-    fontFamily: 'PatrickHand-Regular',
-    letterSpacing: 0,
-    fontWeight: 'bold',
+    fontFamily: Platform.select({ ios: 'Noteworthy-Bold', default: 'Handlee-Regular' })!,
+    letterSpacing: Platform.select({ ios: -0.7, default: 0 })!,
+    fontWeight: Platform.select({ ios: undefined, default: 'normal' }),
   },
   {
     key: 'party',
     label: 'Party',
-    fontFamily: 'Pacifico-Regular',
-    letterSpacing: 0,
-    fontWeight: 'normal',
+    fontFamily: Platform.select({ ios: 'PartyLET', default: 'StyleScript-Regular' })!,
+    letterSpacing: Platform.select({ ios: -0.5, default: 0 })!,
+    fontWeight: Platform.select({ ios: undefined, default: 'normal' }),
   },
   {
     key: 'snell',
     label: 'Script',
-    fontFamily: 'DancingScript-Bold',
-    letterSpacing: 0,
-    fontWeight: 'bold',
+    fontFamily: Platform.select({ ios: 'SnellRoundhand-Black', default: 'PinyonScript-Regular' })!,
+    letterSpacing: Platform.select({ ios: -0.35, default: 0 })!,
+    fontWeight: Platform.select({ ios: undefined, default: 'normal' }),
   },
 ];
 

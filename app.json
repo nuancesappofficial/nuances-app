@@ -75,11 +75,11 @@
         "expo-font",
         {
           "fonts": [
-            "./assets/fonts/PermanentMarker-Regular.ttf",
-            "./assets/fonts/GochiHand-Regular.ttf",
-            "./assets/fonts/PatrickHand-Regular.ttf",
-            "./assets/fonts/Pacifico-Regular.ttf",
-            "./assets/fonts/DancingScript-Bold.ttf"
+            "./assets/fonts/NerkoOne-Regular.ttf",
+            "./assets/fonts/ComicNeue-Bold.ttf",
+            "./assets/fonts/Handlee-Regular.ttf",
+            "./assets/fonts/StyleScript-Regular.ttf",
+            "./assets/fonts/PinyonScript-Regular.ttf"
           ]
         }
       ],
