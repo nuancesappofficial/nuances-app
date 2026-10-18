@@ -77,6 +77,13 @@ check(
   'Android OAuth client ID 由環境提供；Apple button 僅在 iOS render。',
   'Google Android OAuth 或 Apple UI 平台限制不完整。'
 );
+const permissions = new Set(app.android?.permissions || []);
+check(
+  permissions.has('android.permission.VIBRATE'),
+  'Haptic feedback permission',
+  'android.permission.VIBRATE 已明確納入 permissions 白名單。',
+  '缺少 android.permission.VIBRATE，Android 觸覺回饋會失效。'
+);
 const blocked = new Set(app.android?.blockedPermissions || []);
 check(
   blocked.has('android.permission.READ_EXTERNAL_STORAGE') && blocked.has('android.permission.WRITE_EXTERNAL_STORAGE'),

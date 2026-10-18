@@ -120,11 +120,14 @@ import {
   createHiddenSignInCurtain,
   transitionSignInCurtain,
 } from './src/features/auth/signInCurtain';
+import { safeInitializeGoogleAuth } from './src/services/auth/safeAuthInit';
 
 // Check if we're running in Expo Go
 const isExpoGo = !('HermesInternal' in globalThis);
 installUserMistakeAlertLogger();
-void ReminderNotificationService.configure();
+void ReminderNotificationService.configure().catch((err) => {
+  console.warn('[App] Reminder notification configuration failed gracefully:', err);
+});
 const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const INTERNAL_TESTER_TOOLS_ENABLED =
@@ -726,6 +729,9 @@ export default function App() {
       context: { initialAppState: AppState.currentState, isExpoGo },
     });
     void initializeGrowthAnalytics(Linking.getInitialURL);
+    void safeInitializeGoogleAuth().catch((err) => {
+      console.warn('[App] safeInitializeGoogleAuth failed gracefully:', err);
+    });
     initializeApp();
   }, []);
 
@@ -1409,10 +1415,13 @@ export default function App() {
           error,
         });
         dispatchSignInCurtain('sign-in-aborted');
-        Alert.alert(
-          '登入失敗',
-          `Google 登入問題：${error.message}\n\n請檢查 Google iOS／Web Client ID 與 Supabase Google Provider 設定。`
-        );
+        const isDeveloperError =
+          error.message.includes('10') ||
+          error.message.toLowerCase().includes('developer_error');
+        const alertMessage = isDeveloperError
+          ? 'Google 登入失敗 (錯誤碼 10 / DEVELOPER_ERROR)。\n\n這通常代表 Google Play App Signing 的 SHA-1 憑證指紋尚未加入 Google Cloud Console 或 Firebase Console 專案中。'
+          : `Google 登入問題：${error.message}\n\n請檢查 Google iOS／Web Client ID 與 Supabase Google Provider 設定。`;
+        Alert.alert('登入失敗', alertMessage);
         return;
       }
       if (!data?.session?.access_token) {

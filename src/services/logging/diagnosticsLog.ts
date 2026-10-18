@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 import { supabase } from '@services/supabase/client';
+import { reportFatalDiagnosticError } from '@components/UI/shared/GlobalErrorBoundary';
 
 export type DiagnosticSeverity = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
@@ -292,8 +293,11 @@ function installGlobalErrorCapture(): void {
     }).catch((loggingError) => {
       originalConsoleWarn?.('[DiagnosticsLog] failed to persist global error:', loggingError);
     });
-    // Never delay React Native's fatal handler on storage, auth, or network I/O.
-    previousHandler?.(error, isFatal);
+    // Intercept fatal crash so the tester can inspect the diagnostic overlay instead of force-closing
+    reportFatalDiagnosticError(error, 'global_handler', Boolean(isFatal));
+    if (__DEV__) {
+      previousHandler?.(error, isFatal);
+    }
   });
 
   runtimeGlobal.addEventListener?.('unhandledrejection', (event: unknown) => {
@@ -305,6 +309,7 @@ function installGlobalErrorCapture(): void {
       message: normalizeErrorMessage(reason ?? event),
       context: { reason: reason ?? event },
     });
+    reportFatalDiagnosticError(reason ?? event, 'unhandled_rejection', false);
   });
 }
 

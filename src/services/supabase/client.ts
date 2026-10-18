@@ -132,6 +132,14 @@ export const signInWithGoogle = async () => {
       offlineAccess: false,
     });
 
+    if (Platform.OS === 'android') {
+      try {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      } catch (playServicesError) {
+        console.warn('[Auth] Play Services check failed or unavailable:', playServicesError);
+      }
+    }
+
     const isIos = Platform.OS === 'ios';
     const rawNonce = isIos ? Crypto.randomUUID() : undefined;
     const hashedNonce =
