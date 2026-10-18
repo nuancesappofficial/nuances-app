@@ -119,6 +119,7 @@ export default function ImageCropperModal({
   const insets = useSafeAreaInsets();
   const isFixedCropShape = cropShape === 'circle' || cropShape === 'album';
   const [imageSize, setImageSize] = React.useState<Size | null>(null);
+  const [normalizedImageUri, setNormalizedImageUri] = React.useState<string | null>(null);
   const [containerSize, setContainerSize] = React.useState<Size>({
     width: 0,
     height: 0,
@@ -166,26 +167,82 @@ export default function ImageCropperModal({
 
   React.useEffect(() => {
     if (!visible || !imageUri) return;
+
+    let isMounted = true;
+
     if (
       initialImageSize &&
       initialImageSize.width > 0 &&
       initialImageSize.height > 0
     ) {
       setImageSize(initialImageSize);
-      return;
     }
 
-    Image.getSize(
-      imageUri,
-      (width, height) => setImageSize({ width, height }),
-      () => {
-        Alert.alert(
-          tUI(uiLanguage, 'cropper.failedTitle'),
-          tUI(uiLanguage, 'cropper.failedBody')
-        );
-        onCancel();
+    const prepareImage = async () => {
+      try {
+        const resolvedUri = await resolveCropSourceUri(imageUri);
+        if (!isMounted) return;
+
+        // Use ImageManipulator to normalize EXIF orientation and obtain the exact bitmap dimensions
+        const normalized = await ImageManipulator.manipulateAsync(resolvedUri, [], {
+          compress: 1,
+          format: ImageManipulator.SaveFormat.JPEG,
+        });
+        if (!isMounted) return;
+
+        if (normalized.width > 0 && normalized.height > 0) {
+          setNormalizedImageUri(normalized.uri);
+          setImageSize((prev) => {
+            if (prev?.width === normalized.width && prev?.height === normalized.height) {
+              return prev;
+            }
+            setCropRect(null);
+            return { width: normalized.width, height: normalized.height };
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('[ImageCropper] ImageManipulator normalizeAsync failed, falling back to Image.getSize:', err);
       }
-    );
+
+      Image.getSize(
+        imageUri,
+        (width, height) => {
+          if (!isMounted) return;
+          if (width > 0 && height > 0) {
+            setImageSize((prev) => {
+              if (prev?.width === width && prev?.height === height) {
+                return prev;
+              }
+              setCropRect(null);
+              return { width, height };
+            });
+          }
+        },
+        (error) => {
+          if (!isMounted) return;
+          if (
+            initialImageSize &&
+            initialImageSize.width > 0 &&
+            initialImageSize.height > 0
+          ) {
+            console.warn('[ImageCropper] background Image.getSize failed:', error);
+            return;
+          }
+          Alert.alert(
+            tUI(uiLanguage, 'cropper.failedTitle'),
+            tUI(uiLanguage, 'cropper.failedBody')
+          );
+          onCancel();
+        }
+      );
+    };
+
+    void prepareImage();
+
+    return () => {
+      isMounted = false;
+    };
   }, [visible, imageUri, initialImageSize, onCancel, uiLanguage]);
 
   const displayMetrics = React.useMemo(() => {
@@ -275,6 +332,7 @@ export default function ImageCropperModal({
     if (!visible) {
       setCropRect(null);
       setImageSize(null);
+      setNormalizedImageUri(null);
       setProcessing(false);
       setImageTransform({
         scale: 1,
@@ -685,63 +743,60 @@ export default function ImageCropperModal({
       let height = 1;
 
       if (isFixedCropShape && circleImageFrame) {
-        originX = Math.max(
-          0,
-          Math.round(
-            ((cropRect.x - circleImageFrame.left) / circleImageFrame.width) *
-              imageSize.width
-          )
+        const rawOriginX = Math.round(
+          ((cropRect.x - circleImageFrame.left) / circleImageFrame.width) *
+            imageSize.width
         );
-        originY = Math.max(
-          0,
-          Math.round(
-            ((cropRect.y - circleImageFrame.top) / circleImageFrame.height) *
-              imageSize.height
-          )
+        const rawOriginY = Math.round(
+          ((cropRect.y - circleImageFrame.top) / circleImageFrame.height) *
+            imageSize.height
         );
-        width = Math.max(
-          1,
-          Math.round(
-            (cropRect.width / circleImageFrame.width) * imageSize.width
-          )
+        const rawWidth = Math.round(
+          (cropRect.width / circleImageFrame.width) * imageSize.width
         );
-        height = Math.max(
-          1,
-          Math.round(
-            (cropRect.height / circleImageFrame.height) * imageSize.height
-          )
+        const rawHeight = Math.round(
+          (cropRect.height / circleImageFrame.height) * imageSize.height
         );
+
+        originX = Math.max(0, Math.min(rawOriginX, imageSize.width - 1));
+        originY = Math.max(0, Math.min(rawOriginY, imageSize.height - 1));
+        width = Math.max(1, Math.min(rawWidth, imageSize.width - originX));
+        height = Math.max(1, Math.min(rawHeight, imageSize.height - originY));
       } else {
-        originX = Math.max(
-          0,
-          Math.round(
-            ((cropRect.x - displayMetrics.left) / displayMetrics.width) *
-              imageSize.width
-          )
+        const rawOriginX = Math.round(
+          ((cropRect.x - displayMetrics.left) / displayMetrics.width) *
+            imageSize.width
         );
-        originY = Math.max(
-          0,
-          Math.round(
-            ((cropRect.y - displayMetrics.top) / displayMetrics.height) *
-              imageSize.height
-          )
+        const rawOriginY = Math.round(
+          ((cropRect.y - displayMetrics.top) / displayMetrics.height) *
+            imageSize.height
         );
-        width = Math.max(
-          1,
-          Math.round((cropRect.width / displayMetrics.width) * imageSize.width)
+        const rawWidth = Math.round(
+          (cropRect.width / displayMetrics.width) * imageSize.width
         );
-        height = Math.max(
-          1,
-          Math.round(
-            (cropRect.height / displayMetrics.height) * imageSize.height
-          )
+        const rawHeight = Math.round(
+          (cropRect.height / displayMetrics.height) * imageSize.height
         );
+
+        originX = Math.max(0, Math.min(rawOriginX, imageSize.width - 1));
+        originY = Math.max(0, Math.min(rawOriginY, imageSize.height - 1));
+        width = Math.max(1, Math.min(rawWidth, imageSize.width - originX));
+        height = Math.max(1, Math.min(rawHeight, imageSize.height - originY));
       }
 
-      const cropSourceUri = await resolveCropSourceUri(imageUri);
+      const cropSourceUri = normalizedImageUri || (await resolveCropSourceUri(imageUri));
       const result = await ImageManipulator.manipulateAsync(
         cropSourceUri,
-        [{ crop: { originX, originY, width, height } }],
+        [
+          {
+            crop: {
+              originX,
+              originY,
+              width,
+              height,
+            },
+          },
+        ],
         { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
       );
 
@@ -762,6 +817,7 @@ export default function ImageCropperModal({
     imageSize,
     imageUri,
     isFixedCropShape,
+    normalizedImageUri,
     onConfirm,
     uiLanguage,
   ]);
@@ -785,7 +841,7 @@ export default function ImageCropperModal({
           {imageUri && displayMetrics && cropRect ? (
             <View style={styles.absoluteFill}>
               <Image
-                source={{ uri: imageUri }}
+                source={{ uri: normalizedImageUri || imageUri }}
                 style={
                   isFixedCropShape && circleImageFrame
                     ? [styles.absoluteImage, circleImageFrame]

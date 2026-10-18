@@ -1273,12 +1273,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
 
             queueQuickAddCropperAfterModalDismiss({
               imageUri: clipboardUri,
-              imageSize:
-                imagePayload.size &&
-                typeof imagePayload.size.width === 'number' &&
-                typeof imagePayload.size.height === 'number'
-                  ? { width: imagePayload.size.width, height: imagePayload.size.height }
-                  : null,
+              imageSize: null,
             });
             return;
           }

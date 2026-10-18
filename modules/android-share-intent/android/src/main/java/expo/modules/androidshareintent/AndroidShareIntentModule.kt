@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.UUID
 
 class AndroidShareIntentModule : Module() {
   companion object {
@@ -81,8 +82,8 @@ class AndroidShareIntentModule : Module() {
         } else listOfNotNull(parcelable(intent, Intent.EXTRA_STREAM))
         val uris = incoming.distinctBy { it.toString() }.take(MAX_IMAGES)
         if (uris.isEmpty()) return
-        val id = stableId("image", owner, uris.joinToString("|") { it.toString() })
-        val copied = copyImages(id, owner, uris)
+        val id = "${UUID.randomUUID()}_$receivedAt"
+        val copied = copyImages(owner, uris)
         if (copied.isEmpty()) return
         JSONObject().put("id", id).put("ownerUserId", owner ?: JSONObject.NULL)
           .put("receivedAt", receivedAt).put("type", "image")
@@ -105,7 +106,7 @@ class AndroidShareIntentModule : Module() {
     intent.removeExtra(Intent.EXTRA_STREAM)
   }
 
-  private fun copyImages(id: String, owner: String?, uris: List<Uri>): List<String> {
+  private fun copyImages(owner: String?, uris: List<Uri>): List<String> {
     val context = appContext.reactContext ?: return emptyList()
     val ownerDir = safeOwner(owner)
     val directory = File(context.filesDir, "SharedImages/$ownerDir").apply { mkdirs() }
@@ -123,20 +124,19 @@ class AndroidShareIntentModule : Module() {
           "image/webp" -> "webp"
           else -> "jpg"
         }
-        val target = File(directory, "${id}_$index.$extension")
-        if (!target.exists()) {
-          context.contentResolver.openInputStream(uri).use { input ->
-            if (input == null) return@mapIndexedNotNull null
-            FileOutputStream(target).use { output ->
-              val buffer = ByteArray(64 * 1024)
-              var total = 0L
-              while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                total += count
-                if (total > MAX_IMAGE_BYTES) throw IllegalArgumentException("Image too large")
-                output.write(buffer, 0, count)
-              }
+        val uniqueId = "${UUID.randomUUID()}_${System.currentTimeMillis()}"
+        val target = File(directory, "${uniqueId}_$index.$extension")
+        context.contentResolver.openInputStream(uri).use { input ->
+          if (input == null) return@mapIndexedNotNull null
+          FileOutputStream(target).use { output ->
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+              val count = input.read(buffer)
+              if (count < 0) break
+              total += count
+              if (total > MAX_IMAGE_BYTES) throw IllegalArgumentException("Image too large")
+              output.write(buffer, 0, count)
             }
           }
         }

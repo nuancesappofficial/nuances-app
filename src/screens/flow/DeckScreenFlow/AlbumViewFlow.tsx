@@ -28,6 +28,10 @@ import {
   saveDeckAlbumPreferences,
   createCustomAlbum,
   getTagsArray,
+  getDeckAlbumDisplayName,
+  ALL_CARDS_ALBUM_ID,
+  FAVORITES_ALBUM_ID,
+  ALBUM_TAG_PREFIX,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
@@ -47,7 +51,6 @@ import {
 import { consumeAlbumPreload } from '../../../features/deck/albumPreloadCache';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { tUI } from '../../../i18n/uiLanguage';
-import { getDeckAlbumDisplayName } from '../../../features/deck/albums';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
 import {
   DEFAULT_ALBUM_SORT_MODE,
@@ -272,9 +275,25 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         }
         const cardsCollection = database.get<Card>('cards');
         let data: Card[] = [];
-        if (album.id === 'all-cards') {
+        const isAllCards = album.id === 'all-cards' || album.id === 'all' || album.id === ALL_CARDS_ALBUM_ID;
+        const isFavorites = album.id === FAVORITES_ALBUM_ID || album.id === 'favorites';
+
+        if (isAllCards) {
           data = await cardsCollection
-            .query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+            .query(
+              Q.where('user_id', userId),
+              Q.where('deleted_at', null),
+              Q.sortBy('created_at', Q.desc)
+            )
+            .fetch();
+        } else if (isFavorites) {
+          data = await cardsCollection
+            .query(
+              Q.where('user_id', userId),
+              Q.where('deleted_at', null),
+              Q.where('tags', Q.like(`%${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}%`)),
+              Q.sortBy('created_at', Q.desc)
+            )
             .fetch();
         } else if (album.cardIds.length > 0) {
           data = await cardsCollection
@@ -288,17 +307,29 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
         }
         if (cancelled) return;
         setAlbumCards(data);
-        if (album.id === 'all-cards' || album.cardIds.length > 0) {
-          const queryCards =
-            album.id === 'all-cards'
-              ? cardsCollection.query(Q.where('user_id', userId), Q.where('deleted_at', null), Q.sortBy('created_at', Q.desc))
+        if (isAllCards || isFavorites || album.cardIds.length > 0) {
+          const queryCards = isAllCards
+            ? cardsCollection.query(
+                Q.where('user_id', userId),
+                Q.where('deleted_at', null),
+                Q.sortBy('created_at', Q.desc)
+              )
+            : isFavorites
+              ? cardsCollection.query(
+                  Q.where('user_id', userId),
+                  Q.where('deleted_at', null),
+                  Q.where('tags', Q.like(`%${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}%`)),
+                  Q.sortBy('created_at', Q.desc)
+                )
               : cardsCollection.query(
                   Q.where('user_id', userId),
                   Q.where('deleted_at', null),
                   Q.where('id', Q.oneOf(album.cardIds)),
                   Q.sortBy('created_at', Q.desc)
                 );
-          sub = queryCards.observe().subscribe((nextData) => setAlbumCards(nextData));
+          sub = queryCards
+            .observe()
+            .subscribe((nextData) => setAlbumCards(nextData));
         }
       } catch (error) {
         console.error('[AlbumView] load album cards failed:', error);

@@ -800,22 +800,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     });
   }, [activeIndexUI, cardId, markCenteredCardSeen, scopedCards]);
 
-  React.useEffect(() => {
-    if (!scopedCards.length) {
-      setCurrentIndex(null);
-      setDisplayIndex(null);
-      return;
-    }
-    const targetIndex = !cardId
-      ? 0
-      : Math.max(
-          0,
-          scopedCards.findIndex((item) => item.id === cardId)
-        );
-    activeIndexUI.value = targetIndex;
-    setCurrentIndex(targetIndex);
-    setDisplayIndex(targetIndex);
-  }, [activeIndexUI, cardId, scopedCards, scopedCards.length]);
 
   React.useEffect(() => {
     if (!loading && scopedCards.length === 0) {
@@ -1605,38 +1589,46 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     }
   };
 
-  const toggleFavorite = React.useCallback(async () => {
-    if (!card) return;
-    try {
-      const currentTags = parseTags(card.tags).map((tag) => tag.toLowerCase());
-      const favoriteTag = `${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}`;
-      const hasFavorite = currentTags.includes(favoriteTag);
-      const nextTags = hasFavorite
-        ? currentTags.filter((tag) => tag !== favoriteTag)
-        : Array.from(new Set([...currentTags, favoriteTag]));
+  const toggleFavorite = React.useCallback(async (targetCard?: Card) => {
+    const cardToUpdate = targetCard ?? card;
+      if (!cardToUpdate) return;
+      try {
+        const currentTags = parseTags(cardToUpdate.tags).map((tag) =>
+          tag.toLowerCase()
+        );
+        const favoriteTag = `${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}`;
+        const hasFavorite = currentTags.includes(favoriteTag);
+        const nextTags = hasFavorite
+          ? currentTags.filter((tag) => tag !== favoriteTag)
+          : Array.from(new Set([...currentTags, favoriteTag]));
 
-      await database.write(async () => {
-        await card.update((record) => {
-          record.tags = nextTags;
+        await database.write(async () => {
+          await cardToUpdate.update((record) => {
+            record.tags = nextTags;
+          });
         });
-      });
-      queueSavedCardsForCloudPersistence({
-        userId: card.userId,
-        cardIds: [card.id],
-      });
+        queueSavedCardsForCloudPersistence({
+          userId: cardToUpdate.userId,
+          cardIds: [cardToUpdate.id],
+        });
 
-      setSelectedAlbums((prev) =>
-        hasFavorite
-          ? prev.filter((id) => id !== FAVORITES_ALBUM_ID)
-          : prev.includes(FAVORITES_ALBUM_ID)
-            ? prev
-            : [...prev, FAVORITES_ALBUM_ID]
-      );
-    } catch (error) {
-      console.error('[CardDetail] toggle favorite failed:', error);
-      Alert.alert('更新失敗', '無法更新我的最愛狀態，請再試一次。');
-    }
-  }, [card]);
+        if (cardToUpdate.id === card?.id) {
+          setSelectedAlbums((prev) =>
+            hasFavorite
+              ? prev.filter((id) => id !== FAVORITES_ALBUM_ID)
+              : prev.includes(FAVORITES_ALBUM_ID)
+                ? prev
+                : [...prev, FAVORITES_ALBUM_ID]
+          );
+        }
+      } catch (error) {
+        console.error('[CardDetail] toggle favorite failed:', error);
+        Alert.alert('更新失敗', '無法更新我的最愛狀態，請再試一次。');
+      }
+    },
+    [card]
+  );
+  const toggleFavoriteForCard = toggleFavorite;
 
   const openStickyNoteModal = React.useCallback(() => {
     if (!card) return;
@@ -2057,18 +2049,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => {
       // 判斷該卡片是否為我的最愛
-      const isThisCardFavorite =
-        item.id === card?.id
-          ? isFavorite
-          : deriveSelectedAlbums(parseTags(item.tags)).includes(
-              FAVORITES_ALBUM_ID
-            );
-      const isThisCardBookmarked =
-        item.id === card?.id
-          ? hasSecondaryAlbumBookmark(selectedAlbums)
-          : hasSecondaryAlbumBookmark(
-              deriveSelectedAlbums(parseTags(item.tags))
-            );
+      const isThisCardFavorite = deriveSelectedAlbums(
+        parseTags(item.tags)
+      ).includes(FAVORITES_ALBUM_ID);
+      const isThisCardBookmarked = hasSecondaryAlbumBookmark(
+        deriveSelectedAlbums(parseTags(item.tags))
+      );
 
       return (
         <CardDetailCarouselCardUI
@@ -2101,7 +2087,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           isFavorite={isThisCardFavorite}
           isBookmarked={isThisCardBookmarked}
           onOpenAlbumSheet={() => setShowAlbumSheet(true)}
-          onToggleFavorite={() => void toggleFavorite()}
+          onToggleFavorite={() => void toggleFavorite(item)}
           onOpenStickyNote={openStickyNoteModal}
           stickyNoteText={stickyNotesByCardId[item.id] || ''}
           onOpenPronunciationModal={openPronunciationModal}
