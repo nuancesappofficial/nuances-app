@@ -268,9 +268,6 @@ export default function CacheCardUI({
       }
       return;
     }
-    if (swipeTrigger) {
-      lastSwipeTriggerSeq.current = swipeTrigger.seq;
-    }
     if (shouldAnimateEntrance) {
       return;
     }
@@ -298,7 +295,6 @@ export default function CacheCardUI({
     rot,
     scale,
     shouldAnimateEntrance,
-    swipeTrigger,
     targetRot,
     toY,
     topCardDragX,

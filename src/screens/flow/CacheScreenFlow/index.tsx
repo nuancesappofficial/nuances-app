@@ -928,15 +928,25 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const postFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runPostFocusTasks = useCallback(() => {
-    // Safety check: ensure visibleCacheIds contains all current cards without triggering needless re-renders
+    // Safety check: ensure visibleCacheIds contains all current cards without triggering needless re-renders.
+    // Do NOT overwrite visibleCacheIds when initial transition has not completed (!hasSeenCacheOnceRef.current),
+    // when batch add is pending, or when unseen new cards exist (let resolveCacheCardTransition handle entrance animations).
     const currentCards = cardsRef.current;
     const allCardIds = currentCards.map((c) => c.id);
-    setVisibleCacheIds((prev) => {
-      if (prev.length === allCardIds.length && allCardIds.every((id, i) => prev[i] === id)) {
-        return prev;
-      }
-      return allCardIds;
-    });
+    const hasUnseenCards = allCardIds.some((id) => !lastSeenStackCardIdsRef.current.includes(id));
+
+    if (
+      hasSeenCacheOnceRef.current &&
+      pendingBatchEnterIds.length === 0 &&
+      !hasUnseenCards
+    ) {
+      setVisibleCacheIds((prev) => {
+        if (prev.length === allCardIds.length && allCardIds.every((id, i) => prev[i] === id)) {
+          return prev;
+        }
+        return allCardIds;
+      });
+    }
 
     // Rollback tutorial step only after back transition completes smoothly
     const currentTour = appTourRef.current;
@@ -953,7 +963,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     void loadUserSettings()
       .then(applyCacheSettings)
       .catch((error) => console.error('[CacheList] load sticker font failed:', error));
-  }, [applyCacheSettings]);
+  }, [applyCacheSettings, pendingBatchEnterIds.length]);
 
   useEffect(() => {
     if (!navigation?.addListener) return;

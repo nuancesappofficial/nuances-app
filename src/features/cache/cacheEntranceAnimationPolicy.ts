@@ -81,7 +81,8 @@ export function resolveCacheCardTransition(
       return makeNoopResult(state);
     }
 
-    const readyIds = pendingBatchEnterIds.filter((id) => currentIds.includes(id));
+    const pendingSet = new Set(pendingBatchEnterIds);
+    const readyIds = currentIds.filter((id) => pendingSet.has(id));
     if (readyIds.length > 0) {
       return {
         nextVisibleCardIds: currentIds,
@@ -133,8 +134,10 @@ export function resolveCacheCardTransition(
       return makeNoopResult(state);
     }
 
-    // Merge any currently entering cards with the newly arrived cards:
-    const combinedEnteringIds = Array.from(new Set([...enteringCardIds, ...newlyAdded]));
+    // Merge any currently entering cards with the newly arrived cards,
+    // preserving the bottom-to-top stack order of currentIds:
+    const combinedSet = new Set([...enteringCardIds, ...newlyAdded]);
+    const combinedEnteringIds = currentIds.filter((id) => combinedSet.has(id));
 
     return {
       nextVisibleCardIds: currentIds,

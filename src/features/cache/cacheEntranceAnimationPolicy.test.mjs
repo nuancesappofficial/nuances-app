@@ -241,3 +241,52 @@ test('partial batch readiness resolves without deadlock when one card is skipped
   assert.equal(result.nextAnimationSeed, 2);
 });
 
+test('batch_ready preserves currentIds bottom-to-top stack order even if pendingBatchEnterIds is inverted', () => {
+  const state = {
+    visibleCardIds: ['card-existing'],
+    enteringCardIds: [],
+    lastSeenCardIds: ['card-existing'],
+    // pendingBatchEnterIds has top card first:
+    pendingBatchEnterIds: ['card-top', 'card-mid', 'card-bottom'],
+    hasSeenCacheOnce: true,
+    animationSeed: 1,
+    restoreSeed: 0,
+  };
+  // currentIds has bottom card first, top card last (stack rendering order):
+  const currentIds = ['card-existing', 'card-bottom', 'card-mid', 'card-top'];
+
+  const result = resolveCacheCardTransition({
+    currentIds,
+    state,
+    isCacheFocused: true,
+    showAddModal: false,
+  });
+
+  assert.equal(result.transitionType, 'batch_ready');
+  // nextEnteringCardIds MUST match currentIds order so bottom card drops first (delay 0), top card drops last (delay max):
+  assert.deepEqual(result.nextEnteringCardIds, ['card-bottom', 'card-mid', 'card-top']);
+});
+
+test('new_cards_enter preserves currentIds bottom-to-top stack order when multiple cards arrive', () => {
+  const state = {
+    visibleCardIds: ['card-existing'],
+    enteringCardIds: [],
+    lastSeenCardIds: ['card-existing'],
+    pendingBatchEnterIds: [],
+    hasSeenCacheOnce: true,
+    animationSeed: 1,
+    restoreSeed: 0,
+  };
+  const currentIds = ['card-existing', 'card-bottom', 'card-top'];
+
+  const result = resolveCacheCardTransition({
+    currentIds,
+    state,
+    isCacheFocused: true,
+    showAddModal: false,
+  });
+
+  assert.equal(result.transitionType, 'new_cards_enter');
+  assert.deepEqual(result.nextEnteringCardIds, ['card-bottom', 'card-top']);
+});
+
