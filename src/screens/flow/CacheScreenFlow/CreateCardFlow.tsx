@@ -25,7 +25,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
   Easing,
   FadeIn,
+  FadeOut,
   Layout,
+  LinearTransition,
+  SlideInLeft,
+  SlideInRight,
   interpolate,
   useAnimatedStyle,
   useReducedMotion,
@@ -125,6 +129,7 @@ import {
   normalizeSelectableTerm,
   pickSentenceContainingWord,
   tokenizeSourceText,
+  type MergedPhraseRange,
   type SelectedSourceTarget,
 } from '../../../features/createCard/textTransforms';
 import { parseCardContextSections } from '../../../features/cards/cardContextSections';
@@ -683,6 +688,82 @@ function triggerBuzzHaptic() {
   }, 90);
 }
 
+type TargetCluster = {
+  id: string;
+  type: 'phrase' | 'adjacent' | 'single';
+  targets: SelectedSourceTarget[];
+  phraseRange?: MergedPhraseRange;
+};
+
+const MERGE_COLLAPSE_DISTANCE = 26;
+
+const ClusterTokenChip = React.memo(function ClusterTokenChip({
+  target,
+  targetIndex,
+  isMerging,
+  wasJustSplit,
+  isGenerated,
+  onPress,
+}: {
+  target: SelectedSourceTarget;
+  targetIndex: number;
+  isMerging: boolean;
+  wasJustSplit: boolean;
+  isGenerated: boolean;
+  onPress: () => void;
+}) {
+  const initialOffset = wasJustSplit && targetIndex > 0 ? -MERGE_COLLAPSE_DISTANCE : 0;
+  const marginLeft = useSharedValue(initialOffset);
+
+  React.useEffect(() => {
+    if (wasJustSplit && targetIndex > 0) {
+      marginLeft.value = -MERGE_COLLAPSE_DISTANCE;
+      marginLeft.value = withTiming(0, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+    }
+  }, [wasJustSplit, targetIndex, marginLeft]);
+
+  React.useEffect(() => {
+    if (isMerging && targetIndex > 0) {
+      marginLeft.value = withTiming(-MERGE_COLLAPSE_DISTANCE, {
+        duration: 150,
+        easing: Easing.bezier(0.4, 0, 0.2, 1),
+      });
+    } else if (!isMerging && !wasJustSplit) {
+      marginLeft.value = 0;
+    }
+  }, [isMerging, targetIndex, marginLeft, wasJustSplit]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    marginLeft: marginLeft.value,
+  }));
+
+  return (
+    <Reanimated.View style={animStyle}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.keywordBtn,
+          {
+            backgroundColor: isGenerated ? '#10B981' : MODAL_CTA_COLOR,
+            borderColor: isGenerated
+              ? 'rgba(16,185,129,0.72)'
+              : MODAL_CTA_COLOR_BORDER,
+          },
+          pressed ? styles.pressableChipPressed : null,
+        ]}
+        onPress={onPress}
+      >
+        <Text style={styles.keywordText}>
+          {target.text}
+          {isGenerated ? ' ✓' : ''}
+        </Text>
+      </Pressable>
+    </Reanimated.View>
+  );
+});
+
 export default function CreateCardScreen({ navigation, route }: Props) {
   const initialSettings = getInitialUserSettings();
   const tabSwipeContext = React.useContext(TabSwipeContext);
@@ -984,12 +1065,53 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const [selectedTokenIndices, setSelectedTokenIndices] = React.useState<
     number[]
   >([]);
+  const [mergedPhraseRanges, setMergedPhraseRanges] = React.useState<
+    MergedPhraseRange[]
+  >([]);
   const [isRecognizedTextEditMode, setIsRecognizedTextEditMode] =
     React.useState(false);
+  const [editingTokenIndex, setEditingTokenIndex] = React.useState<
+    number | null
+  >(null);
+  const [editingDraftText, setEditingDraftText] = React.useState('');
+  const ocrEditModeProgress = useSharedValue(0);
+  const ocrEditModeContentHeight = useSharedValue(0);
+
+  React.useEffect(() => {
+    const target = isRecognizedTextEditMode ? 1 : 0;
+    ocrEditModeProgress.value = reduceMotion
+      ? target
+      : withTiming(target, {
+          duration: 240,
+          easing: Easing.bezier(0.2, 0, 0, 1),
+        });
+  }, [isRecognizedTextEditMode, ocrEditModeProgress, reduceMotion]);
+
+  const ocrEditHintAnimatedStyle = useAnimatedStyle(() => ({
+    height: ocrEditModeContentHeight.value * ocrEditModeProgress.value,
+    opacity: interpolate(ocrEditModeProgress.value, [0, 0.35, 1], [0, 0, 1]),
+    overflow: 'hidden',
+  }));
+
+  const ocrEditHintContentAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: isRecognizedTextEditMode
+          ? -(1 - ocrEditModeProgress.value) * ocrEditModeContentHeight.value
+          : 0,
+      },
+    ],
+  }));
+
   const selectedTargets = React.useMemo(
     () =>
-      groupSelectedSourceTokens(sourceTokens, selectedTokenIndices, sourceText),
-    [selectedTokenIndices, sourceText, sourceTokens]
+      groupSelectedSourceTokens(
+        sourceTokens,
+        selectedTokenIndices,
+        sourceText,
+        mergedPhraseRanges
+      ),
+    [mergedPhraseRanges, selectedTokenIndices, sourceText, sourceTokens]
   );
   const [hasStarted, setHasStarted] = React.useState(false);
   const [showDefaultExperienceSaveArrow, setShowDefaultExperienceSaveArrow] =
@@ -1506,6 +1628,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       }
       return [...previous, sourceTokenIndex].sort((a, b) => a - b);
     });
+    setMergedPhraseRanges((previous) =>
+      previous.filter(
+        (range) =>
+          sourceTokenIndex < range.startIndex ||
+          sourceTokenIndex > range.endIndex
+      )
+    );
     if (!wasSelected && appTour.step === 'STEP_5_SELECT_TARGET') {
       appTour.nextStep();
     }
@@ -1520,49 +1649,186 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           (index) => index < target.startIndex || index > target.endIndex
         )
       );
+      setMergedPhraseRanges((previous) =>
+        previous.filter(
+          (range) =>
+            range.startIndex !== target.startIndex ||
+            range.endIndex !== target.endIndex
+        )
+      );
     },
     [selectedTargets]
   );
 
-  const editSourceToken = React.useCallback(
-    (token: string, index: number) => {
-      const currentToken = sourceTokens[index] || token;
-      const title = tUI(uiLanguage, 'create.editOcrTokenTitle');
-      const message = tUI(uiLanguage, 'create.editOcrTokenBody');
-      const applyEdit = (nextRaw?: string) => {
-        const nextToken = normalizeDisplayWord(nextRaw || '');
-        if (!nextToken) return;
+  const unmergePhraseTarget = React.useCallback(
+    (target: SelectedSourceTarget) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setMergedPhraseRanges((previous) =>
+        previous.filter(
+          (range) =>
+            range.startIndex !== target.startIndex ||
+            range.endIndex !== target.endIndex
+        )
+      );
+    },
+    []
+  );
 
-        const nextTokens = sourceTokens.map((item, itemIndex) =>
-          itemIndex === index ? nextToken : item
-        );
-        setEditedSourceText(nextTokens.join(' '));
-      };
+  const targetClusters = React.useMemo(() => {
+    const result: TargetCluster[] = [];
+    let i = 0;
+    while (i < selectedTargets.length) {
+      const contiguousTargets: SelectedSourceTarget[] = [selectedTargets[i]];
+      while (
+        i + 1 < selectedTargets.length &&
+        contiguousTargets[contiguousTargets.length - 1].endIndex + 1 ===
+          selectedTargets[i + 1].startIndex
+      ) {
+        contiguousTargets.push(selectedTargets[i + 1]);
+        i += 1;
+      }
 
-      void Haptics.selectionAsync();
-      if (Platform.OS === 'ios' && typeof Alert.prompt === 'function') {
-        Alert.prompt(
-          title,
-          message,
-          [
-            {
-              text: tUI(uiLanguage, 'create.editOcrTokenCancel'),
-              style: 'cancel',
-            },
-            {
-              text: tUI(uiLanguage, 'create.editOcrTokenSave'),
-              onPress: applyEdit,
-            },
-          ],
-          'plain-text',
-          currentToken
+      const start = contiguousTargets[0].startIndex;
+      const end = contiguousTargets[contiguousTargets.length - 1].endIndex;
+      const hasMultipleBlocks = contiguousTargets.length > 1;
+      const hasMergedPhrase = contiguousTargets.some(
+        (t) => t.startIndex < t.endIndex
+      );
+
+      if (hasMultipleBlocks) {
+        result.push({
+          id: `cluster-${start}-${end}`,
+          type: 'adjacent',
+          targets: contiguousTargets,
+          phraseRange: hasMergedPhrase
+            ? { startIndex: start, endIndex: end }
+            : undefined,
+        });
+      } else if (hasMergedPhrase) {
+        result.push({
+          id: `cluster-${start}-${end}`,
+          type: 'phrase',
+          targets: contiguousTargets,
+          phraseRange: { startIndex: start, endIndex: end },
+        });
+      } else {
+        result.push({
+          id: `cluster-${start}-${end}`,
+          type: 'single',
+          targets: contiguousTargets,
+        });
+      }
+      i += 1;
+    }
+    return result;
+  }, [selectedTargets]);
+
+  const [mergingClusterId, setMergingClusterId] = React.useState<string | null>(
+    null
+  );
+  const [recentlySplitRange, setRecentlySplitRange] =
+    React.useState<MergedPhraseRange | null>(null);
+
+  const handleMergeCluster = React.useCallback(
+    (cluster: TargetCluster) => {
+      if (mergingClusterId !== null) return;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setMergingClusterId(cluster.id);
+      setTimeout(() => {
+        const start = cluster.targets[0].startIndex;
+        const end = cluster.targets[cluster.targets.length - 1].endIndex;
+        const newRange: MergedPhraseRange = {
+          startIndex: start,
+          endIndex: end,
+        };
+
+        setMergedPhraseRanges((prev) => {
+          const filtered = prev.filter(
+            (oldR) =>
+              oldR.endIndex < newRange.startIndex ||
+              oldR.startIndex > newRange.endIndex
+          );
+          return [...filtered, newRange];
+        });
+        setMergingClusterId(null);
+      }, 150);
+    },
+    [mergingClusterId]
+  );
+
+  const handleSplitCluster = React.useCallback(
+    (cluster: TargetCluster) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const start = cluster.targets[0].startIndex;
+      const end = cluster.targets[cluster.targets.length - 1].endIndex;
+      const hasMergedPhrase = cluster.targets.some((t) => t.startIndex < t.endIndex);
+      if (!hasMergedPhrase && !cluster.phraseRange) return;
+
+      const rangeToSplit = { startIndex: start, endIndex: end };
+      setRecentlySplitRange(rangeToSplit);
+      setMergedPhraseRanges((prev) =>
+        prev.filter(
+          (r) =>
+            r.endIndex < rangeToSplit.startIndex ||
+            r.startIndex > rangeToSplit.endIndex
+        )
+      );
+      setTimeout(() => {
+        setRecentlySplitRange((current) =>
+          current?.startIndex === rangeToSplit.startIndex &&
+          current?.endIndex === rangeToSplit.endIndex
+            ? null
+            : current
         );
+      }, 280);
+    },
+    []
+  );
+
+  const deleteSourceToken = React.useCallback(
+    (index: number) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setEditingTokenIndex(null);
+      const nextTokens = sourceTokens.filter((_, itemIndex) => itemIndex !== index);
+      setEditedSourceText(nextTokens.join(' '));
+      setSelectedTokenIndices((previous) =>
+        previous
+          .filter((item) => item !== index)
+          .map((item) => (item > index ? item - 1 : item))
+      );
+      setMergedPhraseRanges((previous) =>
+        previous
+          .filter((range) => index < range.startIndex || index > range.endIndex)
+          .map((range) => {
+            if (index < range.startIndex) {
+              return {
+                startIndex: range.startIndex - 1,
+                endIndex: range.endIndex - 1,
+              };
+            }
+            return range;
+          })
+      );
+    },
+    [sourceTokens]
+  );
+
+  const finishEditingToken = React.useCallback(
+    (index: number, nextRaw?: string) => {
+      setEditingTokenIndex(null);
+      const textToApply = nextRaw !== undefined ? nextRaw : editingDraftText;
+      const nextToken = normalizeDisplayWord(textToApply || '');
+      if (!nextToken) {
+        deleteSourceToken(index);
         return;
       }
 
-      Alert.alert(title, message);
+      const nextTokens = sourceTokens.map((item, itemIndex) =>
+        itemIndex === index ? nextToken : item
+      );
+      setEditedSourceText(nextTokens.join(' '));
     },
-    [sourceTokens, uiLanguage]
+    [deleteSourceToken, editingDraftText, sourceTokens]
   );
 
   const openMembershipPaywall = React.useCallback(
@@ -2840,16 +3106,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   </Pressable>
                 ) : null}
               </View>
-              {sourceTokens.length > 0 && isRecognizedTextEditMode ? (
-                <Text
-                  style={[
-                    styles.helperMetaText,
-                    styles.ocrEditHint,
-                    { color: palette.secondaryText },
-                  ]}
-                >
-                  {tUI(uiLanguage, 'create.editOcrModeHint')}
-                </Text>
+              {sourceTokens.length > 0 ? (
+                <Reanimated.View style={ocrEditHintAnimatedStyle}>
+                  <Reanimated.View
+                    style={ocrEditHintContentAnimatedStyle}
+                    onLayout={(event) => {
+                      ocrEditModeContentHeight.value =
+                        event.nativeEvent.layout.height;
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.helperMetaText,
+                        styles.ocrEditHint,
+                        { color: palette.secondaryText },
+                      ]}
+                    >
+                      {tUI(uiLanguage, 'create.editOcrModeHint')}
+                    </Text>
+                  </Reanimated.View>
+                </Reanimated.View>
               ) : null}
               {sourceTokens.length === 0 ? (
                 <Text
@@ -2870,83 +3146,109 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                         idx >= target.startIndex && idx <= target.endIndex
                     );
                     const isSelected = Boolean(selectedTarget);
-                    const isGroupStart = selectedTarget?.startIndex === idx;
-                    const isGroupEnd = selectedTarget?.endIndex === idx;
                     return (
                       <React.Fragment key={`${token}-${idx}`}>
                         {hardLineBreakTokenIndices.has(idx) ? (
                           <View style={styles.ocrHardLineBreak} />
                         ) : null}
                         <View style={styles.tutorialTokenWrap}>
-                        {isDefaultExperienceTutorial &&
-                        !selectedTokenIndices.includes(
-                          defaultExperienceTargetIndex
-                        ) &&
-                        idx === defaultExperienceTargetIndex ? (
-                          <MovingTutorialArrow
-                            direction="down"
-                            color={MODAL_CTA_COLOR}
-                            size={27}
-                            style={styles.tokenTutorialArrow}
-                          />
-                        ) : null}
-                        <TutorialSpotlight
-                          active={
-                            appTour.step === 'STEP_5_SELECT_TARGET' &&
-                            idx === defaultExperienceTargetIndex
-                          }
-                        >
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.tokenBtn,
-                              {
-                                backgroundColor: isSelected
-                                  ? MODAL_CTA_COLOR
-                                  : palette.modalOptionBg,
-                                borderColor: isSelected
-                                  ? MODAL_CTA_COLOR_BORDER
-                                  : palette.modalOptionBorder,
-                                borderStyle: isRecognizedTextEditMode
-                                  ? 'dashed'
-                                  : 'solid',
-                                borderTopLeftRadius:
-                                  isSelected && !isGroupStart ? 4 : 8,
-                                borderBottomLeftRadius:
-                                  isSelected && !isGroupStart ? 4 : 8,
-                                borderTopRightRadius:
-                                  isSelected && !isGroupEnd ? 4 : 8,
-                                borderBottomRightRadius:
-                                  isSelected && !isGroupEnd ? 4 : 8,
-                              },
-                              pressed ? styles.pressableChipPressed : null,
-                            ]}
-                            onPress={() => {
-                              if (
-                                resolveRecognizedWordPressAction(
-                                  isRecognizedTextEditMode
-                                ) === 'edit'
-                              ) {
-                                editSourceToken(token, idx);
-                                return;
-                              }
-                              toggleSourceToken(idx);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.tokenText,
-                                {
-                                  color: isSelected
-                                    ? TEXT_ON_CTA
-                                    : palette.textOnContainer,
-                                },
-                                isSelected && styles.tokenTextSelected,
-                              ]}
+                          {isRecognizedTextEditMode ? (
+                            <Pressable
+                              hitSlop={8}
+                              style={styles.tokenDeleteBadge}
+                              onPress={(e) => {
+                                e.stopPropagation?.();
+                                deleteSourceToken(idx);
+                              }}
                             >
-                              {token}
-                            </Text>
-                          </Pressable>
-                        </TutorialSpotlight>
+                              <Ionicons name="close" size={11} color="#FFFFFF" />
+                            </Pressable>
+                          ) : null}
+
+                          {isDefaultExperienceTutorial &&
+                          !selectedTokenIndices.includes(
+                            defaultExperienceTargetIndex
+                          ) &&
+                          idx === defaultExperienceTargetIndex ? (
+                            <MovingTutorialArrow
+                              direction="down"
+                              color={MODAL_CTA_COLOR}
+                              size={27}
+                              style={styles.tokenTutorialArrow}
+                            />
+                          ) : null}
+                          <TutorialSpotlight
+                            active={
+                              appTour.step === 'STEP_5_SELECT_TARGET' &&
+                              idx === defaultExperienceTargetIndex
+                            }
+                          >
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.tokenBtn,
+                                isRecognizedTextEditMode
+                                  ? styles.tokenBtnEditMode
+                                  : null,
+                                {
+                                  backgroundColor: isSelected
+                                    ? MODAL_CTA_COLOR
+                                    : palette.modalOptionBg,
+                                  borderColor: isSelected
+                                    ? MODAL_CTA_COLOR_BORDER
+                                    : palette.modalOptionBorder,
+                                  borderStyle: isRecognizedTextEditMode
+                                    ? 'dashed'
+                                    : 'solid',
+                                  borderRadius: 8,
+                                },
+                                pressed ? styles.pressableChipPressed : null,
+                              ]}
+                              onPress={() => {
+                                if (isRecognizedTextEditMode) {
+                                  setEditingTokenIndex(idx);
+                                  setEditingDraftText(token);
+                                  return;
+                                }
+                                toggleSourceToken(idx);
+                              }}
+                            >
+                              {isRecognizedTextEditMode &&
+                              editingTokenIndex === idx ? (
+                                <TextInput
+                                  autoFocus
+                                  selectTextOnFocus
+                                  value={editingDraftText}
+                                  onChangeText={setEditingDraftText}
+                                  onBlur={() => finishEditingToken(idx)}
+                                  onSubmitEditing={() =>
+                                    finishEditingToken(idx)
+                                  }
+                                  style={[
+                                    styles.tokenText,
+                                    styles.tokenTextInput,
+                                    {
+                                      color: palette.textOnContainer,
+                                    },
+                                  ]}
+                                  returnKeyType="done"
+                                />
+                              ) : (
+                                <Text
+                                  style={[
+                                    styles.tokenText,
+                                    {
+                                      color: isSelected
+                                        ? TEXT_ON_CTA
+                                        : palette.textOnContainer,
+                                    },
+                                    isSelected && styles.tokenTextSelected,
+                                  ]}
+                                >
+                                  {token}
+                                </Text>
+                              )}
+                            </Pressable>
+                          </TutorialSpotlight>
                         </View>
                       </React.Fragment>
                     );
@@ -2975,31 +3277,84 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               >
                 {tUI(uiLanguage, 'create.keywords')}
               </Text>
-              <View style={styles.wordsWrap}>
-                {selectedTargets.map((target) => {
-                  const isGenerated = generatedTargetIds.has(target.id);
+              <View style={styles.entityListWrap}>
+                {targetClusters.map((cluster) => {
                   return (
-                    <Pressable
-                      key={target.id}
-                      style={({ pressed }) => [
-                        styles.keywordBtn,
-                        {
-                          backgroundColor: isGenerated
-                            ? '#10B981'
-                            : MODAL_CTA_COLOR,
-                          borderColor: isGenerated
-                            ? 'rgba(16,185,129,0.72)'
-                            : MODAL_CTA_COLOR_BORDER,
-                        },
-                        pressed ? styles.pressableChipPressed : null,
-                      ]}
-                      onPress={() => removeSelectedTarget(target.id)}
+                    <Reanimated.View
+                      key={cluster.id}
+                      layout={LinearTransition.duration(220).easing(
+                        Easing.out(Easing.cubic)
+                      )}
+                      style={styles.clusterBlock}
                     >
-                      <Text style={styles.keywordText}>
-                        {target.text}
-                        {isGenerated ? ' ✓' : ''}
-                      </Text>
-                    </Pressable>
+                      <View style={styles.clusterChipsRow}>
+                        {cluster.targets.map((target, targetIndex) => {
+                          const isGenerated = generatedTargetIds.has(target.id);
+                          const wasJustSplit =
+                            Boolean(recentlySplitRange) &&
+                            cluster.type === 'adjacent' &&
+                            cluster.targets[0].startIndex ===
+                              recentlySplitRange?.startIndex &&
+                            cluster.targets[cluster.targets.length - 1].endIndex ===
+                              recentlySplitRange?.endIndex;
+                          const isMerging = mergingClusterId === cluster.id;
+
+                          return (
+                            <ClusterTokenChip
+                              key={target.id}
+                              target={target}
+                              targetIndex={targetIndex}
+                              isMerging={isMerging}
+                              wasJustSplit={wasJustSplit}
+                              isGenerated={isGenerated}
+                              onPress={() => removeSelectedTarget(target.id)}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      {(() => {
+                        const canMerge = cluster.targets.length > 1;
+                        const canSplit =
+                          (cluster.targets.length > 1 &&
+                            cluster.targets.some((t) => t.startIndex < t.endIndex)) ||
+                          (cluster.targets.length === 1 && cluster.type === 'phrase');
+
+                        if (!canMerge && !canSplit) return null;
+
+                        return (
+                          <View style={styles.clusterActionsRow}>
+                            {canMerge ? (
+                              <Pressable
+                                style={({ pressed }) => [
+                                  styles.globalMergeBtn,
+                                  pressed ? styles.pressableChipPressed : null,
+                                ]}
+                                onPress={() => handleMergeCluster(cluster)}
+                              >
+                                <Text style={styles.globalMergeBtnText}>
+                                  {tUI(uiLanguage, 'create.mergeOnly')}
+                                </Text>
+                              </Pressable>
+                            ) : null}
+
+                            {canSplit ? (
+                              <Pressable
+                                style={({ pressed }) => [
+                                  styles.globalCancelBtn,
+                                  pressed ? styles.pressableChipPressed : null,
+                                ]}
+                                onPress={() => handleSplitCluster(cluster)}
+                              >
+                                <Text style={styles.globalCancelBtnText}>
+                                  {tUI(uiLanguage, 'create.splitOnly')}
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        );
+                      })()}
+                    </Reanimated.View>
                   );
                 })}
               </View>
@@ -4273,5 +4628,87 @@ const styles = StyleSheet.create({
   pressableChipPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.96 }],
+  },
+  tokenDeleteBadge: {
+    position: 'absolute',
+    top: -7,
+    left: -7,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#6B7280',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  tokenBtnEditMode: {
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+    shadowColor: '#6366F1',
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  tokenTextInput: {
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  entityListWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    alignItems: 'flex-start',
+  },
+  clusterBlock: {
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  clusterChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  clusterActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  globalMergeBtn: {
+    backgroundColor: '#10B981',
+    borderColor: 'rgba(16,185,129,0.72)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  globalMergeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  globalCancelBtn: {
+    backgroundColor: UPLOAD_CACHE_CTA_COLOR,
+    borderColor: UPLOAD_CACHE_CTA_COLOR_BORDER,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  globalCancelBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

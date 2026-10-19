@@ -109,6 +109,10 @@ export type UIStringKey =
   | 'create.editOcrTokenDelete'
   | 'create.mergeAsPhrase'
   | 'create.unmergePhrase'
+  | 'create.mergeAdjacentWords'
+  | 'create.breakdown'
+  | 'create.mergeOnly'
+  | 'create.splitOnly'
   | 'create.aiDepth'
   | 'create.saveToAlbums'
   | 'create.allCardsOnly'
@@ -555,6 +559,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenDelete': 'Delete block',
     'create.mergeAsPhrase': 'Merge as phrase',
     'create.unmergePhrase': 'Unmerge phrase',
+    'create.mergeAdjacentWords': 'Merge adjacent words',
+    'create.breakdown': 'Break down',
+    'create.mergeOnly': 'Merge',
+    'create.splitOnly': 'Split',
     'create.aiDepth': 'AI depth',
     'create.saveToAlbums': 'Save this batch to',
     'create.allCardsOnly': 'All cards only',
@@ -1047,6 +1055,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenDelete': '刪除區塊',
     'create.mergeAsPhrase': '合併為片語',
     'create.unmergePhrase': '拆分片語',
+    'create.mergeAdjacentWords': '合併相鄰單字',
+    'create.breakdown': '拆解',
+    'create.mergeOnly': '合併',
+    'create.splitOnly': '拆分',
     'create.aiDepth': 'AI 深度',
     'create.saveToAlbums': '這批卡片儲存至',
     'create.allCardsOnly': '只存入所有卡片',
@@ -1505,6 +1517,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenDelete': '删除区块',
     'create.mergeAsPhrase': '合并为短语',
     'create.unmergePhrase': '拆分短语',
+    'create.mergeAdjacentWords': '合并相邻单词',
+    'create.breakdown': '拆解',
+    'create.mergeOnly': '合并',
+    'create.splitOnly': '拆分',
     'create.aiDepth': 'AI 深度',
     'create.saveToAlbums': '这批卡片保存至',
     'create.allCardsOnly': '只存入所有卡片',

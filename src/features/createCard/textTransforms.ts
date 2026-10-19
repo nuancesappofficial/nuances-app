@@ -148,10 +148,16 @@ export type SelectedSourceTarget = {
   targetOccurrence: number;
 };
 
+export type MergedPhraseRange = {
+  startIndex: number;
+  endIndex: number;
+};
+
 export function groupSelectedSourceTokens(
   tokens: string[],
   selectedIndices: number[],
-  sourceText?: string
+  sourceText?: string,
+  mergedPhraseRanges: MergedPhraseRange[] = []
 ): SelectedSourceTarget[] {
   const validIndices = Array.from(
     new Set(
@@ -184,34 +190,20 @@ export function groupSelectedSourceTokens(
     return !/[.!?。！？,，;；:\n]/.test(separator);
   };
 
-  const spans: Array<{ startIndex: number; endIndex: number }> = [];
-  for (const index of validIndices) {
-    const current = spans[spans.length - 1];
-    if (
-      current &&
-      index === current.endIndex + 1 &&
-      canMergeAcross(current.endIndex, index)
-    ) {
-      current.endIndex = index;
-    } else {
-      spans.push({ startIndex: index, endIndex: index });
-    }
-  }
-
   const buildTarget = (startIndex: number, endIndex: number): SelectedSourceTarget | null => {
     const selectedTokens = tokens.slice(startIndex, endIndex + 1);
+    const isAllCJK = selectedTokens.every(isSingleCJKOrHangulToken);
     const normalizedTokens = selectedTokens.map(normalizeSelectableTerm).filter(Boolean);
-    const text = normalizedTokens.join(' ').trim();
+    const text = (isAllCJK ? normalizedTokens.join('') : normalizedTokens.join(' ')).trim();
     if (!text) return null;
 
     let targetOccurrence = 0;
     const spanLength = endIndex - startIndex + 1;
     for (let index = 0; index < startIndex; index += 1) {
-      const candidate = tokens
-        .slice(index, index + spanLength)
-        .map(normalizeSelectableTerm)
-        .filter(Boolean)
-        .join(' ');
+      const candidateTokens = tokens.slice(index, index + spanLength);
+      const isCandidateCJK = candidateTokens.every(isSingleCJKOrHangulToken);
+      const candidateNormalized = candidateTokens.map(normalizeSelectableTerm).filter(Boolean);
+      const candidate = (isCandidateCJK ? candidateNormalized.join('') : candidateNormalized.join(' ')).trim();
       if (candidate === text) targetOccurrence += 1;
     }
 
@@ -224,34 +216,77 @@ export function groupSelectedSourceTokens(
     };
   };
 
-  return spans
-    .flatMap(({ startIndex, endIndex }) => {
-      if (startIndex === endIndex) return [buildTarget(startIndex, endIndex)];
+  const validIndicesSet = new Set(validIndices);
+  const validatedMergedRanges: MergedPhraseRange[] = [];
+  const indicesInMergedPhrases = new Set<number>();
 
-      const tokenIndices = tokens
-        .slice(startIndex, endIndex + 1)
-        .map((token, offset) => ({ token, index: startIndex + offset }));
-      const isCharacterFallbackCJKSpan =
-        tokenIndices.every(({ token }) => isSingleCJKOrHangulToken(token)) &&
-        (!sourceTokenRanges ||
-          tokenIndices.every(
-            ({ index }) => sourceTokenRanges.ranges[index]?.tokenizer === 'regex'
-          ));
-      if (isCharacterFallbackCJKSpan) return [buildTarget(startIndex, endIndex)];
+  for (const range of mergedPhraseRanges) {
+    if (range.startIndex > range.endIndex) continue;
+    let isFullySelected = true;
+    for (let i = range.startIndex; i <= range.endIndex; i += 1) {
+      if (!validIndicesSet.has(i)) {
+        isFullySelected = false;
+        break;
+      }
+    }
+    if (isFullySelected) {
+      validatedMergedRanges.push(range);
+      for (let i = range.startIndex; i <= range.endIndex; i += 1) {
+        indicesInMergedPhrases.add(i);
+      }
+    }
+  }
 
-      const meaningfulTokenIndices = tokenIndices
-        .filter(({ token }) => isMeaningfulMultiSelectionToken(token))
-        .map(({ index }) => index);
-      const splitIndices =
-        meaningfulTokenIndices.length > 0
-          ? meaningfulTokenIndices
-          : tokenIndices
-              .filter(({ token }) => normalizeSelectableTerm(token))
-              .map(({ index }) => index);
+  const targets: SelectedSourceTarget[] = [];
+  for (const range of validatedMergedRanges) {
+    const target = buildTarget(range.startIndex, range.endIndex);
+    if (target) targets.push(target);
+  }
 
-      return splitIndices.map((index) => buildTarget(index, index));
-    })
-    .filter((target): target is SelectedSourceTarget => Boolean(target));
+  const unmergedIndices = validIndices.filter((idx) => !indicesInMergedPhrases.has(idx));
+  const unmergedSpans: Array<{ startIndex: number; endIndex: number }> = [];
+  for (const index of unmergedIndices) {
+    const current = unmergedSpans[unmergedSpans.length - 1];
+    if (
+      current &&
+      index === current.endIndex + 1 &&
+      canMergeAcross(current.endIndex, index)
+    ) {
+      current.endIndex = index;
+    } else {
+      unmergedSpans.push({ startIndex: index, endIndex: index });
+    }
+  }
+
+  for (const { startIndex, endIndex } of unmergedSpans) {
+    if (startIndex === endIndex) {
+      const target = buildTarget(startIndex, endIndex);
+      if (target) targets.push(target);
+      continue;
+    }
+
+    const tokenIndices = tokens
+      .slice(startIndex, endIndex + 1)
+      .map((token, offset) => ({ token, index: startIndex + offset }));
+    const isCharacterFallbackCJKSpan =
+      tokenIndices.every(({ token }) => isSingleCJKOrHangulToken(token)) &&
+      (!sourceTokenRanges ||
+        tokenIndices.every(
+          ({ index }) => sourceTokenRanges.ranges[index]?.tokenizer === 'regex'
+        ));
+
+    if (isCharacterFallbackCJKSpan) {
+      const target = buildTarget(startIndex, endIndex);
+      if (target) targets.push(target);
+    } else {
+      for (let i = startIndex; i <= endIndex; i += 1) {
+        const target = buildTarget(i, i);
+        if (target) targets.push(target);
+      }
+    }
+  }
+
+  return targets.sort((a, b) => a.startIndex - b.startIndex);
 }
 
 type SourceToken = {
