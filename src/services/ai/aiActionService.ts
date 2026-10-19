@@ -745,6 +745,7 @@ async function streamAndNormalizeEnrichmentWithRetry(
   handlers: { onToken?: (delta: string) => void }
 ): Promise<{ enrichment: EnrichmentResult; ttfbMs?: number; model?: string }> {
   let lastError: unknown;
+  let lastParsedEnrichment: EnrichmentResult | undefined;
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -771,6 +772,7 @@ async function streamAndNormalizeEnrichmentWithRetry(
       // Core is the single source of truth for sentence meaning and translation.
       // Enrichment may add learning fields, but it must never reinterpret or replace it.
       delete enrichment.sentenceTranslation;
+      lastParsedEnrichment = enrichment;
 
       // Proper nouns and phrases always allow empty collocations from attempt 1.
       // Normal words allow empty collocations on the 3rd attempt to prevent user errors.
@@ -779,6 +781,7 @@ async function streamAndNormalizeEnrichmentWithRetry(
         definition: core.definition,
         isPartOfPhrase: core.isPartOfPhrase,
         allowEmptyCollocations: attempt === maxAttempts,
+        originalSentence: payload.originalSentence,
       });
 
       enrichment.frequentCollocations = normalizedUsage.frequentCollocations;
@@ -812,13 +815,54 @@ async function streamAndNormalizeEnrichmentWithRetry(
     }
   }
 
-  // 終極保底：若重試多次依然因網路或格式異常中斷，避免跳出報錯阻擋使用者，以最小資料放行
-  console.warn('[AI][pipeline] enrichment attempts exhausted, falling back to minimal card usage', {
+  // 終極保底：若重試多次依然因網路或格式異常中斷，保留已解析的 enrichment 結構，絕不複製原句
+  console.warn('[AI][pipeline] enrichment attempts exhausted, preserving parsed enrichment data without source sentence duplication', {
     lastError: lastError instanceof Error ? lastError.message : String(lastError),
   });
+
+  if (lastParsedEnrichment) {
+    const candidatePairs = Array.isArray(lastParsedEnrichment.usagePairs)
+      ? lastParsedEnrichment.usagePairs
+      : [];
+    const normalizedOriginal = normalizeLexicalSequence(payload.originalSentence);
+    const candidateExamples = candidatePairs
+      .map((p: any) => ({
+        sentence: p.exampleSentence || p.sentence || '',
+        translation: p.exampleTranslation || p.translation || '',
+      }))
+      .filter((ex: any) => {
+        if (!ex.sentence) return false;
+        const sentenceKey = normalizeLexicalSequence(ex.sentence);
+        return sentenceKey && sentenceKey !== normalizedOriginal;
+      });
+
+    const candidateCollocations = candidatePairs
+      .map((p: any) => ({
+        phrase: p.phrase || p.collocation || '',
+        translation: p.translation || '',
+      }))
+      .filter((col: any) => Boolean(col.phrase));
+
+    if (lastParsedEnrichment.synonyms || lastParsedEnrichment.antonyms) {
+      lastParsedEnrichment.semanticRelations = {
+        synonyms: lastParsedEnrichment.synonyms || [],
+        antonyms: lastParsedEnrichment.antonyms || [],
+      };
+      delete lastParsedEnrichment.synonyms;
+      delete lastParsedEnrichment.antonyms;
+    }
+
+    return {
+      enrichment: {
+        ...lastParsedEnrichment,
+        frequentCollocations: candidateCollocations,
+        example: candidateExamples,
+      },
+    };
+  }
+
   return {
     enrichment: {
-      culturalBackground: '',
       frequentCollocations: [],
       example: [],
     },

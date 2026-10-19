@@ -38,6 +38,7 @@ import {
   getAIReplyLanguageForUILanguage,
   getNativeUILanguageFromDevice,
   getPrimaryAIReplyLanguageForLearningLanguages,
+  type AIBreakdownMode,
   type LearningLanguage,
   loadUserSettings,
   normalizeAIBreakdownMode,
@@ -52,14 +53,13 @@ import { tUI, type UIStringKey } from '../../i18n/uiLanguage';
 import { balanceOnboardingQuestion } from '../../features/onboarding/onboardingQuestionLayout';
 import { isDevFreshUserId } from '../../features/auth/devFreshUserSimulatorCore';
 
-type OnboardingStep = 1 | 2 | 3 | 4;
+type OnboardingStep = 1 | 2 | 3;
 
 type OnboardingAnswers = {
   uiLanguage: UILanguage;
   learningLanguages: LearningLanguage[];
   captureHabit: string;
   stumbleContext: string;
-  breakdownDepth: string;
 };
 
 type StickerOption = {
@@ -79,9 +79,6 @@ const Q1_SEARCH_IMAGE = require('../../../assets/onboarding_q1_assets/search-ico
 const Q2_BOOK_IMAGE = require('../../../assets/onboarding_q2_assets/q2-book-cutout.png');
 const Q2_HEADPHONES_IMAGE = require('../../../assets/onboarding_q2_assets/q2-headphones-cutout.png');
 const Q2_TV_IMAGE = require('../../../assets/onboarding_q2_assets/q2-tv-cutout.png');
-const Q3_NODES_IMAGE = require('../../../assets/onboarding_q3_assets/q3-nodes-cutout.png');
-const Q3_BUBBLE_IMAGE = require('../../../assets/onboarding_q3_assets/q3-bubble-cutout.png');
-const Q3_LIGHTNING_IMAGE = require('../../../assets/onboarding_q3_assets/q3-lightning-cutout.png');
 
 const CAPTURE_HABIT_OPTIONS: StickerOption[] = [
   {
@@ -119,24 +116,6 @@ const STUMBLE_CONTEXT_OPTIONS: StickerOption[] = [
   },
 ];
 
-const BREAKDOWN_DEPTH_OPTIONS: StickerOption[] = [
-  {
-    value: 'short_punchy',
-    labelKey: 'onboarding.option.quick',
-    imageSource: Q3_LIGHTNING_IMAGE,
-  },
-  {
-    value: 'context',
-    labelKey: 'onboarding.option.detailed',
-    imageSource: Q3_BUBBLE_IMAGE,
-  },
-  {
-    value: 'deep_dive',
-    labelKey: 'onboarding.option.deepDive',
-    imageSource: Q3_NODES_IMAGE,
-  },
-];
-
 const RESPONSE_LANGUAGE_OPTIONS: Array<{
   value: UILanguage;
   labelKey: UIStringKey;
@@ -162,21 +141,19 @@ const RESPONSE_LANGUAGE_OPTIONS: Array<{
 const ALL_STICKER_OPTIONS = [
   ...CAPTURE_HABIT_OPTIONS,
   ...STUMBLE_CONTEXT_OPTIONS,
-  ...BREAKDOWN_DEPTH_OPTIONS,
 ];
 
 const EMPTY_SELECTED_BY_STEP: Record<OnboardingStep, string[]> = {
   1: [],
   2: [],
   3: [],
-  4: [],
 };
 
 const QUESTION_TRANSITION_IN_MS = 360;
 const QUESTION_TRANSITION_OUT_MS = 260;
 
 function getProgressLabel(step: OnboardingStep): string {
-  return `${step}/4`;
+  return `${step}/3`;
 }
 
 function getOnboardingErrorMessage(
@@ -208,12 +185,6 @@ function triggerOnboardingQuestionHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
 
-function mapBreakdownDepthToEnglishLevel(value: string): string {
-  if (value.includes('deep_dive')) return 'advanced';
-  if (value.includes('short_punchy')) return 'beginner';
-  return 'intermediate';
-}
-
 function mapStumbleContextToLearningGoal(value: string): string {
   if (value.includes('deep_reading')) return 'academic';
   if (value.includes('browsing_watching')) return 'slang';
@@ -231,17 +202,13 @@ function getQuestionForStep(
   if (step === 2) {
     return tUI(uiLanguage, 'onboarding.question.captureHabit');
   }
-  if (step === 3) {
-    return tUI(uiLanguage, 'onboarding.question.stumbleContext');
-  }
-  return tUI(uiLanguage, 'onboarding.question.breakdownDepth');
+  return tUI(uiLanguage, 'onboarding.question.stumbleContext');
 }
 
 function getAnswerKeyForStep(step: OnboardingStep): keyof OnboardingAnswers {
   if (step === 1) return 'uiLanguage';
   if (step === 2) return 'captureHabit';
-  if (step === 3) return 'stumbleContext';
-  return 'breakdownDepth';
+  return 'stumbleContext';
 }
 
 function ResponseLanguageSticker({
@@ -567,7 +534,6 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     learningLanguages: [],
     captureHabit: '',
     stumbleContext: '',
-    breakdownDepth: '',
   });
   const [selectedStickerIds, setSelectedStickerIds] = React.useState<
     Record<OnboardingStep, string[]>
@@ -603,9 +569,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
       }
       const userEmail =
         session?.user?.email?.trim() || `${userId}@nuances.local`;
-      const aiBreakdownMode = normalizeAIBreakdownMode(
-        answersToSave.breakdownDepth
-      );
+      const aiBreakdownMode: AIBreakdownMode = 'context';
       const learningLanguages = normalizeLearningLanguages(['en']);
       const primaryLearningAIReplyLanguage =
         getPrimaryAIReplyLanguageForLearningLanguages(learningLanguages);
@@ -642,9 +606,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
             email: userEmail,
             target_language: learningLanguages.join(','),
             native_language: selectedUILanguage,
-            english_level: mapBreakdownDepthToEnglishLevel(
-              answersToSave.breakdownDepth
-            ),
+            english_level: 'intermediate',
             learning_goal: mapStumbleContextToLearningGoal(
               answersToSave.stumbleContext
             ),
@@ -663,9 +625,9 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
 
   const completeOnboarding = React.useCallback(
     async (answersToSave: OnboardingAnswers = answers) => {
-      traceFirstRun('onboarding', 'save_started', { step: 4 });
+      traceFirstRun('onboarding', 'save_started', { step: 3 });
       await saveOnboardingData(answersToSave);
-      traceFirstRun('onboarding', 'save_succeeded', { step: 4 });
+      traceFirstRun('onboarding', 'save_succeeded', { step: 3 });
       analytics.track('onboarding_completed', {
         ui_language: normalizeNativeUILanguage(answersToSave.uiLanguage),
       });
@@ -686,7 +648,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
       setSelectedStickerIds((prev) => {
         const currentValues = prev[step];
         const nextValues =
-          step === 1 || step === 4
+          step === 1
             ? [value]
             : currentValues.includes(value)
               ? currentValues.filter((item) => item !== value)
@@ -718,14 +680,10 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
       setStep(3);
       return;
     }
-    if (step === 3) {
-      traceFirstRun('onboarding', 'step_completed', { step: 3 });
-      setStep(4);
-      return;
-    }
+    traceFirstRun('onboarding', 'step_completed', { step: 3 });
     setSaving(true);
     void completeOnboarding(answers).catch((error) => {
-      traceFirstRun('onboarding', 'save_failed', { step: 4, error });
+      traceFirstRun('onboarding', 'save_failed', { step: 3, error });
       const message = getOnboardingErrorMessage(error, uiLanguage);
       console.error('[Onboarding] completion failed:', error);
       Alert.alert(tUI(uiLanguage, 'onboarding.errorTitle'), message);
@@ -735,7 +693,6 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
     answers,
     canContinue,
     completeOnboarding,
-    selectedValues,
     step,
     uiLanguage,
   ]);
@@ -808,13 +765,6 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           selectedValues={selectedStickerIds[3]}
           onToggle={toggleSticker}
         />
-        <StickerOptionLayout
-          active={step === 4}
-          uiLanguage={uiLanguage}
-          options={BREAKDOWN_DEPTH_OPTIONS}
-          selectedValues={selectedStickerIds[4]}
-          onToggle={toggleSticker}
-        />
       </View>
 
       <View style={styles.actionSection}>
@@ -842,7 +792,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
               { color: canContinue ? TEXT_ON_CTA : palette.secondaryText },
             ]}
           >
-            {step === 4
+            {step === 3
               ? saving
                 ? tUI(uiLanguage, 'onboarding.saving')
                 : tUI(uiLanguage, 'onboarding.start')

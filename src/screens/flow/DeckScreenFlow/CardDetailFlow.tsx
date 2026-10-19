@@ -2097,7 +2097,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           isLightMode={isLightMode}
           onContentExpandedChange={(expanded) => {
             if (index === currentIndex) {
-              setIsCardContentExpanded(expanded);
+              setIsCardContentExpanded((prev) => (prev !== expanded ? expanded : prev));
             }
           }}
         />

@@ -8,6 +8,61 @@ const PLACEHOLDER_TOKENS = new Set([
   "someone's",
   'something',
   "something's",
+  'my',
+  'your',
+  'his',
+  'her',
+  'its',
+  'our',
+  'their',
+  'me',
+  'you',
+  'him',
+  'them',
+  'us',
+  'myself',
+  'yourself',
+  'himself',
+  'herself',
+  'themselves',
+  'ourselves',
+  'a',
+  'an',
+  'the',
+]);
+
+const LIGHT_VERB_OR_PREP = new Set([
+  'have',
+  'has',
+  'had',
+  'having',
+  'get',
+  'got',
+  'gotten',
+  'getting',
+  'take',
+  'took',
+  'taken',
+  'taking',
+  'make',
+  'made',
+  'making',
+  'keep',
+  'kept',
+  'keeping',
+  'be',
+  'am',
+  'is',
+  'are',
+  'was',
+  'were',
+  'been',
+  'being',
+  'with',
+  'carry',
+  'carries',
+  'carried',
+  'carrying',
 ]);
 
 const IRREGULAR_FORMS: Record<string, string[]> = {
@@ -116,9 +171,34 @@ function containsLexicalAnchors(text: string, pattern: string): boolean {
 
   const textTokens = textKey.split(/\s+/).filter(Boolean);
   const anchors = lexicalAnchors(pattern);
-  return anchors.length > 0 && anchors.every((anchor) =>
+  if (anchors.length === 0) return false;
+
+  const matchedAnchors = anchors.filter((anchor) =>
     textTokens.some((token) => tokenMatchesAnchor(token, anchor))
   );
+
+  // All anchors matched
+  if (matchedAnchors.length === anchors.length) {
+    return true;
+  }
+
+  // Flexible Phrase/Idiom Matching:
+  // When pattern is a multi-word idiom/phrase (anchors.length >= 3):
+  // 1. Allow at most 1 missing light verb/preposition (e.g. have/with/carry in "have a chip on one's shoulder")
+  // 2. OR at least Math.ceil(anchors.length * 0.75) of anchors match
+  if (anchors.length >= 3) {
+    const missingAnchors = anchors.filter((anchor) =>
+      !textTokens.some((token) => tokenMatchesAnchor(token, anchor))
+    );
+    if (missingAnchors.length <= 1 && missingAnchors.every((a) => LIGHT_VERB_OR_PREP.has(a))) {
+      return true;
+    }
+    if (matchedAnchors.length >= Math.ceil(anchors.length * 0.75)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function sourceTextFromUsageLine(value: string): string {
@@ -415,6 +495,29 @@ export function normalizeGeneratedUsagePairs(
       return {
         frequentCollocations: [],
         example: validExamples,
+      };
+    }
+
+    // Smart Last-Attempt Salvage:
+    // If strict anchor matching didn't yield an example, salvage any non-empty candidate example
+    // that is NOT identical to the source sentence, along with any candidate collocations.
+    const salvageExamples = candidates
+      .map(({ example }) => example)
+      .filter((example) => {
+        if (!example.sentence) return false;
+        const sentenceKey = normalizeLexicalSequence(example.sentence);
+        if (!sentenceKey) return false;
+        if (normalizedOriginal && sentenceKey === normalizedOriginal) return false;
+        return true;
+      });
+
+    if (salvageExamples.length > 0) {
+      const candidateCollocations = candidates
+        .map(({ collocation }) => collocation)
+        .filter((c) => Boolean(c.phrase));
+      return {
+        frequentCollocations: candidateCollocations,
+        example: salvageExamples,
       };
     }
 

@@ -22,6 +22,7 @@ import Reanimated, {
   Extrapolation,
   interpolate,
   ReduceMotion,
+  runOnJS,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -37,8 +38,10 @@ import {
 import {
   parseCardContextSections,
   parseCulturalBackgroundInsight,
+  splitInsiderInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from './NuanceMetricsLeverUI';
+import { StructuredInsiderInsightUI } from './StructuredInsiderInsightUI';
 import {
   normalizeEnglishExampleDisplayOrder,
   type ExampleDisplayItem,
@@ -402,12 +405,12 @@ function splitCollocationText(value: string): CollocationDisplayItem {
   return translation ? { phrase, translation } : { phrase };
 }
 
-function splitExampleText(value: string, limit: number): string[] {
-  return (value || '')
+function splitExampleText(value: string, limit?: number): string[] {
+  const items = (value || '')
     .split(/\n+/)
     .map((item) => item.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').trim())
-    .filter(Boolean)
-    .slice(0, limit);
+    .filter(Boolean);
+  return typeof limit === 'number' ? items.slice(0, limit) : items;
 }
 
 function splitExampleDisplayText(value: string): ExampleDisplayItem {
@@ -467,6 +470,10 @@ function CardDetailCarouselCardUI({
     React.useState(false);
   const [isContextExpanded, setIsContextExpanded] = React.useState(false);
   const [isExamplesExpanded, setIsExamplesExpanded] = React.useState(false);
+  const [isFlipping, setIsFlipping] = React.useState(false);
+  const [isFlipped, setIsFlipped] = React.useState(false);
+  const isAnimatingHeightRef = React.useRef(false);
+  const pendingContentHeightRef = React.useRef<number | null>(null);
   const [expandedBackFields, setExpandedBackFields] = React.useState<
     Record<string, boolean>
   >({});
@@ -653,6 +660,10 @@ function CardDetailCarouselCardUI({
     () => parseCulturalBackgroundInsight(rawCulturalBackgroundText),
     [rawCulturalBackgroundText]
   );
+  const structuredInsight = React.useMemo(
+    () => splitInsiderInsight(parsedInsight?.insider_insight || rawCulturalBackgroundText),
+    [parsedInsight?.insider_insight, rawCulturalBackgroundText]
+  );
   const supplementarySenses = React.useMemo(
     () => parsedInsight?.supplementary_senses ?? [],
     [parsedInsight]
@@ -662,13 +673,23 @@ function CardDetailCarouselCardUI({
   const frontTextWrapGuard = resolveFrontTextWrapGuard(frontSentenceFontSize);
   const frontSentenceFontWeight = '600' as const;
   const contextLineHeight = Math.round(25 * frontContentScale);
+  const collapsedHookHeight = React.useMemo(() => {
+    if (structuredInsight.detailBullets.length > 0) {
+      return 2 * contextLineHeight + 4;
+    }
+    return 0;
+  }, [contextLineHeight, structuredInsight.detailBullets.length]);
+
   const frontDynamicLayout = React.useMemo(
     () =>
       resolveCardFrontDynamicLayout({
         viewportHeight: frontBodyViewportHeight,
         meaningHeight: meaningMeasuredHeight,
         sentenceMeasuredHeight,
-        contextMeasuredHeight,
+        contextMeasuredHeight:
+          structuredInsight.detailBullets.length > 0
+            ? collapsedHookHeight
+            : contextMeasuredHeight,
         sentenceLineHeight: frontSentenceLineHeight,
         contextLineHeight,
         hasInsightMetrics: Boolean(parsedInsight),
@@ -680,13 +701,18 @@ function CardDetailCarouselCardUI({
       meaningMeasuredHeight,
       sentenceMeasuredHeight,
       contextMeasuredHeight,
+      collapsedHookHeight,
+      structuredInsight.detailBullets.length,
       frontSentenceLineHeight,
       contextLineHeight,
       parsedInsight,
     ]
   );
   const collapsedSentenceHeight = frontDynamicLayout.sentenceBudgetHeight;
-  const collapsedContextHeight = frontDynamicLayout.contextBudgetHeight;
+  const collapsedContextHeight =
+    structuredInsight.detailBullets.length > 0
+      ? collapsedHookHeight
+      : frontDynamicLayout.contextBudgetHeight;
 
   const collocationItems = React.useMemo<CollocationDisplayItem[]>(() => {
     return (item.frequentCollocations || '')
@@ -694,20 +720,18 @@ function CardDetailCarouselCardUI({
       .map((phrase) => phrase.trim())
       .filter(Boolean)
       .map(splitCollocationText)
-      .filter((entry) => !isSameCardUsage(entry.phrase, itemWord))
-      .slice(0, itemCounts.collocations);
+      .filter((entry) => !isSameCardUsage(entry.phrase, itemWord));
   }, [
     item.frequentCollocations,
-    itemCounts.collocations,
     itemWord,
   ]);
   const semanticRelations = React.useMemo(() => {
     const parsed = parseSemanticRelations(item.semanticRelations);
     return {
-      synonyms: parsed.synonyms.slice(0, itemCounts.synonyms),
-      antonyms: parsed.antonyms.slice(0, itemCounts.antonyms),
+      synonyms: parsed.synonyms,
+      antonyms: parsed.antonyms,
     };
-  }, [item.semanticRelations, itemCounts.antonyms, itemCounts.synonyms]);
+  }, [item.semanticRelations]);
   const semanticRelationItems = React.useMemo(
     () => [
       ...semanticRelations.synonyms.map((relation) => ({
@@ -724,12 +748,12 @@ function CardDetailCarouselCardUI({
   const hasStickyNote = Boolean((stickyNoteText || '').trim());
   const apiExampleSentences = React.useMemo<ExampleDisplayItem[]>(() => {
     const examples = contextSections.exampleSentence
-      ? splitExampleText(contextSections.exampleSentence, itemCounts.examples)
+      ? splitExampleText(contextSections.exampleSentence)
           .filter(Boolean)
           .map(splitExampleDisplayText)
       : [];
     return examples.map(normalizeEnglishExampleDisplayOrder);
-  }, [contextSections.exampleSentence, itemCounts.examples]);
+  }, [contextSections.exampleSentence]);
   const backTextScale = React.useMemo(() => {
     const totalChars =
       (collocationItems
@@ -839,7 +863,7 @@ function CardDetailCarouselCardUI({
     : rawCulturalBackgroundText;
   const isCulturalBackgroundCompacted =
     Boolean(insightDisplayText) &&
-    frontDynamicLayout.shouldOfferFullContext;
+    (structuredInsight.detailBullets.length > 0 || frontDynamicLayout.shouldOfferFullContext);
   const shouldOfferFullSentence =
     frontDynamicLayout.shouldOfferFullSentence;
   const isFrontBodyScrollable =
@@ -947,8 +971,20 @@ function CardDetailCarouselCardUI({
     sentenceMeasuredHeight,
   ]);
 
+  const onHeightAnimationComplete = React.useCallback(() => {
+    isAnimatingHeightRef.current = false;
+    if (pendingContentHeightRef.current !== null) {
+      const nextH = pendingContentHeightRef.current;
+      pendingContentHeightRef.current = null;
+      setFrontBodyContentHeight((current) =>
+        Math.abs(current - nextH) > 1 ? nextH : current
+      );
+    }
+  }, []);
+
   React.useEffect(() => {
     cancelAnimation(contextBodyHeightAnim);
+    isAnimatingHeightRef.current = true;
     contextBodyHeightAnim.value = withTiming(
       isContextExpanded
         ? Math.max(collapsedContextHeight, contextMeasuredHeight)
@@ -956,6 +992,11 @@ function CardDetailCarouselCardUI({
       {
         duration: reduceMotion ? 0 : 240,
         easing: Easing.bezier(0.2, 0, 0, 1),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(onHeightAnimationComplete)();
+        }
       }
     );
   }, [
@@ -963,6 +1004,7 @@ function CardDetailCarouselCardUI({
     contextBodyHeightAnim,
     contextMeasuredHeight,
     isContextExpanded,
+    onHeightAnimationComplete,
     reduceMotion,
   ]);
 
@@ -995,12 +1037,17 @@ function CardDetailCarouselCardUI({
   ]);
 
   React.useEffect(() => {
-    onContentExpandedChange?.(
+    const isAnyExpanded =
       isFullSentenceExpanded ||
-        isContextExpanded ||
-        isExamplesExpanded ||
-        isAnyAuxBackFieldExpanded
-    );
+      isContextExpanded ||
+      isExamplesExpanded ||
+      isAnyAuxBackFieldExpanded;
+    // Delay notifying parent to avoid triggering a parent re-render cascade
+    // on the exact first frame of the height animation
+    const timer = setTimeout(() => {
+      onContentExpandedChange?.(isAnyExpanded);
+    }, 260);
+    return () => clearTimeout(timer);
   }, [
     isAnyAuxBackFieldExpanded,
     isContextExpanded,
@@ -1091,6 +1138,10 @@ function CardDetailCarouselCardUI({
   );
   const handleFrontBodyContentSizeChange = React.useCallback(
     (_width: number, height: number) => {
+      if (isAnimatingHeightRef.current) {
+        pendingContentHeightRef.current = height;
+        return;
+      }
       setFrontBodyContentHeight((current) =>
         Math.abs(current - height) > 1 ? height : current
       );
@@ -1284,10 +1335,22 @@ function CardDetailCarouselCardUI({
 
   const toggleFlip = () => {
     if (!isActiveCard) return;
-    flipAnim.value = withTiming(flipAnim.value === 0 ? 1 : 0, {
-      duration: 400,
-      reduceMotion: ReduceMotion.System,
-    });
+    setIsFlipping(true);
+    const targetValue = flipAnim.value === 0 ? 1 : 0;
+    flipAnim.value = withTiming(
+      targetValue,
+      {
+        duration: 380,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        reduceMotion: ReduceMotion.System,
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(setIsFlipping)(false);
+          runOnJS(setIsFlipped)(targetValue === 1);
+        }
+      }
+    );
   };
   const hasExpandedContent =
     isFullSentenceExpanded || isContextExpanded || isExamplesExpanded;
@@ -1444,8 +1507,6 @@ function CardDetailCarouselCardUI({
       transform: [{ perspective: 1200 }, { rotateY: `${rotateY}deg` }],
       backfaceVisibility: 'hidden',
       opacity,
-      // 當翻轉進度小於一半時，正面擁有較高層級以接收點擊
-      zIndex: flipAnim.value < 0.5 ? 1 : 0,
     };
   });
 
@@ -1461,8 +1522,6 @@ function CardDetailCarouselCardUI({
       left: 0,
       right: 0,
       bottom: 0,
-      // 當翻轉進度大於一半時，背面擁有較高層級以接收點擊
-      zIndex: flipAnim.value >= 0.5 ? 1 : 0,
     };
   });
 
@@ -1491,6 +1550,9 @@ function CardDetailCarouselCardUI({
               <Reanimated.View
                 ref={frontCaptureRef}
                 collapsable={false}
+                shouldRasterizeIOS={isFlipping}
+                renderToHardwareTextureAndroid={isFlipping}
+                pointerEvents={isFlipping || isFlipped ? 'none' : 'auto'}
                 style={[
                   styles.detailPaper,
                   { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
@@ -1831,24 +1893,15 @@ function CardDetailCarouselCardUI({
                               style={localStyles.textMeasurementPass}
                               onLayout={handleContextMeasurementLayout}
                             >
-                              <Text
-                                accessible={false}
-                                aria-hidden
-                                accessibilityElementsHidden
-                                importantForAccessibility="no-hide-descendants"
-                                style={[
-                                  styles.referenceSubText,
-                                  {
-                                    color: 'transparent',
-                                    fontSize: Math.round(16 * frontContentScale),
-                                    lineHeight: contextLineHeight,
-                                    paddingRight: frontTextWrapGuard,
-                                  },
-                                ]}
-                              >
-                                {parsedInsight.insider_insight ||
-                                  tUI(uiLanguage, 'cardDetail.noContext')}
-                              </Text>
+                              <StructuredInsiderInsightUI
+                                insight={structuredInsight}
+                                isExpanded={true}
+                                textColor="transparent"
+                                secondaryTextColor="transparent"
+                                uiLanguage={uiLanguage}
+                                isLight={isLightMode}
+                                contentScale={frontContentScale}
+                              />
                             </View>
                           ) : null}
                           <Reanimated.View
@@ -1858,27 +1911,17 @@ function CardDetailCarouselCardUI({
                                 : undefined
                             }
                           >
-                            <Text
-                              style={[
-                                styles.referenceSubText,
-                                {
-                                  color: ui.noteText,
-                                  fontSize: Math.round(16 * frontContentScale),
-                                  lineHeight: contextLineHeight,
-                                  paddingRight: frontTextWrapGuard,
-                                },
-                              ]}
-                              numberOfLines={
-                                isCulturalBackgroundCompacted &&
-                                !isContextExpanded
-                                  ? frontDynamicLayout.contextBudgetLines
-                                  : undefined
-                              }
-                              onTextLayout={handleContextTextLayout}
-                            >
-                              {parsedInsight.insider_insight ||
-                                tUI(uiLanguage, 'cardDetail.noContext')}
-                            </Text>
+                            <StructuredInsiderInsightUI
+                              insight={structuredInsight}
+                              isExpanded={isContextExpanded}
+                              showToggle={false}
+                              textColor={ui.noteText}
+                              secondaryTextColor={ui.secondaryText}
+                              uiLanguage={uiLanguage}
+                              isLight={isLightMode}
+                              contentScale={frontContentScale}
+                              collapsedLines={frontDynamicLayout.contextBudgetLines}
+                            />
                           </Reanimated.View>
                         </>
                       ) : (
@@ -1974,12 +2017,13 @@ function CardDetailCarouselCardUI({
                               { color: ui.secondaryText },
                             ]}
                           >
-                            {tUI(
-                              uiLanguage,
-                              isContextExpanded
-                                ? 'cardDetail.hideFullContent'
-                                : 'cardDetail.showFullContent'
-                            )}
+                            {isContextExpanded
+                              ? tUI(uiLanguage, 'cardDetail.hideFullContent')
+                              : structuredInsight.detailBullets.length > 0
+                              ? (uiLanguage.startsWith('zh')
+                                  ? '展開背景與辨析'
+                                  : tUI(uiLanguage, 'cardDetail.showFullContent'))
+                              : tUI(uiLanguage, 'cardDetail.showFullContent')}
                           </Text>
                           <View style={localStyles.expandArrowSlot}>
                             <Animated.View
@@ -2121,6 +2165,9 @@ function CardDetailCarouselCardUI({
               <Reanimated.View
                 ref={backCaptureRef}
                 collapsable={false}
+                shouldRasterizeIOS={isFlipping}
+                renderToHardwareTextureAndroid={isFlipping}
+                pointerEvents={isFlipping || !isFlipped ? 'none' : 'auto'}
                 style={[
                   styles.detailPaper,
                   { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },

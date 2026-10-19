@@ -77,3 +77,66 @@ export function extractCulturalBackgroundDisplayText(
   }
   return rawText;
 }
+
+export type InsiderInsightBullet = {
+  raw: string;
+  label?: string;
+  body: string;
+};
+
+export type StructuredInsiderInsight = {
+  hookText: string;
+  detailBullets: InsiderInsightBullet[];
+};
+
+export function splitInsiderInsight(rawInsight: string | undefined | null): StructuredInsiderInsight {
+  if (!rawInsight) {
+    return { hookText: '', detailBullets: [] };
+  }
+  const clean = rawInsight.trim();
+  if (!clean) {
+    return { hookText: '', detailBullets: [] };
+  }
+
+  let rawSections: string[] = [];
+
+  // Check if text contains inline or newline bullets
+  if (/[•\-\*]\s+/.test(clean)) {
+    const parts = clean
+      .split(/(?:^|\n|\s+)[•\-\*]\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 1) {
+      rawSections = parts;
+    }
+  }
+
+  if (rawSections.length === 0) {
+    rawSections = clean
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  const hookText = (rawSections[0] || '').replace(/^[•\-\*]\s*/, '').trim();
+  const rawBullets = rawSections.slice(1);
+
+  const detailBullets: InsiderInsightBullet[] = rawBullets.map((raw) => {
+    const cleaned = raw.replace(/^[•\-\*]\s*/, '').trim();
+    const match = cleaned.match(/^([^：:\n]{2,14})[：:]\s*([\s\S]*)$/);
+    if (match) {
+      return {
+        raw: cleaned,
+        label: match[1].trim(),
+        body: match[2].trim(),
+      };
+    }
+    return {
+      raw: cleaned,
+      label: undefined,
+      body: cleaned,
+    };
+  });
+
+  return { hookText, detailBullets };
+}

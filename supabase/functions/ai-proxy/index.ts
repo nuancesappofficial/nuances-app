@@ -152,21 +152,21 @@ const CARD_SECTION_BUDGETS: Record<AIBreakdownMode, {
 }> = {
   short_punchy: {
     definitionChars: 48,
-    contextChars: 260,
-    exampleChars: 420,
-    sentenceTranslationChars: 520,
-    sentenceNotesChars: 80,
-    collocationChars: 150,
-    collocationCount: 1,
-    exampleCount: 1,
-    synonymCount: 1,
+    contextChars: 450,
+    exampleChars: 760,
+    sentenceTranslationChars: 720,
+    sentenceNotesChars: 120,
+    collocationChars: 160,
+    collocationCount: 2,
+    exampleCount: 2,
+    synonymCount: 2,
     antonymCount: 1,
-    semanticRelationChars: 90,
-    runtimeTokens: 880,
+    semanticRelationChars: 100,
+    runtimeTokens: 1480,
   },
   context: {
     definitionChars: 48,
-    contextChars: 420,
+    contextChars: 450,
     exampleChars: 760,
     sentenceTranslationChars: 720,
     sentenceNotesChars: 120,
@@ -180,17 +180,17 @@ const CARD_SECTION_BUDGETS: Record<AIBreakdownMode, {
   },
   deep_dive: {
     definitionChars: 48,
-    contextChars: 600,
-    exampleChars: 1180,
-    sentenceTranslationChars: 860,
+    contextChars: 500,
+    exampleChars: 860,
+    sentenceTranslationChars: 780,
     sentenceNotesChars: 120,
-    collocationChars: 170,
-    collocationCount: 3,
-    exampleCount: 3,
-    synonymCount: 3,
-    antonymCount: 2,
-    semanticRelationChars: 110,
-    runtimeTokens: 2160,
+    collocationChars: 160,
+    collocationCount: 2,
+    exampleCount: 2,
+    synonymCount: 2,
+    antonymCount: 1,
+    semanticRelationChars: 100,
+    runtimeTokens: 1680,
   },
 };
 
@@ -578,26 +578,22 @@ function resolveAIBreakdownMode(input: unknown): AIBreakdownMode {
 function getCulturalBackgroundGuideline(
   budgetChars: number,
   replyLanguageLabel: string,
-  mode: AIBreakdownMode
+  _mode: AIBreakdownMode
 ): string {
-  const depthRule =
-    mode === 'short_punchy'
-      ? 'Mode Quick: LENGTH: Max 1 sentence. FOCUS: Only explain the immediate psychological gap vs the basic synonym. No extra scenarios.'
-      : mode === 'deep_dive'
-      ? 'Mode Deep Dive: LENGTH: 3-4 sentences. FOCUS: Explain the gap + Provide ONE micro-scenario + Reveal the \'Social Risk\' or \'Edge Case Vibe\' (e.g., sounding inappropriate to a boss, sarcasm).'
-      : 'Mode Detailed: LENGTH: 2-3 sentences. FOCUS: Explain the psychological gap + Provide exactly ONE specific micro-scenario that aligns with the Context Sentence.';
-
   return [
     `culturalBackground must be a strict JSON object (NOT raw text, NOT markdown code block) in ${replyLanguageLabel} under ${budgetChars} chars total.`,
     'Schema: {"metrics":{"formality":<integer 1-10 OR null>,"intensity":<integer 1-10 OR null>},"insider_insight":"<string>","supplementary_senses":[{"pos":"<string>","definition":"<string>"}]}.',
     'formality: integer 1-10 (1=casual/slang, 10=formal/academic) OR null.',
     'intensity: integer 1-10 (1=weak/subtle, 10=strong/extreme) OR null.',
     'supplementary_senses: If the target word has other common major meanings or parts of speech outside the current context (e.g., frame(n) vs frame(v)), provide at most 2 in an array of {"pos": "...", "definition": "..."} in the reply language. If none or word is unambiguous, return an empty array [].',
-    'LANGUAGE ISOLATION: In insider_insight, BOTH the target word (card subject) and the baseline synonym [Basic Synonym] MUST remain in English verbatim. You are STRICTLY FORBIDDEN from translating either word into the reply language. (e.g., if the target word is "leverage" and the basic synonym is "use", you MUST output "相較於單純的 use，leverage 帶有..." or "比起單純的 use，leverage 帶有...". NEVER output "相較於單純的使用，善用帶有..."; if target is "furious" and synonym is "angry", output "相較於單純的 angry，furious 帶有...", NEVER output "相較於單純的生氣，憤怒帶有...").',
-    'CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the Current Context Sentence. Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.',
-    'CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., \'table 是一種具備平坦表面與支柱的家具，主要用於放置物品\') without the contrast structure.',
-    'CRITICAL BASE RULE: IF metrics are not null, insider_insight MUST contrast the target word with a basic synonym and start with "相較於單純的 [Basic Synonym]，[Target Word] 帶有..." (or "比起單純的 [Basic Synonym]，[Target Word] 帶有...", or reply language equivalent e.g., "Compared to just [Basic Synonym], [Target Word] carries..."). BOTH [Basic Synonym] and [Target Word] MUST stay in English verbatim. No dictionary definitions. No generic endings.',
-    depthRule,
+    'LANGUAGE ISOLATION: insider_insight itself MUST be written in ' + replyLanguageLabel + ', with ONLY the target word, English acronyms/expansions, and contrasted English synonyms kept in English verbatim embedded naturally within ' + replyLanguageLabel + ' prose. You are STRICTLY FORBIDDEN from generating the entire insider_insight explanation in English.',
+    'CONTEXT GROUNDING: Ground the explanation in the sense and intent of the Current Context Sentence, but do NOT lock the explanation into merely paraphrasing the literal incident of the source sentence.',
+    'CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, describe its literal physical structure or function in an encyclopedia style.',
+    'UNIFIED TWO-PART FORMAT FOR insider_insight: You MUST format insider_insight into exactly two parts separated by newlines in ' + replyLanguageLabel + ':',
+    'Line 1 (The Core Hook — exactly 1 punchy sentence, max 30-40 chars, MUST fit in 2 lines on mobile): Immediate takeaway. For acronyms: English expansion + core meaning; for idioms: literal image to figurative meaning hook; for words: core vibe + sharpest 1-word synonym contrast. Zero filler.',
+    'Lines 2-3 (Collapsible Bullets — exactly 2 short bullet points, each on its own newline starting with \'• \'):',
+    '• 典故與語境：（or • 來源與用法：）Explain why this phrase/acronym/word carries this meaning, its origin, or cultural background.',
+    '• 近義詞辨析：Concrete nuance difference vs 1-2 closest English synonyms (kept in English verbatim) and critical register note.',
   ].join(' ');
 }
 
@@ -768,7 +764,7 @@ function buildGenerateCardResponseSchema(sectionBudget: (typeof CARD_SECTION_BUD
           },
           insider_insight: {
             type: 'STRING',
-            description: 'Insider insight text following mandatory contrast and dynamic depth rules. Both target word and basic synonym MUST stay in English verbatim (e.g., 相較於單純的 use，leverage 帶有...).',
+            description: 'Unified two-part format in reply language: Line 1 Core Hook (35-55 chars takeaway) followed by Lines 2-3 with 2 bullet points (• 典故與語境：..., • 近義詞辨析：...). Target word, acronyms, and English synonyms must stay in English verbatim embedded in reply language.',
           },
           supplementary_senses: {
             type: 'ARRAY',
@@ -2720,8 +2716,8 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     'You create compact flashcards for English learners.',
     'Return strict JSON only; no markdown, prose, extra keys, or extra arrays.',
     `Current Context Sentence: "${originalSentence}"`,
-    'LANGUAGE ISOLATION: In insider_insight, BOTH the target word (card subject) and the baseline synonym [Basic Synonym] MUST remain in English verbatim. You are STRICTLY FORBIDDEN from translating either word into the reply language. (e.g., if the target word is "leverage" and the basic synonym is "use", you MUST output "相較於單純的 use，leverage 帶有..." or "比起單純的 use，leverage 帶有...". NEVER output "相較於單純的使用，善用帶有..."; if target is "furious" and synonym is "angry", output "相較於單純的 angry，furious 帶有...", NEVER output "相較於單純的生氣，憤怒帶有...").',
-    'CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the Current Context Sentence. Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.',
+    `LANGUAGE ISOLATION: insider_insight itself MUST be written in ${replyLanguage.label}, with ONLY the target word, English acronyms/expansions, and contrasted English synonyms kept in English verbatim embedded naturally within ${replyLanguage.label} prose. You are STRICTLY FORBIDDEN from generating the entire insider_insight explanation in English.`,
+    'CONTEXT GROUNDING: Ground the explanation in the sense and intent of the Current Context Sentence, but do NOT lock the explanation into merely paraphrasing the literal incident of the source sentence.',
     'Understand the full sentence first. Then answer what the target means here and format it for the UI.',
     'Use the local in-sentence meaning unless the input has no context.',
     CARD_SUBJECT_SELECTION_INSTRUCTION,
@@ -2734,7 +2730,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     domainRegisterSenseInstruction,
     lexicalDefinitionScopeInstruction,
     'sentenceTranslation has exactly two lines: full source sentence with quoted target, then clean translation with quoted translated target.',
-    'Keep definition compact. In culturalBackground, return a strict JSON object with metrics (formality: integer 1-10 or null, intensity: integer 1-10 or null) and insider_insight. CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., \'table 是一種具備平坦表面與支柱的家具，主要用於放置物品\') without the contrast structure. IF metrics are not null, insider_insight MUST start with "相較於單純的 [Basic Synonym]，[Target Word] 帶有..." (or reply language equivalent) with BOTH [Basic Synonym] and [Target Word] kept in English verbatim. Follow the dynamic depth rules for the active mode. No generic filler.',
+    'Keep definition compact. In culturalBackground, return a strict JSON object with metrics (formality: integer 1-10 or null, intensity: integer 1-10 or null) and insider_insight. CRITICAL METRICS RULE: (1) You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., \'furious\', \'stare\', \'ghosting\'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word. (2) ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., \'table\', \'oxygen\', \'keyboard\') where evaluating emotion or formality is completely nonsensical. IF metrics are null, describe its literal physical structure or function in an encyclopedia style. Follow Google Search AI Overview style for insider_insight: lead directly with the most valuable core takeaway without boilerplate formulas, and follow the dynamic depth rules for the active mode. No generic filler.',
     `semanticRelations must match the effective subject's meaning, part of speech, and register. Return up to ${sectionBudget.synonymCount} synonym(s) and up to ${sectionBudget.antonymCount} true antonym(s); either array may be empty when no natural sense-specific relation exists. Phrase cards require related phrases. Never repeat collocations.`,
     `Return reusable usage patterns containing the effective subject or its normal inflection. Each example must be a brand-new complete sentence using the matching pattern, completely different from "${originalSentence}" (NEVER copy or repeat the source sentence), with a natural translation in ${replyLanguage.label}. Never repeat identical example sentences across collocations.`,
     modeInstruction,
@@ -3032,7 +3028,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
     parsed.detectedPhrase || parsed.phrase || parsed.mwe || '',
     160
   );
-  const detectedPhrase = normalizeWhitespace(detectedPhraseRaw).toLowerCase();
+  let detectedPhrase = normalizeWhitespace(detectedPhraseRaw).toLowerCase();
   const phraseType = sanitizeText(parsed.phraseType, 32);
   const isEstablishedExpression = parseBooleanLike(parsed.isEstablishedExpression);
   const phraseConfidence = Math.max(
@@ -3072,7 +3068,7 @@ Do not add introductions, markdown, bullet explanations, or extra keys.
       .filter(Boolean)
       .slice(0, 3)
     : [];
-  const confirmedDetectedPhrase =
+  let confirmedDetectedPhrase =
     isPartOfPhrase &&
     hasLemmaMeaningVerdict &&
     !lemmaMeaningPreserved &&
@@ -3847,16 +3843,16 @@ async function handleGenerateCardEnrichmentStream(payload: GenerateCardPayload):
   const systemInstruction = [
     'You are an expert in contemporary English usage and internet slang.',
     `Current Context Sentence: "${originalSentence}"`,
-    'LANGUAGE ISOLATION: You MUST NOT translate the target word or the [Basic Synonym] into the reply language. Keep them in English. (e.g., Output \'相較於單純的 angry...\' NOT \'相較於單純的 生氣...\').',
-    'CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the "Current Context Sentence". Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.',
+    `LANGUAGE ISOLATION: insider_insight itself MUST be written in ${replyLanguage.label}, with ONLY the target word, English acronyms/expansions, and contrasted English synonyms kept in English verbatim embedded naturally within ${replyLanguage.label} prose. You are STRICTLY FORBIDDEN from generating the entire insider_insight explanation in English.`,
+    'CONTEXT GROUNDING: Ground the explanation in the sense and intent of the Current Context Sentence, but do NOT lock the explanation into merely paraphrasing the literal incident of the source sentence.',
   ].join(' ');
 
   const depthRule =
     aiBreakdownMode === 'short_punchy'
-      ? 'Mode Quick: LENGTH: Max 1 sentence. FOCUS: Only explain the immediate psychological gap vs the basic synonym. No extra scenarios.'
+      ? 'Mode Quick (Instant Clarity): LENGTH: 1-2 concise sentences (<= 180 chars). GOAL: Deliver the core takeaway immediately—full expansion if acronym, literal-to-actual bridge if idiom/phrase, or the single sharpest difference vs. a basic English synonym. Zero fluff.'
       : aiBreakdownMode === 'deep_dive'
-      ? 'Mode Deep Dive: LENGTH: 3-4 sentences. FOCUS: Explain the gap + Provide ONE micro-scenario + Reveal the \'Social Risk\' or \'Edge Case Vibe\' (e.g., sounding inappropriate to a boss, sarcasm).'
-      : 'Mode Detailed: LENGTH: 2-3 sentences. FOCUS: Explain the psychological gap + Provide exactly ONE specific micro-scenario that aligns with the Context Sentence.';
+      ? 'Mode Deep Dive (Nuance & Mastery): LENGTH: 3-5 sentences (<= 520 chars). GOAL: Comprehensive breakdown—(1) direct answer + origin/etymology or acronym breakdown, (2) fine-grained comparison across a spectrum of 2+ English synonyms (explaining exact shift in tone, weight, or intent), and (3) native speaker usage boundaries (register, social dynamics, ironic/slang shifts, or common misuse pitfalls).'
+      : 'Mode Detailed (Google AI Overview): LENGTH: 2-3 sentences (<= 340 chars). GOAL: Start with immediate core answer (expansion / phrase origin / core nuance), then explain why it carries this meaning and clearly contrast with 1-2 related English synonyms so the learner knows exactly when to choose this word over others.';
 
   const prompt = `
 Source text: "${originalSentence}"
@@ -3876,14 +3872,17 @@ Meaning here in ${replyLanguage.label}: "${definition}"
    - formality: integer 1-10 (1=casual/slang, 10=formal/academic) OR null.
    - intensity: integer 1-10 (1=weak/subtle, 10=strong/extreme) OR null.
    - supplementary_senses: If the target word has other common major meanings or parts of speech outside the current context (e.g., frame(n) vs frame(v)), provide at most 2 in an array of {"pos": "...", "definition": "..."} in ${replyLanguage.label}. If none or word is unambiguous, return an empty array [].
-   - LANGUAGE ISOLATION: In insider_insight, BOTH the target word (card subject) and the baseline synonym [Basic Synonym] MUST remain in English verbatim. You are STRICTLY FORBIDDEN from translating either word into the reply language. (e.g., if the target word is "leverage" and the basic synonym is "use", you MUST output "相較於單純的 use，leverage 帶有..." or "比起單純的 use，leverage 帶有...". NEVER output "相較於單純的使用，善用帶有..."; if target is "furious" and synonym is "angry", output "相較於單純的 angry，furious 帶有...", NEVER output "相較於單純的生氣，憤怒帶有...").
-   - CONTEXT ALIGNMENT: The scenario you describe MUST be directly based on the "Current Context Sentence". Do NOT invent random examples (like dinner parties or bullied children) that are unrelated to the provided sentence. If the sentence is about smashing a toe, explain the nuance in the context of physical pain.
+   - LANGUAGE ISOLATION: insider_insight itself MUST be written in ${replyLanguage.label}, with ONLY the target word, English acronyms/expansions, and contrasted English synonyms kept in English verbatim embedded naturally within ${replyLanguage.label} prose. You are STRICTLY FORBIDDEN from generating the entire insider_insight explanation in English.
+   - CONTEXT GROUNDING: Ground the explanation in the sense and intent of the Current Context Sentence, but do NOT lock the explanation into merely paraphrasing the literal incident of the source sentence.
    - CRITICAL METRICS RULE:
      1. You MUST evaluate BOTH formality and intensity for all verbs, adjectives, adverbs, and idioms (e.g., 'furious', 'stare', 'ghosting'). Even if a word is common or neutral in formality, give it a baseline middle score (e.g., 4-6). Do NOT use null just because it is a general-use word.
-     2. ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., 'table', 'oxygen', 'keyboard') where evaluating emotion or formality is completely nonsensical. IF metrics are null, you are STRICTLY FORBIDDEN from describing social interactions, vibes, or feelings; you MUST ONLY describe its literal physical structure or function (e.g., 'table 是一種具備平坦表面與支柱的家具，主要用於放置物品') without the contrast structure.
-   - CRITICAL BASE RULE: IF metrics are not null, insider_insight MUST contrast the target word with a basic synonym and start with "相較於單純的 [Basic Synonym]，[Target Word] 帶有..." (or "比起單純的 [Basic Synonym]，[Target Word] 帶有...", or reply language equivalent, e.g. "Compared to just [Basic Synonym], [Target Word] carries..."). BOTH [Basic Synonym] and [Target Word] MUST stay in English verbatim. No dictionary definitions. No generic endings.
-   - ${depthRule}
-2. Choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s), unless fewer genuinely exist, and give the natural ${replyLanguage.label} meaning of each. CRITICAL FOR COLLOCATIONS: Every collocation phrase MUST explicitly contain the exact target subject ("${canonicalSubject}") or target word ("${targetWord}") verbatim. If the subject is an inflected form like "covered", phrases MUST contain "covered" (e.g. "got you covered", "have it covered"), NEVER a truncated form like "cover" that omits the inflection.
+     2. ONLY use null for purely objective, non-emotional physical entities or scientific terms (e.g., 'table', 'oxygen', 'keyboard') where evaluating emotion or formality is completely nonsensical. IF metrics are null, describe its literal physical structure or function in an encyclopedia style.
+   - UNIFIED TWO-PART FORMAT FOR INSIDER_INSIGHT: You MUST format insider_insight into exactly two parts separated by newlines in ${replyLanguage.label} (keeping target word, English acronyms/expansions, and contrasted English synonyms in English verbatim):
+     Line 1 (The Core Hook — exactly 1 punchy sentence, max 30-40 chars, MUST fit in 2 lines on mobile): Immediate takeaway (for acronyms: English expansion + core takeaway; for idioms: literal image to figurative meaning hook; for words: core vibe + sharpest 1-word synonym contrast). Zero introductory filler.
+     Lines 2-3 (Collapsible Bullets — exactly 2 short bullet points, each on its own newline starting with '• '):
+     • 典故與語境：（or • 來源與用法：）Explain why this phrase/acronym/word carries this meaning, its origin, or cultural background.
+     • 近義詞辨析：Concrete nuance difference vs 1-2 closest English synonyms (kept in English verbatim) and any register or tone distinction.
+2. Choose ${sectionBudget.collocationCount} genuine, common ${sourceLanguage.label} collocation(s) or natural usage patterns for "${canonicalSubject}", and give the natural ${replyLanguage.label} meaning of each. CRITICAL FOR COLLOCATIONS: Every collocation phrase MUST be built around "${canonicalSubject}" (allowing natural pronoun/tense variation for idioms, e.g., "walk around with a chip on one's shoulder" for "have a chip on one's shoulder"). If the subject is an inflected form like "covered", phrases MUST contain "covered" (e.g. "got you covered", "have it covered"), NEVER a truncated form like "cover" that omits the inflection.
 3. Write one complete ${sourceLanguage.label} example sentence per collocation. CRITICAL FOR EXAMPLES: The example MUST naturally use that exact collocation and MUST be a brand-new sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Then give the complete ${replyLanguage.label} translation.
 4. Give up to ${sectionBudget.synonymCount} sense-specific synonym(s) and ${sectionBudget.antonymCount} true antonym(s), only when they naturally exist.
 ${isLowContextSource ? 'For a standalone lookup, use common usage for the resolved meaning.' : ''}
@@ -3895,9 +3894,9 @@ Return JSON in exactly this order:
     "insider_insight": "<string>",
     "supplementary_senses": []
   },
-  "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "brand-new ${sourceLanguage.label} example — NEVER the source sentence", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
   "synonyms": [{ "term": "sense-specific synonym", "translation": "short translation" }],
   "antonyms": [{ "term": "true antonym", "translation": "short translation" }],
+  "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "brand-new ${sourceLanguage.label} example — NEVER the source sentence", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
   "tags": ["max 3 short tags"]
 }
 `;
@@ -3906,7 +3905,7 @@ Return JSON in exactly this order:
     { role: 'system', content: systemInstruction },
     { role: 'user', content: prompt },
   ];
-  const maxTokens = Math.max(520, sectionBudget.runtimeTokens - 300);
+  const maxTokens = Math.max(1000, sectionBudget.runtimeTokens);
   const startedAt = Date.now();
 
   try {

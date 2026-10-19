@@ -109,6 +109,7 @@ import {
 import {
   resolveBottomAlignedScrollTarget,
   resolveCardTopAlignedScrollTarget,
+  resolveStreamingFollowScrollTarget,
 } from '../../../features/createCard/ghostScrollTargets';
 import {
   claimUnsavedCards,
@@ -1059,6 +1060,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   > | null>(null);
   const previewScrollRequestIdRef = React.useRef(0);
   const autoScrolledPreviewKeyRef = React.useRef<string | null>(null);
+  const isUserDraggingScrollRef = React.useRef(false);
   const didAutoScrollDefaultExperienceCompletionRef = React.useRef(false);
   const pendingPremiumRetryRef = React.useRef(false);
   const [activePreviewCard, setActivePreviewCard] =
@@ -1067,6 +1069,21 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     React.useState<CompletedCard | null>(null);
   const [isBufferedStreamPreview, setIsBufferedStreamPreview] =
     React.useState(false);
+  const [isNetworkStreamFinished, setIsNetworkStreamFinished] =
+    React.useState(false);
+  const [isSequentialRevealActive, setIsSequentialRevealActive] =
+    React.useState(false);
+  const isSequentialRevealActiveRef = React.useRef(false);
+  isSequentialRevealActiveRef.current = isSequentialRevealActive;
+  const sequentialRevealResolverRef = React.useRef<(() => void) | null>(null);
+  const handleSequentialRevealComplete = React.useCallback(() => {
+    setIsSequentialRevealActive(false);
+    isSequentialRevealActiveRef.current = false;
+    if (sequentialRevealResolverRef.current) {
+      sequentialRevealResolverRef.current();
+      sequentialRevealResolverRef.current = null;
+    }
+  }, []);
   const [previewPhase, setPreviewPhase] =
     React.useState<PreviewPhase>('frontThinking');
   const [previewRevealState, setPreviewRevealState] =
@@ -1182,6 +1199,39 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     [animatePreviewScrollTo]
   );
 
+  const followActivePreviewStreamingBottom = React.useCallback(
+    (delayMs = 40) => {
+      if (isUserDraggingScrollRef.current) return;
+      if (scrollViewportHeight <= 0) return;
+
+      const requestId = ++previewScrollRequestIdRef.current;
+      if (previewScrollTimeoutRef.current) {
+        clearTimeout(previewScrollTimeoutRef.current);
+      }
+      previewScrollTimeoutRef.current = setTimeout(() => {
+        requestAnimationFrame(() => {
+          if (previewScrollRequestIdRef.current !== requestId) return;
+          if (isUserDraggingScrollRef.current) return;
+          const { y, height } = activePreviewLayoutRef.current;
+          if (height <= 0) return;
+
+          const targetY = resolveStreamingFollowScrollTarget({
+            previewY: y,
+            previewHeight: height,
+            viewportHeight: scrollViewportHeight,
+            currentScrollY: currentScrollYRef.current,
+            bottomPadding: 56,
+          });
+
+          if (targetY > currentScrollYRef.current) {
+            animatePreviewScrollTo(targetY);
+          }
+        });
+      }, delayMs);
+    },
+    [animatePreviewScrollTo, scrollViewportHeight]
+  );
+
   React.useEffect(() => {
     return () => {
       cancelPendingPreviewScroll();
@@ -1205,13 +1255,23 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         autoScrolledPreviewKeyRef.current !== previewKey
       ) {
         autoScrolledPreviewKeyRef.current = previewKey;
+        isUserDraggingScrollRef.current = false;
         scrollToActivePreviewCard(80);
+      } else if (
+        isPreviewSceneActive &&
+        (isGhostGenerating || isSequentialRevealActive) &&
+        !isUserDraggingScrollRef.current
+      ) {
+        followActivePreviewStreamingBottom(40);
       }
     },
     [
       activePreviewCard?.word,
+      followActivePreviewStreamingBottom,
       generatingCards,
+      isGhostGenerating,
       isPreviewSceneActive,
+      isSequentialRevealActive,
       partialGeneratedCard?.word,
       scrollToActivePreviewCard,
     ]
@@ -1220,6 +1280,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   React.useEffect(() => {
     if (isPreviewSceneActive) return;
     autoScrolledPreviewKeyRef.current = null;
+    isUserDraggingScrollRef.current = false;
     cancelPendingPreviewScroll();
   }, [cancelPendingPreviewScroll, isPreviewSceneActive]);
 
@@ -1530,6 +1591,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         traceFirstRun('starter_allowance', 'card_generation_started', {
           isTutorial: isDefaultExperienceTutorial,
         });
+        isUserDraggingScrollRef.current = false;
         setStreamStatusText('');
         setPartialGeneratedCard(null);
         setIsBufferedStreamPreview(false);
@@ -1583,8 +1645,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             if (partialCard) {
               didShowStreamPreview = true;
               setIsBufferedStreamPreview(true);
-              setPreviewPhase('complete');
-              setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
+              setIsSequentialRevealActive(true);
+              isSequentialRevealActiveRef.current = true;
               setPartialGeneratedCard(partialCard);
             }
           };
@@ -1786,16 +1848,30 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             item.targetId === target.id ? { ...item, completed: true } : item
           )
         );
-        setPartialGeneratedCard(null);
-        setActivePreviewCard(card);
-        appendCompletedCard(card);
         if (didShowStreamPreview) {
-          setPreviewPhase('complete');
-          setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
-          await new Promise((resolve) => setTimeout(resolve, 420));
+          setIsNetworkStreamFinished(true);
+          setPartialGeneratedCard(card);
+          if (isSequentialRevealActiveRef.current) {
+            await new Promise<void>((resolve) => {
+              const timeoutId = setTimeout(() => {
+                if (sequentialRevealResolverRef.current === resolve) {
+                  sequentialRevealResolverRef.current = null;
+                }
+                resolve();
+              }, 12000);
+              sequentialRevealResolverRef.current = () => {
+                clearTimeout(timeoutId);
+                resolve();
+              };
+            });
+          }
+          await new Promise((resolve) => setTimeout(resolve, 360));
         } else {
           await runCardRevealSequence(card);
         }
+        setPartialGeneratedCard(null);
+        setActivePreviewCard(card);
+        appendCompletedCard(card);
         setActivePreviewCard((current) =>
           current?.word === card.word &&
           current?.sourceSentence === card.sourceSentence
@@ -1803,6 +1879,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             : current
         );
         setIsBufferedStreamPreview(false);
+        setIsNetworkStreamFinished(false);
+        setIsSequentialRevealActive(false);
+        isSequentialRevealActiveRef.current = false;
         setPreviewPhase('complete');
         setPreviewRevealState(COMPLETE_PREVIEW_REVEAL);
         setGenerationFailure((current) =>
@@ -2632,9 +2711,19 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           onLayout={handleScrollLayout}
           onContentSizeChange={(_width, height) => {
             scrollContentHeightRef.current = height;
+            if (
+              isPreviewSceneActive &&
+              (isGhostGenerating || isSequentialRevealActive) &&
+              !isUserDraggingScrollRef.current
+            ) {
+              followActivePreviewStreamingBottom(40);
+            }
           }}
           onScroll={handleCreateCardScroll}
-          onScrollBeginDrag={cancelPendingPreviewScroll}
+          onScrollBeginDrag={() => {
+            isUserDraggingScrollRef.current = true;
+            cancelPendingPreviewScroll();
+          }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
         >
@@ -2964,160 +3053,6 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 <Pressable
                   style={styles.aiModeDropdownTrigger}
                   onPress={() => {
-                    setIsAlbumDestinationDropdownOpen(false);
-                    setIsAIModeDropdownOpen((prev) => !prev);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: isAIModeDropdownOpen }}
-                >
-                  <View style={styles.aiModeDropdownCopy}>
-                    <Text
-                      style={[
-                        styles.aiModeDropdownTitle,
-                        { color: palette.secondaryText },
-                      ]}
-                    >
-                      {tUI(uiLanguage, 'create.aiDepth')}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.aiModeDropdownValue,
-                        { color: palette.textOnContainer },
-                      ]}
-                    >
-                      {getAIModeLabel(aiBreakdownMode, uiLanguage)}
-                    </Text>
-                  </View>
-                  <Reanimated.Text
-                    style={[
-                      styles.aiModeDropdownChevron,
-                      { color: MODAL_CTA_COLOR },
-                      aiModeDropdownChevronStyle,
-                    ]}
-                  >
-                    ⌄
-                  </Reanimated.Text>
-                </Pressable>
-                <Reanimated.View
-                  style={[
-                    styles.aiModeDropdownCollapsible,
-                    aiModeDropdownAnimatedStyle,
-                  ]}
-                  pointerEvents={isAIModeDropdownOpen ? 'auto' : 'none'}
-                >
-                  <Reanimated.View
-                    style={[
-                      styles.aiModeDropdownCollapsibleContent,
-                      aiModeDropdownContentAnimatedStyle,
-                    ]}
-                    onLayout={handleAIModeDropdownContentLayout}
-                  >
-                    <View
-                      style={[
-                        styles.aiModeDropdownList,
-                        {
-                          backgroundColor: palette.modalOptionBg,
-                          borderColor: palette.modalOptionBorder,
-                        },
-                      ]}
-                    >
-                      {AI_BREAKDOWN_MODE_OPTIONS.map((option) => {
-                        const isActive = option.value === aiBreakdownMode;
-                        return (
-                          <Pressable
-                            key={option.value}
-                            style={[
-                              styles.aiModeDropdownOption,
-                              isActive
-                                ? {
-                                    backgroundColor: isLight
-                                      ? 'rgba(78,175,244,0.14)'
-                                      : 'rgba(78,175,244,0.18)',
-                                    borderColor: MODAL_CTA_COLOR_BORDER,
-                                  }
-                                : { borderColor: 'transparent' },
-                            ]}
-                            onPress={() =>
-                              void handleSelectAIBreakdownMode(option.value)
-                            }
-                            accessibilityRole="radio"
-                            accessibilityState={{ checked: isActive }}
-                          >
-                            <View
-                              style={[
-                                styles.aiModeDropdownIconFrame,
-                                {
-                                  backgroundColor: isActive
-                                    ? isLight
-                                      ? 'rgba(78,175,244,0.18)'
-                                      : 'rgba(78,175,244,0.22)'
-                                    : palette.containerBg,
-                                  borderColor: isActive
-                                    ? MODAL_CTA_COLOR_BORDER
-                                    : palette.modalOptionBorder,
-                                },
-                              ]}
-                            >
-                              <Image
-                                source={AI_MODE_ICON_BY_VALUE[option.value]}
-                                style={styles.aiModeDropdownIcon as ImageStyle}
-                                resizeMode="contain"
-                              />
-                            </View>
-                            <View style={styles.aiModeDropdownOptionCopy}>
-                              <Text
-                                style={[
-                                  styles.aiModeDropdownOptionLabel,
-                                  {
-                                    color: isActive
-                                      ? MODAL_CTA_COLOR
-                                      : palette.textOnContainer,
-                                  },
-                                ]}
-                              >
-                                {getAIModeLabel(option.value, uiLanguage)}
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.aiModeDropdownOptionDescription,
-                                  { color: palette.secondaryText },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {getAIModeDescription(option.value, uiLanguage)}
-                              </Text>
-                            </View>
-                            {isActive ? (
-                              <View
-                                style={[
-                                  styles.aiModeDropdownActiveDot,
-                                  { backgroundColor: MODAL_CTA_COLOR },
-                                ]}
-                              />
-                            ) : null}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </Reanimated.View>
-                </Reanimated.View>
-              </View>
-              <View
-                style={[
-                  styles.aiModeDropdownWrap,
-                  {
-                    backgroundColor: palette.containerBg,
-                    borderColor: isLight
-                      ? palette.borderSubtle
-                      : CONTAINER_NEON_OUTLINE,
-                    shadowColor: isLight ? '#000000' : CONTAINER_NEON_GLOW,
-                    shadowOpacity: isLight ? 0.05 : 0.14,
-                  },
-                ]}
-              >
-                <Pressable
-                  style={styles.aiModeDropdownTrigger}
-                  onPress={() => {
                     setIsAIModeDropdownOpen(false);
                     setIsAlbumDestinationDropdownOpen((prev) => !prev);
                   }}
@@ -3395,10 +3330,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 }
                 revealState={
                   isPartialPreviewActive
-                    ? COMPLETE_PREVIEW_REVEAL
+                    ? EMPTY_PREVIEW_REVEAL
                     : previewRevealState
                 }
-                phase={isPartialPreviewActive ? 'complete' : previewPhase}
+                phase={isPartialPreviewActive ? 'frontReveal' : previewPhase}
                 uiLanguage={uiLanguage}
                 isFavorite={(
                   previewDisplayCard?.selectedAlbumIds || []
@@ -3412,6 +3347,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     : false
                 }
                 streamingText={isBufferedStreamPreview}
+                isNetworkStreamFinished={isNetworkStreamFinished}
+                onSequentialRevealComplete={handleSequentialRevealComplete}
                 headerAccessory={renderTypoSuggestion(previewDisplayCard)}
                 onPlayWord={
                   activePreviewCard

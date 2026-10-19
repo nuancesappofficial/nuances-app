@@ -13,8 +13,11 @@ export type CardContextSections = {
 
 export {
   type CulturalBackgroundInsight,
+  type InsiderInsightBullet,
+  type StructuredInsiderInsight,
   parseCulturalBackgroundInsight,
   extractCulturalBackgroundDisplayText,
+  splitInsiderInsight,
 } from './culturalBackgroundInsight';
 
 function cleanText(value: unknown): string {

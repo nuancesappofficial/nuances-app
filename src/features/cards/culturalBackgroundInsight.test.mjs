@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   parseCulturalBackgroundInsight,
   extractCulturalBackgroundDisplayText,
+  splitInsiderInsight,
 } from './culturalBackgroundInsight.ts';
 
 test('parseCulturalBackgroundInsight parses valid JSON with metrics and insider_insight', () => {
@@ -158,5 +159,47 @@ test('parseCulturalBackgroundInsight handles empty or missing supplementary_sens
   const result = parseCulturalBackgroundInsight(jsonStr);
   assert.ok(result);
   assert.deepEqual(result.supplementary_senses, []);
+});
+
+test('splitInsiderInsight handles newline separated bullets with labels', () => {
+  const raw = [
+    'simp 指過度討好追求某人而失去尊嚴的人。',
+    '• 典故與語境：源自西岸嘻哈文化，主要用於男性討好女性的網路語境。',
+    '• 近義詞辨析：比 people-pleaser 更具性別針對性與貶義。',
+  ].join('\n');
+
+  const result = splitInsiderInsight(raw);
+  assert.equal(result.hookText, 'simp 指過度討好追求某人而失去尊嚴的人。');
+  assert.equal(result.detailBullets.length, 2);
+  assert.equal(result.detailBullets[0].label, '典故與語境');
+  assert.equal(result.detailBullets[0].body, '源自西岸嘻哈文化，主要用於男性討好女性的網路語境。');
+  assert.equal(result.detailBullets[1].label, '近義詞辨析');
+  assert.equal(result.detailBullets[1].body, '比 people-pleaser 更具性別針對性與貶義。');
+});
+
+test('splitInsiderInsight handles inline bullet string without newlines', () => {
+  const raw =
+    'simp 源自 simpleton（傻瓜），指為了討好或追求某人而過度奉獻。 • 典故與語境：源自 1980 年代西岸嘻哈文化。 • 近義詞辨析：比 people-pleaser 更具貶義。';
+
+  const result = splitInsiderInsight(raw);
+  assert.equal(result.hookText, 'simp 源自 simpleton（傻瓜），指為了討好或追求某人而過度奉獻。');
+  assert.equal(result.detailBullets.length, 2);
+  assert.equal(result.detailBullets[0].label, '典故與語境');
+  assert.equal(result.detailBullets[0].body, '源自 1980 年代西岸嘻哈文化。');
+  assert.equal(result.detailBullets[1].label, '近義詞辨析');
+  assert.equal(result.detailBullets[1].body, '比 people-pleaser 更具貶義。');
+});
+
+test('splitInsiderInsight handles plain single-line text without bullets', () => {
+  const raw = '純粹單行無條列說明。';
+  const result = splitInsiderInsight(raw);
+  assert.equal(result.hookText, '純粹單行無條列說明。');
+  assert.deepEqual(result.detailBullets, []);
+});
+
+test('splitInsiderInsight handles empty or null safely', () => {
+  assert.deepEqual(splitInsiderInsight(''), { hookText: '', detailBullets: [] });
+  assert.deepEqual(splitInsiderInsight(null), { hookText: '', detailBullets: [] });
+  assert.deepEqual(splitInsiderInsight(undefined), { hookText: '', detailBullets: [] });
 });
 

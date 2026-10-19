@@ -27,8 +27,10 @@ import Reanimated, {
 import {
   parseCardContextSections,
   parseCulturalBackgroundInsight,
+  splitInsiderInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from '../DeckScreenUI/NuanceMetricsLeverUI';
+import { StructuredInsiderInsightUI } from '../DeckScreenUI/StructuredInsiderInsightUI';
 import {
   buildProgressiveSentenceSegments,
   quoteLearningTermInText,
@@ -76,6 +78,30 @@ export type PreviewRevealState = {
   showBackExample: boolean;
   showBackCultural: boolean;
   showBackNote: boolean;
+};
+
+export const EMPTY_PREVIEW_REVEAL: PreviewRevealState = {
+  showFrontWord: false,
+  showFrontDefinition: false,
+  showFrontSentence: false,
+  showFrontTranslation: false,
+  showBackCollocation: false,
+  showBackSemanticRelations: false,
+  showBackExample: false,
+  showBackCultural: false,
+  showBackNote: false,
+};
+
+export const COMPLETE_PREVIEW_REVEAL: PreviewRevealState = {
+  showFrontWord: true,
+  showFrontDefinition: true,
+  showFrontSentence: true,
+  showFrontTranslation: true,
+  showBackCollocation: true,
+  showBackSemanticRelations: true,
+  showBackExample: true,
+  showBackCultural: true,
+  showBackNote: true,
 };
 
 const PREVIEW_TYPE_STEPS = 44;
@@ -235,6 +261,8 @@ function ProgressiveText({
   animate = true,
   style,
   textProps,
+  isStreamComplete = true,
+  onComplete,
 }: {
   text: string;
   highlightTerm?: string;
@@ -243,6 +271,8 @@ function ProgressiveText({
   animate?: boolean;
   style: any;
   textProps?: TextProps;
+  isStreamComplete?: boolean;
+  onComplete?: () => void;
 }) {
   const { segments, cleanText } = React.useMemo(
     () => buildProgressiveSentenceSegments(text, highlightTerm),
@@ -256,6 +286,12 @@ function ProgressiveText({
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(initialVisibleCount);
 
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const isStreamCompleteRef = React.useRef(isStreamComplete);
+  isStreamCompleteRef.current = isStreamComplete;
+  const hasTriggeredCompleteRef = React.useRef(false);
+
   const stopRevealTimer = React.useCallback(() => {
     if (!intervalRef.current) return;
     clearInterval(intervalRef.current);
@@ -267,6 +303,18 @@ function ProgressiveText({
     setVisibleCount(next);
   }, []);
 
+  const checkAndTriggerCompletion = React.useCallback(() => {
+    if (
+      !hasTriggeredCompleteRef.current &&
+      targetUnitsRef.current.length > 0 &&
+      visibleCountRef.current >= targetUnitsRef.current.length &&
+      isStreamCompleteRef.current
+    ) {
+      hasTriggeredCompleteRef.current = true;
+      onCompleteRef.current?.();
+    }
+  }, []);
+
   const startRevealTimer = React.useCallback(() => {
     if (intervalRef.current) return;
     intervalRef.current = setInterval(() => {
@@ -274,13 +322,19 @@ function ProgressiveText({
       const current = visibleCountRef.current;
       if (current >= targetLength) {
         stopRevealTimer();
+        checkAndTriggerCompletion();
         return;
       }
       const remaining = targetLength - current;
       const step = remaining > 80 ? 6 : remaining > 30 ? 3 : remaining > 10 ? 2 : 1;
-      setVisibleCountSynced(Math.min(targetLength, current + step));
+      const next = Math.min(targetLength, current + step);
+      setVisibleCountSynced(next);
+      if (next >= targetLength) {
+        stopRevealTimer();
+        checkAndTriggerCompletion();
+      }
     }, DEMO_GHOST_TEXT_UPDATE_INTERVAL_MS);
-  }, [setVisibleCountSynced, stopRevealTimer]);
+  }, [checkAndTriggerCompletion, setVisibleCountSynced, stopRevealTimer]);
 
   React.useEffect(() => {
     const previousText = previousTextRef.current;
@@ -290,13 +344,21 @@ function ProgressiveText({
     if (!active) {
       stopRevealTimer();
       setVisibleCountSynced(0);
+      hasTriggeredCompleteRef.current = false;
       return;
     }
+
+    if (textUnits.length > visibleCountRef.current) {
+      hasTriggeredCompleteRef.current = false;
+    }
+
     if (!animate) {
       stopRevealTimer();
       setVisibleCountSynced(textUnits.length);
+      checkAndTriggerCompletion();
       return;
     }
+
     if (textUnits.length === 0) {
       stopRevealTimer();
       setVisibleCountSynced(0);
@@ -321,15 +383,21 @@ function ProgressiveText({
     }
 
     startRevealTimer();
+    checkAndTriggerCompletion();
   }, [
     active,
     animate,
+    checkAndTriggerCompletion,
     cleanText,
     setVisibleCountSynced,
     startRevealTimer,
     stopRevealTimer,
     textUnits,
   ]);
+
+  React.useEffect(() => {
+    checkAndTriggerCompletion();
+  }, [checkAndTriggerCompletion, isStreamComplete]);
 
   React.useEffect(() => stopRevealTimer, [stopRevealTimer]);
 
@@ -381,12 +449,14 @@ export function CreateCardGhostPreviewScene({
   isBookmarked = false,
   isWordAudioLoading = false,
   streamingText = false,
+  isNetworkStreamFinished = false,
   headerAccessory,
   onPlayWord,
   onOpenPronunciationModal,
   onToggleFavorite,
   onOpenAlbumSheet,
   onSecondPageLayout,
+  onSequentialRevealComplete,
 }: {
   processingWord: string;
   card: GhostPreviewCard | null;
@@ -402,12 +472,14 @@ export function CreateCardGhostPreviewScene({
   isBookmarked?: boolean;
   isWordAudioLoading?: boolean;
   streamingText?: boolean;
+  isNetworkStreamFinished?: boolean;
   headerAccessory?: React.ReactNode;
   onPlayWord?: () => void;
   onOpenPronunciationModal?: () => void;
   onToggleFavorite?: () => void;
   onOpenAlbumSheet?: () => void;
   onSecondPageLayout?: (event: LayoutChangeEvent) => void;
+  onSequentialRevealComplete?: () => void;
 }) {
   const frontCaptureRef = React.useRef<View | null>(null);
   const backCaptureRef = React.useRef<View | null>(null);
@@ -498,15 +570,248 @@ export function CreateCardGhostPreviewScene({
   const culturalDisplayText = previewCulturalInsight
     ? previewCulturalInsight.insider_insight
     : previewCultural;
+  const previewStructuredInsight = React.useMemo(
+    () => splitInsiderInsight(culturalDisplayText),
+    [culturalDisplayText]
+  );
+  const [isGhostContextExpanded, setIsGhostContextExpanded] = React.useState(true);
   const previewPersonalNote = card?.note?.trim() || tUI(uiLanguage, 'cardDetail.addNote');
-  const isThinking = phase === 'frontThinking';
-  const backVisible = phase === 'backReveal' || phase === 'complete';
+
+  // Sequential Reveal Queue during streaming
+  const [streamStage, setStreamStage] = React.useState<
+    'init' | 'def' | 'trans' | 'cultural' | 'colloc' | 'semantic' | 'example' | 'complete'
+  >('init');
+
+  const prevCardWordRef = React.useRef(card?.displayWord);
+  React.useEffect(() => {
+    if (card?.displayWord !== prevCardWordRef.current) {
+      prevCardWordRef.current = card?.displayWord;
+      setStreamStage('init');
+      setIsGhostContextExpanded(true);
+    }
+  }, [card?.displayWord]);
+
+  const isDefStreamComplete =
+    isNetworkStreamFinished ||
+    Boolean(previewTranslation && previewTranslation !== statusText) ||
+    Boolean(culturalDisplayText && culturalDisplayText !== statusText) ||
+    Boolean(previewCollocation && previewCollocation !== statusText) ||
+    Boolean(previewExample && previewExample !== statusText) ||
+    previewSemanticRelationItems.length > 0;
+
+  const isTransStreamComplete =
+    isNetworkStreamFinished ||
+    Boolean(culturalDisplayText && culturalDisplayText !== statusText) ||
+    Boolean(previewCollocation && previewCollocation !== statusText) ||
+    Boolean(previewExample && previewExample !== statusText) ||
+    previewSemanticRelationItems.length > 0;
+
+  const isCulturalStreamComplete =
+    isNetworkStreamFinished ||
+    Boolean(previewCollocation && previewCollocation !== statusText) ||
+    Boolean(previewExample && previewExample !== statusText) ||
+    previewSemanticRelationItems.length > 0;
+
+  const isCollocStreamComplete =
+    isNetworkStreamFinished ||
+    previewSemanticRelationItems.length > 0 ||
+    Boolean(previewExample && previewExample !== statusText);
+
+  const isSemanticStreamComplete =
+    isNetworkStreamFinished ||
+    Boolean(previewExample && previewExample !== statusText);
+
+  const isExampleStreamComplete = isNetworkStreamFinished;
+
+  React.useEffect(() => {
+    if (!streamingText) return;
+
+    if (streamStage === 'init') {
+      if (card) {
+        setStreamStage('def');
+      }
+      return;
+    }
+
+    if (streamStage === 'def') {
+      if (isDefStreamComplete && !previewDefinition.trim()) {
+        setStreamStage('trans');
+      }
+      return;
+    }
+
+    if (streamStage === 'trans') {
+      if (
+        isTransStreamComplete &&
+        (!previewTranslation.trim() || previewTranslation === statusText)
+      ) {
+        setStreamStage('cultural');
+      }
+      return;
+    }
+
+    if (streamStage === 'cultural') {
+      if (
+        isCulturalStreamComplete &&
+        (!culturalDisplayText.trim() || culturalDisplayText === statusText)
+      ) {
+        setStreamStage('colloc');
+      }
+      return;
+    }
+
+    if (streamStage === 'colloc') {
+      if (
+        isCollocStreamComplete &&
+        (!previewCollocation.trim() || previewCollocation === statusText)
+      ) {
+        setStreamStage('semantic');
+      }
+      return;
+    }
+
+    if (streamStage === 'semantic') {
+      if (isSemanticStreamComplete && previewSemanticRelationItems.length === 0) {
+        setStreamStage('example');
+      } else {
+        const timer = setTimeout(() => {
+          setStreamStage((current) => (current === 'semantic' ? 'example' : current));
+        }, 220);
+        return () => clearTimeout(timer);
+      }
+      return;
+    }
+
+    if (streamStage === 'example') {
+      if (
+        isExampleStreamComplete &&
+        (!previewExample.trim() || previewExample === statusText)
+      ) {
+        setStreamStage('complete');
+        onSequentialRevealComplete?.();
+      }
+      return;
+    }
+  }, [
+    card,
+    culturalDisplayText,
+    isCollocStreamComplete,
+    isCulturalStreamComplete,
+    isDefStreamComplete,
+    isExampleStreamComplete,
+    isSemanticStreamComplete,
+    isTransStreamComplete,
+    onSequentialRevealComplete,
+    previewCollocation,
+    previewDefinition,
+    previewExample,
+    previewSemanticRelationItems.length,
+    previewTranslation,
+    statusText,
+    streamStage,
+    streamingText,
+  ]);
+
+  const handleDefComplete = React.useCallback(() => {
+    setStreamStage((current) => (current === 'def' ? 'trans' : current));
+  }, []);
+
+  const handleTransComplete = React.useCallback(() => {
+    setStreamStage((current) => (current === 'trans' ? 'cultural' : current));
+  }, []);
+
+  const handleCulturalComplete = React.useCallback(() => {
+    setStreamStage((current) => (current === 'cultural' ? 'colloc' : current));
+  }, []);
+
+  const handleCollocComplete = React.useCallback(() => {
+    setStreamStage((current) => (current === 'colloc' ? 'semantic' : current));
+  }, []);
+
+  const handleExampleComplete = React.useCallback(() => {
+    setStreamStage((current) => (current === 'example' ? 'complete' : current));
+    onSequentialRevealComplete?.();
+  }, [onSequentialRevealComplete]);
+
+  const effectivePhase: PreviewPhase = streamingText
+    ? streamStage === 'colloc' || streamStage === 'semantic' || streamStage === 'example'
+      ? 'backReveal'
+      : streamStage === 'complete'
+      ? 'complete'
+      : 'frontReveal'
+    : phase;
+
+  const effectiveRevealState = React.useMemo<PreviewRevealState>(() => {
+    if (!streamingText) return revealState;
+
+    switch (streamStage) {
+      case 'init':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+        };
+      case 'def':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+          showFrontDefinition: true,
+        };
+      case 'trans':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+          showFrontDefinition: true,
+          showFrontTranslation: true,
+        };
+      case 'cultural':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+          showFrontDefinition: true,
+          showFrontTranslation: true,
+          showBackCultural: true,
+        };
+      case 'colloc':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+          showFrontDefinition: true,
+          showFrontTranslation: true,
+          showBackCultural: true,
+          showBackCollocation: true,
+        };
+      case 'semantic':
+        return {
+          ...EMPTY_PREVIEW_REVEAL,
+          showFrontWord: true,
+          showFrontSentence: true,
+          showFrontDefinition: true,
+          showFrontTranslation: true,
+          showBackCultural: true,
+          showBackCollocation: true,
+          showBackSemanticRelations: true,
+        };
+      case 'example':
+      case 'complete':
+        return COMPLETE_PREVIEW_REVEAL;
+      default:
+        return EMPTY_PREVIEW_REVEAL;
+    }
+  }, [revealState, streamStage, streamingText]);
+
+  const isThinking = effectivePhase === 'frontThinking';
+  const backVisible = effectivePhase === 'backReveal' || effectivePhase === 'complete';
   const shouldAnimateText =
-    !reduceMotion && (streamingText || phase !== 'complete');
+    !reduceMotion && (streamingText || effectivePhase !== 'complete');
   const canPlayWord = Boolean(onPlayWord && previewWord.trim());
 
   React.useEffect(() => {
-    if (!isAppActive || reduceMotion || phase === 'complete') {
+    if (!isAppActive || reduceMotion || effectivePhase === 'complete') {
       cancelAnimation(pulse);
       pulse.value = 0;
       return;
@@ -515,7 +820,7 @@ export function CreateCardGhostPreviewScene({
     return () => {
       cancelAnimation(pulse);
     };
-  }, [isAppActive, phase, pulse, reduceMotion]);
+  }, [effectivePhase, isAppActive, pulse, reduceMotion]);
 
   const animatedCardStyle = useAnimatedStyle(() => {
     const borderTint = tone.outlineBase + pulse.value * tone.outlinePulse;
@@ -617,7 +922,7 @@ export function CreateCardGhostPreviewScene({
               <Reanimated.View entering={FadeIn.duration(240)}>
                 <ProgressiveText
                   text={previewWord}
-                  active={revealState.showFrontWord || isThinking}
+                  active={effectiveRevealState.showFrontWord || isThinking}
                   animate={shouldAnimateText}
                   style={[styles.previewWord, { color: palette.textOnContainer }]}
                   textProps={{
@@ -631,7 +936,7 @@ export function CreateCardGhostPreviewScene({
                 <Reanimated.View entering={FadeIn.duration(220)} style={[styles.previewPosChip, { backgroundColor: tone.chipBg, borderColor: tone.chipBorder }]}>
                   <ProgressiveText
                     text={previewPartOfSpeech}
-                    active={revealState.showFrontWord || isThinking}
+                    active={effectiveRevealState.showFrontWord || isThinking}
                     animate={shouldAnimateText}
                     style={[styles.previewPosChipText, { color: palette.secondaryText }]}
                     textProps={{
@@ -663,8 +968,15 @@ export function CreateCardGhostPreviewScene({
           {headerAccessory}
 
           <View style={styles.previewDefinitionRow}>
-            <ProgressiveText text={previewDefinition} active={revealState.showFrontDefinition} animate={shouldAnimateText} style={[styles.previewDefinitionText, { color: palette.textOnContainer }]} />
-            {isThinking && !revealState.showFrontDefinition ? (
+            <ProgressiveText
+              text={previewDefinition}
+              active={effectiveRevealState.showFrontDefinition}
+              animate={shouldAnimateText}
+              isStreamComplete={isDefStreamComplete}
+              onComplete={handleDefComplete}
+              style={[styles.previewDefinitionText, { color: palette.textOnContainer }]}
+            />
+            {isThinking && !effectiveRevealState.showFrontDefinition ? (
               <View style={[styles.previewStatusSlot, { backgroundColor: tone.statusBg, borderColor: tone.statusBorder }]}>
                 <Reanimated.Text allowFontScaling={false} maxFontSizeMultiplier={1} key={statusText} entering={FadeIn.duration(280)} exiting={FadeOut.duration(220)} style={[styles.previewStatusText, { color: palette.secondaryText }]}>
                   {statusText}
@@ -680,7 +992,7 @@ export function CreateCardGhostPreviewScene({
               text={previewSourceSentence}
               highlightTerm={previewWord}
               highlightColor={targetWordHighlightColor}
-              active={revealState.showFrontSentence}
+              active={effectiveRevealState.showFrontSentence}
               animate={shouldAnimateText}
               style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
             />
@@ -688,8 +1000,10 @@ export function CreateCardGhostPreviewScene({
               text={previewTranslation}
               highlightTerm={previewWord}
               highlightColor={targetWordHighlightColor}
-              active={revealState.showFrontTranslation}
+              active={effectiveRevealState.showFrontTranslation}
               animate={shouldAnimateText}
+              isStreamComplete={isTransStreamComplete}
+              onComplete={handleTransComplete}
               style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
             />
           </View>
@@ -698,7 +1012,7 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.context')}
             </FixedText>
-            {previewCulturalInsight && (phase === 'complete' || revealState.showBackCultural) ? (
+            {previewCulturalInsight && (effectivePhase === 'complete' || effectiveRevealState.showBackCultural) ? (
               <NuanceMetricsLeverUI
                 formality={previewCulturalInsight.metrics.formality}
                 intensity={previewCulturalInsight.metrics.intensity}
@@ -710,7 +1024,24 @@ export function CreateCardGhostPreviewScene({
                 animate={shouldAnimateText}
               />
             ) : null}
-            <ProgressiveText text={culturalDisplayText} active={revealState.showBackCultural} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
+            {effectiveRevealState.showBackCultural ? (
+              <StructuredInsiderInsightUI
+                insight={previewStructuredInsight}
+                isExpanded={isGhostContextExpanded}
+                onToggleExpand={() => setIsGhostContextExpanded((prev) => !prev)}
+                showToggle={effectivePhase === 'complete' || isCulturalStreamComplete}
+                textColor={palette.textOnContainer}
+                secondaryTextColor={palette.secondaryText}
+                uiLanguage={uiLanguage}
+                isLight={isLight}
+                contentScale={1}
+                collapsedLines={2}
+                animate={shouldAnimateText && streamStage === 'cultural'}
+                active={effectiveRevealState.showBackCultural}
+                isStreamComplete={isCulturalStreamComplete}
+                onComplete={handleCulturalComplete}
+              />
+            ) : null}
           </View>
 
           <View style={styles.previewFooterRow}>
@@ -768,11 +1099,18 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
             </FixedText>
-            <ProgressiveText text={previewCollocation} active={revealState.showBackCollocation} animate={shouldAnimateText} style={[styles.previewBackMainText, { color: palette.textOnContainer }]} />
+            <ProgressiveText
+              text={previewCollocation}
+              active={effectiveRevealState.showBackCollocation}
+              animate={shouldAnimateText}
+              isStreamComplete={isCollocStreamComplete}
+              onComplete={handleCollocComplete}
+              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
+            />
           </View> : null}
 
           {previewSemanticRelationItems.length > 0 ? (
-            <View style={[styles.previewSectionBlock, { opacity: revealState.showBackSemanticRelations ? 1 : 0 }]}>
+            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackSemanticRelations ? 1 : 0 }]}>
               <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
                 {tUI(uiLanguage, 'cardDetail.semanticRelations')}
               </FixedText>
@@ -817,7 +1155,14 @@ export function CreateCardGhostPreviewScene({
               <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
                 {tUI(uiLanguage, 'cardDetail.exampleSentence')}
               </FixedText>
-              <ProgressiveText text={previewExample} active={revealState.showBackExample} animate={shouldAnimateText} style={[styles.previewBackMainText, { color: palette.textOnContainer }]} />
+              <ProgressiveText
+                text={previewExample}
+                active={effectiveRevealState.showBackExample}
+                animate={shouldAnimateText}
+                isStreamComplete={isExampleStreamComplete}
+                onComplete={handleExampleComplete}
+                style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
+              />
             </View>
           ) : null}
 
@@ -825,7 +1170,7 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.personalNotes')}
             </FixedText>
-            <ProgressiveText text={previewPersonalNote} active={revealState.showBackNote} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
+            <ProgressiveText text={previewPersonalNote} active={effectiveRevealState.showBackNote} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
           </View>
         </View>
       </Reanimated.View>
