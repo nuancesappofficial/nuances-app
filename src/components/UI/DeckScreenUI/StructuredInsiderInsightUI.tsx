@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
+import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { tUI, type UILanguage } from '../../../i18n/uiLanguage';
 import type { StructuredInsiderInsight } from '../../../features/cards/culturalBackgroundInsight';
@@ -76,6 +77,96 @@ function splitTextForHighlight(text: string): Array<{ text: string; isHighlighte
   return parts;
 }
 
+type BentoPalette = {
+  icon: string;
+  cardBg: string;
+  cardBorder: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  termBg: string;
+  termText: string;
+};
+
+const BentoCardItem: React.FC<{
+  bullet: { label?: string; body: string };
+  palette: BentoPalette;
+  textColor: string;
+  bodyFontSize: number;
+  bodyLineHeight: number;
+}> = React.memo(({
+  bullet,
+  palette,
+  textColor,
+  bodyFontSize,
+  bodyLineHeight,
+}) => {
+  const segments = React.useMemo(() => splitTextForHighlight(bullet.body), [bullet.body]);
+
+  return (
+    <View
+      style={[
+        styles.bentoCard,
+        {
+          backgroundColor: palette.cardBg,
+          borderColor: palette.cardBorder,
+        },
+      ]}
+    >
+      <View style={styles.badgeRow}>
+        <View
+          style={[
+            styles.bentoBadge,
+            {
+              backgroundColor: palette.badgeBg,
+              borderColor: palette.badgeBorder,
+            },
+          ]}
+        >
+          <Text style={[styles.bentoBadgeIcon, { color: palette.badgeText }]}>
+            {palette.icon}
+          </Text>
+          {bullet.label ? (
+            <Text style={[styles.bentoBadgeText, { color: palette.badgeText }]}>
+              {bullet.label}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Text
+        style={[
+          styles.bulletBody,
+          {
+            color: textColor,
+            fontSize: bodyFontSize,
+            lineHeight: bodyLineHeight,
+          },
+        ]}
+      >
+        {segments.map((seg, sIdx) =>
+          seg.isHighlighted ? (
+            <Text
+              key={`seg-${sIdx}`}
+              style={[
+                styles.termHighlight,
+                {
+                  color: palette.termText,
+                  backgroundColor: palette.termBg,
+                },
+              ]}
+            >
+              {seg.text}
+            </Text>
+          ) : (
+            seg.text
+          )
+        )}
+      </Text>
+    </View>
+  );
+});
+
 export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProps> = ({
   insight,
   isExpanded,
@@ -101,19 +192,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   const bodyFontSize = Math.round(14.5 * scale);
   const bodyLineHeight = Math.round(22 * scale);
 
-  const bentoColors: Record<
-    BentoTheme,
-    {
-      icon: string;
-      cardBg: string;
-      cardBorder: string;
-      badgeBg: string;
-      badgeBorder: string;
-      badgeText: string;
-      termBg: string;
-      termText: string;
-    }
-  > = React.useMemo(
+  const bentoColors: Record<BentoTheme, BentoPalette> = React.useMemo(
     () => ({
       blue: {
         icon: '✦',
@@ -145,15 +224,16 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
         ? (uiLanguage.startsWith('zh') ? '展開背景與辨析' : tUI(uiLanguage as UILanguage, 'cardDetail.showFullContent'))
         : tUI(uiLanguage as UILanguage, 'cardDetail.showFullContent'));
 
-  // Character units breakdown for sequential typewriter
-  const hookUnits = React.useMemo(() => Array.from(hookText || ''), [hookText]);
+  // Character units breakdown for sequential typewriter (only active if animate === true)
+  const hookUnits = React.useMemo(() => (animate ? Array.from(hookText || '') : []), [animate, hookText]);
   const bulletUnitsList = React.useMemo(
-    () => detailBullets.map((b) => Array.from(b.body || '')),
-    [detailBullets]
+    () => (animate ? detailBullets.map((b) => Array.from(b.body || '')) : []),
+    [animate, detailBullets]
   );
   const totalTargetUnits = React.useMemo(() => {
+    if (!animate) return 0;
     return hookUnits.length + bulletUnitsList.reduce((acc, list) => acc + list.length, 0);
-  }, [hookUnits.length, bulletUnitsList]);
+  }, [animate, hookUnits.length, bulletUnitsList]);
 
   const [visibleUnitsCount, setVisibleUnitsCount] = React.useState(
     animate && active ? 0 : totalTargetUnits
@@ -210,19 +290,12 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   }, [checkAndTriggerCompletion, stopRevealTimer]);
 
   React.useEffect(() => {
+    if (!animate) return;
     if (!active) {
       stopRevealTimer();
       visibleCountRef.current = 0;
       setVisibleUnitsCount(0);
       hasTriggeredCompleteRef.current = false;
-      return;
-    }
-
-    if (!animate) {
-      stopRevealTimer();
-      visibleCountRef.current = totalTargetUnits;
-      setVisibleUnitsCount(totalTargetUnits);
-      checkAndTriggerCompletion();
       return;
     }
 
@@ -234,22 +307,23 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   }, [active, animate, checkAndTriggerCompletion, startRevealTimer, stopRevealTimer, totalTargetUnits]);
 
   React.useEffect(() => {
+    if (!animate) return;
     checkAndTriggerCompletion();
-  }, [checkAndTriggerCompletion, isStreamComplete]);
+  }, [animate, checkAndTriggerCompletion, isStreamComplete]);
 
-  React.useEffect(() => stopRevealTimer, [stopRevealTimer]);
+  React.useEffect(() => {
+    if (!animate) return;
+    return stopRevealTimer;
+  }, [animate, stopRevealTimer]);
 
   // Compute partial texts according to visibleUnitsCount
-  const currentCount = animate ? visibleUnitsCount : totalTargetUnits;
-  const visibleHookText = React.useMemo(() => {
-    if (!animate) return hookText;
-    const sliceLen = Math.min(hookUnits.length, currentCount);
-    return hookUnits.slice(0, sliceLen).join('');
-  }, [animate, currentCount, hookText, hookUnits]);
+  const visibleHookText = animate
+    ? hookUnits.slice(0, Math.min(hookUnits.length, visibleUnitsCount)).join('')
+    : hookText;
 
   const visibleBullets = React.useMemo(() => {
     if (!animate) return detailBullets;
-    let unitsLeft = Math.max(0, currentCount - hookUnits.length);
+    let unitsLeft = Math.max(0, visibleUnitsCount - hookUnits.length);
     return detailBullets
       .map((bullet, idx) => {
         const bodyUnits = bulletUnitsList[idx] || [];
@@ -262,7 +336,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
         };
       })
       .filter((b): b is NonNullable<typeof b> => b !== null);
-  }, [animate, currentCount, detailBullets, hookUnits.length, bulletUnitsList]);
+  }, [animate, visibleUnitsCount, detailBullets, hookUnits.length, bulletUnitsList]);
 
   return (
     <View style={styles.container}>
@@ -287,93 +361,23 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
 
       {/* 2. Style B Bento Micro-Cards (Expanded View) */}
       {isExpanded && visibleBullets.length > 0 ? (
-        <View style={styles.bulletsList}>
+        <Reanimated.View entering={FadeIn.duration(260)} style={styles.bulletsList}>
           {visibleBullets.map((bullet, index) => {
             const themeKey = getBentoTheme(bullet, index);
             const palette = bentoColors[themeKey];
-            const segments = splitTextForHighlight(bullet.body);
 
             return (
-              <View
+              <BentoCardItem
                 key={`bullet-${index}-${bullet.label || ''}`}
-                style={[
-                  styles.bentoCard,
-                  {
-                    backgroundColor: palette.cardBg,
-                    borderColor: palette.cardBorder,
-                  },
-                ]}
-              >
-                {bullet.label ? (
-                  <View style={styles.badgeRow}>
-                    <View
-                      style={[
-                        styles.bentoBadge,
-                        {
-                          backgroundColor: palette.badgeBg,
-                          borderColor: palette.badgeBorder,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.bentoBadgeIcon, { color: palette.badgeText }]}>
-                        {palette.icon}
-                      </Text>
-                      <Text style={[styles.bentoBadgeText, { color: palette.badgeText }]}>
-                        {bullet.label}
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.badgeRow}>
-                    <View
-                      style={[
-                        styles.bentoBadge,
-                        {
-                          backgroundColor: palette.badgeBg,
-                          borderColor: palette.badgeBorder,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.bentoBadgeIcon, { color: palette.badgeText }]}>
-                        {palette.icon}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                <Text
-                  style={[
-                    styles.bulletBody,
-                    {
-                      color: textColor,
-                      fontSize: bodyFontSize,
-                      lineHeight: bodyLineHeight,
-                    },
-                  ]}
-                >
-                  {segments.map((seg, sIdx) =>
-                    seg.isHighlighted ? (
-                      <Text
-                        key={`seg-${sIdx}`}
-                        style={[
-                          styles.termHighlight,
-                          {
-                            color: palette.termText,
-                            backgroundColor: palette.termBg,
-                          },
-                        ]}
-                      >
-                        {seg.text}
-                      </Text>
-                    ) : (
-                      seg.text
-                    )
-                  )}
-                </Text>
-              </View>
+                bullet={bullet}
+                palette={palette}
+                textColor={textColor}
+                bodyFontSize={bodyFontSize}
+                bodyLineHeight={bodyLineHeight}
+              />
             );
           })}
-        </View>
+        </Reanimated.View>
       ) : null}
 
       {/* 3. Collapse/Expand Toggle Switch */}

@@ -470,10 +470,6 @@ function CardDetailCarouselCardUI({
     React.useState(false);
   const [isContextExpanded, setIsContextExpanded] = React.useState(false);
   const [isExamplesExpanded, setIsExamplesExpanded] = React.useState(false);
-  const [isFlipping, setIsFlipping] = React.useState(false);
-  const [isFlipped, setIsFlipped] = React.useState(false);
-  const isAnimatingHeightRef = React.useRef(false);
-  const pendingContentHeightRef = React.useRef<number | null>(null);
   const [expandedBackFields, setExpandedBackFields] = React.useState<
     Record<string, boolean>
   >({});
@@ -947,7 +943,8 @@ function CardDetailCarouselCardUI({
   React.useEffect(() => {
     Animated.timing(contextExpandProgress, {
       toValue: isContextExpanded ? 1 : 0,
-      duration: 240,
+      duration: 280,
+      easing: RNEasing.bezier(0.25, 0.1, 0.25, 1),
       useNativeDriver: true,
     }).start();
   }, [contextExpandProgress, isContextExpanded]);
@@ -971,32 +968,15 @@ function CardDetailCarouselCardUI({
     sentenceMeasuredHeight,
   ]);
 
-  const onHeightAnimationComplete = React.useCallback(() => {
-    isAnimatingHeightRef.current = false;
-    if (pendingContentHeightRef.current !== null) {
-      const nextH = pendingContentHeightRef.current;
-      pendingContentHeightRef.current = null;
-      setFrontBodyContentHeight((current) =>
-        Math.abs(current - nextH) > 1 ? nextH : current
-      );
-    }
-  }, []);
-
   React.useEffect(() => {
     cancelAnimation(contextBodyHeightAnim);
-    isAnimatingHeightRef.current = true;
     contextBodyHeightAnim.value = withTiming(
       isContextExpanded
         ? Math.max(collapsedContextHeight, contextMeasuredHeight)
         : collapsedContextHeight,
       {
-        duration: reduceMotion ? 0 : 240,
-        easing: Easing.bezier(0.2, 0, 0, 1),
-      },
-      (finished) => {
-        if (finished) {
-          runOnJS(onHeightAnimationComplete)();
-        }
+        duration: reduceMotion ? 0 : 280,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
       }
     );
   }, [
@@ -1004,7 +984,6 @@ function CardDetailCarouselCardUI({
     contextBodyHeightAnim,
     contextMeasuredHeight,
     isContextExpanded,
-    onHeightAnimationComplete,
     reduceMotion,
   ]);
 
@@ -1037,17 +1016,12 @@ function CardDetailCarouselCardUI({
   ]);
 
   React.useEffect(() => {
-    const isAnyExpanded =
+    onContentExpandedChange?.(
       isFullSentenceExpanded ||
-      isContextExpanded ||
-      isExamplesExpanded ||
-      isAnyAuxBackFieldExpanded;
-    // Delay notifying parent to avoid triggering a parent re-render cascade
-    // on the exact first frame of the height animation
-    const timer = setTimeout(() => {
-      onContentExpandedChange?.(isAnyExpanded);
-    }, 260);
-    return () => clearTimeout(timer);
+        isContextExpanded ||
+        isExamplesExpanded ||
+        isAnyAuxBackFieldExpanded
+    );
   }, [
     isAnyAuxBackFieldExpanded,
     isContextExpanded,
@@ -1138,10 +1112,6 @@ function CardDetailCarouselCardUI({
   );
   const handleFrontBodyContentSizeChange = React.useCallback(
     (_width: number, height: number) => {
-      if (isAnimatingHeightRef.current) {
-        pendingContentHeightRef.current = height;
-        return;
-      }
       setFrontBodyContentHeight((current) =>
         Math.abs(current - height) > 1 ? height : current
       );
@@ -1335,22 +1305,11 @@ function CardDetailCarouselCardUI({
 
   const toggleFlip = () => {
     if (!isActiveCard) return;
-    setIsFlipping(true);
-    const targetValue = flipAnim.value === 0 ? 1 : 0;
-    flipAnim.value = withTiming(
-      targetValue,
-      {
-        duration: 380,
-        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        reduceMotion: ReduceMotion.System,
-      },
-      (finished) => {
-        if (finished) {
-          runOnJS(setIsFlipping)(false);
-          runOnJS(setIsFlipped)(targetValue === 1);
-        }
-      }
-    );
+    flipAnim.value = withTiming(flipAnim.value === 0 ? 1 : 0, {
+      duration: 340,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      reduceMotion: ReduceMotion.System,
+    });
   };
   const hasExpandedContent =
     isFullSentenceExpanded || isContextExpanded || isExamplesExpanded;
@@ -1502,17 +1461,23 @@ function CardDetailCarouselCardUI({
 
   const frontAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipAnim.value, [0, 1], [0, 180]);
-    const opacity = isCapturingShare.value ? 1 : (flipAnim.value < 0.5 ? 1 : 0);
+    const opacity = isCapturingShare.value
+      ? 1
+      : interpolate(flipAnim.value, [0.48, 0.52], [1, 0], Extrapolation.CLAMP);
     return {
       transform: [{ perspective: 1200 }, { rotateY: `${rotateY}deg` }],
       backfaceVisibility: 'hidden',
       opacity,
+      // 當翻轉進度小於一半時，正面擁有較高層級以接收點擊
+      zIndex: flipAnim.value < 0.5 ? 1 : 0,
     };
   });
 
   const backAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipAnim.value, [0, 1], [-180, 0]);
-    const opacity = isCapturingShare.value ? 1 : (flipAnim.value >= 0.5 ? 1 : 0);
+    const opacity = isCapturingShare.value
+      ? 1
+      : interpolate(flipAnim.value, [0.48, 0.52], [0, 1], Extrapolation.CLAMP);
     return {
       transform: [{ perspective: 1200 }, { rotateY: `${rotateY}deg` }],
       backfaceVisibility: 'hidden',
@@ -1522,6 +1487,8 @@ function CardDetailCarouselCardUI({
       left: 0,
       right: 0,
       bottom: 0,
+      // 當翻轉進度大於一半時，背面擁有較高層級以接收點擊
+      zIndex: flipAnim.value >= 0.5 ? 1 : 0,
     };
   });
 
@@ -1550,9 +1517,6 @@ function CardDetailCarouselCardUI({
               <Reanimated.View
                 ref={frontCaptureRef}
                 collapsable={false}
-                shouldRasterizeIOS={isFlipping}
-                renderToHardwareTextureAndroid={isFlipping}
-                pointerEvents={isFlipping || isFlipped ? 'none' : 'auto'}
                 style={[
                   styles.detailPaper,
                   { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
@@ -2165,9 +2129,6 @@ function CardDetailCarouselCardUI({
               <Reanimated.View
                 ref={backCaptureRef}
                 collapsable={false}
-                shouldRasterizeIOS={isFlipping}
-                renderToHardwareTextureAndroid={isFlipping}
-                pointerEvents={isFlipping || !isFlipped ? 'none' : 'auto'}
                 style={[
                   styles.detailPaper,
                   { backgroundColor: ui.paperBg, borderColor: ui.paperBorder },
