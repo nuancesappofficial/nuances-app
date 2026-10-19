@@ -106,6 +106,9 @@ export type UIStringKey =
   | 'create.editOcrTokenBody'
   | 'create.editOcrTokenCancel'
   | 'create.editOcrTokenSave'
+  | 'create.editOcrTokenDelete'
+  | 'create.mergeAsPhrase'
+  | 'create.unmergePhrase'
   | 'create.aiDepth'
   | 'create.saveToAlbums'
   | 'create.allCardsOnly'
@@ -260,6 +263,7 @@ export type UIStringKey =
   | 'settings.membership.feature.pro.voiceCache'
   | 'settings.membership.feature.pro.speed'
   | 'settings.membership.badge.save'
+  | 'settings.membership.badge.value'
   | 'settings.membership.upsell.title'
   | 'settings.membership.upsell.body'
   | 'settings.membership.upsell.cta'
@@ -548,6 +552,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenBody': 'Correct the word before generating the card.',
     'create.editOcrTokenCancel': 'Cancel',
     'create.editOcrTokenSave': 'Save',
+    'create.editOcrTokenDelete': 'Delete block',
+    'create.mergeAsPhrase': 'Merge as phrase',
+    'create.unmergePhrase': 'Unmerge phrase',
     'create.aiDepth': 'AI depth',
     'create.saveToAlbums': 'Save this batch to',
     'create.allCardsOnly': 'All cards only',
@@ -725,6 +732,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.pro.voiceCache': 'Pronunciation scoring (1,200 / month)',
     'settings.membership.feature.pro.speed': 'Priority speed & full advanced access',
     'settings.membership.badge.save': 'Popular',
+    'settings.membership.badge.value': 'Best Value',
     'settings.membership.upsell.title': 'You hit your LITE limit',
     'settings.membership.upsell.body': 'Upgrade to PRO for 4× more AI cards, advanced pronunciation, and priority speed.',
     'settings.membership.upsell.cta': 'Upgrade to PRO',
@@ -1036,6 +1044,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenBody': '生成卡片前，先把辨識錯的字改正。',
     'create.editOcrTokenCancel': '取消',
     'create.editOcrTokenSave': '儲存',
+    'create.editOcrTokenDelete': '刪除區塊',
+    'create.mergeAsPhrase': '合併為片語',
+    'create.unmergePhrase': '拆分片語',
     'create.aiDepth': 'AI 深度',
     'create.saveToAlbums': '這批卡片儲存至',
     'create.allCardsOnly': '只存入所有卡片',
@@ -1197,6 +1208,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.pro.voiceCache': '口說發音評分（每月 1,200 次）',
     'settings.membership.feature.pro.speed': '優先產卡速度與完整進階權限',
     'settings.membership.badge.save': '熱門',
+    'settings.membership.badge.value': '划算',
     'settings.membership.upsell.title': '你已用盡 LITE 額度',
     'settings.membership.upsell.body': '升級 PRO 可享有 4 倍 AI 建卡額度、進階發音評分與優先產生速度。',
     'settings.membership.upsell.cta': '升級進階 PRO',
@@ -1490,6 +1502,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'create.editOcrTokenBody': '生成卡片前，先把识别错的字改正。',
     'create.editOcrTokenCancel': '取消',
     'create.editOcrTokenSave': '保存',
+    'create.editOcrTokenDelete': '删除区块',
+    'create.mergeAsPhrase': '合并为短语',
+    'create.unmergePhrase': '拆分短语',
     'create.aiDepth': 'AI 深度',
     'create.saveToAlbums': '这批卡片保存至',
     'create.allCardsOnly': '只存入所有卡片',
@@ -1651,6 +1666,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.feature.pro.voiceCache': '口说发音评分（每月 1,200 次）',
     'settings.membership.feature.pro.speed': '优先产卡速度与完整进阶权限',
     'settings.membership.badge.save': '热门',
+    'settings.membership.badge.value': '划算',
     'settings.membership.upsell.title': '你已用尽 LITE 额度',
     'settings.membership.upsell.body': '升级 PRO 可享有 4 倍 AI 建卡额度、进阶发音评分与优先产生速度。',
     'settings.membership.upsell.cta': '升级进阶 PRO',

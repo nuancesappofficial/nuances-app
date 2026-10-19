@@ -539,6 +539,8 @@ function MembershipPlanOption({
             <Text
               style={styles.membershipPlanBadgeText}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
               maxFontSizeMultiplier={1}
             >
               {badgeLabel}
@@ -548,6 +550,8 @@ function MembershipPlanOption({
         <Animated.Text
           style={[styles.membershipPlanTitle, animatedTextStyle]}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
         >
           {title}
         </Animated.Text>
@@ -594,7 +598,7 @@ export default function ProfileSettingOptionsFlow({
   const requestedMembershipTier = route.params?.tier;
   const initialMembershipTab = route.params?.initialTab;
   const initialMembershipTier =
-    requestedMembershipTier ?? initialMembershipTab ?? 'lite';
+    requestedMembershipTier ?? initialMembershipTab ?? 'pro';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -2321,16 +2325,22 @@ export default function ProfileSettingOptionsFlow({
                       monthlyEquivalent={
                         plan.isYearly ? plan.monthlyEquivalent : null
                       }
-                      goldMonthlyEquivalent={membershipTier === 'lite'}
+                      goldMonthlyEquivalent={plan.isYearly}
                       showMedalBadge={
-                        membershipTier === 'lite' && plan.isYearly
+                        (membershipTier === 'lite' && plan.isYearly) ||
+                        (membershipTier === 'pro' && plan.isYearly)
                       }
                       badgeLabel={
-                        membershipTier === 'lite' && plan.isYearly
-                          ? tUI(
-                              settings.uiLanguage,
-                              'settings.membership.badge.save'
-                            )
+                        plan.isYearly
+                          ? membershipTier === 'lite'
+                            ? tUI(
+                                settings.uiLanguage,
+                                'settings.membership.badge.save'
+                              )
+                            : tUI(
+                                settings.uiLanguage,
+                                'settings.membership.badge.value'
+                              )
                           : undefined
                       }
                     />
@@ -3553,6 +3563,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -16,
     alignSelf: 'center',
+    maxWidth: '92%',
     backgroundColor: '#F59E0B',
     paddingHorizontal: 10,
     paddingVertical: 3,
