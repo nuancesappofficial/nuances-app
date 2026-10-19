@@ -1,14 +1,14 @@
 export type WhatsNewItem = {
   number: string;
   title: string;
-  description: string;
+  description?: string;
 };
 
 export type WhatsNewRelease = {
   version: string;
-  badge: string;
   title: string;
-  subtitle: string;
+  badge?: string;
+  subtitle?: string;
   items: WhatsNewItem[];
 };
 

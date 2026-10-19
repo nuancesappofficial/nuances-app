@@ -45,6 +45,7 @@ import {
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from './NuanceMetricsLeverUI';
 import { StructuredInsiderInsightUI } from './StructuredInsiderInsightUI';
+import { DynamicArcSpinner } from '../shared/DynamicArcSpinner';
 import {
   normalizeEnglishExampleDisplayOrder,
   type ExampleDisplayItem,
@@ -112,6 +113,7 @@ type Props = {
   scrollX: SharedValue<number>;
   itemImageUri: string | null;
   isPlaying: boolean;
+  playbackDurationMillis?: number;
   isTtsDownloading?: boolean;
   isRecording: boolean;
   isAnalyzing: boolean;
@@ -431,6 +433,7 @@ function CardDetailCarouselCardUI({
   scrollX,
   itemImageUri,
   isPlaying,
+  playbackDurationMillis = 1100,
   isTtsDownloading = false,
   isRecording,
   isAnalyzing,
@@ -1295,10 +1298,49 @@ function CardDetailCarouselCardUI({
   // Flip 內部動畫
   const flipAnim = useSharedValue(0);
   const isCapturingShare = useSharedValue(false);
-  const playBtnScale = useSharedValue(1);
-  const playBtnAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: playBtnScale.value }],
+  const playBtnScale = React.useRef(new Animated.Value(1)).current;
+  const animatePlayButtonPress = React.useCallback(
+    (toValue: number) => {
+      Animated.spring(playBtnScale, {
+        toValue,
+        useNativeDriver: true,
+        speed: 24,
+        bounciness: 4,
+      }).start();
+    },
+    [playBtnScale]
+  );
+
+  const audioProgress = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (isActiveCard && isPlaying) {
+      // 根據單字或句子特性校正有效發音時長，扣除尾段空白靜音，讓進度推進與人聲完全同步
+      const rawDuration = playbackDurationMillis || 1100;
+      const effectiveDuration = isPhraseCard
+        ? Math.max(500, Math.round(rawDuration * 0.88))
+        : Math.max(380, Math.round(rawDuration * 0.65));
+
+      audioProgress.value = 0;
+      audioProgress.value = withTiming(1, {
+        duration: effectiveDuration,
+        easing: Easing.out(Easing.quad),
+      });
+    } else {
+      audioProgress.value = withTiming(0, { duration: 160 });
+    }
+  }, [isActiveCard, isPlaying, isPhraseCard, playbackDurationMillis, audioProgress]);
+
+  const activeSpeakerProgressStyle = useAnimatedStyle(() => ({
+    width: interpolate(
+      audioProgress.value,
+      [0, 1],
+      [0, 28],
+      Extrapolation.CLAMP
+    ),
   }));
+
+  const activeSpeakerColor = isLightMode ? '#2563EB' : '#60A5FA';
   const tourFlipTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -1587,7 +1629,7 @@ function CardDetailCarouselCardUI({
                         {itemWord}
                       </Text>
                     </View>
-                    <Reanimated.View
+                    <Animated.View
                       style={[
                         {
                           position: 'absolute',
@@ -1595,13 +1637,14 @@ function CardDetailCarouselCardUI({
                           top: 0,
                           width: 28,
                           height: 28,
+                          transform: [{ scale: playBtnScale }],
                         },
-                        playBtnAnimatedStyle,
                       ]}
                     >
-                      <Pressable
-                        hitSlop={8}
-                        style={({ pressed }) => [
+                      <TouchableOpacity
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        activeOpacity={0.9}
+                        style={[
                           styles.referencePlayBtn,
                           {
                             width: 28,
@@ -1611,34 +1654,46 @@ function CardDetailCarouselCardUI({
                             alignItems: 'center',
                             justifyContent: 'center',
                           },
-                          pressed ? { opacity: 0.75 } : null,
                         ]}
                         disabled={isActiveCard && isTtsDownloading}
-                        onPressIn={() => {
-                          playBtnScale.value = withSpring(0.84, { damping: 15, stiffness: 350 });
-                        }}
-                        onPressOut={() => {
-                          playBtnScale.value = withSpring(1, { damping: 12, stiffness: 350 });
-                        }}
+                        onPressIn={() => animatePlayButtonPress(0.95)}
+                        onPressOut={() => animatePlayButtonPress(1)}
                         onPress={() =>
                           onPlayCard(itemPronunciationText, isActiveCard, index)
                         }
                       >
                         {isActiveCard && isTtsDownloading ? (
-                          <ActivityIndicator size="small" color="#4EAFF4" />
+                          <DynamicArcSpinner size={24} color={activeSpeakerColor} strokeWidth={2.4} />
                         ) : (
-                          <Ionicons
-                            name={
-                              isActiveCard && isPlaying
-                                ? 'volume-high'
-                                : 'volume-medium-outline'
-                            }
-                            size={28}
-                            color={isActiveCard && isPlaying ? '#4EAFF4' : ui.icon}
-                          />
+                          <View style={localStyles.speakerIconWrap}>
+                            <Ionicons
+                              name={
+                                isActiveCard && isPlaying
+                                  ? 'volume-high'
+                                  : 'volume-medium-outline'
+                              }
+                              size={28}
+                              color={ui.icon}
+                            />
+                            {isActiveCard && isPlaying ? (
+                              <Reanimated.View
+                                style={[
+                                  localStyles.speakerProgressClip,
+                                  activeSpeakerProgressStyle,
+                                ]}
+                              >
+                                <Ionicons
+                                  name="volume-high"
+                                  size={28}
+                                  color={activeSpeakerColor}
+                                  style={localStyles.speakerProgressIcon}
+                                />
+                              </Reanimated.View>
+                            ) : null}
+                          </View>
                         )}
-                      </Pressable>
-                    </Reanimated.View>
+                      </TouchableOpacity>
+                    </Animated.View>
                   </View>
 
                   <ScrollView
@@ -3320,6 +3375,24 @@ const localStyles = StyleSheet.create({
     width: '100%',
     height: 540,
     borderRadius: 12,
+  },
+  speakerIconWrap: {
+    width: 28,
+    height: 28,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speakerProgressClip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    overflow: 'hidden',
+  },
+  speakerProgressIcon: {
+    width: 28,
+    height: 28,
   },
 });
 

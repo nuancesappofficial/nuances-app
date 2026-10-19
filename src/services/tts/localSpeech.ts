@@ -30,6 +30,7 @@ export async function speakEnglishNaturally(
   options?: {
     onDownloadStart?: () => void;
     onDownloadEnd?: () => void;
+    onPlaybackStart?: (durationMillis: number) => void;
     onDone?: () => void;
     onStopped?: () => void;
     onError?: () => void;
@@ -59,6 +60,7 @@ export async function speakEnglishNaturally(
     voice: selectedVoice,
     onDownloadStart: options?.onDownloadStart,
     onDownloadEnd: options?.onDownloadEnd,
+    onPlaybackStart: options?.onPlaybackStart,
     onDone: options?.onDone,
     onError: undefined,
   });

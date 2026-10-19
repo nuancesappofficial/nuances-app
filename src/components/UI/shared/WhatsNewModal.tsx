@@ -9,7 +9,9 @@ import {
   Animated,
   useColorScheme,
   ScrollView,
+  Easing,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { whatsNewService } from '../../../services/whatsNew/whatsNewService';
 import type { WhatsNewRelease } from '../../../config/whatsNew';
 import {
@@ -17,14 +19,17 @@ import {
   MODAL_CTA_COLOR,
 } from '../../../theme/colors';
 
+const BOTTOM_SHEET_INITIAL_Y = 500;
+
 export default function WhatsNewModal() {
   const [release, setRelease] = React.useState<WhatsNewRelease | null>(null);
   const colorScheme = useColorScheme();
   const palette = resolveThemeColors(colorScheme);
   const isDark = colorScheme !== 'light';
+  const insets = useSafeAreaInsets();
 
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
-  const scaleAnim = React.useRef(new Animated.Value(0.92)).current;
+  const translateYAnim = React.useRef(new Animated.Value(BOTTOM_SHEET_INITIAL_Y)).current;
 
   React.useEffect(() => {
     let isMounted = true;
@@ -35,7 +40,7 @@ export default function WhatsNewModal() {
 
       setRelease(data);
       fadeAnim.setValue(0);
-      scaleAnim.setValue(0.92);
+      translateYAnim.setValue(BOTTOM_SHEET_INITIAL_Y);
 
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -43,10 +48,10 @@ export default function WhatsNewModal() {
           duration: 250,
           useNativeDriver: true,
         }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
+        Animated.spring(translateYAnim, {
+          toValue: 0,
           friction: 8,
-          tension: 40,
+          tension: 45,
           useNativeDriver: true,
         }),
       ]).start();
@@ -57,21 +62,29 @@ export default function WhatsNewModal() {
     return () => {
       isMounted = false;
     };
-  }, [fadeAnim, scaleAnim]);
+  }, [fadeAnim, translateYAnim]);
 
   const handleDismiss = React.useCallback(() => {
     if (!release) return;
     const targetVersion = release.version;
 
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateYAnim, {
+        toValue: BOTTOM_SHEET_INITIAL_Y,
+        duration: 200,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setRelease(null);
       void whatsNewService.markAsSeen(targetVersion);
     });
-  }, [release, fadeAnim]);
+  }, [release, fadeAnim, translateYAnim]);
 
   if (!release) return null;
 
@@ -82,53 +95,37 @@ export default function WhatsNewModal() {
       animationType="none"
       onRequestClose={handleDismiss}
     >
-      <View style={styles.overlay}>
+      <View
+        style={[
+          styles.overlay,
+          { paddingBottom: Math.max(insets.bottom, 16) },
+        ]}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={handleDismiss} />
         <Animated.View
           style={[
             styles.card,
             {
-              backgroundColor: isDark ? '#082847' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(78,175,244,0.24)' : 'rgba(15,23,42,0.12)',
+              backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.08)',
               opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
+              transform: [{ translateY: translateYAnim }],
             },
           ]}
         >
-          {/* Header Row: Badge */}
+          {/* Header Title */}
           <View style={styles.header}>
-            <View
-              style={[
-                styles.badge,
-                {
-                  backgroundColor: isDark ? 'rgba(78,175,244,0.16)' : 'rgba(78,175,244,0.12)',
-                },
-              ]}
-            >
-              <View style={styles.badgeDot} />
-              <Text style={styles.badgeText}>{release.badge}</Text>
-            </View>
-
             <Text
               style={[
                 styles.title,
-                { color: isDark ? '#F8FAFC' : '#0F172A' },
+                { color: isDark ? '#FFFFFF' : '#0F172A' },
               ]}
             >
-              {release.title}
-            </Text>
-
-            <Text
-              style={[
-                styles.subtitle,
-                { color: palette.secondaryText },
-              ]}
-            >
-              {release.subtitle}
+              {release.title || '更新功能'}
             </Text>
           </View>
 
-          {/* Numbered Feature List (Plain Numbers, No Pills) */}
+          {/* Numbered Feature List (Plain Numbers, No Secondary Text) */}
           <ScrollView
             style={styles.listContainer}
             contentContainerStyle={styles.listContent}
@@ -141,18 +138,10 @@ export default function WhatsNewModal() {
                   <Text
                     style={[
                       styles.itemTitle,
-                      { color: isDark ? '#F8FAFC' : '#0F172A' },
+                      { color: isDark ? '#FFFFFF' : '#0F172A' },
                     ]}
                   >
                     {item.title}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.itemDescription,
-                      { color: palette.secondaryText },
-                    ]}
-                  >
-                    {item.description}
                   </Text>
                 </View>
               </View>
@@ -171,11 +160,21 @@ export default function WhatsNewModal() {
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
+                {
+                  backgroundColor: isDark ? MODAL_CTA_COLOR : '#0F172A',
+                },
                 pressed && styles.primaryBtnPressed,
               ]}
               onPress={handleDismiss}
             >
-              <Text style={styles.primaryBtnText}>開始體驗</Text>
+              <Text
+                style={[
+                  styles.primaryBtnText,
+                  { color: isDark ? '#02213D' : '#FFFFFF' },
+                ]}
+              >
+                Continue
+              </Text>
             </Pressable>
           </View>
         </Animated.View>
@@ -184,102 +183,73 @@ export default function WhatsNewModal() {
   );
 }
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(2, 33, 61, 0.65)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     zIndex: 9999,
   },
   card: {
-    width: Math.min(width - 40, 380),
-    maxHeight: 580,
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: Math.min(height * 0.82, 640),
     borderRadius: 32,
     borderWidth: 1,
     padding: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.28,
-    shadowRadius: 32,
-    elevation: 16,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.36,
+    shadowRadius: 28,
+    elevation: 20,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    marginBottom: 12,
-    gap: 6,
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: MODAL_CTA_COLOR,
-  },
-  badgeText: {
-    color: MODAL_CTA_COLOR,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    paddingTop: 4,
+    marginBottom: 22,
   },
   title: {
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: -0.4,
     textAlign: 'center',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
   },
   listContainer: {
-    maxHeight: 300,
+    maxHeight: 280,
   },
   listContent: {
     paddingVertical: 4,
-    gap: 16,
+    gap: 14,
   },
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 2,
   },
   itemNumber: {
     color: MODAL_CTA_COLOR,
     fontFamily: 'Courier',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
-    marginTop: 1,
-    width: 24,
+    width: 18,
+    textAlign: 'center',
   },
   itemTextContainer: {
     flex: 1,
   },
   itemTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 20,
-    marginBottom: 3,
-  },
-  itemDescription: {
-    fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 22,
   },
   footer: {
     borderTopWidth: 1,
     paddingTop: 18,
-    marginTop: 16,
+    marginTop: 20,
   },
   primaryBtn: {
     backgroundColor: MODAL_CTA_COLOR,
@@ -287,11 +257,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: MODAL_CTA_COLOR,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   primaryBtnPressed: {
     transform: [{ scale: 0.98 }],

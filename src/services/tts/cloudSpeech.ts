@@ -13,6 +13,7 @@ type SpeakOptions = {
   demoExperience?: boolean;
   onDownloadStart?: () => void;
   onDownloadEnd?: () => void;
+  onPlaybackStart?: (durationMillis: number) => void;
   onDone?: () => void;
   onStopped?: () => void;
   onError?: () => void;
@@ -264,6 +265,19 @@ async function playAudioUri({
     loadElapsedMs: Date.now() - startedAt - edgeElapsedMs,
     totalElapsedMs: Date.now() - startedAt,
   });
+
+  void (async () => {
+    try {
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded && typeof status.durationMillis === 'number' && status.durationMillis > 0) {
+        options?.onPlaybackStart?.(status.durationMillis);
+      } else {
+        options?.onPlaybackStart?.(1100);
+      }
+    } catch {
+      options?.onPlaybackStart?.(1100);
+    }
+  })();
 
   sound.setOnPlaybackStatusUpdate((status: any) => {
     if (!status?.isLoaded) return;

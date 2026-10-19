@@ -14,6 +14,7 @@ export async function stopDefaultExperiencePronunciation(): Promise<void> {
 }
 
 export async function playDefaultExperiencePronunciation(options?: {
+  onPlaybackStart?: (durationMillis: number) => void;
   onDone?: () => void;
   onError?: () => void;
 }): Promise<void> {
@@ -23,7 +24,7 @@ export async function playDefaultExperiencePronunciation(options?: {
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
     });
-    const { sound } = await Audio.Sound.createAsync(
+    const { sound, status } = await Audio.Sound.createAsync(
       DEFAULT_EXPERIENCE_PRONUNCIATION_AUDIO,
       { shouldPlay: false }
     );
@@ -35,6 +36,11 @@ export async function playDefaultExperiencePronunciation(options?: {
       void sound.unloadAsync().catch(() => undefined);
       options?.onDone?.();
     });
+    const durationMillis =
+      status?.isLoaded && typeof (status as any).durationMillis === 'number'
+        ? (status as any).durationMillis
+        : 1150;
+    options?.onPlaybackStart?.(durationMillis);
     await sound.playAsync();
   } catch (error) {
     console.warn('[TTS] bundled tutorial pronunciation playback failed:', error);

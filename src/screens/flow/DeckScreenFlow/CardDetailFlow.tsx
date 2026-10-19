@@ -443,6 +443,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     waveformPointerRef,
     ttsDownloadCountRef,
   } = useCardDetailPlayback();
+  const [playbackDurationMillis, setPlaybackDurationMillis] =
+    React.useState<number>(1100);
   const {
     showFeedback,
     setShowFeedback,
@@ -1057,10 +1059,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
       return;
     }
-    setIsPlaying(true);
+    const onPlaybackStart = (duration: number) => {
+      setPlaybackDurationMillis(duration > 0 ? duration : 1100);
+      setIsPlaying(true);
+    };
     Vibration.vibrate(8);
     if (usesDefaultExperiencePronunciation) {
       void playDefaultExperiencePronunciation({
+        onPlaybackStart,
         onDone: () => setIsPlaying(false),
         onError: () => setIsPlaying(false),
       });
@@ -1069,6 +1075,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     void speakEnglishNaturally(pronunciationText, {
       onDownloadStart: handleTtsDownloadStart,
       onDownloadEnd: handleTtsDownloadEnd,
+      onPlaybackStart,
       onDone: () => setIsPlaying(false),
       onStopped: () => setIsPlaying(false),
       onError: () => {
@@ -1869,9 +1876,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       const downloadHandlers = createPronunciationDownloadHandlers(
         `word:${text}`
       );
-      setIsPlaying(true);
+      const onPlaybackStart = (duration: number) => {
+        setPlaybackDurationMillis(duration > 0 ? duration : 1100);
+        setIsPlaying(true);
+      };
       if (usesDefaultExperiencePronunciation) {
         void playDefaultExperiencePronunciation({
+          onPlaybackStart,
           onDone: () => setIsPlaying(false),
           onError: () => setIsPlaying(false),
         });
@@ -1880,6 +1891,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       void speakEnglishNaturally(text, {
         onDownloadStart: downloadHandlers.onDownloadStart,
         onDownloadEnd: downloadHandlers.onDownloadEnd,
+        onPlaybackStart,
         onDone: () => setIsPlaying(false),
         onStopped: () => setIsPlaying(false),
         onError: () => {
@@ -1996,7 +2008,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       if (nextWord) {
         void prefetchEnglishNaturally(nextWord);
       }
-      setIsPlaying(true);
+      const onPlaybackStart = (duration: number) => {
+        setPlaybackDurationMillis(duration > 0 ? duration : 1100);
+        setIsPlaying(true);
+      };
       const sourceCard = scopedCards[index];
       if (
         resolvePronunciationAudioSource({
@@ -2006,6 +2021,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }) === 'bundled-default-experience'
       ) {
         void playDefaultExperiencePronunciation({
+          onPlaybackStart,
           onDone: () => setIsPlaying(false),
           onError: () => setIsPlaying(false),
         });
@@ -2014,6 +2030,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       void speakEnglishNaturally(itemPronunciationText, {
         onDownloadStart: handleTtsDownloadStart,
         onDownloadEnd: handleTtsDownloadEnd,
+        onPlaybackStart,
         onDone: () => setIsPlaying(false),
         onStopped: () => setIsPlaying(false),
         onError: () => {
@@ -2077,6 +2094,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           scrollX={scrollX}
           itemImageUri={cardImageMap[item.id] ?? null}
           isPlaying={isPlaying}
+          playbackDurationMillis={playbackDurationMillis}
           isTtsDownloading={isTtsDownloading}
           isRecording={isRecording}
           isAnalyzing={isAnalyzing}
