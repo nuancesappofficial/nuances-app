@@ -33,6 +33,19 @@ test('CardDetailSkeletonUI 元件必須存在並包含卡片形狀與脈動動�
     /skeletonWord|skeletonTitle/.test(source),
     'Skeleton 必須包含單字標題骨架區塊',
   );
+  // 4. 精確對齊檢查：必須包含頂部滿版媒體 heroMediaWrap 與底部卡片操作列 cardActionRow
+  assert.ok(
+    /heroMediaWrap/.test(source),
+    'Skeleton 必須包含與真卡片一致的頂部媒體 heroMediaWrap 結構',
+  );
+  assert.ok(
+    /cardActionRow/.test(source),
+    'Skeleton 必須包含與真卡片一致的底部 4 顆操作列 cardActionRow 結構',
+  );
+  assert.ok(
+    /paddingHorizontal:\s*18/.test(source) || /detailCardScrollContent/.test(source),
+    'Skeleton 必須具備與真卡片一致的 18px 水平邊距以確保尺寸完全一致',
+  );
 });
 
 test('CardDetailFlow 不應再包含死路畫面「找不到這張卡片」', () => {
@@ -49,5 +62,11 @@ test('CardDetailFlow 不應再包含死路畫面「找不到這張卡片」', ()
   assert.ok(
     source.includes('CardDetailSkeletonUI'),
     'CardDetailFlow.tsx 必須使用 CardDetailSkeletonUI 呈現骨架屏',
+  );
+
+  // 斷言：載入完成時平滑過渡（Easing transition）
+  assert.ok(
+    /skeletonFadeAnim|isSkeletonMounted/.test(source),
+    'CardDetailFlow.tsx 必須包含骨架屏平滑淡出 Easing 過渡機制',
   );
 });

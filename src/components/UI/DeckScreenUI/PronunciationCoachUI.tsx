@@ -18,6 +18,7 @@ import {
   getIpaSymbol,
 } from '../../../services/pronunciation/ipaPhonemes';
 import AnimatedGlowPressable from '../shared/AnimatedGlowPressable';
+import SiriVoiceWaveButton from '../shared/SiriVoiceWaveButton';
 import PronunciationPhonemeSectionUI from './PronunciationPhonemeSectionUI';
 
 type PhonemeChip = {
@@ -46,6 +47,7 @@ type Props = {
   phoneticTranscription?: string | null;
   syllableRowPattern?: number[];
   waveformValues: Animated.Value[];
+  recordingMetering?: number | Animated.Value;
   itemWord: string;
   uiLanguage: UILanguage;
   downloadingPronunciationTarget?: string | null;
@@ -75,6 +77,7 @@ export default function PronunciationCoachUI({
   isIpaLookupLoading = false,
   ipaLookupError,
   waveformValues,
+  recordingMetering,
   itemWord,
   uiLanguage,
   downloadingPronunciationTarget,
@@ -159,6 +162,19 @@ export default function PronunciationCoachUI({
     });
   }, [flipProgress, reduceMotion, showResult]);
 
+  const handleRetryPress = React.useCallback(() => {
+    if (isFlipping) return;
+    setIsFlipping(true);
+    Animated.timing(flipProgress, {
+      toValue: 0,
+      duration: 360,
+      useNativeDriver: true,
+    }).start(() => {
+      setIsFlipping(false);
+      onReset();
+    });
+  }, [isFlipping, flipProgress, onReset]);
+
   React.useEffect(() => {
     if (!activeIpaTarget) return;
     if (downloadingPronunciationTarget === activeIpaTarget) return;
@@ -175,6 +191,14 @@ export default function PronunciationCoachUI({
   const backRotate = flipProgress.interpolate({
     inputRange: [0, 1],
     outputRange: ['180deg', '360deg'],
+  });
+  const frontOpacity = flipProgress.interpolate({
+    inputRange: [0, 0.49, 0.5, 1],
+    outputRange: [1, 1, 0, 0],
+  });
+  const backOpacity = flipProgress.interpolate({
+    inputRange: [0, 0.5, 0.51, 1],
+    outputRange: [0, 0, 1, 1],
   });
   const wordDownloadTarget = itemWord.trim() ? `word:${itemWord.trim()}` : null;
   const isWordDownloading = Boolean(
@@ -247,11 +271,9 @@ export default function PronunciationCoachUI({
             {
               backgroundColor: palette.cardBg,
               borderColor: palette.cardBorder,
-              display: !isFlipping && showResult ? 'none' : 'flex',
+              opacity: frontOpacity,
+              transform: [{ perspective: 1200 }, { rotateY: frontRotate }],
             },
-            isFlipping
-              ? { transform: [{ perspective: 1200 }, { rotateY: frontRotate }] }
-              : null,
           ]}
         >
           <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>
@@ -305,48 +327,28 @@ export default function PronunciationCoachUI({
               </Text>
             ) : null}
 
-            <View
-              pointerEvents="none"
-              style={[
-                styles.pronunciationRecordingWaveRow,
-                !isRecording ? styles.pronunciationRecordingWaveRowIdle : null,
-              ]}
-            >
-              {waveformValues.map((value, index) => (
-                <Animated.View
-                  key={`coach-wave-${index}`}
-                  style={[
-                    styles.pronunciationRecordingWaveBar,
-                    { height: value, backgroundColor: '#4EAFF4' },
-                  ]}
-                />
-              ))}
-            </View>
-
-            <AnimatedGlowPressable
-              accessibilityRole="button"
-              active={isRecording}
-              style={styles.pronunciationQuizButton}
+            <SiriVoiceWaveButton
+              isRecording={isRecording}
+              isAnalyzing={isAnalyzing}
+              metering={recordingMetering ?? waveformValues[0]}
+              disabled={!isActiveCard || isAnalyzing}
               pressedStyle={
                 isActiveCard && !isAnalyzing
                   ? styles.pronunciationButtonPressed
                   : null
               }
-              idleBackgroundColor={palette.nextButtonBg}
-              idleBorderColor={palette.nextButtonBg}
-              disabled={!isActiveCard || isAnalyzing}
+              idleBackgroundColor="#1c2638"
+              idleBorderColor="#2e3d57"
+              activeBackgroundColor="rgba(28, 62, 99, 0.95)"
+              activeBorderColor="#4EAFF4"
+              glowColor="#4EAFF4"
+              iconColor="#FFFFFF"
+              activeBarColor="#00E5FF"
+              inactiveBarColor="#4EAFF4"
+              size={144}
+              style={{ marginVertical: 12 }}
               onPress={onPrimaryAction}
-            >
-              {isAnalyzing ? (
-                <ActivityIndicator size="small" color={palette.nextButtonText} />
-              ) : (
-                <Ionicons
-                  name={isRecording ? 'stop' : 'mic'}
-                  size={30}
-                  color={isRecording ? '#BFE7FF' : palette.nextButtonText}
-                />
-              )}
-            </AnimatedGlowPressable>
+            />
 
             <Pressable
               accessibilityRole="button"
@@ -376,11 +378,9 @@ export default function PronunciationCoachUI({
             {
               backgroundColor: palette.cardBg,
               borderColor: palette.cardBorder,
-              display: !isFlipping && !showResult ? 'none' : 'flex',
+              opacity: backOpacity,
+              transform: [{ perspective: 1200 }, { rotateY: backRotate }],
             },
-            isFlipping
-              ? { transform: [{ perspective: 1200 }, { rotateY: backRotate }] }
-              : null,
           ]}
         >
           <View style={styles.resultContent}>
@@ -499,7 +499,7 @@ export default function PronunciationCoachUI({
                 },
                 pressed ? styles.secondaryButtonPressed : null,
               ]}
-              onPress={onReset}
+              onPress={handleRetryPress}
             >
               <Ionicons name="refresh" size={18} color={palette.primaryText} />
               <Text style={[styles.retryButtonText, { color: palette.primaryText }]}>

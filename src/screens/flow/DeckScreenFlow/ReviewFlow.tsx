@@ -43,6 +43,7 @@ import {
   stopBundledPhonicsPlayback,
 } from '@services/pronunciation/ipaPhonemes';
 import AnimatedGlowPressable from '../../../components/UI/shared/AnimatedGlowPressable';
+import SiriVoiceWaveButton from '../../../components/UI/shared/SiriVoiceWaveButton';
 import PronunciationPhonemeSectionUI from '../../../components/UI/DeckScreenUI/PronunciationPhonemeSectionUI';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
@@ -1626,6 +1627,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const pronunciationRecordingStartedAtRef = React.useRef<number>(0);
   const pronunciationWaveValuesRef = React.useRef<Map<string, Animated.Value[]>>(new Map());
   const pronunciationWaveCursorRef = React.useRef<Map<string, number>>(new Map());
+  const pronunciationMeteringRef = React.useRef(new Animated.Value(-60)).current;
   const sessionBuildTokenRef = React.useRef(0);
   const sessionInitialScrollDoneRef = React.useRef(false);
   const reviewStartedTrackedRef = React.useRef(false);
@@ -2334,6 +2336,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
   const updatePronunciationWaveFromMetering = React.useCallback((questionId: string, metering?: number) => {
     if (typeof metering !== 'number' || !Number.isFinite(metering)) return;
+    pronunciationMeteringRef.setValue(metering);
     const values = getPronunciationWaveValues(questionId);
     const cursor = pronunciationWaveCursorRef.current.get(questionId) || 0;
     const nextCursor = (cursor + 1) % values.length;
@@ -3068,41 +3071,24 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 {pronunciationError ? (
                   <Text style={[styles.pronunciationQuizError, { color: palette.errorText }]}>{pronunciationError}</Text>
                 ) : null}
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.pronunciationRecordingWaveRow,
-                    !isPronunciationRecording ? styles.pronunciationRecordingWaveRowIdle : null,
-                  ]}
-                >
-                  {pronunciationWaveValues.map((value, index) => (
-                    <Animated.View
-                      key={`record-wave-${question.id}-${index}`}
-                      style={[
-                        styles.pronunciationRecordingWaveBar,
-                        {
-                          height: value,
-                          backgroundColor: '#4EAFF4',
-                        },
-                      ]}
-                    />
-                  ))}
-                </View>
-                <AnimatedGlowPressable
-                  active={isPronunciationRecording}
-                  style={styles.pronunciationQuizButton}
-                  pressedStyle={!selectedAnswer && !isPronunciationAnalyzing ? styles.pronunciationButtonPressed : null}
-                  idleBackgroundColor={palette.nextButtonBg}
-                  idleBorderColor={palette.nextButtonBg}
+                <SiriVoiceWaveButton
+                  isRecording={isPronunciationRecording}
+                  isAnalyzing={isPronunciationAnalyzing}
+                  metering={pronunciationMeteringRef}
                   disabled={Boolean(selectedAnswer) || isPronunciationAnalyzing}
+                  pressedStyle={!selectedAnswer && !isPronunciationAnalyzing ? styles.pronunciationButtonPressed : null}
+                  idleBackgroundColor="#1c2638"
+                  idleBorderColor="#2e3d57"
+                  activeBackgroundColor="rgba(28, 62, 99, 0.95)"
+                  activeBorderColor="#4EAFF4"
+                  glowColor="#4EAFF4"
+                  iconColor="#FFFFFF"
+                  activeBarColor="#00E5FF"
+                  inactiveBarColor="#4EAFF4"
+                  size={144}
+                  style={{ marginVertical: 12 }}
                   onPress={() => void togglePronunciationQuestionRecording(question)}
-                >
-                  <Ionicons
-                    name={isPronunciationAnalyzing ? 'hourglass-outline' : isPronunciationRecording ? 'stop' : 'mic'}
-                    size={30}
-                    color={isPronunciationRecording ? '#BFE7FF' : palette.nextButtonText}
-                  />
-                </AnimatedGlowPressable>
+                />
                 <Pressable
                   style={({ pressed }) => [
                     styles.pronunciationSkipButton,

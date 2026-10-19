@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Reanimated, {
   Easing,
   useAnimatedStyle,
@@ -9,7 +9,6 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import {
   CARD_WIDTH,
-  SIDE_PADDING,
   SPACING,
 } from './cardCarouselConfig';
 
@@ -38,112 +37,163 @@ export default function CardDetailSkeletonUI({ isLightMode = false }: Props) {
   const paperBg = isLightMode ? '#FFFFFF' : '#1E293B';
   const paperBorder = isLightMode ? '#E2E8F0' : '#334155';
   const blockColor = isLightMode ? '#E2E8F0' : '#334155';
-  const subBlockBg = isLightMode ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)';
   const subBlockBorder = isLightMode ? '#F1F5F9' : '#2A374A';
 
   return (
     <View style={styles.stageSection}>
       <View style={styles.carouselStage}>
-        <View style={styles.cardWrapper}>
-          <View
-            style={[
-              styles.detailPaper,
-              { backgroundColor: paperBg, borderColor: paperBorder },
-            ]}
-          >
-            {/* 頂部媒體/圖片骨架區塊 */}
-            <Reanimated.View
+        <View style={styles.carouselCardContainer}>
+          <View style={styles.detailCardShell}>
+            <View
               style={[
-                styles.skeletonMedia,
-                { backgroundColor: blockColor },
-                animatedPulseStyle,
+                styles.detailCardScroll,
+                styles.detailCardScrollContent,
+                { flex: 1 },
               ]}
-            />
+            >
+              <View style={styles.cardRelativeFrame}>
+                <View
+                  style={[
+                    styles.detailPaper,
+                    { backgroundColor: paperBg, borderColor: paperBorder },
+                  ]}
+                >
+                  {/* 1. 頂部滿版媒體/圖片骨架區塊 (對齊 heroMediaWrap) */}
+                  <View style={styles.heroMediaWrap}>
+                    <Reanimated.View
+                      style={[
+                        styles.skeletonHeroMedia,
+                        { backgroundColor: blockColor },
+                        animatedPulseStyle,
+                      ]}
+                    />
+                  </View>
 
-            {/* 內容區塊 */}
-            <View style={styles.contentWrap}>
-              {/* 單字標題骨架 */}
-              <Reanimated.View
-                style={[
-                  styles.skeletonWord,
-                  { backgroundColor: blockColor },
-                  animatedPulseStyle,
-                ]}
-              />
+                  {/* 2. 內容卡片容器 (對齊 referenceWordCard) */}
+                  <View
+                    style={[
+                      styles.referenceWordCard,
+                      { backgroundColor: paperBg },
+                    ]}
+                  >
+                    {/* 2.1 單字標題 + 右側發音鈕 */}
+                    <View style={styles.referenceRowTop}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonWord,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonSpeakerBtn,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
 
-              {/* 詞性與音標 Pills */}
-              <View style={styles.pillRow}>
-                <Reanimated.View
-                  style={[
-                    styles.skeletonPill,
-                    { width: 72, backgroundColor: blockColor },
-                    animatedPulseStyle,
-                  ]}
-                />
-                <Reanimated.View
-                  style={[
-                    styles.skeletonPill,
-                    { width: 54, backgroundColor: blockColor },
-                    animatedPulseStyle,
-                  ]}
-                />
-              </View>
+                    {/* 2.2 詞性膠囊 Badge + 釋義橫條 */}
+                    <View style={styles.referenceMeaningRow}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonPosBadge,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonMeaningLine,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
 
-              {/* 釋義/細節條目 */}
-              <Reanimated.View
-                style={[
-                  styles.skeletonTextLine,
-                  { width: '92%', backgroundColor: blockColor },
-                  animatedPulseStyle,
-                ]}
-              />
-              <Reanimated.View
-                style={[
-                  styles.skeletonTextLine,
-                  { width: '70%', backgroundColor: blockColor },
-                  animatedPulseStyle,
-                ]}
-              />
+                    {/* 2.3 分隔線 1 */}
+                    <View
+                      style={[
+                        styles.referenceDivider,
+                        { backgroundColor: subBlockBorder },
+                      ]}
+                    />
 
-              {/* 例句區塊容器 */}
-              <View
-                style={[
-                  styles.sentenceBox,
-                  { backgroundColor: subBlockBg, borderColor: subBlockBorder },
-                ]}
-              >
-                <Reanimated.View
-                  style={[
-                    styles.skeletonTextLine,
-                    { width: '85%', height: 13, backgroundColor: blockColor },
-                    animatedPulseStyle,
-                  ]}
-                />
-                <Reanimated.View
-                  style={[
-                    styles.skeletonTextLine,
-                    { width: '55%', height: 13, backgroundColor: blockColor, marginTop: 8 },
-                    animatedPulseStyle,
-                  ]}
-                />
-              </View>
+                    {/* 2.4 雙語例句區塊 */}
+                    <View style={styles.skeletonSentenceBlock}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonTextLine,
+                          { width: '92%', height: 16, backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonTextLine,
+                          {
+                            width: '74%',
+                            height: 16,
+                            backgroundColor: blockColor,
+                            marginTop: 10,
+                          },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
 
-              {/* 底部功能鈕骨架 */}
-              <View style={styles.bottomRow}>
-                <Reanimated.View
-                  style={[
-                    styles.skeletonCircle,
-                    { backgroundColor: blockColor },
-                    animatedPulseStyle,
-                  ]}
-                />
-                <Reanimated.View
-                  style={[
-                    styles.skeletonPill,
-                    { width: 90, height: 32, backgroundColor: blockColor },
-                    animatedPulseStyle,
-                  ]}
-                />
+                    {/* 2.5 分隔線 2 */}
+                    <View
+                      style={[
+                        styles.referenceDivider,
+                        {
+                          backgroundColor: subBlockBorder,
+                          marginTop: 10,
+                          marginBottom: 8,
+                        },
+                      ]}
+                    />
+
+                    {/* 2.6 細節辨析/指標區塊 (Nuance Metrics & Insight) */}
+                    <View style={styles.skeletonMetricsBlock}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonTextLine,
+                          { width: '84%', height: 14, backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonTextLine,
+                          {
+                            width: '58%',
+                            height: 14,
+                            backgroundColor: blockColor,
+                            marginTop: 8,
+                          },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
+
+                    {/* 2.7 底部操作列 (4 顆均勻分佈圖示：Mic, Share, Heart, Bookmark) */}
+                    <View style={styles.cardActionRow}>
+                      {[0, 1, 2, 3].map((slotIdx) => (
+                        <View key={slotIdx} style={styles.actionIconSlot}>
+                          <Reanimated.View
+                            style={[
+                              styles.skeletonActionIcon,
+                              { backgroundColor: blockColor },
+                              animatedPulseStyle,
+                            ]}
+                          />
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                </View>
               </View>
             </View>
           </View>
@@ -168,13 +218,32 @@ const styles = StyleSheet.create({
     overflow: 'visible',
     backgroundColor: 'transparent',
   },
-  cardWrapper: {
+  carouselCardContainer: {
     width: CARD_WIDTH,
     marginHorizontal: SPACING / 2,
     height: '100%',
     paddingVertical: 4,
+  },
+  detailCardShell: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'transparent',
+    overflow: 'visible',
+  },
+  detailCardScroll: {
+    flex: 1,
+  },
+  detailCardScrollContent: {
+    padding: 18,
     paddingTop: 100,
     paddingBottom: 32,
+    paddingHorizontal: 18,
+    gap: 18,
+  },
+  cardRelativeFrame: {
+    flex: 1,
+    width: '100%',
+    position: 'relative',
   },
   detailPaper: {
     flex: 1,
@@ -186,58 +255,104 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 24 },
     shadowOpacity: 0.12,
     shadowRadius: 30,
-    elevation: 8,
+    padding: 18,
+    gap: 18,
+    ...Platform.select({
+      android: {
+        elevation: 0,
+      },
+      default: {
+        elevation: 20,
+      },
+    }),
   },
-  skeletonMedia: {
-    width: '92%',
-    height: 180,
-    borderRadius: 20,
-    marginHorizontal: '4%',
-    marginTop: 14,
-    marginBottom: 6,
+  heroMediaWrap: {
+    marginTop: -18,
+    marginHorizontal: -18,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
   },
-  contentWrap: {
+  skeletonHeroMedia: {
+    width: '100%',
+    height: 250,
+  },
+  referenceWordCard: {
+    marginHorizontal: -6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 0,
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 18,
   },
-  skeletonWord: {
-    height: 32,
-    width: '58%',
-    borderRadius: 8,
+  referenceRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 12,
   },
-  pillRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+  skeletonWord: {
+    height: 38,
+    width: '58%',
+    borderRadius: 8,
   },
-  skeletonPill: {
+  skeletonSpeakerBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  referenceMeaningRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  skeletonPosBadge: {
+    width: 46,
+    height: 26,
+    borderRadius: 999,
+  },
+  skeletonMeaningLine: {
+    flex: 1,
     height: 22,
-    borderRadius: 11,
+    borderRadius: 6,
+  },
+  referenceDivider: {
+    marginTop: 16,
+    marginBottom: 14,
+    height: 1,
+  },
+  skeletonSentenceBlock: {
+    paddingVertical: 2,
   },
   skeletonTextLine: {
-    height: 15,
     borderRadius: 6,
-    marginBottom: 8,
   },
-  sentenceBox: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    marginTop: 12,
+  skeletonMetricsBlock: {
+    paddingVertical: 2,
   },
-  bottomRow: {
+  cardActionRow: {
+    flexShrink: 0,
+    minHeight: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 'auto',
-    paddingTop: 14,
+    paddingHorizontal: 2,
+    paddingTop: 0,
+    paddingBottom: 0,
+    transform: [{ translateY: 8 }],
   },
-  skeletonCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  actionIconSlot: {
+    width: 52,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skeletonActionIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
 });

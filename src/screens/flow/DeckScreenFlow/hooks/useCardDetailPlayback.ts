@@ -9,6 +9,7 @@ export function useCardDetailPlayback() {
   const [hasRecorded, setHasRecorded] = React.useState(false);
 
   const waveformValues = React.useRef(Array.from({ length: 24 }, () => new Animated.Value(8))).current;
+  const recordingMetering = React.useRef(new Animated.Value(-60)).current;
   const recordingRef = React.useRef<any | null>(null);
   const lastRecordingUriRef = React.useRef<string | null>(null);
   const userRecordingSoundRef = React.useRef<any | null>(null);
@@ -27,6 +28,7 @@ export function useCardDetailPlayback() {
     hasRecorded,
     setHasRecorded,
     waveformValues,
+    recordingMetering,
     recordingRef,
     lastRecordingUriRef,
     userRecordingSoundRef,

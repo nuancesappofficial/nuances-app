@@ -38,8 +38,12 @@ import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { Q } from '@nozbe/watermelondb';
 import Reanimated, {
+  Easing as ReanimatedEasing,
   runOnJS,
   useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { database } from '@database/index';
 import type Card from '@database/models/Card';
@@ -430,6 +434,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     hasRecorded,
     setHasRecorded,
     waveformValues,
+    recordingMetering,
     recordingRef,
     lastRecordingUriRef,
     userRecordingSoundRef,
@@ -1079,6 +1084,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
   };
 
   const updateWaveByMetering = (metering: number) => {
+    recordingMetering.setValue(metering);
     const normalized = Math.max(8, Math.min(72, ((metering + 60) / 60) * 72));
     const index = waveformPointerRef.current % waveformValues.length;
     waveformPointerRef.current += 1;
@@ -1183,7 +1189,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
         await recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any);
       });
-      recording.setProgressUpdateInterval(120);
+      recording.setProgressUpdateInterval(60);
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status?.isRecording) return;
         if (
@@ -2163,31 +2169,31 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     ]
   );
 
-  if (loading || !card || currentIndex === null || displayIndex === null) {
-    return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: palette.screenBg }]}
-        edges={[]}
-      >
-        <CardDetailHeaderActionsUI
-          floatingHeaderTop={floatingHeaderTop}
-          isLightMode={isLightMode}
-          headerTitle={headerTitle}
-          displayIndex={displayIndex ?? 0}
-          totalCount={scopedCards.length || 1}
-          onBack={() => {
-            Keyboard.dismiss();
-            navigation.goBack();
-          }}
-          styles={styles}
-        />
+  const isReady =
+    !loading && !!card && currentIndex !== null && displayIndex !== null;
+  const [isSkeletonMounted, setIsSkeletonMounted] = React.useState(true);
+  const skeletonFadeAnim = useSharedValue(1);
 
-        <View style={styles.content}>
-          <CardDetailSkeletonUI isLightMode={isLightMode} />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  React.useEffect(() => {
+    if (isReady && isSkeletonMounted) {
+      skeletonFadeAnim.value = withTiming(
+        0,
+        {
+          duration: 350,
+          easing: ReanimatedEasing.bezier(0.25, 0.1, 0.25, 1),
+        },
+        (finished) => {
+          if (finished) {
+            runOnJS(setIsSkeletonMounted)(false);
+          }
+        }
+      );
+    }
+  }, [isReady, isSkeletonMounted, skeletonFadeAnim]);
+
+  const animatedSkeletonContainerStyle = useAnimatedStyle(() => ({
+    opacity: skeletonFadeAnim.value,
+  }));
 
   return (
     <SafeAreaView
@@ -2198,8 +2204,8 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         floatingHeaderTop={floatingHeaderTop}
         isLightMode={isLightMode}
         headerTitle={headerTitle}
-        displayIndex={displayIndex}
-        totalCount={scopedCards.length}
+        displayIndex={displayIndex ?? 0}
+        totalCount={scopedCards.length || 1}
         onBack={() => {
           Keyboard.dismiss();
           navigation.goBack();
@@ -2208,19 +2214,33 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       />
 
       <View style={styles.content}>
-        <CardDetailCarouselUI
-          scopedCards={scopedCards}
-          flatListRef={flatListRef}
-          currentIndex={currentIndex}
-          displayIndex={displayIndex}
-          extraData={cardImageMap}
-          renderItem={renderCarouselCard}
-          scrollHandler={scrollHandler}
-          onMomentumScrollEnd={handleMomentumEnd}
-          snapInterval={SNAP_INTERVAL}
-          sidePadding={SIDE_PADDING}
-          horizontalScrollEnabled={!isCardContentExpanded}
-        />
+        {isReady && (
+          <CardDetailCarouselUI
+            scopedCards={scopedCards}
+            flatListRef={flatListRef}
+            currentIndex={currentIndex}
+            displayIndex={displayIndex}
+            extraData={cardImageMap}
+            renderItem={renderCarouselCard}
+            scrollHandler={scrollHandler}
+            onMomentumScrollEnd={handleMomentumEnd}
+            snapInterval={SNAP_INTERVAL}
+            sidePadding={SIDE_PADDING}
+            horizontalScrollEnabled={!isCardContentExpanded}
+          />
+        )}
+
+        {isSkeletonMounted && (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              animatedSkeletonContainerStyle,
+            ]}
+          >
+            <CardDetailSkeletonUI isLightMode={isLightMode} />
+          </Reanimated.View>
+        )}
       </View>
 
       <CardAlbumSheetModalUI
@@ -2396,6 +2416,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
                 phoneticTranscription={card?.phoneticTranscription}
                 syllableRowPattern={undefined}
                 waveformValues={waveformValues}
+                recordingMetering={recordingMetering}
                 itemWord={displayWord}
                 uiLanguage={uiLanguage}
                 downloadingPronunciationTarget={pronunciationDownloadTarget}
