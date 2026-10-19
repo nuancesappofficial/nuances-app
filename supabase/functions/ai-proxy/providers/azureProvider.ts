@@ -9,6 +9,7 @@ import {
   AZURE_TOKEN_TIMEOUT_MS,
   MAX_SENTENCE_CHARS,
 } from '../_shared/runtimeConfig.ts';
+import decodeAac from 'npm:@audio/decode-aac';
 
 type PronunciationAssessPayload = {
   referenceText: string;
@@ -241,6 +242,56 @@ function splitWordIntoLetterSegments(word: string, segmentCount: number): string
   return segments.length > 0 ? segments : [normalized];
 }
 
+function pcmToWav16kMono(channelData: Float32Array[], sourceSampleRate: number): Uint8Array {
+  const targetSampleRate = 16000;
+  const numChannels = channelData.length;
+  const sourceLength = channelData[0].length;
+  const mono = new Float32Array(sourceLength);
+  for (let i = 0; i < sourceLength; i++) {
+    let sum = 0;
+    for (let c = 0; c < numChannels; c++) {
+      sum += channelData[c][i];
+    }
+    mono[i] = sum / numChannels;
+  }
+
+  const ratio = sourceSampleRate / targetSampleRate;
+  const targetLength = Math.round(sourceLength / ratio);
+  const resampled = new Int16Array(targetLength);
+  for (let i = 0; i < targetLength; i++) {
+    const srcIdx = i * ratio;
+    const i0 = Math.floor(srcIdx);
+    const i1 = Math.min(i0 + 1, sourceLength - 1);
+    const frac = srcIdx - i0;
+    const val = mono[i0] * (1 - frac) + mono[i1] * frac;
+    const clamped = Math.max(-1, Math.min(1, val));
+    resampled[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  }
+
+  const byteRate = targetSampleRate * 2;
+  const blockAlign = 2;
+  const dataSize = targetLength * 2;
+  const buffer = new Uint8Array(44 + dataSize);
+  const view = new DataView(buffer.buffer);
+
+  buffer.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+  view.setUint32(4, 36 + dataSize, true);
+  buffer.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
+  buffer.set([0x66, 0x6d, 0x74, 0x20], 12); // "fmt "
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  buffer.set([0x64, 0x61, 0x74, 0x61], 36); // "data"
+  view.setUint32(40, dataSize, true);
+
+  new Uint8Array(buffer.buffer, 44, dataSize).set(new Uint8Array(resampled.buffer));
+  return buffer;
+}
+
 export async function handlePronunciationAssess(
   payload: PronunciationAssessPayload
 ): Promise<Response> {
@@ -274,13 +325,26 @@ export async function handlePronunciationAssess(
     );
   }
 
-  const audioBytes = decodeBase64ToBytes(audioBase64);
-  const isWav = isLikelyWav(audioBytes);
+  let audioBytes = decodeBase64ToBytes(audioBase64);
+  let isWav = isLikelyWav(audioBytes);
   const isOgg = isLikelyOgg(audioBytes);
-  const wavFormat = isWav ? parseWavFormat(audioBytes) : null;
+
   if (!isWav && !isOgg) {
-    throw new Error(`Audio payload is neither WAV RIFF/WAVE nor OGG Opus header (bytes=${audioBytes.length})`);
+    try {
+      const decoded = await (decodeAac as any)(audioBytes);
+      if (decoded && decoded.channelData?.length && decoded.channelData[0]?.length) {
+        audioBytes = pcmToWav16kMono(decoded.channelData, decoded.sampleRate || 44100);
+        isWav = true;
+      }
+    } catch (decodeErr) {
+      console.warn('[azureProvider] failed to decode AAC/M4A payload:', decodeErr);
+    }
   }
+
+  if (!isWav && !isOgg) {
+    throw new Error(`Audio payload is neither WAV RIFF/WAVE nor OGG Opus nor decodable M4A/AAC (bytes=${audioBytes.length})`);
+  }
+  const wavFormat = isWav ? parseWavFormat(audioBytes) : null;
   const minRequiredBytes = isOgg ? 1000 : AZURE_MIN_WAV_BYTES;
   if (audioBytes.length < minRequiredBytes) {
     return jsonResponse(

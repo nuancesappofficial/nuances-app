@@ -875,7 +875,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     [applyCacheSettings]
   );
 
-  const { cards: rawCards, todayStickerWords, todayUploadedCardIds, cacheItems } = useCacheListDataSource({
+  const { cards: rawCards, todayStickerWords, todayUploadedCardIds, allCards, cacheItems } = useCacheListDataSource({
     getDetectedPreview,
     toSourceLabel,
     toRelativeImportTime,
@@ -1145,14 +1145,19 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   const handlePressTodaySticker = React.useCallback(
     (item: TodayUploadSticker) => {
       if (!item.cardId) return;
-      const cardIds = todayUploadedCardIds.length > 0 ? todayUploadedCardIds : [item.cardId];
+      const cardIds =
+        todayUploadedCardIds.length > 1
+          ? todayUploadedCardIds
+          : allCards.length > 0
+            ? allCards.map((c) => c.id)
+            : [item.cardId];
       navigation.navigate('CardDetail', {
         cardId: item.cardId,
         cardIds,
         headerTitle: tUI(uiLanguage, 'cache.todayUploads'),
       });
     },
-    [navigation, todayUploadedCardIds, uiLanguage]
+    [allCards, navigation, todayUploadedCardIds, uiLanguage]
   );
 
   useEffect(() => {

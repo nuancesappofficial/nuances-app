@@ -199,14 +199,7 @@ const TRANSLATION_QUESTION_VARIANTS: ReviewQuestionType[] = [
 ];
 
 const REVIEW_PRONUNCIATION_RECORDING_OPTIONS = {
-  android: {
-    extension: '.ogg',
-    outputFormat: 11, // Android MediaRecorder.OutputFormat.OGG
-    audioEncoder: 7, // Android MediaRecorder.AudioEncoder.OPUS
-    sampleRate: 16000,
-    numberOfChannels: 1,
-    bitRate: 64000,
-  },
+  android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
   ios: {
     extension: '.wav',
     audioQuality:

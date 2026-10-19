@@ -247,7 +247,14 @@ const CacheStack = React.memo(function CacheStack({
             component={SyncCreateCardFlow}
             options={IOS_CARD_SCREEN_OPTIONS}
           />
-          <CacheStackNav.Screen name="CardDetail" component={SyncCardDetailFlow} options={IOS_CARD_SCREEN_OPTIONS} />
+          <CacheStackNav.Screen
+            name="CardDetail"
+            component={SyncCardDetailFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
         </CacheStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>

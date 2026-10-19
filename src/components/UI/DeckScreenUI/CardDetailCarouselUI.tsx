@@ -49,7 +49,7 @@ export default function CardDetailCarouselUI({
           alwaysBounceHorizontal={false}
           bounces={false}
           overScrollMode="never"
-          contentContainerStyle={[styles.carouselContent, { paddingHorizontal: sidePadding }]}
+          contentContainerStyle={[styles.carouselContent, { paddingHorizontal: Math.max(0, sidePadding) }]}
           initialNumToRender={3}
           windowSize={5}
           maxToRenderPerBatch={3}
