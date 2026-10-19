@@ -48,6 +48,8 @@ const ensureRequests = new Map<string, Promise<string | null>>();
  * fast as a picked photo. Idempotent: the resolved URI is cached for the app
  * session.
  */
+import * as FileSystem from 'expo-file-system/legacy';
+
 let persistedDemoCardImageUriPromise: Promise<string | null> | null = null;
 function resolvePersistedDemoCardImageUri(): Promise<string | null> {
   if (!persistedDemoCardImageUriPromise) {
@@ -55,7 +57,34 @@ function resolvePersistedDemoCardImageUri(): Promise<string | null> {
       try {
         const asset = Asset.fromModule(DEFAULT_EXPERIENCE_CARD_IMAGE);
         if (!asset.localUri) await asset.downloadAsync();
-        return asset.localUri || asset.uri || null;
+        const rawUri = asset.localUri || asset.uri;
+        if (!rawUri) return null;
+
+        const cacheDir = FileSystem.cacheDirectory;
+        if (cacheDir) {
+          const targetPath = `${cacheDir}default-experience-demo-v3.png`;
+          const info = await FileSystem.getInfoAsync(targetPath).catch(() => null);
+          if (info?.exists && info.size && info.size > 0) {
+            return targetPath;
+          }
+          if (rawUri.startsWith('file://') && !rawUri.includes('android_asset')) {
+            await FileSystem.copyAsync({ from: rawUri, to: targetPath }).catch(() => undefined);
+            const verified = await FileSystem.getInfoAsync(targetPath).catch(() => null);
+            if (verified?.exists && verified.size && verified.size > 0) {
+              return targetPath;
+            }
+          } else if (/^https?:\/\//i.test(rawUri)) {
+            const res = await FileSystem.downloadAsync(rawUri, targetPath).catch(() => null);
+            if (res?.uri) return res.uri;
+          } else {
+            await FileSystem.copyAsync({ from: rawUri, to: targetPath }).catch(() => undefined);
+            const verified = await FileSystem.getInfoAsync(targetPath).catch(() => null);
+            if (verified?.exists && verified.size && verified.size > 0) {
+              return targetPath;
+            }
+          }
+        }
+        return rawUri;
       } catch (error) {
         console.warn('[DefaultExperienceCard] failed to materialise demo image', error);
         return Asset.fromModule(DEFAULT_EXPERIENCE_CARD_IMAGE).uri || null;

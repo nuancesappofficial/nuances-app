@@ -44,12 +44,15 @@ export default function CacheImageCardFace({
       />
       {detectedPreview ? (
         <View pointerEvents="none" style={styles.detectedWrap}>
-        {/* 加強 intensity，並根據平台微調 */}
-        <BlurView 
-          intensity={Platform.OS === 'ios' ? 50 : 80} 
-          tint="light" 
-          style={StyleSheet.absoluteFill} 
-        />
+        {Platform.OS === 'android' ? (
+          <View style={[StyleSheet.absoluteFill, styles.androidBlurFallback]} />
+        ) : (
+          <BlurView 
+            intensity={50} 
+            tint="light" 
+            style={StyleSheet.absoluteFill} 
+          />
+        )}
         <View style={styles.detectedOverlay} />
         <Text style={styles.detectedText} numberOfLines={1}>
           {detectedPreview}
@@ -118,5 +121,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 28,
     fontWeight: '700',
+  },
+  androidBlurFallback: {
+    backgroundColor: 'rgba(255, 255, 255, 0.82)',
   },
 });

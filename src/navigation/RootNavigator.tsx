@@ -1131,7 +1131,7 @@ const styles = StyleSheet.create({
   page: { flex: 1 },
   tabScene: { ...StyleSheet.absoluteFillObject },
   tabBarOuter: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', zIndex: 200 },
-  tabBarAnimatedWrap: { position: 'absolute', bottom: -15, left: 0, right: 0, zIndex: 200 },
+  tabBarAnimatedWrap: { position: 'absolute', bottom: Platform.OS === 'android' ? 0 : -15, left: 0, right: 0, zIndex: 200 },
   rnTabBarWrap: { width: '75%', maxWidth: 360, minWidth: 250, height: TAB_BAR_HEIGHT, paddingHorizontal: TAB_BAR_SIDE_PADDING, borderRadius: TAB_BAR_RADIUS, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.34, shadowRadius: 20, elevation: 16, overflow: 'visible' },
   rnActiveCapsule: { position: 'absolute', left: 0, top: TAB_BAR_VERTICAL_INSET, height: TAB_CAPSULE_HEIGHT, borderRadius: TAB_CAPSULE_RADIUS, borderWidth: 1, shadowColor: '#89CCFF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.45, shadowRadius: 10, elevation: 6 },
   rnTabButton: { flex: 1, height: TAB_CAPSULE_HEIGHT, borderRadius: TAB_CAPSULE_RADIUS, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },

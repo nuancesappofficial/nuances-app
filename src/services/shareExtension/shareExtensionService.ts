@@ -24,6 +24,7 @@ import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import {
   getAppGroupSharedContentSnapshot,
   clearAppGroupSharedContentIfUnchanged,
+  setAppGroupActiveUserId,
   type SharedContentItem,
 } from '../../native/SharedDefaultsModule';
 
@@ -305,6 +306,7 @@ export async function checkAndProcessSharedContent(userId: string): Promise<Shar
 }
 
 async function processAndroidSharedContent(userId: string): Promise<ShareContentProcessResult> {
+  await setAppGroupActiveUserId(userId).catch(() => undefined);
   const payloads = (await AndroidShareIntent.getPendingSharedPayloads()).slice(0, 50);
   if (payloads.length === 0) {
     return {
@@ -323,7 +325,8 @@ async function processAndroidSharedContent(userId: string): Promise<ShareContent
 
   for (const payload of payloads) {
     await assertActiveAccount(userId);
-    if (!payload.id || payload.ownerUserId !== userId) {
+    const isOwnerMismatch = Boolean(payload.ownerUserId && payload.ownerUserId !== userId);
+    if (!payload.id || isOwnerMismatch) {
       blockedCount += 1;
       if (payload.id) await AndroidShareIntent.rejectSharedPayloads([payload.id]);
       continue;
@@ -431,8 +434,12 @@ function isOwnedAndroidSharedImage(uri: string, userId: string): boolean {
   if (!uri.startsWith('file://')) return false;
   const path = decodeURIComponent(uri.slice('file://'.length));
   const safeUserId = userId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
-  return path.includes(`/files/SharedImages/${safeUserId}/`) &&
-    /^[a-f0-9]{32}_\d+\.(?:jpe?g|png|webp)$/i.test(path.split('/').pop() ?? '');
+  const isCorrectDir =
+    path.includes(`/files/SharedImages/${safeUserId}/`) ||
+    path.includes('/files/SharedImages/unowned/');
+  const filename = path.split('/').pop() ?? '';
+  const isImageExt = /\.(?:jpe?g|png|webp)$/i.test(filename);
+  return isCorrectDir && isImageExt;
 }
 
 async function saveAndroidImagesToCache(userId: string, imageUris: string[]): Promise<number> {

@@ -1,0 +1,27 @@
+name: Daily Auto Sync App Version Policy
+
+on:
+  schedule:
+    # 每日台灣時間上午 09:00（UTC 01:00）自動巡邏一次
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 支援在 GitHub 網頁手動一鍵觸發
+
+jobs:
+  poll-and-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run store version scan and auto-sync
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://cjmfobjitkmmideecfsw.supabase.co' }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B' }}
+          APP_VERSION_POLICY_SYNC_TOKEN: ${{ secrets.APP_VERSION_POLICY_SYNC_TOKEN }}
+        run: node scripts/poll-store-and-sync.mjs

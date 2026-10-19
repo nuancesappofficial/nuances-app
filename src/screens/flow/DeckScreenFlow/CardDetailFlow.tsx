@@ -170,7 +170,14 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
 }
 
 const PRONUNCIATION_RECORDING_OPTIONS = {
-  android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+  android: {
+    extension: '.ogg',
+    outputFormat: 11, // Android MediaRecorder.OutputFormat.OGG
+    audioEncoder: 7, // Android MediaRecorder.AudioEncoder.OPUS
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+  },
   ios: {
     extension: '.wav',
     audioQuality:
@@ -2044,7 +2051,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   React.useEffect(() => {
     setIsCardContentExpanded(false);
-  }, [currentIndex]);
+  }, [currentIndex, card?.id]);
 
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => {

@@ -12,6 +12,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -1615,7 +1616,7 @@ function CardDetailCarouselCardUI({
                     showsVerticalScrollIndicator
                     nestedScrollEnabled
                     directionalLockEnabled
-                    scrollEnabled
+                    scrollEnabled={Platform.OS === 'android' ? (isFullSentenceExpanded || isFrontBodyScrollable) : true}
                     bounces={isFullSentenceExpanded || isFrontBodyScrollable}
                     alwaysBounceVertical={
                       isFullSentenceExpanded || isFrontBodyScrollable
@@ -2157,6 +2158,7 @@ function CardDetailCarouselCardUI({
                       showsVerticalScrollIndicator
                       nestedScrollEnabled
                       directionalLockEnabled
+                      scrollEnabled={Platform.OS === 'android' ? (isExamplesExpanded || isAnyAuxBackFieldExpanded || isBackBodyScrollable) : true}
                       bounces={
                         isExamplesExpanded ||
                         isAnyAuxBackFieldExpanded ||

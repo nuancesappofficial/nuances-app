@@ -78,9 +78,13 @@
   "submit": {
     "production": {
       "ios": {
-        "ascApiKeyPath": "/Users/users/Downloads/AuthKey_W49BN3Q6GH.p8",
+        "ascApiKeyPath": "/Users/users/.eas-keys/AuthKey_W49BN3Q6GH.p8",
         "ascApiKeyId": "W49BN3Q6GH",
         "ascApiKeyIssuerId": "af584971-02b3-42de-b892-3d23ade35a20"
+      },
+      "android": {
+        "serviceAccountKeyPath": "/Users/users/.eas-keys/google-service-account.json",
+        "track": "internal"
       }
     }
   }

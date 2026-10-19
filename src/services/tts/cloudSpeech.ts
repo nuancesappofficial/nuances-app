@@ -225,8 +225,7 @@ async function playAudioUri({
   if (sound) {
     loadedLocalSoundCache.delete(uri);
     loadedLocalSoundCache.set(uri, sound);
-    await sound.setPositionAsync(0);
-    await sound.playAsync();
+    await sound.setStatusAsync({ shouldPlay: true, positionMillis: 0 });
   } else {
     const result = await Audio.Sound.createAsync(
       { uri },
@@ -273,7 +272,7 @@ async function playAudioUri({
       if (!shouldKeepLoaded) {
         void sound.unloadAsync();
       } else {
-        void sound.setPositionAsync(0);
+        void sound.setStatusAsync({ shouldPlay: false, positionMillis: 0 });
       }
       options?.onDone?.();
     }

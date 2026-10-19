@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, useWindowDimensions, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Reanimated, { type SharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import FolderIcon from './FolderIcon';
@@ -64,12 +64,19 @@ export default function AlbumActionMenuOverlayUI({
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <AnimatedBlurView
-        tint="dark"
-        intensity={100}
-        pointerEvents="none"
-        style={[styles.menuBlurLayer, blurStyle]}
-      />
+      {Platform.OS === 'android' ? (
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.menuBlurLayer, { backgroundColor: 'rgba(0, 0, 0, 0.75)' }, blurStyle]}
+        />
+      ) : (
+        <AnimatedBlurView
+          tint="dark"
+          intensity={100}
+          pointerEvents="none"
+          style={[styles.menuBlurLayer, blurStyle]}
+        />
+      )}
       <Reanimated.View style={[styles.menuDimLayer, blurStyle]} />
 
       {activeAlbum && activeLayout ? (

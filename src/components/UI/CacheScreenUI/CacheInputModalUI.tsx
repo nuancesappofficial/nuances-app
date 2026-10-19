@@ -16,6 +16,7 @@ import {
   type EmitterSubscription,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CacheTextInputPanelUI from './CacheTextInputPanelUI';
 import CacheImageInputPanelUI from './CacheImageInputPanelUI';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
@@ -100,6 +101,7 @@ export default function CacheInputModalUI({
     [palette]
   );
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [shouldRender, setShouldRender] = React.useState(visible);
   const [panelWidth, setPanelWidth] = React.useState(0);
   const [sheetHeight, setSheetHeight] = React.useState(0);
@@ -335,7 +337,7 @@ export default function CacheInputModalUI({
           {
             backgroundColor: isLight ? lightModalColors.sheetBg : palette.modalBg,
             borderColor: palette.modalOptionBorder,
-            paddingBottom: addTab === 'image' ? 0 : 16,
+            paddingBottom: (addTab === 'image' ? 0 : 16) + insets.bottom,
             transform: [{ translateY: sheetTransform }],
           },
         ]}

@@ -101,8 +101,8 @@ type PronunciationAssessResponse = {
 
 const CLOUD_ASSESS_TIMEOUT_MS = 25_000;
 const MAX_AUDIO_BASE64_CHARS = 3_500_000;
-const MIN_AUDIO_BASE64_CHARS = 8_000;
-const MIN_AUDIO_BYTES = 6_000;
+const MIN_AUDIO_BASE64_CHARS = 2_000;
+const MIN_AUDIO_BYTES = 1_500;
 const COACHING_SUGGESTION_THRESHOLD = 90;
 
 export function detectPronunciationLocale(text: string | undefined | null): string {

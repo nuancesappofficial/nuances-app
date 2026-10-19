@@ -360,7 +360,7 @@ function VocabStickerCloud({
   const { width: windowWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
   const sensor = useAnimatedSensor(SensorType.GRAVITY, {
-    interval: 16,
+    interval: Platform.OS === 'android' ? 40 : 16,
   });
   const stickers =
     items.length > 0

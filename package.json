@@ -23,6 +23,8 @@
     "sync:app-version-policy:dry": "node scripts/sync-app-version-policy.js --dry-run",
     "sync:app-version-policy:android": "node scripts/sync-app-version-policy.js --platform android",
     "sync:app-version-policy:android:dry": "node scripts/sync-app-version-policy.js --platform android --dry-run",
+    "sync:app-version-policy:poll": "node scripts/poll-store-and-sync.mjs",
+    "sync:app-version-policy:poll:dry": "node scripts/poll-store-and-sync.mjs --dry-run",
     "message:send": "node scripts/send-message.js",
     "growth:campaigns": "node scripts/growthCampaignClient.mjs"
   },

@@ -127,6 +127,16 @@ function isLikelyWav(bytes: Uint8Array): boolean {
   return riff && wave;
 }
 
+function isLikelyOgg(bytes: Uint8Array): boolean {
+  if (bytes.length < 4) return false;
+  return (
+    bytes[0] === 0x4f && // O
+    bytes[1] === 0x67 && // g
+    bytes[2] === 0x67 && // g
+    bytes[3] === 0x53    // S
+  );
+}
+
 function parseWavFormat(bytes: Uint8Array): {
   audioFormat: number | null;
   channels: number | null;
@@ -265,13 +275,16 @@ export async function handlePronunciationAssess(
   }
 
   const audioBytes = decodeBase64ToBytes(audioBase64);
-  const wavFormat = parseWavFormat(audioBytes);
-  if (!isLikelyWav(audioBytes)) {
-    throw new Error(`Audio payload is not WAV RIFF/WAVE header (bytes=${audioBytes.length})`);
+  const isWav = isLikelyWav(audioBytes);
+  const isOgg = isLikelyOgg(audioBytes);
+  const wavFormat = isWav ? parseWavFormat(audioBytes) : null;
+  if (!isWav && !isOgg) {
+    throw new Error(`Audio payload is neither WAV RIFF/WAVE nor OGG Opus header (bytes=${audioBytes.length})`);
   }
-  if (audioBytes.length < AZURE_MIN_WAV_BYTES) {
+  const minRequiredBytes = isOgg ? 1000 : AZURE_MIN_WAV_BYTES;
+  if (audioBytes.length < minRequiredBytes) {
     return jsonResponse(
-      { error: `Audio too short for cloud assessment (wavBytes=${audioBytes.length}, min=${AZURE_MIN_WAV_BYTES})` },
+      { error: `Audio too short for cloud assessment (audioBytes=${audioBytes.length}, min=${minRequiredBytes})` },
       400
     );
   }
@@ -294,13 +307,14 @@ export async function handlePronunciationAssess(
     audioBytes.byteOffset,
     audioBytes.byteOffset + audioBytes.byteLength
   ) as ArrayBuffer;
+  const contentType = isOgg ? 'audio/ogg; codecs=opus' : 'audio/wav';
   const azureResponse = await fetchWithTimeout(
     endpoint,
     {
       method: 'POST',
       headers: {
         'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
-        'Content-Type': 'audio/wav',
+        'Content-Type': contentType,
         Accept: 'application/json',
         'Pronunciation-Assessment': pronunciationHeader,
       },

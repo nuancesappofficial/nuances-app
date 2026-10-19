@@ -91,16 +91,28 @@ function createRoundedRectPath(
 }
 
 async function resolveCropSourceUri(imageUri: string): Promise<string> {
-  if (!/^https?:\/\//i.test(imageUri)) return imageUri;
-
   const cacheDirectory = FileSystem.cacheDirectory;
   if (!cacheDirectory) return imageUri;
 
-  const targetUri = `${cacheDirectory}crop-source-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}.jpg`;
-  const downloaded = await FileSystem.downloadAsync(imageUri, targetUri);
-  return downloaded.uri;
+  if (/^https?:\/\//i.test(imageUri)) {
+    const targetUri = `${cacheDirectory}crop-source-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.jpg`;
+    const downloaded = await FileSystem.downloadAsync(imageUri, targetUri);
+    return downloaded.uri;
+  }
+
+  if (imageUri.startsWith('asset:/') || imageUri.includes('android_asset')) {
+    const extMatch = imageUri.match(/\.(png|jpg|jpeg|webp)$/i);
+    const ext = extMatch ? extMatch[1] : 'jpg';
+    const targetUri = `${cacheDirectory}crop-asset-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.${ext}`;
+    await FileSystem.copyAsync({ from: imageUri, to: targetUri });
+    return targetUri;
+  }
+
+  return imageUri;
 }
 
 export default function ImageCropperModal({
