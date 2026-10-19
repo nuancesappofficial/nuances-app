@@ -74,7 +74,13 @@ export function FolderIcon({
   void latestCards;
   const coverTheme = getCoverTheme(title);
   const isLight = colorScheme === 'light';
-  const hasCoverImage = Boolean(coverImageUri);
+  const [imageError, setImageError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImageError(false);
+  }, [coverImageUri]);
+
+  const hasCoverImage = Boolean(coverImageUri) && !imageError;
   const frontColor = hasCoverImage ? 'transparent' : coverColor || '#1E293B';
   const iconColor = isLight ? '#4EAFF4' : palette.textOnContainer;
   const bottomTitleColor = palette.albumCoverText;
@@ -97,8 +103,13 @@ export function FolderIcon({
             { backgroundColor: frontColor },
           ]}
         >
-          {coverImageUri ? (
-            <Image source={{ uri: coverImageUri }} style={styles.coverImage} resizeMode="cover" />
+          {coverImageUri && !imageError ? (
+            <Image
+              source={{ uri: coverImageUri }}
+              style={styles.coverImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+            />
           ) : null}
           {hasCoverImage ? null : (
             <View style={[styles.symbolWrap, compact ? styles.symbolWrapCompact : null, thumbnail ? styles.symbolWrapThumbnail : null]}>

@@ -1627,6 +1627,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const pronunciationWaveValuesRef = React.useRef<Map<string, Animated.Value[]>>(new Map());
   const pronunciationWaveCursorRef = React.useRef<Map<string, number>>(new Map());
   const sessionBuildTokenRef = React.useRef(0);
+  const sessionInitialScrollDoneRef = React.useRef(false);
   const reviewStartedTrackedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1750,6 +1751,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
       setPronunciationAnalyzingQuestionId(null);
       setCurrentIndex(0);
       setClampedNotice(null);
+      sessionInitialScrollDoneRef.current = false;
       flipValuesRef.current = new Map();
       let sessionClampedNotice: string | null = null;
       let nextQuestions: ReviewQuestion[];
@@ -1822,7 +1824,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
   ]);
 
   React.useEffect(() => {
-    if (loading || !questions.length) return;
+    if (loading || !questions.length || sessionInitialScrollDoneRef.current) return;
+    sessionInitialScrollDoneRef.current = true;
     const rafId = requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     });

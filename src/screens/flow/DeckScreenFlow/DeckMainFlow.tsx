@@ -64,6 +64,7 @@ import {
   type UILanguage,
 } from '@services/settings/userSettings';
 import { placeNewAlbumInSlotOrder } from '../../../features/deck/albumSlotPlacement';
+import { applyDeckAlbumAppearanceUpdate } from '../../../features/deck/albumAppearanceSettings';
 import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -1606,7 +1607,7 @@ export default function DeckMainFlow({
 
   const applyAlbumSettings = React.useCallback(
     (nextCoverImageUri?: string) => {
-      if (!settingsAlbum) return;
+      if (!settingsAlbum) return false;
 
       const nextName = settingsName.trim();
       if (!nextName) {
@@ -1618,59 +1619,37 @@ export default function DeckMainFlow({
       }
 
       const effectiveCoverImageUri = nextCoverImageUri ?? settingsCoverImageUri;
-      const writeCoverOverride = (albumId: string, uri: string) => {
-        setAlbumCoverOverrides((prev) => {
-          const next = { ...prev };
-          if (uri) {
-            next[albumId] = uri;
-          } else {
-            delete next[albumId];
-          }
-          return next;
-        });
+      const defaultDisplayName = getDeckAlbumDisplayName(
+        { id: settingsAlbum.id, name: settingsAlbum.name, isNameCustomized: false },
+        uiLanguage
+      );
+      const currentPrefs: DeckAlbumPreferences = {
+        customAlbums,
+        albumNameOverrides,
+        albumEmojiOverrides,
+        albumColorOverrides,
+        albumCoverOverrides,
+        deletedAlbumIds,
       };
 
-      const isCustomAlbum = customAlbums.some(
-        (it) => it.id === settingsAlbum.id
+      const { nextPrefs } = applyDeckAlbumAppearanceUpdate(
+        settingsAlbum,
+        currentPrefs,
+        {
+          name: nextName,
+          emoji: settingsEmoji,
+          color: settingsColor,
+          coverImageUri: effectiveCoverImageUri || undefined,
+        },
+        defaultDisplayName
       );
-      if (isCustomAlbum) {
-        setCustomAlbums((prev) =>
-          prev.map((it) =>
-            it.id === settingsAlbum.id
-              ? {
-                  ...it,
-                  name: nextName,
-                  emoji: settingsEmoji,
-                  color: settingsColor,
-                  coverImageUri: effectiveCoverImageUri || undefined,
-                }
-              : it
-          )
-        );
-        writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
-      } else {
-        setAlbumNameOverrides((prev) => {
-          const next = { ...prev };
-          const unchangedSystemName =
-            !settingsAlbum.isNameCustomized &&
-            nextName === getDeckAlbumDisplayName(settingsAlbum, uiLanguage);
-          if (unchangedSystemName) {
-            delete next[settingsAlbum.id];
-          } else {
-            next[settingsAlbum.id] = nextName;
-          }
-          return next;
-        });
-        setAlbumEmojiOverrides((prev) => ({
-          ...prev,
-          [settingsAlbum.id]: settingsEmoji,
-        }));
-        setAlbumColorOverrides((prev) => ({
-          ...prev,
-          [settingsAlbum.id]: settingsColor,
-        }));
-        writeCoverOverride(settingsAlbum.id, effectiveCoverImageUri);
-      }
+
+      setCustomAlbums(nextPrefs.customAlbums);
+      setAlbumNameOverrides(nextPrefs.albumNameOverrides);
+      setAlbumEmojiOverrides(nextPrefs.albumEmojiOverrides);
+      setAlbumColorOverrides(nextPrefs.albumColorOverrides);
+      setAlbumCoverOverrides(nextPrefs.albumCoverOverrides);
+      void saveDeckAlbumPreferences(nextPrefs);
 
       setSettingsCoverImageUri(effectiveCoverImageUri);
       setSettingsVisible(false);
@@ -1678,12 +1657,17 @@ export default function DeckMainFlow({
       return true;
     },
     [
+      albumColorOverrides,
+      albumCoverOverrides,
+      albumEmojiOverrides,
+      albumNameOverrides,
       customAlbums,
+      deletedAlbumIds,
       settingsAlbum,
-      settingsName,
-      settingsEmoji,
       settingsColor,
       settingsCoverImageUri,
+      settingsEmoji,
+      settingsName,
       uiLanguage,
     ]
   );

@@ -198,6 +198,10 @@ function normalizeMainScreenSlots(
   storedOrder: string[],
   slotsPerPage: MainScreenAlbumGridCount
 ): string[] {
+  if (albums.length === 0) {
+    return storedOrder;
+  }
+
   const albumIds = new Set(albums.map((album) => album.id));
   const usedAlbumIds = new Set<string>();
   const slots: string[] = [];
@@ -889,9 +893,7 @@ export default function ProfileSettingOptionsFlow({
       if (aOrder != null && bOrder != null) return aOrder - bOrder;
       if (aOrder != null) return -1;
       if (bOrder != null) return 1;
-      const aLatest = a.latestCards[0]?.createdAtMs ?? 0;
-      const bLatest = b.latestCards[0]?.createdAtMs ?? 0;
-      return bLatest - aLatest;
+      return 0;
     });
   }, [mainScreenAlbums, settings.mainScreenAlbumOrder]);
 
@@ -901,7 +903,7 @@ export default function ProfileSettingOptionsFlow({
   );
 
   React.useEffect(() => {
-    if (kind !== 'theme') return;
+    if (kind !== 'theme' || mainScreenAlbums.length === 0) return;
     const nextSlots = normalizeMainScreenSlots(
       orderedMainScreenAlbums,
       settings.mainScreenAlbumOrder,
@@ -914,6 +916,7 @@ export default function ProfileSettingOptionsFlow({
     });
   }, [
     kind,
+    mainScreenAlbums.length,
     orderedMainScreenAlbums,
     settings.mainScreenAlbumGridCount,
     settings.mainScreenAlbumOrder,

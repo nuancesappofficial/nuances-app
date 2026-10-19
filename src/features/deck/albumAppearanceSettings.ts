@@ -29,11 +29,14 @@ export function applyDeckAlbumAppearanceUpdate(
       coverImageUri: update.coverImageUri || undefined,
       isNameCustomized: true,
     };
+    const nextCoverOverrides = { ...nextPrefs.albumCoverOverrides };
+    delete nextCoverOverrides[currentAlbum.id];
     nextPrefs = {
       ...nextPrefs,
       customAlbums: nextPrefs.customAlbums.map((it) =>
         it.id === currentAlbum.id ? updatedAlbum : it
       ),
+      albumCoverOverrides: nextCoverOverrides,
     };
   } else {
     const nextNameOverrides = { ...nextPrefs.albumNameOverrides };

@@ -9,11 +9,18 @@ function getRuntimeDocumentDirectory(): string {
   }
   try {
     // Dynamic require so node test environments don't fail parsing expo-file-system
+    // In Expo 54, documentDirectory string is exported from expo-file-system/legacy
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const FileSystem = require('expo-file-system');
-    cachedDocDir = (FileSystem.documentDirectory as string) || '';
+    const FileSystemLegacy = require('expo-file-system/legacy');
+    cachedDocDir = (FileSystemLegacy.documentDirectory as string) || '';
   } catch {
-    cachedDocDir = '';
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const FileSystem = require('expo-file-system');
+      cachedDocDir = (FileSystem.documentDirectory as string) || '';
+    } catch {
+      cachedDocDir = '';
+    }
   }
   return cachedDocDir;
 }
@@ -45,6 +52,9 @@ export function resolveAlbumCoverUri(
 
   const docDir =
     baseDocDir !== undefined ? (baseDocDir || '') : getRuntimeDocumentDirectory();
+  if (!docDir) {
+    return storedUri;
+  }
   const normalizedDocDir = docDir.endsWith('/') ? docDir : `${docDir}/`;
 
   // Pattern 1: Relative path like "album-covers/album-cover-xxx.jpg"
