@@ -1,4 +1,4 @@
-import { speakViaAzureTtsProxy } from './cloudSpeech';
+import { prefetchAudio, speakViaAzureTtsProxy } from './cloudSpeech';
 import {
   getDefaultTTSVoiceForAIReplyLanguage,
   loadUserSettings,
@@ -72,4 +72,27 @@ export async function speakEnglishNaturally(
     voice: selectedVoice || '(default)',
   });
   options?.onError?.();
+}
+
+export async function prefetchEnglishNaturally(text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  let selectedVoice: string | undefined;
+  let locale = 'en-US';
+  try {
+    const settings = await loadUserSettings();
+    const language = detectSpeechLanguage(trimmed);
+    selectedVoice = resolveTTSVoiceForLanguage(settings, language);
+    locale = getLocaleForAIReplyLanguage(language);
+  } catch {
+    const language = detectSpeechLanguage(trimmed);
+    selectedVoice = getDefaultTTSVoiceForAIReplyLanguage(language);
+    locale = getLocaleForAIReplyLanguage(language);
+  }
+
+  await prefetchAudio(trimmed, {
+    locale,
+    voice: selectedVoice,
+  });
 }

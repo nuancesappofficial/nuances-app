@@ -70,6 +70,7 @@ import TipNotificationService from './src/services/notifications/TipNotification
 import { registerPushTokenForUser, unregisterPushTokenForUser } from './src/services/notifications/pushTokenService';
 import { inAppMessageService } from './src/services/notifications/inAppMessageService';
 import InAppMessageModal from './src/components/UI/shared/InAppMessageModal';
+import WhatsNewModal from './src/components/UI/shared/WhatsNewModal';
 import { checkAppVersionUpdateStatus } from './src/services/appVersion/appVersionService';
 import { syncIfNeeded } from './src/services/sync';
 import {
@@ -1740,6 +1741,7 @@ export default function App() {
         ) : null}
         <GlobalThemeCrossFadeOverlay />
         <InAppMessageModal />
+        <WhatsNewModal />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import { Alert } from 'react-native';
 import { supabase } from '@services/supabase/client';
 import SubscriptionService from '@services/subscription/SubscriptionService';
+import { AudioCacheManager } from './audioCacheManager';
 
 type SpeakOptions = {
   locale?: string;
@@ -299,7 +300,8 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
     const rate = options?.rate || '0%';
     const ipaPhoneme = (options?.ipaPhoneme || '').trim();
     const startedAt = Date.now();
-    const localFile = getLocalAudioFile(generateLocalFilename(input, locale, voice, rate, ipaPhoneme || undefined));
+    const localFilename = generateLocalFilename(input, locale, voice, rate, ipaPhoneme || undefined);
+    const localFile = getLocalAudioFile(localFilename);
     const localUri = localFile?.uri || '';
     let playbackUri = '';
     let sourceLabel: 'LOCAL CACHE' | 'STORAGE CACHE' | 'AZURE API' | 'REMOTE FALLBACK' = 'AZURE API';
@@ -314,6 +316,9 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
           playbackUri = localUri;
           sourceLabel = 'LOCAL CACHE';
         }
+      }
+      if (playbackUri) {
+        void AudioCacheManager.recordAccess(localFilename, localFilename);
       }
     }
 
@@ -399,24 +404,28 @@ export async function speakViaAzureTtsProxy(text: string, options?: SpeakOptions
       }
 
       if (localFile) {
-        try {
-          const download = await FileSystem.File.downloadFileAsync(audioUrl, localFile, {
-            idempotent: true,
-          });
-          playbackUri = download.uri;
-          localAudioFileCache.add(playbackUri);
-        } catch (downloadError) {
-          console.warn('[TTS] local download failed, playing remote audio', {
-            error: downloadError instanceof Error ? downloadError.message : String(downloadError),
-          });
-          playbackUri = audioUrl;
-          sourceLabel = 'REMOTE FALLBACK';
-        } finally {
-          if (didShowDownloadState) {
-            options?.onDownloadEnd?.();
-            didShowDownloadState = false;
-          }
+        // Stream immediately for responsive audio playback
+        playbackUri = audioUrl;
+        if (didShowDownloadState) {
+          options?.onDownloadEnd?.();
+          didShowDownloadState = false;
         }
+
+        // Cache in background and register in LFU manager
+        void (async () => {
+          try {
+            const download = await FileSystem.File.downloadFileAsync(audioUrl, localFile, {
+              idempotent: true,
+            });
+            localAudioFileCache.add(download.uri);
+            const size = (localFile as any).size ?? 25000;
+            void AudioCacheManager.recordAccess(localFilename, localFilename, size);
+          } catch (downloadError) {
+            console.warn('[TTS] background local download failed', {
+              error: downloadError instanceof Error ? downloadError.message : String(downloadError),
+            });
+          }
+        })();
       } else {
         playbackUri = audioUrl;
         sourceLabel = 'REMOTE FALLBACK';
@@ -472,4 +481,73 @@ export async function stopAzureTtsPlayback(): Promise<void> {
 export function cancelAllTtsPlayback(): void {
   latestPlaybackRequestId += 1;
   void stopActiveCloudPlayback();
+}
+
+export async function prefetchAudio(
+  text: string,
+  options?: {
+    locale?: string;
+    voice?: string;
+    rate?: string;
+    ipaPhoneme?: string;
+  }
+): Promise<void> {
+  const input = text.trim();
+  if (!input) return;
+
+  try {
+    const locale = options?.locale || 'en-US';
+    const voice = options?.voice || '';
+    const rate = options?.rate || '0%';
+    const ipaPhoneme = (options?.ipaPhoneme || '').trim();
+    const localFilename = generateLocalFilename(input, locale, voice, rate, ipaPhoneme || undefined);
+    const localFile = getLocalAudioFile(localFilename);
+    const localUri = localFile?.uri || '';
+
+    if (localUri && (localAudioFileCache.has(localUri) || localFile?.exists)) {
+      localAudioFileCache.add(localUri);
+      void AudioCacheManager.recordPrefetch(localFilename, localFilename);
+      return;
+    }
+
+    if (!isConfigured()) return;
+    const auth = await getAuthHeader();
+    if (!auth) return;
+
+    const endpoint = `${SUPABASE_URL}/functions/v1/${TTS_EDGE_FUNCTION_NAME}`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: auth.Authorization,
+        ...(SubscriptionService.isPremiumBypassEnabled()
+          ? { 'x-nuances-dev-plan': 'premium' }
+          : {}),
+      },
+      body: JSON.stringify({
+        text: input,
+        locale,
+        voice,
+        rate,
+        ipaPhoneme: ipaPhoneme || undefined,
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const payload = (await response.json()) as { audioUrl?: string };
+    const audioUrl = (payload.audioUrl || '').trim();
+    if (!audioUrl || !localFile) return;
+
+    const download = await FileSystem.File.downloadFileAsync(audioUrl, localFile, {
+      idempotent: true,
+    });
+    localAudioFileCache.add(download.uri);
+    const size = (localFile as any).size ?? 25000;
+    void AudioCacheManager.recordPrefetch(localFilename, localFilename, size);
+    console.log('[TTS] background prefetch completed', { text: input });
+  } catch (err) {
+    console.log('[TTS] background prefetch skipped', err instanceof Error ? err.message : String(err));
+  }
 }

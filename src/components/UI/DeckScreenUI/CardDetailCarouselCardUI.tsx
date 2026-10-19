@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing as RNEasing,
   type GestureResponderEvent,
@@ -27,6 +28,7 @@ import Reanimated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withSpring,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
@@ -110,6 +112,7 @@ type Props = {
   scrollX: SharedValue<number>;
   itemImageUri: string | null;
   isPlaying: boolean;
+  isTtsDownloading?: boolean;
   isRecording: boolean;
   isAnalyzing: boolean;
   hasRecorded: boolean;
@@ -428,6 +431,7 @@ function CardDetailCarouselCardUI({
   scrollX,
   itemImageUri,
   isPlaying,
+  isTtsDownloading = false,
   isRecording,
   isAnalyzing,
   hasRecorded,
@@ -1291,6 +1295,10 @@ function CardDetailCarouselCardUI({
   // Flip 內部動畫
   const flipAnim = useSharedValue(0);
   const isCapturingShare = useSharedValue(false);
+  const playBtnScale = useSharedValue(1);
+  const playBtnAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: playBtnScale.value }],
+  }));
   const tourFlipTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -1579,34 +1587,58 @@ function CardDetailCarouselCardUI({
                         {itemWord}
                       </Text>
                     </View>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.referencePlayBtn,
+                    <Reanimated.View
+                      style={[
                         {
                           position: 'absolute',
                           right: 0,
                           top: 0,
                           width: 28,
                           height: 28,
-                          borderRadius: 0,
-                          backgroundColor: 'transparent',
                         },
-                        pressed ? localStyles.actionIconBtnPressed : null,
+                        playBtnAnimatedStyle,
                       ]}
-                      onPress={() =>
-                        onPlayCard(itemPronunciationText, isActiveCard, index)
-                      }
                     >
-                      <Ionicons
-                        name={
-                          isActiveCard && isPlaying
-                            ? 'volume-high'
-                            : 'volume-medium-outline'
+                      <Pressable
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.referencePlayBtn,
+                          {
+                            width: 28,
+                            height: 28,
+                            borderRadius: 0,
+                            backgroundColor: 'transparent',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          },
+                          pressed ? { opacity: 0.75 } : null,
+                        ]}
+                        disabled={isActiveCard && isTtsDownloading}
+                        onPressIn={() => {
+                          playBtnScale.value = withSpring(0.84, { damping: 15, stiffness: 350 });
+                        }}
+                        onPressOut={() => {
+                          playBtnScale.value = withSpring(1, { damping: 12, stiffness: 350 });
+                        }}
+                        onPress={() =>
+                          onPlayCard(itemPronunciationText, isActiveCard, index)
                         }
-                        size={28}
-                        color={ui.icon}
-                      />
-                    </Pressable>
+                      >
+                        {isActiveCard && isTtsDownloading ? (
+                          <ActivityIndicator size="small" color="#4EAFF4" />
+                        ) : (
+                          <Ionicons
+                            name={
+                              isActiveCard && isPlaying
+                                ? 'volume-high'
+                                : 'volume-medium-outline'
+                            }
+                            size={28}
+                            color={isActiveCard && isPlaying ? '#4EAFF4' : ui.icon}
+                          />
+                        )}
+                      </Pressable>
+                    </Reanimated.View>
                   </View>
 
                   <ScrollView

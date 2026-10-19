@@ -51,7 +51,7 @@ import {
   isLiteQuotaExceededError,
   isPremiumFeatureError,
 } from '@services/ai/edgeAiClient';
-import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { prefetchEnglishNaturally, speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
 import SubscriptionService, {
   SUBSCRIPTION_ENTITLEMENT_UPDATED_EVENT,
@@ -2017,6 +2017,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             aiBreakdownMode,
           });
         }
+        void prefetchEnglishNaturally(word);
         void logDiagnosticEvent({
           severity: 'info',
           category: 'ai',
@@ -2685,6 +2686,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       queueSavedCardsForCloudPersistence({
         userId: activeUserId,
         cardIds: createdCardIds,
+      });
+
+      cardsToPersist.forEach((cardDraft) => {
+        const textToPrefetch = (cardDraft.displayWord || cardDraft.word || '').trim();
+        if (textToPrefetch) {
+          void prefetchEnglishNaturally(textToPrefetch);
+        }
       });
 
       const localImageSource = originalImageUri || imageSourceForUpload;

@@ -57,7 +57,7 @@ import {
 } from '@services/errors/showTranslatedError';
 import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
 import { resolveCardImageUri } from '@services/media/cardImage';
-import { speakEnglishNaturally } from '@services/tts/localSpeech';
+import { prefetchEnglishNaturally, speakEnglishNaturally } from '@services/tts/localSpeech';
 import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
@@ -1990,6 +1990,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         Alert.alert('無可朗讀內容', '這張卡片沒有可用於發音播放的文字。');
         return;
       }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const nextCard = scopedCards[index + 1];
+      const nextWord = (nextCard?.targetWord || '').trim();
+      if (nextWord) {
+        void prefetchEnglishNaturally(nextWord);
+      }
       setIsPlaying(true);
       const sourceCard = scopedCards[index];
       if (
@@ -2071,6 +2077,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           scrollX={scrollX}
           itemImageUri={cardImageMap[item.id] ?? null}
           isPlaying={isPlaying}
+          isTtsDownloading={isTtsDownloading}
           isRecording={isRecording}
           isAnalyzing={isAnalyzing}
           hasRecorded={hasRecorded}
@@ -2127,6 +2134,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       uiLanguage,
       isAnalyzing,
       isPlaying,
+      isTtsDownloading,
       isRecording,
       navigateToIndex,
       phonemeChips,
@@ -2203,22 +2211,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           horizontalScrollEnabled={!isCardContentExpanded}
         />
       </View>
-
-      <Modal
-        visible={isTtsDownloading}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-      >
-        <View style={styles.ttsDownloadBackdrop}>
-          <View style={styles.ttsDownloadModal}>
-            <ActivityIndicator size="small" color="#FFFFFF" />
-            <Text style={styles.ttsDownloadText}>
-              {tUI(uiLanguage, 'cardDetail.downloading')}
-            </Text>
-          </View>
-        </View>
-      </Modal>
 
       <CardAlbumSheetModalUI
         visible={showAlbumSheet}
