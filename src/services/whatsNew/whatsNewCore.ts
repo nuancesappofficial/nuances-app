@@ -22,9 +22,22 @@ export interface StorageAdapter {
 export function resolveWhatsNewToDisplay(
   currentVersion: string,
   lastSeenVersion: string | null,
+  isFirstInstall: boolean,
   config: Record<string, WhatsNewRelease>
 ): WhatsNewRelease | null {
   if (!currentVersion) return null;
+  if (isFirstInstall) return null;
   if (lastSeenVersion === currentVersion) return null;
   return config[currentVersion] || null;
 }
+
+export async function checkIfBrandNewUser(storage: StorageAdapter): Promise<boolean> {
+  const [firstOpen, lastUserId, settings] = await Promise.all([
+    storage.getItem('@nuances/analytics/first-app-opened/v1'),
+    storage.getItem('nuances_last_auth_user_id_v1'),
+    storage.getItem('user_app_settings_v1'),
+  ]);
+  const hasExistingData = Boolean(firstOpen || lastUserId || settings);
+  return !hasExistingData;
+}
+

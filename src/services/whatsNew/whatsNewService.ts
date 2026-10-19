@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { WHATS_NEW_CONFIG } from '../../config/whatsNew';
 import {
   resolveWhatsNewToDisplay,
+  checkIfBrandNewUser,
   LAST_SEEN_WHATS_NEW_KEY,
   type StorageAdapter,
   type WhatsNewRelease,
@@ -35,11 +36,33 @@ export class WhatsNewService {
     );
   }
 
+  public async isBrandNewInstall(): Promise<boolean> {
+    try {
+      return await checkIfBrandNewUser(this.storage);
+    } catch {
+      return false;
+    }
+  }
+
   public async checkShouldShow(): Promise<WhatsNewRelease | null> {
     try {
       const currentVersion = this.getCurrentAppVersion();
       const lastSeen = await this.storage.getItem(LAST_SEEN_WHATS_NEW_KEY);
-      return resolveWhatsNewToDisplay(currentVersion, lastSeen, this.config);
+
+      if (lastSeen === currentVersion) {
+        return null;
+      }
+
+      if (lastSeen === null) {
+        const isFirst = await this.isBrandNewInstall();
+        if (isFirst) {
+          // 全新安裝用戶直接標記目前版本為已讀，不干擾首次開箱體驗
+          await this.markAsSeen(currentVersion);
+          return null;
+        }
+      }
+
+      return resolveWhatsNewToDisplay(currentVersion, lastSeen, false, this.config);
     } catch (err) {
       console.warn('[WhatsNewService] failed to check version:', err);
       return null;
