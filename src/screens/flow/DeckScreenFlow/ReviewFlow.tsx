@@ -55,6 +55,11 @@ import {
 } from '../../../features/deck/reviewKeyboardLift';
 import { planReviewQuestions } from '../../../features/deck/reviewQuestionPlanner';
 import {
+  createSpeechEndDetector,
+  normalizeMeteringDb,
+  type SpeechEndDetector,
+} from '../../../features/deck/speechEndDetector';
+import {
   playDefaultExperiencePronunciation,
   stopDefaultExperiencePronunciation,
 } from '@services/tts/defaultExperienceSpeech';
@@ -1700,6 +1705,13 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const pronunciationRecordingRef = React.useRef<any | null>(null);
   const pronunciationRecordingStartingQuestionIdRef = React.useRef<string | null>(null);
   const pronunciationRecordingStartedAtRef = React.useRef<number>(0);
+  // Auto-stop: ends the recording once the user has spoken and gone quiet.
+  const pronunciationSpeechDetectorRef = React.useRef<SpeechEndDetector | null>(null);
+  // Set while a stop is in flight so a tap and an auto-stop can't both stop it.
+  const pronunciationStoppingRef = React.useRef(false);
+  const stopPronunciationQuestionRecordingRef = React.useRef<(question: ReviewQuestion) => Promise<void>>(
+    async () => {}
+  );
   const pronunciationWaveValuesRef = React.useRef<Map<string, Animated.Value[]>>(new Map());
   const pronunciationWaveCursorRef = React.useRef<Map<string, number>>(new Map());
   const pronunciationMeteringRef = React.useRef(new Animated.Value(-60)).current;
@@ -2240,7 +2252,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
   const stopPronunciationQuestionRecording = React.useCallback(async (question: ReviewQuestion) => {
     const recording = pronunciationRecordingRef.current;
-    if (!recording) return;
+    if (!recording || pronunciationStoppingRef.current) return;
+    pronunciationStoppingRef.current = true;
+    pronunciationSpeechDetectorRef.current = null;
 
     try {
       analytics.track('pronunciation_attempted', { context: 'review' });
@@ -2374,6 +2388,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
         }
       }
       pronunciationRecordingRef.current = null;
+      pronunciationStoppingRef.current = false;
       setPronunciationRecordingQuestionId(null);
       setPronunciationAnalyzingQuestionId(null);
       await Audio.setAudioModeAsync({
@@ -2382,6 +2397,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
       }).catch((e: any) => console.warn('[ReviewFlow] audio mode cleanup failed:', e));
     }
   }, [finishQuestionWithResult, tabSwipeContext, uiLanguage, usesDemoPronunciationBackend, usesMockPronunciationResult]);
+  stopPronunciationQuestionRecordingRef.current = stopPronunciationQuestionRecording;
 
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -2499,10 +2515,32 @@ export default function ReviewFlow({ navigation, route }: Props) {
             return;
           });
           pendingRecording.setProgressUpdateInterval?.(80);
+          const speechDetector = createSpeechEndDetector();
+          pronunciationSpeechDetectorRef.current = speechDetector;
           pendingRecording.setOnRecordingStatusUpdate((status: any) => {
-            if (status?.isRecording) {
-              updatePronunciationWaveFromMetering(question.id, status.metering);
+            if (!status?.isRecording) return;
+            updatePronunciationWaveFromMetering(question.id, status.metering);
+            if (
+              pronunciationSpeechDetectorRef.current !== speechDetector ||
+              typeof status.durationMillis !== 'number'
+            ) {
+              return;
             }
+            const decision = speechDetector.push(
+              normalizeMeteringDb(status.metering, Platform.OS),
+              status.durationMillis
+            );
+            if (decision === 'continue') return;
+            pronunciationSpeechDetectorRef.current = null;
+            void logDiagnosticEvent({
+              severity: 'info',
+              category: 'pronunciation',
+              event: 'recording_auto_stopped',
+              message: decision,
+              context: { flow: 'review', platform: Platform.OS, ...speechDetector.snapshot() },
+            });
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            void stopPronunciationQuestionRecordingRef.current(question);
           });
           await withTimeout(pendingRecording.startAsync(), 5000, 'startAsync');
           pronunciationRecordingRef.current = pendingRecording;

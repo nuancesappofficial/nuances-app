@@ -110,6 +110,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { markCardAsSeen } from '../../../features/deck/cardDetailSeen';
+import { createSpeechEndDetector, normalizeMeteringDb } from '../../../features/deck/speechEndDetector';
 import {
   loadCardStickyNotes,
   saveCardStickyNotes,
@@ -1196,8 +1197,32 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         await recording.prepareToRecordAsync(PRONUNCIATION_RECORDING_OPTIONS as any);
       });
       recording.setProgressUpdateInterval(60);
+      // Auto-stop once the user has spoken and gone quiet; the hard cap below
+      // still covers recordings that never go quiet.
+      const speechDetector = createSpeechEndDetector({ maxDurationMs: MAX_PRONUNCIATION_RECORDING_MS });
+      let autoStopped = false;
       recording.setOnRecordingStatusUpdate((status: any) => {
         if (!status?.isRecording) return;
+        if (
+          !autoStopped &&
+          typeof status.durationMillis === 'number' &&
+          speechDetector.push(
+            normalizeMeteringDb(status.metering, Platform.OS),
+            status.durationMillis
+          ) === 'silence_after_speech'
+        ) {
+          autoStopped = true;
+          void logDiagnosticEvent({
+            severity: 'info',
+            category: 'pronunciation',
+            event: 'recording_auto_stopped',
+            message: 'silence_after_speech',
+            context: { flow: 'card_detail', platform: Platform.OS, ...speechDetector.snapshot() },
+          });
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          void stopPronunciationRecording();
+          return;
+        }
         if (
           typeof status.durationMillis === 'number' &&
           Number.isFinite(status.durationMillis)
