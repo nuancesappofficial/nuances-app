@@ -26,7 +26,8 @@
     "sync:app-version-policy:poll": "node scripts/poll-store-and-sync.mjs",
     "sync:app-version-policy:poll:dry": "node scripts/poll-store-and-sync.mjs --dry-run",
     "message:send": "node scripts/send-message.js",
-    "growth:campaigns": "node scripts/growthCampaignClient.mjs"
+    "growth:campaigns": "node scripts/growthCampaignClient.mjs",
+    "posthog:sync-users": "node scripts/sync-users-to-posthog.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

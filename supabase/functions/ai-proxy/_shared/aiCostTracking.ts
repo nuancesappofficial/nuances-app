@@ -66,6 +66,11 @@ async function captureCostInPostHog(
       properties: {
         distinct_id: event.userId,
         $insert_id: snapshot.id,
+        $set: {
+          last_consumption_at: snapshot.occurred_at,
+          last_used_model: snapshot.model_code,
+          last_used_capability: snapshot.capability,
+        },
         capability: snapshot.capability,
         stage: snapshot.stage,
         provider: snapshot.provider,
