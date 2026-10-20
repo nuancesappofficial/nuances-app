@@ -14,9 +14,13 @@ import {
 
 type Props = {
   isLightMode?: boolean;
+  hasImage?: boolean;
 };
 
-export default function CardDetailSkeletonUI({ isLightMode = false }: Props) {
+export default function CardDetailSkeletonUI({
+  isLightMode = false,
+  hasImage = true,
+}: Props) {
   const pulse = useSharedValue(0.4);
 
   React.useEffect(() => {
@@ -59,15 +63,17 @@ export default function CardDetailSkeletonUI({ isLightMode = false }: Props) {
                   ]}
                 >
                   {/* 1. 頂部滿版媒體/圖片骨架區塊 (對齊 heroMediaWrap) */}
-                  <View style={styles.heroMediaWrap}>
-                    <Reanimated.View
-                      style={[
-                        styles.skeletonHeroMedia,
-                        { backgroundColor: blockColor },
-                        animatedPulseStyle,
-                      ]}
-                    />
-                  </View>
+                  {hasImage ? (
+                    <View style={styles.heroMediaWrap}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonHeroMedia,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
+                  ) : null}
 
                   {/* 2. 內容卡片容器 (對齊 referenceWordCard) */}
                   <View

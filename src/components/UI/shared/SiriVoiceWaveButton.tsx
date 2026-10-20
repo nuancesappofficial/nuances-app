@@ -311,15 +311,20 @@ export default function SiriVoiceWaveButton({
                 })}
               </View>
             </Animated.View>
-
-            {/* Outer Circular Neon Spinner (rendered around border during analysis) */}
-            {isAnalyzing && (
-              <View style={styles.centeredFill} pointerEvents="none">
-                <DynamicArcSpinner size={size} strokeWidth={3.5} color={activeBarColor} />
-              </View>
-            )}
           </Pressable>
         </View>
+
+        {/* Layer 4: Outer Circular Neon Spinner with radiant glow (Unclipped) */}
+        {isAnalyzing && (
+          <View style={styles.spinnerGlowWrapper} pointerEvents="none">
+            {/* Diffuse outer neon halo */}
+            <View style={styles.spinnerDiffuseHalo}>
+              <DynamicArcSpinner size={size} strokeWidth={6} color={activeBarColor} />
+            </View>
+            {/* Core focused neon beam */}
+            <DynamicArcSpinner size={size} strokeWidth={3.5} color={activeBarColor} />
+          </View>
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -367,5 +372,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
+  },
+  spinnerGlowWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#00E5FF',
+    shadowOpacity: 1.0,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
+  spinnerDiffuseHalo: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.42,
   },
 });

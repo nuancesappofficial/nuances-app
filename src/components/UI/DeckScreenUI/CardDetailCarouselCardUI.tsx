@@ -146,6 +146,7 @@ type Props = {
   onTourTargetPress?: () => void;
   isLightMode?: boolean;
   onContentExpandedChange?: (expanded: boolean) => void;
+  onCardReady?: () => void;
 };
 
 const CARD_ACTION_BUTTON_WIDTH = 52;
@@ -466,6 +467,7 @@ function CardDetailCarouselCardUI({
   onTourTargetPress,
   isLightMode = false,
   onContentExpandedChange,
+  onCardReady,
 }: Props) {
   const frontCaptureRef = React.useRef<View | null>(null);
   const backCaptureRef = React.useRef<View | null>(null);
@@ -1544,7 +1546,10 @@ function CardDetailCarouselCardUI({
   });
 
   return (
-    <Reanimated.View style={[styles.carouselCardContainer, animatedCardStyle]}>
+    <Reanimated.View
+      style={[styles.carouselCardContainer, animatedCardStyle]}
+      onLayout={isActiveCard ? onCardReady : undefined}
+    >
       <TutorialSpotlight
         active={tourStep === 'STEP_8_FLICK_CARD' && isActiveCard}
         onSpotlightPress={handleTourFlipPress}

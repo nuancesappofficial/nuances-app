@@ -795,6 +795,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     initialScrollDone.current = true;
     didMountIndexRef.current = true;
     activeIndexUI.value = targetIndex;
+    scrollX.value = targetIndex * SNAP_INTERVAL;
     setCurrentIndex(targetIndex);
     setDisplayIndex(targetIndex);
     markCenteredCardSeen(targetIndex);
@@ -805,7 +806,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         animated: false,
       });
     });
-  }, [activeIndexUI, cardId, markCenteredCardSeen, scopedCards]);
+  }, [activeIndexUI, cardId, markCenteredCardSeen, scopedCards, scrollX]);
 
 
   React.useEffect(() => {
@@ -2075,6 +2076,11 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     setIsCardContentExpanded(false);
   }, [currentIndex, card?.id]);
 
+  const [isRealCardReady, setIsRealCardReady] = React.useState(false);
+  const handleCardReady = React.useCallback(() => {
+    setIsRealCardReady(true);
+  }, []);
+
   const renderCarouselCard = React.useCallback(
     ({ item, index }: { item: Card; index: number }) => {
       // 判斷該卡片是否為我的最愛
@@ -2126,6 +2132,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           tourStep={appTour.step}
           onTourTargetPress={handleCardTourTargetPress}
           isLightMode={isLightMode}
+          onCardReady={handleCardReady}
           onContentExpandedChange={(expanded) => {
             if (index === currentIndex) {
               setIsCardContentExpanded((prev) => (prev !== expanded ? expanded : prev));
@@ -2162,6 +2169,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       waveformValues,
       playUserRecordingPreview,
       isLightMode,
+      handleCardReady,
       setIsCardContentExpanded,
       stickyNotesByCardId,
       appTour.step,
@@ -2173,13 +2181,28 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     !loading && !!card && currentIndex !== null && displayIndex !== null;
   const [isSkeletonMounted, setIsSkeletonMounted] = React.useState(true);
   const skeletonFadeAnim = useSharedValue(1);
+  const carouselFadeAnim = useSharedValue(0);
+
+  // Fallback timer: ensure carousel fades in even if onLayout is delayed
+  React.useEffect(() => {
+    if (isReady && !isRealCardReady) {
+      const timer = setTimeout(() => {
+        setIsRealCardReady(true);
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [isReady, isRealCardReady]);
 
   React.useEffect(() => {
-    if (isReady && isSkeletonMounted) {
+    if (isRealCardReady && isSkeletonMounted) {
+      carouselFadeAnim.value = withTiming(1, {
+        duration: 320,
+        easing: ReanimatedEasing.bezier(0.25, 0.1, 0.25, 1),
+      });
       skeletonFadeAnim.value = withTiming(
         0,
         {
-          duration: 350,
+          duration: 320,
           easing: ReanimatedEasing.bezier(0.25, 0.1, 0.25, 1),
         },
         (finished) => {
@@ -2189,10 +2212,14 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }
       );
     }
-  }, [isReady, isSkeletonMounted, skeletonFadeAnim]);
+  }, [isRealCardReady, isSkeletonMounted, skeletonFadeAnim, carouselFadeAnim]);
 
   const animatedSkeletonContainerStyle = useAnimatedStyle(() => ({
     opacity: skeletonFadeAnim.value,
+  }));
+  const animatedCarouselContainerStyle = useAnimatedStyle(() => ({
+    opacity: carouselFadeAnim.value,
+    flex: 1,
   }));
 
   return (
@@ -2215,19 +2242,21 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
       <View style={styles.content}>
         {isReady && (
-          <CardDetailCarouselUI
-            scopedCards={scopedCards}
-            flatListRef={flatListRef}
-            currentIndex={currentIndex}
-            displayIndex={displayIndex}
-            extraData={cardImageMap}
-            renderItem={renderCarouselCard}
-            scrollHandler={scrollHandler}
-            onMomentumScrollEnd={handleMomentumEnd}
-            snapInterval={SNAP_INTERVAL}
-            sidePadding={SIDE_PADDING}
-            horizontalScrollEnabled={!isCardContentExpanded}
-          />
+          <Reanimated.View style={animatedCarouselContainerStyle}>
+            <CardDetailCarouselUI
+              scopedCards={scopedCards}
+              flatListRef={flatListRef}
+              currentIndex={currentIndex}
+              displayIndex={displayIndex}
+              extraData={cardImageMap}
+              renderItem={renderCarouselCard}
+              scrollHandler={scrollHandler}
+              onMomentumScrollEnd={handleMomentumEnd}
+              snapInterval={SNAP_INTERVAL}
+              sidePadding={SIDE_PADDING}
+              horizontalScrollEnabled={!isCardContentExpanded}
+            />
+          </Reanimated.View>
         )}
 
         {isSkeletonMounted && (
@@ -2238,7 +2267,10 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               animatedSkeletonContainerStyle,
             ]}
           >
-            <CardDetailSkeletonUI isLightMode={isLightMode} />
+            <CardDetailSkeletonUI
+              isLightMode={isLightMode}
+              hasImage={card ? Boolean(card.imageUrl || card.cachedItemId) : true}
+            />
           </Reanimated.View>
         )}
       </View>

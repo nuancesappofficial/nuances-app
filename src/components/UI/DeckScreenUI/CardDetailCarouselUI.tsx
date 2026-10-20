@@ -54,6 +54,13 @@ export default function CardDetailCarouselUI({
           windowSize={5}
           maxToRenderPerBatch={3}
           removeClippedSubviews={false}
+          initialScrollIndex={Math.max(0, _currentIndex ?? 0)}
+          onScrollToIndexFailed={({ index }) => {
+            flatListRef.current?.scrollToOffset({
+              offset: index * snapInterval,
+              animated: false,
+            });
+          }}
           getItemLayout={(_, index) => ({
             length: snapInterval,
             offset: snapInterval * index,

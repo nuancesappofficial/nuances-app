@@ -19,6 +19,7 @@ import {
 } from '../../../services/pronunciation/ipaPhonemes';
 import AnimatedGlowPressable from '../shared/AnimatedGlowPressable';
 import SiriVoiceWaveButton from '../shared/SiriVoiceWaveButton';
+import SiriSpeakerButton from '../shared/SiriSpeakerButton';
 import PronunciationPhonemeSectionUI from './PronunciationPhonemeSectionUI';
 
 type PhonemeChip = {
@@ -276,9 +277,12 @@ export default function PronunciationCoachUI({
             },
           ]}
         >
-          <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>
-            {tUI(uiLanguage, 'review.prompt.pronounceWord').toUpperCase()}
-          </Text>
+          <View style={styles.questionEyebrowContainer}>
+            <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>
+              {tUI(uiLanguage, 'review.prompt.pronounceWord').toUpperCase()}
+            </Text>
+          </View>
+
           <Text
             style={[
               styles.questionWord,
@@ -294,29 +298,21 @@ export default function PronunciationCoachUI({
             {itemWord}
           </Text>
 
-          <View style={styles.pronunciationQuizPanel}>
-            <AnimatedGlowPressable
-              accessibilityRole="button"
-              accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
-              active={playbackBusy}
-              style={styles.pronunciationWordButton}
-              pressedStyle={!playbackBusy ? styles.pronunciationButtonPressed : null}
-              idleBackgroundColor={palette.softButtonBg}
-              idleBorderColor={palette.softButtonBorder}
-              disabled={!isActiveCard || playbackBusy || isRecording || isAnalyzing}
-              onPress={() => onPlayWord(itemWord)}
-            >
-              {isWordDownloading ? (
-                <ActivityIndicator size="small" color="#4EAFF4" />
-              ) : (
-                <Ionicons
-                  name="volume-medium-outline"
-                  size={40}
-                  color={isWordPlaying ? '#BFE7FF' : palette.primaryText}
-                />
-              )}
-            </AnimatedGlowPressable>
+          <SiriSpeakerButton
+            isPlaying={isWordPlaying}
+            isLoading={isWordDownloading}
+            disabled={!isActiveCard || playbackBusy || isRecording || isAnalyzing}
+            size={76}
+            idleBackgroundColor="#1c2638"
+            idleBorderColor="#2e3d57"
+            activeBackgroundColor="rgba(28, 62, 99, 0.95)"
+            activeBorderColor="#4EAFF4"
+            glowColor="#00E5FF"
+            iconColor={palette.primaryText}
+            onPress={() => onPlayWord(itemWord)}
+          />
 
+          <View style={styles.pronunciationQuizPanel}>
             <Text style={[styles.pronunciationQuizHint, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'review.pronunciationHint')}
             </Text>
@@ -384,39 +380,56 @@ export default function PronunciationCoachUI({
           ]}
         >
           <View style={styles.resultContent}>
-            <View
-              style={[
-                styles.resultTag,
-                {
-                  backgroundColor: passed
-                    ? palette.successTint
-                    : palette.errorTint,
-                  borderColor: passed
-                    ? palette.successText
-                    : palette.errorText,
-                },
-              ]}
-            >
-              <Ionicons
-                name={passed ? 'checkmark' : 'close'}
-                size={12}
-                color={passed ? palette.successText : palette.errorText}
-              />
-              <Text
+            <View style={styles.resultHeaderRow}>
+              <View
                 style={[
-                  styles.resultTagText,
+                  styles.resultTag,
                   {
-                    color: passed
+                    backgroundColor: passed
+                      ? palette.successTint
+                      : palette.errorTint,
+                    borderColor: passed
                       ? palette.successText
                       : palette.errorText,
                   },
                 ]}
               >
-                {tUI(
-                  uiLanguage,
-                  passed ? 'pronunciation.pass' : 'pronunciation.fail'
-                )}
-              </Text>
+                <Ionicons
+                  name={passed ? 'checkmark' : 'close'}
+                  size={12}
+                  color={passed ? palette.successText : palette.errorText}
+                />
+                <Text
+                  style={[
+                    styles.resultTagText,
+                    {
+                      color: passed
+                        ? palette.successText
+                        : palette.errorText,
+                    },
+                  ]}
+                >
+                  {tUI(
+                    uiLanguage,
+                    passed ? 'pronunciation.pass' : 'pronunciation.fail'
+                  )}
+                </Text>
+              </View>
+
+              {showScore ? (
+                <Text
+                  style={[
+                    styles.answerScoreInline,
+                    {
+                      color: passed
+                        ? palette.successText
+                        : palette.errorText,
+                    },
+                  ]}
+                >
+                  {pronunciationScore}%
+                </Text>
+              ) : null}
             </View>
 
             <Text
@@ -434,42 +447,19 @@ export default function PronunciationCoachUI({
               {itemWord}
             </Text>
 
-            {showScore ? (
-              <Text
-                style={[
-                  styles.answerScore,
-                  {
-                    color: passed
-                      ? palette.successText
-                      : palette.errorText,
-                  },
-                ]}
-              >
-                {pronunciationScore}%
-              </Text>
-            ) : null}
-
-            <AnimatedGlowPressable
-              accessibilityRole="button"
-              accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
-              active={playbackBusy}
-              style={styles.pronunciationAnswerWordButton}
-              pressedStyle={!playbackBusy ? styles.pronunciationButtonPressed : null}
-              idleBackgroundColor={palette.softButtonBg}
-              idleBorderColor={palette.softButtonBorder}
+            <SiriSpeakerButton
+              isPlaying={isWordPlaying}
+              isLoading={isWordDownloading}
               disabled={playbackBusy}
+              size={76}
+              idleBackgroundColor="#1c2638"
+              idleBorderColor="#2e3d57"
+              activeBackgroundColor="rgba(28, 62, 99, 0.95)"
+              activeBorderColor="#4EAFF4"
+              glowColor="#00E5FF"
+              iconColor={palette.primaryText}
               onPress={() => onPlayWord(itemWord)}
-            >
-              {isWordDownloading ? (
-                <ActivityIndicator size="small" color="#4EAFF4" />
-              ) : (
-                <Ionicons
-                  name="volume-medium-outline"
-                  size={28}
-                  color={isWordPlaying ? '#BFE7FF' : palette.primaryText}
-                />
-              )}
-            </AnimatedGlowPressable>
+            />
 
             {showPhonemes ? (
               <PronunciationPhonemeSectionUI
@@ -531,17 +521,19 @@ export default function PronunciationCoachUI({
 
 const styles = StyleSheet.create({
   root: {
-    minHeight: 480,
+    minHeight: 540,
     backgroundColor: 'transparent',
   },
   cardShell: {
     width: '100%',
+    minHeight: 540,
     position: 'relative',
   },
   cardFace: {
     borderRadius: 28,
     borderWidth: 1,
     padding: 22,
+    minHeight: 540,
     backfaceVisibility: 'hidden',
   },
   cardFaceAbsolute: {
@@ -553,13 +545,20 @@ const styles = StyleSheet.create({
   },
   cardFaceRelative: {
     position: 'relative',
-    minHeight: 480,
+    minHeight: 540,
   },
   frontFace: {
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
   },
   backFace: {
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  questionEyebrowContainer: {
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   questionEyebrow: {
     fontSize: 12,
@@ -567,13 +566,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
   questionWord: {
-    flex: 1,
-    marginTop: 18,
+    marginTop: 10,
+    marginBottom: 14,
     fontSize: 31,
     lineHeight: 40,
     fontWeight: '700',
     textAlign: 'center',
-    textAlignVertical: 'center',
   },
   questionWordMedium: {
     fontSize: 26,
@@ -584,18 +582,10 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   pronunciationQuizPanel: {
-    flexShrink: 1,
+    width: '100%',
     gap: 10,
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pronunciationWordButton: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   pronunciationQuizHint: {
     fontSize: 15,
@@ -608,38 +598,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '700',
     textAlign: 'center',
-  },
-  pronunciationRecordingWaveRow: {
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    marginVertical: 2,
-  },
-  pronunciationRecordingWaveRowIdle: {
-    opacity: 0,
-  },
-  pronunciationRecordingWaveBar: {
-    width: 5,
-    borderRadius: 999,
-    shadowColor: '#4EAFF4',
-    shadowOpacity: 0.36,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  pronunciationQuizButton: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#00E5FF',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
   },
   closeButton: {
     width: '86%',
@@ -668,6 +626,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  resultHeaderRow: {
+    width: '100%',
+    height: 28,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   resultTag: {
     alignSelf: 'flex-start',
     borderRadius: 999,
@@ -685,18 +650,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  answerWord: {
-    fontSize: 34,
-    lineHeight: 40,
+  answerScoreInline: {
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '900',
+  },
+  answerWord: {
+    fontSize: 31,
+    lineHeight: 40,
+    fontWeight: '700',
+    textAlign: 'center',
     alignSelf: 'stretch',
   },
   answerWordMedium: {
-    fontSize: 28,
+    fontSize: 26,
     lineHeight: 34,
   },
   answerWordSmall: {
-    fontSize: 22,
+    fontSize: 21,
     lineHeight: 28,
   },
   answerScore: {
@@ -704,14 +675,6 @@ const styles = StyleSheet.create({
     lineHeight: 58,
     fontWeight: '900',
     alignSelf: 'stretch',
-  },
-  pronunciationAnswerWordButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   ipaRecovery: {
     width: '100%',
@@ -741,6 +704,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   answerActionFooter: {
+    width: '100%',
     flexShrink: 0,
     paddingTop: 12,
     gap: 8,
