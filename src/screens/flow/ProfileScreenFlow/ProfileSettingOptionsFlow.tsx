@@ -1653,6 +1653,20 @@ export default function ProfileSettingOptionsFlow({
         defaultDisplayName
       );
 
+      if (__DEV__) {
+        const coverUri = albumSettingsCoverImageUri || '';
+        const coverInfo = coverUri.startsWith('file://')
+          ? await FileSystem.getInfoAsync(coverUri).catch(() => null)
+          : null;
+        console.log('[ProfileSettingOptions][diag] save album appearance', {
+          albumId: settingsAlbum.id,
+          isCustomAlbum: prefs.customAlbums.some((it) => it.id === settingsAlbum.id),
+          emoji: albumSettingsEmoji,
+          color: albumSettingsColor,
+          coverUri,
+          coverFileExists: coverInfo ? coverInfo.exists : null,
+        });
+      }
       await saveDeckAlbumPreferences(nextPrefs);
       setMainScreenAlbums((prev) =>
         prev.map((it) => (it.id === settingsAlbum.id ? updatedAlbum : it))

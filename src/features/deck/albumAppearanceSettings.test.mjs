@@ -118,3 +118,70 @@ test('resets system album name override if user re-enters localized default name
   assert.equal(nextPrefs.albumNameOverrides['all'], undefined);
   assert.equal(nextPrefs.albumEmojiOverrides['all'], '📁');
 });
+
+test('custom album edit clears stale name/emoji/color overrides so they cannot shadow the new values', () => {
+  const customAlbum = {
+    id: 'custom-9',
+    name: 'Trip',
+    emoji: '📁',
+    color: '#1E293B',
+    cardIds: [],
+    wordCount: 0,
+    latestCards: [],
+  };
+  const prefs = {
+    ...BASE_PREFS,
+    customAlbums: [customAlbum],
+    // Stale overrides left behind by an earlier save that took the system-album path.
+    albumNameOverrides: { 'custom-9': 'Old trip' },
+    albumEmojiOverrides: { 'custom-9': '🧳' },
+    albumColorOverrides: { 'custom-9': '#000000' },
+    albumCoverOverrides: { 'custom-9': 'file:///old.jpg' },
+  };
+
+  const { nextPrefs } = applyDeckAlbumAppearanceUpdate(
+    customAlbum,
+    prefs,
+    { name: 'Trip', emoji: '✨', color: '#E45757', coverImageUri: 'file:///new.jpg' },
+    'Trip'
+  );
+
+  assert.equal(nextPrefs.albumNameOverrides['custom-9'], undefined);
+  assert.equal(nextPrefs.albumEmojiOverrides['custom-9'], undefined);
+  assert.equal(nextPrefs.albumColorOverrides['custom-9'], undefined);
+  assert.equal(nextPrefs.albumCoverOverrides['custom-9'], undefined);
+  assert.equal(nextPrefs.customAlbums[0].emoji, '✨');
+  assert.equal(nextPrefs.customAlbums[0].coverImageUri, 'file:///new.jpg');
+});
+
+test('foldCustomAlbumOverrides moves leftover overrides into the custom album and removes them', async () => {
+  const { foldCustomAlbumOverrides } = await import('./albumAppearanceSettings.ts');
+  const prefs = {
+    ...BASE_PREFS,
+    customAlbums: [{ id: 'custom-9', name: 'Trip', emoji: '📁', color: '#1E293B' }],
+    albumNameOverrides: { 'custom-9': 'Japan', slang: 'Memes' },
+    albumEmojiOverrides: { 'custom-9': '🗾', favorites: '💛' },
+    albumColorOverrides: { 'custom-9': '#E45757' },
+    albumCoverOverrides: { 'custom-9': 'file:///cover.jpg' },
+  };
+
+  const { prefs: next, changed } = foldCustomAlbumOverrides(prefs);
+
+  assert.equal(changed, true);
+  assert.deepEqual(next.customAlbums[0], {
+    id: 'custom-9',
+    name: 'Japan',
+    emoji: '🗾',
+    color: '#E45757',
+    coverImageUri: 'file:///cover.jpg',
+    isNameCustomized: true,
+  });
+  // System album overrides are untouched.
+  assert.deepEqual(next.albumNameOverrides, { slang: 'Memes' });
+  assert.deepEqual(next.albumEmojiOverrides, { favorites: '💛' });
+  assert.deepEqual(next.albumColorOverrides, {});
+  assert.deepEqual(next.albumCoverOverrides, {});
+
+  const again = foldCustomAlbumOverrides(next);
+  assert.equal(again.changed, false);
+});

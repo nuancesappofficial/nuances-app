@@ -1,3 +1,4 @@
+import { foldCustomAlbumOverrides } from './albumAppearanceSettings';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type Card from '@database/models/Card';
 import type { DeckAlbum } from '../../components/UI/DeckScreenUI/deckTypes';
@@ -95,9 +96,8 @@ export async function loadDeckAlbumPreferences(
   expectedUserId?: string
 ): Promise<DeckAlbumPreferences> {
   try {
-    const raw = await AsyncStorage.getItem(
-      await getDeckAlbumPrefsKey(expectedUserId)
-    );
+    const prefsKey = await getDeckAlbumPrefsKey(expectedUserId);
+    const raw = await AsyncStorage.getItem(prefsKey);
     if (!raw) {
       return {
         customAlbums: [],
@@ -130,7 +130,7 @@ export async function loadDeckAlbumPreferences(
         : undefined,
     }));
 
-    return {
+    const loaded: DeckAlbumPreferences = {
       customAlbums: resolvedCustomAlbums,
       albumNameOverrides:
         parsed.albumNameOverrides &&
@@ -152,6 +152,17 @@ export async function loadDeckAlbumPreferences(
         ? parsed.deletedAlbumIds
         : [],
     };
+    // Repair custom albums whose appearance got stuck in the override maps
+    // (those maps win in buildDeckAlbums and hid later edits).
+    const repaired = foldCustomAlbumOverrides(loaded);
+    if (__DEV__) {
+      console.log('[DeckAlbums][diag] load', {
+        key: prefsKey,
+        customAlbumIds: repaired.prefs.customAlbums.map((album) => album.id),
+        repairedOverrides: repaired.changed,
+      });
+    }
+    return repaired.prefs;
   } catch (error) {
     console.warn('[DeckAlbums] load preferences failed:', error);
     return {
@@ -170,6 +181,12 @@ export async function saveDeckAlbumPreferences(
   expectedUserId?: string
 ): Promise<void> {
   const userId = expectedUserId || (await getCurrentSessionUserId());
+  if (__DEV__) {
+    console.log('[DeckAlbums][diag] save', {
+      key: `${DECK_ALBUM_PREFS_KEY}:${userId ?? 'guest'}`,
+      customAlbumIds: payload.customAlbums.map((album) => album.id),
+    });
+  }
   await AsyncStorage.setItem(
     `${DECK_ALBUM_PREFS_KEY}:${userId ?? 'guest'}`,
     JSON.stringify(payload)
