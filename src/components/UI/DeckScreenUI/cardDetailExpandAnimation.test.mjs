@@ -100,4 +100,34 @@ test('CardDetailFlow 的 detailPaper 必須在 Android 上關閉 elevation 避�
   );
 });
 
+test('分享截圖時正面與背面 rotateY 必須重置為 0deg 避免 iOS Backface Culling 截取空白照片', () => {
+  const frontResetRotate =
+    /frontAnimatedStyle\s*=\s*useAnimatedStyle[\s\S]*?rotateY\s*=\s*isCapturingShare\.value\s*\?\s*0/.test(
+      source
+    );
+  const backResetRotate =
+    /backAnimatedStyle\s*=\s*useAnimatedStyle[\s\S]*?rotateY\s*=\s*isCapturingShare\.value\s*\?\s*0/.test(
+      source
+    );
+
+  assert.ok(
+    frontResetRotate && backResetRotate,
+    '❌ [分享截圖空白風險] frontAnimatedStyle 或 backAnimatedStyle 缺少 isCapturingShare 時的 rotateY 重置為 0！'
+  );
+});
+
+test('分享預覽容器必須具備預設透明邊框以避免 Android Yoga 引擎在未選取時發生高度塌陷', () => {
+  const mediaStyleMatch = source.match(/sharePreviewMedia:\s*\{([\s\S]*?)\},/);
+  assert.ok(mediaStyleMatch, '應存在 sharePreviewMedia 樣式定義');
+  const hasDefaultBorder =
+    /borderWidth:\s*(?:1\.5|1)/.test(mediaStyleMatch[1]) &&
+    /borderColor:\s*['"]transparent['"]/.test(mediaStyleMatch[1]);
+
+  assert.ok(
+    hasDefaultBorder,
+    '❌ [Android 預覽塌陷風險] sharePreviewMedia 缺少預設透明邊框，會導致 Android 在未選取狀態下 Yoga 佈局高度塌陷為 0！'
+  );
+});
+
+
 

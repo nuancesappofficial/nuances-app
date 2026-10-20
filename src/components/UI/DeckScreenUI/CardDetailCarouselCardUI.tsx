@@ -1427,11 +1427,20 @@ function CardDetailCarouselCardUI({
   );
   const captureAndShareFace = React.useCallback(
     async (face: 'front' | 'back') => {
+      const cachedUri =
+        face === 'front' ? sharePreviewUri.front : sharePreviewUri.back;
+      if (cachedUri) {
+        await Share.share({
+          url: cachedUri,
+        });
+        return;
+      }
       const ref =
         face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
       if (!ref) return;
       isCapturingShare.value = true;
       try {
+        await new Promise((resolve) => setTimeout(resolve, 60));
         const uri = await captureRef(ref, {
           format: 'png',
           quality: 1,
@@ -1444,7 +1453,7 @@ function CardDetailCarouselCardUI({
         isCapturingShare.value = false;
       }
     },
-    [isCapturingShare]
+    [isCapturingShare, sharePreviewUri.back, sharePreviewUri.front]
   );
   const captureFacePreview = React.useCallback(
     async (face: 'front' | 'back') => {
@@ -1469,6 +1478,7 @@ function CardDetailCarouselCardUI({
     isCapturingShare.value = true;
     setIsSharePickerVisible(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 60));
       const [front, back] = await Promise.all([
         captureFacePreview('front'),
         captureFacePreview('back'),
@@ -1533,7 +1543,9 @@ function CardDetailCarouselCardUI({
   }, [onOpenPronunciationModal, onTourTargetPress]);
 
   const frontAnimatedStyle = useAnimatedStyle(() => {
-    const rotateY = interpolate(flipAnim.value, [0, 1], [0, 180]);
+    const rotateY = isCapturingShare.value
+      ? 0
+      : interpolate(flipAnim.value, [0, 1], [0, 180]);
     const opacity = isCapturingShare.value
       ? 1
       : interpolate(flipAnim.value, [0.48, 0.52], [1, 0], Extrapolation.CLAMP);
@@ -1547,7 +1559,9 @@ function CardDetailCarouselCardUI({
   });
 
   const backAnimatedStyle = useAnimatedStyle(() => {
-    const rotateY = interpolate(flipAnim.value, [0, 1], [-180, 0]);
+    const rotateY = isCapturingShare.value
+      ? 0
+      : interpolate(flipAnim.value, [0, 1], [-180, 0]);
     const opacity = isCapturingShare.value
       ? 1
       : interpolate(flipAnim.value, [0.48, 0.52], [0, 1], Extrapolation.CLAMP);
@@ -3155,18 +3169,20 @@ const localStyles = StyleSheet.create({
     backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   sharePreviewMediaLight: {
     backgroundColor: '#F1F5F9',
   },
   sharePreviewMediaActive: {
-    borderWidth: 1.5,
     borderColor: '#4EAFF4',
   },
   sharePreviewMediaActiveLight: {
     borderColor: '#0284C7',
   },
   sharePreviewImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },

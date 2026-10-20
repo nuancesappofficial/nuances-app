@@ -1717,12 +1717,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   sharePreviewMediaActive: {
-    borderWidth: 1,
     borderColor: '#4EAFF4',
   },
   sharePreviewImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
