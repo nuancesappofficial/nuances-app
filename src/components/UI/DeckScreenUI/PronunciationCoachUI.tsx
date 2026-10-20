@@ -277,12 +277,6 @@ export default function PronunciationCoachUI({
             },
           ]}
         >
-          <View style={styles.questionEyebrowContainer}>
-            <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>
-              {tUI(uiLanguage, 'review.prompt.pronounceWord').toUpperCase()}
-            </Text>
-          </View>
-
           <Text
             style={[
               styles.questionWord,
@@ -306,18 +300,14 @@ export default function PronunciationCoachUI({
             idleBackgroundColor="#FFFFFF"
             idleBorderColor="#E2E8F0"
             activeBackgroundColor="#FFFFFF"
-            activeBorderColor="#2997FF"
+            activeBorderColor="#E2E8F0"
             glowColor="#2997FF"
             iconColor="#0F172A"
-            activeIconColor="#0284C7"
+            activeIconColor="#2997FF"
             onPress={() => onPlayWord(itemWord)}
           />
 
-          <View style={styles.pronunciationQuizPanel}>
-            <Text style={[styles.pronunciationQuizHint, { color: palette.secondaryText }]}>
-              {tUI(uiLanguage, 'review.pronunciationHint')}
-            </Text>
-
+          <View style={styles.micContainer}>
             {analysisError ? (
               <Text style={[styles.pronunciationQuizError, { color: palette.errorText }]}>
                 {analysisError}
@@ -343,27 +333,26 @@ export default function PronunciationCoachUI({
               activeBarColor="#2997FF"
               inactiveBarColor="#4EAFF4"
               size={144}
-              style={{ marginVertical: 12 }}
               onPress={onPrimaryAction}
             />
-
-            <Pressable
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.closeButton,
-                {
-                  backgroundColor: palette.softButtonBg,
-                  borderColor: palette.softButtonBorder,
-                },
-                pressed ? styles.secondaryButtonPressed : null,
-              ]}
-              onPress={onClose}
-            >
-              <Text style={[styles.closeButtonText, { color: palette.primaryText }]}>
-                {tUI(uiLanguage, 'common.close')}
-              </Text>
-            </Pressable>
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.frontCloseButton,
+              {
+                backgroundColor: palette.softButtonBg,
+                borderColor: palette.softButtonBorder,
+              },
+              pressed ? styles.secondaryButtonPressed : null,
+            ]}
+            onPress={onClose}
+          >
+            <Text style={[styles.closeButtonText, { color: palette.primaryText }]}>
+              {tUI(uiLanguage, 'common.close')}
+            </Text>
+          </Pressable>
         </Animated.View>
 
         <Animated.View
@@ -456,10 +445,10 @@ export default function PronunciationCoachUI({
               idleBackgroundColor="#FFFFFF"
               idleBorderColor="#E2E8F0"
               activeBackgroundColor="#FFFFFF"
-              activeBorderColor="#2997FF"
+              activeBorderColor="#E2E8F0"
               glowColor="#2997FF"
               iconColor="#0F172A"
-              activeIconColor="#0284C7"
+              activeIconColor="#2997FF"
               onPress={() => onPlayWord(itemWord)}
             />
 
@@ -471,6 +460,7 @@ export default function PronunciationCoachUI({
                 secondaryTextColor={palette.secondaryText}
                 surfaceColor={palette.phonemeSurface}
                 borderColor={palette.phonemeBorder}
+                accentColor="#2997FF"
                 onPressItem={(item) => {
                   const audioTarget = getIpaPhonemeAudioTarget(item.value);
                   if (audioTarget) setActiveIpaTarget(audioTarget);
@@ -550,26 +540,27 @@ const styles = StyleSheet.create({
     minHeight: 540,
   },
   frontFace: {
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  micContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  frontCloseButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   backFace: {
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  questionEyebrowContainer: {
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  questionEyebrow: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
   questionWord: {
-    marginTop: 10,
-    marginBottom: 14,
     fontSize: 31,
     lineHeight: 40,
     fontWeight: '700',
@@ -583,32 +574,11 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 28,
   },
-  pronunciationQuizPanel: {
-    width: '100%',
-    gap: 10,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  pronunciationQuizHint: {
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
   pronunciationQuizError: {
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '700',
     textAlign: 'center',
-  },
-  closeButton: {
-    width: '86%',
-    minHeight: 44,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
   },
   closeButtonText: {
     fontSize: 15,

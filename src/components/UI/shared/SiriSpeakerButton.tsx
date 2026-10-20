@@ -39,10 +39,10 @@ export default function SiriSpeakerButton({
   idleBackgroundColor = '#FFFFFF',
   activeBackgroundColor = '#FFFFFF',
   idleBorderColor = '#E2E8F0',
-  activeBorderColor = '#2997FF',
+  activeBorderColor = '#E2E8F0',
   glowColor = '#2997FF',
   iconColor = '#0F172A',
-  activeIconColor = '#0284C7',
+  activeIconColor = '#2997FF',
   style,
   pressedStyle,
   accessibilityLabel = '播放示範發音',
@@ -159,6 +159,15 @@ export default function SiriSpeakerButton({
                 name="volume-medium-outline"
                 size={size * 0.44}
                 color={isActive ? activeIconColor : iconColor}
+                style={
+                  isActive
+                    ? {
+                        textShadowColor: 'rgba(41, 151, 255, 0.75)',
+                        textShadowOffset: { width: 0, height: 0 },
+                        textShadowRadius: 8,
+                      }
+                    : undefined
+                }
               />
             </View>
           </Pressable>

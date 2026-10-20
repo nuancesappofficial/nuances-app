@@ -222,7 +222,14 @@ const CacheStack = React.memo(function CacheStack({
             transitionEnd: () => updateSwipeState(true),
           }}
         >
-          <CacheStackNav.Screen name="CacheList" component={CacheScreenFlow} />
+          <CacheStackNav.Screen
+            name="CacheList"
+            component={CacheScreenFlow}
+            options={{
+              ...IOS_CARD_SCREEN_OPTIONS,
+              gestureEnabled: Platform.OS === 'ios',
+            }}
+          />
           <CacheStackNav.Screen
             name="AddCacheItem"
             component={SyncAddCacheItemFlow}

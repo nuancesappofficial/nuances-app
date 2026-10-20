@@ -49,7 +49,7 @@ export default function PronunciationPhonemeSectionUI({
   secondaryTextColor,
   surfaceColor,
   borderColor,
-  accentColor = '#4EAFF4',
+  accentColor = '#2997FF',
   onPressItem,
 }: Props) {
   const [expanded, setExpanded] = React.useState(false);
@@ -129,7 +129,10 @@ export default function PronunciationPhonemeSectionUI({
           style={styles.chip}
           pressedStyle={styles.chipPressed}
           idleBackgroundColor={surfaceColor}
+          activeBackgroundColor={surfaceColor}
           idleBorderColor={borderColor}
+          activeBorderColor={borderColor}
+          glowColor={accentColor}
           disabled={item.loading}
           onPress={() => onPressItem(item)}
         >
@@ -140,6 +143,11 @@ export default function PronunciationPhonemeSectionUI({
               style={[
                 styles.phonemeText,
                 { color: item.active ? accentColor : primaryTextColor },
+                item.active && {
+                  textShadowColor: 'rgba(41, 151, 255, 0.75)',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 8,
+                },
               ]}
               numberOfLines={1}
               adjustsFontSizeToFit
@@ -221,7 +229,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   chipPressed: {
-    opacity: 0.82,
+    opacity: 0.88,
+    transform: [{ scale: 0.94 }],
   },
   phonemeText: {
     fontSize: 16,
