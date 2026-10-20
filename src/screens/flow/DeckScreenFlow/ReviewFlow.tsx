@@ -83,7 +83,7 @@ import {
   quoteLearningTermInText,
 } from '../../../features/cards/learningTermQuotes';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
-import { resolveThemeColors } from '../../../theme/colors';
+import { resolveFeedbackColors, resolveThemeColors } from '../../../theme/colors';
 import { tUI } from '../../../i18n/uiLanguage';
 import {
   formatPartOfSpeechLabel,
@@ -1500,6 +1500,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const appTour = useAppTour();
   const theme = resolveThemeColors(colorScheme);
+  const feedbackColors = resolveFeedbackColors(colorScheme);
   const isLightMode = colorScheme === 'light';
   const albumId = route.params?.albumId || 'all-cards';
   const albumName = route.params?.albumName || 'Review';
@@ -3077,14 +3078,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
                   metering={pronunciationMeteringRef}
                   disabled={Boolean(selectedAnswer) || isPronunciationAnalyzing}
                   pressedStyle={!selectedAnswer && !isPronunciationAnalyzing ? styles.pronunciationButtonPressed : null}
-                  idleBackgroundColor="#1c2638"
-                  idleBorderColor="#2e3d57"
-                  activeBackgroundColor="rgba(28, 62, 99, 0.95)"
-                  activeBorderColor="#4EAFF4"
-                  glowColor="#4EAFF4"
+                  idleBackgroundColor={feedbackColors.mic}
+                  idleBorderColor={feedbackColors.mic}
+                  activeBackgroundColor={feedbackColors.mic}
+                  activeBorderColor={feedbackColors.mic}
+                  glowColor={feedbackColors.mic}
                   iconColor="#FFFFFF"
-                  activeBarColor="#00E5FF"
-                  inactiveBarColor="#4EAFF4"
+                  activeBarColor="#FFFFFF"
+                  inactiveBarColor="#FFFFFF"
                   size={144}
                   style={{ marginVertical: 12 }}
                   onPress={() => void togglePronunciationQuestionRecording(question)}

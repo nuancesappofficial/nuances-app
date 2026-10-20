@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { DynamicArcSpinner } from './DynamicArcSpinner';
+import { useReducedMotion } from 'react-native-reanimated';
 
 const NUM_BARS = 19;
 const BAR_RESTING_SCALE = 0.06;
@@ -16,6 +16,11 @@ const DEFAULT_SIZE = 144; // 1.5x of previous 96px (radius 72px)
 const BAR_MAX_HEIGHT = 76;
 const BAR_WIDTH = 4;
 const BAR_GAP = 4;
+// Analyzing state: the frozen waveform is scanned left → right.
+const SCAN_DIM_OPACITY = 0.35;
+const SCAN_BAR_STAGGER_MS = 55;
+const SCAN_RISE_MS = 140;
+const SCAN_FALL_MS = 260;
 
 interface SiriVoiceWaveButtonProps {
   isRecording: boolean;
@@ -56,6 +61,10 @@ export default function SiriVoiceWaveButton({
   size = DEFAULT_SIZE,
   accessibilityLabel = '錄音按鈕',
 }: SiriVoiceWaveButtonProps) {
+  const reduceMotion = useReducedMotion();
+  // Bars stay visible while recording AND while analyzing (frozen recording).
+  const showWave = isRecording || isAnalyzing;
+
   // Physical on-press spring scale (0.94 on press, 1.0 on release) - Native Driver
   const pressScale = React.useRef(new Animated.Value(1)).current;
 
@@ -68,6 +77,11 @@ export default function SiriVoiceWaveButton({
   // Discrete bars animating on GPU scaleY with native driver
   const barScales = React.useRef(
     Array.from({ length: NUM_BARS }, () => new Animated.Value(BAR_RESTING_SCALE)),
+  ).current;
+
+  // Per-bar opacity for the analyzing scan (Native Driver)
+  const barOpacities = React.useRef(
+    Array.from({ length: NUM_BARS }, () => new Animated.Value(1)),
   ).current;
 
   // Symmetric circular mask envelope (bars naturally conform to circle)
@@ -113,12 +127,48 @@ export default function SiriVoiceWaveButton({
   // Animate Icon <-> Waveform transition (both on start and end) - Native Driver
   React.useEffect(() => {
     Animated.spring(transitionAnim, {
-      toValue: isRecording ? 1 : 0,
+      toValue: showWave ? 1 : 0,
       tension: 65,
       friction: 10,
       useNativeDriver: true,
     }).start();
-  }, [isRecording, transitionAnim]);
+  }, [showWave, transitionAnim]);
+
+  // Analyzing: scan the frozen waveform left → right in a loop.
+  React.useEffect(() => {
+    if (!isAnalyzing) {
+      barOpacities.forEach((opacity) => opacity.setValue(1));
+      return;
+    }
+    if (reduceMotion) {
+      barOpacities.forEach((opacity) => opacity.setValue(0.5));
+      return;
+    }
+    barOpacities.forEach((opacity) => opacity.setValue(SCAN_DIM_OPACITY));
+    const scan = Animated.loop(
+      Animated.stagger(
+        SCAN_BAR_STAGGER_MS,
+        barOpacities.map((opacity) =>
+          Animated.sequence([
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: SCAN_RISE_MS,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: SCAN_DIM_OPACITY,
+              duration: SCAN_FALL_MS,
+              useNativeDriver: true,
+            }),
+          ]),
+        ),
+      ),
+    );
+    scan.start();
+    return () => {
+      scan.stop();
+    };
+  }, [isAnalyzing, reduceMotion, barOpacities]);
 
   // Update bar scales whenever audio metering changes (Native Driver)
   const applyMetering = React.useCallback(
@@ -149,9 +199,10 @@ export default function SiriVoiceWaveButton({
     [barScales, envelopes, isRecording],
   );
 
-  // Reset bars when recording stops (Native Driver)
+  // Reset bars once recording AND analysis are both over; while analyzing the
+  // last recorded shape stays frozen (Native Driver)
   React.useEffect(() => {
-    if (!isRecording) {
+    if (!isRecording && !isAnalyzing) {
       const resets = barScales.map((barScale) =>
         Animated.timing(barScale, {
           toValue: BAR_RESTING_SCALE,
@@ -161,7 +212,7 @@ export default function SiriVoiceWaveButton({
       );
       Animated.parallel(resets).start();
     }
-  }, [isRecording, barScales]);
+  }, [isRecording, isAnalyzing, barScales]);
 
   // Listen to metering changes
   React.useEffect(() => {
@@ -190,17 +241,15 @@ export default function SiriVoiceWaveButton({
       inputRange: [0, 1],
       outputRange: [idleBorderColor, activeBorderColor],
     }),
-    shadowColor: glowAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#000000', glowColor],
-    }),
+    // Soft coloured shadow (no black drop shadow, no neon halo)
+    shadowColor: glowColor,
     shadowOpacity: glowAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [0.45, 0.92],
+      outputRange: [0.35, 0.55],
     }),
     shadowRadius: glowAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [14, 28],
+      outputRange: [16, 24],
     }),
     shadowOffset: {
       width: 0,
@@ -303,6 +352,7 @@ export default function SiriVoiceWaveButton({
                         {
                           backgroundColor: isCenter ? activeBarColor : inactiveBarColor,
                           shadowColor: isCenter ? activeBarColor : inactiveBarColor,
+                          opacity: barOpacities[index],
                           transform: [{ scaleY: barScale }],
                         },
                       ]}
@@ -313,18 +363,6 @@ export default function SiriVoiceWaveButton({
             </Animated.View>
           </Pressable>
         </View>
-
-        {/* Layer 4: Outer Circular Neon Spinner with radiant glow (Unclipped) */}
-        {isAnalyzing && (
-          <View style={styles.spinnerGlowWrapper} pointerEvents="none">
-            {/* Diffuse outer neon halo */}
-            <View style={styles.spinnerDiffuseHalo}>
-              <DynamicArcSpinner size={size} strokeWidth={6} color={activeBarColor} />
-            </View>
-            {/* Core focused neon beam */}
-            <DynamicArcSpinner size={size} strokeWidth={3.5} color={activeBarColor} />
-          </View>
-        )}
       </Animated.View>
     </Animated.View>
   );
@@ -372,21 +410,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
-  },
-  spinnerGlowWrapper: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#2997FF',
-    shadowOpacity: 1.0,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
-  },
-  spinnerDiffuseHalo: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.42,
   },
 });

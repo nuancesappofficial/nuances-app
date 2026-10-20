@@ -86,3 +86,39 @@ export const CONTAINER_BG = DARK_THEME_COLORS.containerBg;
 export const SCREEN_BG = DARK_THEME_COLORS.screenBg;
 export const TEXT_ON_BG = DARK_THEME_COLORS.textOnBg;
 export const TEXT_ON_CONTAINER = DARK_THEME_COLORS.textOnContainer;
+
+// Feedback colours for review / pronunciation screens.
+// One job per colour: brand = next action, ok / bad = right / wrong, warn = needs work.
+const LIGHT_FEEDBACK_COLORS = {
+  brand: '#2F9BEA',
+  brandSoft: '#E2F1FC',
+  ok: '#1FA971',
+  okSoft: '#E2F6EB',
+  bad: '#E5533D',
+  badSoft: '#FDEBE7',
+  warn: '#D98A0B',
+  warnSoft: '#FDF1DA',
+  onBrand: '#FFFFFF',
+  track: '#E4DED3',
+  mic: '#2F9BEA',
+};
+
+const DARK_FEEDBACK_COLORS: typeof LIGHT_FEEDBACK_COLORS = {
+  brand: '#6DBCF6',
+  brandSoft: '#15314A',
+  ok: '#3DD68C',
+  okSoft: '#10301F',
+  bad: '#FF7A66',
+  badSoft: '#3A1C17',
+  warn: '#FFC24D',
+  warnSoft: '#382C10',
+  onBrand: '#0D1117',
+  track: '#2B3544',
+  mic: '#4EAFF4',
+};
+
+export type FeedbackColors = typeof LIGHT_FEEDBACK_COLORS;
+
+export function resolveFeedbackColors(colorScheme?: ColorSchemeName): FeedbackColors {
+  return colorScheme === 'light' ? LIGHT_FEEDBACK_COLORS : DARK_FEEDBACK_COLORS;
+}
