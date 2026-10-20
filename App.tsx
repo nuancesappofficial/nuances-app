@@ -509,7 +509,15 @@ function AuthGate({
         }
         style={styles.authBackdropGlow}
       />
-      <View style={styles.authHeroStack} onLayout={handleHeroLayout}>
+      <View
+        style={[
+          styles.authHeroStack,
+          // Edge-to-edge Android draws under the system nav bar; keep the sign-in
+          // buttons above it. iOS already clears the home indicator with the base padding.
+          Platform.OS === 'android' ? { paddingBottom: 30 + insets.bottom } : null,
+        ]}
+        onLayout={handleHeroLayout}
+      >
         <View style={styles.authStickerStage} pointerEvents="none">
           <Reanimated.View
             style={[
