@@ -106,8 +106,6 @@ export default function PronunciationPhonemeSectionUI({
                       { color: item.active ? accentColor : primaryTextColor },
                     ]}
                     numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.58}
                   >
                     {item.label}
                   </Text>
@@ -162,8 +160,8 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
   phonemeText: {
-    fontSize: 16,
-    lineHeight: 19,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '900',
     textAlign: 'center',
   },

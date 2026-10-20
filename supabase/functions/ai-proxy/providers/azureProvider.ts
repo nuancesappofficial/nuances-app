@@ -417,7 +417,7 @@ export async function handlePronunciationAssess(
     };
     Words?: Array<{
       Word?: string;
-      PronunciationAssessment?: { AccuracyScore?: number };
+      PronunciationAssessment?: { AccuracyScore?: number; ErrorType?: string };
       Syllables?: Array<{
         Syllable?: string;
         PronunciationAssessment?: { AccuracyScore?: number };
@@ -442,7 +442,7 @@ export async function handlePronunciationAssess(
       };
       Words?: Array<{
         Word?: string;
-        PronunciationAssessment?: { AccuracyScore?: number };
+        PronunciationAssessment?: { AccuracyScore?: number; ErrorType?: string };
         Syllables?: Array<{
           Syllable?: string;
           PronunciationAssessment?: { AccuracyScore?: number };
@@ -459,9 +459,14 @@ export async function handlePronunciationAssess(
   };
   const best = Array.isArray(rawRecord.NBest) ? rawRecord.NBest[0] : undefined;
   const pa = best?.PronunciationAssessment || rawRecord.PronunciationAssessment;
-  const wordsRaw = Array.isArray(best?.Words)
-    ? best.Words
-    : (Array.isArray(rawRecord.Words) ? rawRecord.Words : []);
+  // With EnableMiscue, Azure also returns words the user said that aren't in the
+  // reference text (ErrorType "Insertion"). PronScore ignores them, so they must
+  // not leak into the phoneme grid or the word list either.
+  const wordsRaw = (
+    Array.isArray(best?.Words)
+      ? best.Words
+      : (Array.isArray(rawRecord.Words) ? rawRecord.Words : [])
+  ).filter((wordItem) => wordItem?.PronunciationAssessment?.ErrorType !== 'Insertion');
   const phonemeFeedback: Array<{
     phoneme: string;
     letters?: string;

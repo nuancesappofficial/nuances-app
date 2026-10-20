@@ -142,9 +142,10 @@ export function getIpaSymbol(rawPhoneme: string | null | undefined): string {
   return ENGLISH_IPA_TOKEN_SET.has(aliased) ? aliased : '';
 }
 
+// Bare symbol, no "/…/": '/' is a line-break opportunity, and in a one-line
+// chip Android can wrap "/æ/" after the first slash, rendering only "/".
 export function formatIpaPhoneme(rawPhoneme: string | null | undefined): string {
-  const ipa = getIpaSymbol(rawPhoneme);
-  return ipa ? `/${ipa}/` : '';
+  return getIpaSymbol(rawPhoneme);
 }
 
 export function getIpaPhonemeAudioText(rawPhoneme: string | null | undefined): string {
