@@ -3096,14 +3096,24 @@ export default function ProfileSettingOptionsFlow({
             ]}
           >
             <View style={styles.fontScaleHeader}>
-              <Text
-                style={[
-                  styles.settingLabel,
-                  { color: palette.textOnContainer },
-                ]}
-              >
-                {tUI(settings.uiLanguage, 'settings.font.wordSize')}
-              </Text>
+              <View style={styles.fontScaleHeaderLeft}>
+                <Text
+                  style={[
+                    styles.settingLabel,
+                    { color: palette.textOnContainer },
+                  ]}
+                >
+                  {tUI(settings.uiLanguage, 'settings.font.textSize')}
+                </Text>
+                <Text
+                  style={[
+                    styles.fontScaleDesc,
+                    { color: palette.secondaryText },
+                  ]}
+                >
+                  {tUI(settings.uiLanguage, 'settings.font.textSizeDesc')}
+                </Text>
+              </View>
               <Text style={[styles.fontScaleValue, { color: MODAL_CTA_COLOR }]}>
                 {settings.stickerFontScalePercent}%
               </Text>
@@ -3122,7 +3132,7 @@ export default function ProfileSettingOptionsFlow({
               accessibilityRole="adjustable"
               accessibilityLabel={tUI(
                 settings.uiLanguage,
-                'settings.font.wordSize'
+                'settings.font.textSize'
               )}
               accessibilityValue={{
                 min: STICKER_SCALE_MIN,
@@ -3398,6 +3408,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  fontScaleHeaderLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  fontScaleDesc: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
   },
   fontScaleValue: {
     fontSize: 14,

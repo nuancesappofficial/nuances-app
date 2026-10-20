@@ -3,6 +3,24 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.4': {
+    version: '1.3.4',
+    title: '更新功能',
+    items: [
+      {
+        number: '01',
+        title: 'App-wide text size control in font settings',
+      },
+      {
+        number: '02',
+        title: 'Pronunciation coach with live waveform & IPA',
+      },
+      {
+        number: '03',
+        title: 'Smoother quiz feedback and instant card loading',
+      },
+    ],
+  },
   '1.3.3': {
     version: '1.3.3',
     title: '更新功能',

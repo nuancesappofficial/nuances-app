@@ -221,6 +221,8 @@ export type UIStringKey =
   | 'settings.theme.updateFailedTitle'
   | 'settings.theme.updateFailedBody'
   | 'settings.font.wordSize'
+  | 'settings.font.textSize'
+  | 'settings.font.textSizeDesc'
   | 'settings.language.subtitle'
   | 'settings.language.replyTitle'
   | 'settings.language.replySubtitle'
@@ -684,7 +686,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.theme.dark': 'Dark',
     'settings.theme.updateFailedTitle': 'Couldn’t update appearance',
     'settings.theme.updateFailedBody': 'Please try again.',
-    'settings.font.wordSize': 'Word sticker size',
+    'settings.font.wordSize': 'Text size',
+    'settings.font.textSize': 'Text size',
+    'settings.font.textSizeDesc':
+      'Adjusts text size across the app and stickers.',
     'settings.language.subtitle':
       'Controls both app UI language and AI reply language.',
     'settings.language.replyTitle': 'App & reply language',
@@ -1169,7 +1174,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.theme.dark': '深色',
     'settings.theme.updateFailedTitle': '無法更新外觀',
     'settings.theme.updateFailedBody': '請稍後再試。',
-    'settings.font.wordSize': '單字貼紙大小',
+    'settings.font.wordSize': '文字大小',
+    'settings.font.textSize': '文字大小',
+    'settings.font.textSizeDesc':
+      '調整全應用程式文字與單字貼紙大小。',
     'settings.language.subtitle': '同時控制 App 介面語言與 AI 回覆語言。',
     'settings.language.replyTitle': 'App 與回覆語言',
     'settings.language.replySubtitle':
@@ -1630,7 +1638,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.theme.dark': '深色',
     'settings.theme.updateFailedTitle': '无法更新外观',
     'settings.theme.updateFailedBody': '请稍后再试。',
-    'settings.font.wordSize': '单词贴纸大小',
+    'settings.font.wordSize': '文字大小',
+    'settings.font.textSize': '文字大小',
+    'settings.font.textSizeDesc':
+      '调整全局文字与单词贴纸大小。',
     'settings.language.subtitle': '同时控制 App 界面语言与 AI 回复语言。',
     'settings.language.replyTitle': 'App 与回复语言',
     'settings.language.replySubtitle':

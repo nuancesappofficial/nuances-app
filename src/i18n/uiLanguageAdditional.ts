@@ -249,7 +249,10 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.theme.dark': 'ダーク',
     'settings.theme.updateFailedTitle': '外観を更新できません',
     'settings.theme.updateFailedBody': 'もう一度お試しください。',
-    'settings.font.wordSize': 'ワードステッカーのサイズ',
+    'settings.font.wordSize': '文字サイズ',
+    'settings.font.textSize': '文字サイズ',
+    'settings.font.textSizeDesc':
+      'アプリ全体とステッカーの文字サイズを調整します。',
     'settings.language.subtitle':
       'アプリの UI 言語と AI 応答言語の両方を制御します。',
     'settings.language.replyTitle': 'アプリと返信の言語',
@@ -754,7 +757,10 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.theme.dark': '다크',
     'settings.theme.updateFailedTitle': '화면 모드를 변경할 수 없습니다',
     'settings.theme.updateFailedBody': '다시 시도해 주세요.',
-    'settings.font.wordSize': '단어 스티커 크기',
+    'settings.font.wordSize': '텍스트 크기',
+    'settings.font.textSize': '텍스트 크기',
+    'settings.font.textSizeDesc':
+      '앱 전체 텍스트 및 스티커 크기를 조정합니다.',
     'settings.language.subtitle':
       '앱 UI 언어와 AI 응답 언어를 모두 제어합니다.',
     'settings.language.replyTitle': '앱 및 답장 언어',
@@ -1263,7 +1269,10 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.theme.dark': 'Oscuro',
     'settings.theme.updateFailedTitle': 'No se pudo cambiar la apariencia',
     'settings.theme.updateFailedBody': 'Inténtalo de nuevo.',
-    'settings.font.wordSize': 'Tamaño de la etiqueta de palabra',
+    'settings.font.wordSize': 'Tamaño del texto',
+    'settings.font.textSize': 'Tamaño del texto',
+    'settings.font.textSizeDesc':
+      'Ajusta el tamaño del texto en toda la app y pegatinas.',
     'settings.language.subtitle':
       'Controla tanto el idioma de la interfaz de usuario de la aplicación como el idioma de respuesta de la IA.',
     'settings.language.replyTitle': 'Idioma de aplicación y respuesta',
@@ -1782,7 +1791,10 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'settings.theme.dark': 'Sombre',
     'settings.theme.updateFailedTitle': 'Impossible de changer l’apparence',
     'settings.theme.updateFailedBody': 'Veuillez réessayer.',
-    'settings.font.wordSize': "Taille de l'autocollant de mot",
+    'settings.font.wordSize': 'Taille du texte',
+    'settings.font.textSize': 'Taille du texte',
+    'settings.font.textSizeDesc':
+      "Ajuste la taille du texte dans toute l'application et les autocollants.",
     'settings.language.subtitle':
       "Contrôle à la fois la langue de l'interface utilisateur de l'application et la langue de réponse de l'IA.",
     'settings.language.replyTitle': "Langue de l'application et de la réponse",
