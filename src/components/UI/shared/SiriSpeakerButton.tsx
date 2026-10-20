@@ -36,13 +36,13 @@ export default function SiriSpeakerButton({
   disabled = false,
   onPress,
   size = DEFAULT_SIZE,
-  idleBackgroundColor = '#1c2638',
-  activeBackgroundColor = 'rgba(28, 62, 99, 0.95)',
-  idleBorderColor = '#2e3d57',
-  activeBorderColor = '#4EAFF4',
-  glowColor = '#00E5FF',
-  iconColor = '#F1F5F9',
-  activeIconColor = '#BFE7FF',
+  idleBackgroundColor = '#FFFFFF',
+  activeBackgroundColor = '#FFFFFF',
+  idleBorderColor = '#E2E8F0',
+  activeBorderColor = '#2997FF',
+  glowColor = '#2997FF',
+  iconColor = '#0F172A',
+  activeIconColor = '#0284C7',
   style,
   pressedStyle,
   accessibilityLabel = '播放示範發音',
@@ -60,7 +60,7 @@ export default function SiriSpeakerButton({
     if (disabled || isLoading) return;
     Animated.spring(pressScale, {
       toValue: 0.94,
-      tension: 160,
+      tension: 200,
       friction: 12,
       useNativeDriver: true,
     }).start();
@@ -98,15 +98,15 @@ export default function SiriSpeakerButton({
     }),
     shadowColor: activeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#000000', glowColor],
+      outputRange: ['rgba(0, 0, 0, 0.4)', glowColor],
     }),
     shadowOpacity: activeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [0.35, 0.88],
+      outputRange: [0.16, 0.88],
     }),
     shadowRadius: activeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [10, 20],
+      outputRange: [8, 20],
     }),
     shadowOffset: {
       width: 0,
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#00E5FF',
+    shadowColor: '#2997FF',
     shadowOpacity: 1.0,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 0 },

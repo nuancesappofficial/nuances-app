@@ -216,6 +216,7 @@ export default function DayViewScreen({ navigation, route }: Props) {
                       cardId: card.id,
                       cardIds: dayCards.map((item) => item.id),
                       headerTitle: displayDayName,
+                      hasImage: Boolean(card.imageUrl || card.cachedItemId),
                     })
                   }
                 >

@@ -708,10 +708,12 @@ function ProfileMainFlow({
         }
         onPressDay={(day) => {
           if (!day.cards.length) return;
+          const firstCard = day.cards[0];
           navigation.navigate('CardDetail', {
-            cardId: day.cards[0]?.id,
+            cardId: firstCard?.id,
             cardIds: day.cards.map((card) => card.id),
             headerTitle: formatHeatmapDayTitle(day.date),
+            hasImage: firstCard ? Boolean(firstCard.imageUrl || firstCard.cachedItemId) : undefined,
           });
         }}
       />

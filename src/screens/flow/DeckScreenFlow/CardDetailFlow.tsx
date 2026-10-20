@@ -140,6 +140,7 @@ type Props = {
       albumName?: string;
       headerTitle?: string;
       interactiveTutorial?: boolean;
+      hasImage?: boolean;
     };
   };
 };
@@ -2222,6 +2223,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
     flex: 1,
   }));
 
+  const routeHasImage = route.params?.hasImage;
+  const skeletonHasImage =
+    card !== null
+      ? Boolean(card.imageUrl || card.cachedItemId)
+      : (routeHasImage ?? true);
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: palette.screenBg }]}
@@ -2269,7 +2276,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           >
             <CardDetailSkeletonUI
               isLightMode={isLightMode}
-              hasImage={card ? Boolean(card.imageUrl || card.cachedItemId) : true}
+              hasImage={skeletonHasImage}
             />
           </Reanimated.View>
         )}

@@ -749,6 +749,7 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
             cardIds: processedCards.map((card) => card.id),
             albumName: albumDisplayName,
             headerTitle: albumDisplayName,
+            hasImage: Boolean(item.imageUrl || item.cachedItemId),
           })
         }
         cardImageMap={cardImageMap}

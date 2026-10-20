@@ -303,12 +303,13 @@ export default function PronunciationCoachUI({
             isLoading={isWordDownloading}
             disabled={!isActiveCard || playbackBusy || isRecording || isAnalyzing}
             size={76}
-            idleBackgroundColor="#1c2638"
-            idleBorderColor="#2e3d57"
-            activeBackgroundColor="rgba(28, 62, 99, 0.95)"
-            activeBorderColor="#4EAFF4"
-            glowColor="#00E5FF"
-            iconColor={palette.primaryText}
+            idleBackgroundColor="#FFFFFF"
+            idleBorderColor="#E2E8F0"
+            activeBackgroundColor="#FFFFFF"
+            activeBorderColor="#2997FF"
+            glowColor="#2997FF"
+            iconColor="#0F172A"
+            activeIconColor="#0284C7"
             onPress={() => onPlayWord(itemWord)}
           />
 
@@ -336,10 +337,10 @@ export default function PronunciationCoachUI({
               idleBackgroundColor="#1c2638"
               idleBorderColor="#2e3d57"
               activeBackgroundColor="rgba(28, 62, 99, 0.95)"
-              activeBorderColor="#4EAFF4"
-              glowColor="#4EAFF4"
+              activeBorderColor="#2997FF"
+              glowColor="#2997FF"
               iconColor="#FFFFFF"
-              activeBarColor="#00E5FF"
+              activeBarColor="#2997FF"
               inactiveBarColor="#4EAFF4"
               size={144}
               style={{ marginVertical: 12 }}
@@ -452,12 +453,13 @@ export default function PronunciationCoachUI({
               isLoading={isWordDownloading}
               disabled={playbackBusy}
               size={76}
-              idleBackgroundColor="#1c2638"
-              idleBorderColor="#2e3d57"
-              activeBackgroundColor="rgba(28, 62, 99, 0.95)"
-              activeBorderColor="#4EAFF4"
-              glowColor="#00E5FF"
-              iconColor={palette.primaryText}
+              idleBackgroundColor="#FFFFFF"
+              idleBorderColor="#E2E8F0"
+              activeBackgroundColor="#FFFFFF"
+              activeBorderColor="#2997FF"
+              glowColor="#2997FF"
+              iconColor="#0F172A"
+              activeIconColor="#0284C7"
               onPress={() => onPlayWord(itemWord)}
             />
 

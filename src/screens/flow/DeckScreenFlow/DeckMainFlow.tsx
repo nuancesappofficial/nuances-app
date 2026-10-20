@@ -1819,6 +1819,7 @@ export default function DeckMainFlow({
       const targetCardId = scopedCardIds.includes(item.cardId)
         ? item.cardId
         : scopedCardIds[0];
+      const targetCard = allCards.find((c) => c.id === targetCardId);
       const headerTitle = wordPopAlbum
         ? getDeckAlbumDisplayName(wordPopAlbum, uiLanguage)
         : tUI(uiLanguage, 'deck.albumAllCards');
@@ -1827,6 +1828,7 @@ export default function DeckMainFlow({
         cardIds: scopedCardIds,
         albumName: headerTitle,
         headerTitle,
+        hasImage: targetCard ? Boolean(targetCard.imageUrl || targetCard.cachedItemId) : undefined,
       });
     },
     [allCards, navigation, uiLanguage, wordPopAlbum, wordPopScopedCardIds]
@@ -1840,11 +1842,13 @@ export default function DeckMainFlow({
       const targetCardId = scopedCardIds.includes(item.cardId)
         ? item.cardId
         : scopedCardIds[0];
+      const targetCard = allCards.find((c) => c.id === targetCardId);
       navigation.navigate('CardDetail', {
         cardId: targetCardId,
         cardIds: scopedCardIds,
         albumName: tUI(uiLanguage, 'deck.albumAllCards'),
         headerTitle: tUI(uiLanguage, 'deck.albumAllCards'),
+        hasImage: targetCard ? Boolean(targetCard.imageUrl || targetCard.cachedItemId) : undefined,
       });
       setSearchQuery('');
     },

@@ -1151,10 +1151,12 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           : allCards.length > 0
             ? allCards.map((c) => c.id)
             : [item.cardId];
+      const targetCard = allCards.find((c) => c.id === item.cardId);
       navigation.navigate('CardDetail', {
         cardId: item.cardId,
         cardIds,
         headerTitle: tUI(uiLanguage, 'cache.todayUploads'),
+        hasImage: targetCard ? Boolean(targetCard.imageUrl || targetCard.cachedItemId) : undefined,
       });
     },
     [allCards, navigation, todayUploadedCardIds, uiLanguage]
