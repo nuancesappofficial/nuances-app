@@ -13,6 +13,7 @@ import type { AIPersonalizationOptions } from '../ai/types';
 import { getLocalPhoneticTranscription } from '../pronunciation/localPhonetics';
 import { getPreparedOCRVisionLanguageConfig } from './languagePacks';
 import { normalizeOCRText } from './ocrTextNormalization';
+import { prewarmEnglishLexicon, restoreOCRTextSpacing } from '../../features/ocrSpacing';
 import { joinOCRBlocksByVisualLines } from './ocrLayout';
 import { pickSentenceContainingWord } from '../../features/createCard/textTransforms';
 
@@ -103,6 +104,8 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
     }
 
     const ocrLanguageConfig = await getPreparedOCRVisionLanguageConfig();
+    // Decode the word list in small steps while native OCR runs.
+    const lexiconReady = prewarmEnglishLexicon().catch(() => null);
     const primaryResult = await Promise.race([
       recognizeTextWithVision(imageUri, {
         languages: ocrLanguageConfig.visionLanguages,
@@ -113,6 +116,7 @@ export async function extractTextFromImage(imageUri: string): Promise<OCRResult>
         setTimeout(() => reject(new Error('OCR recognition timed out after 7s')), 7000)
       ),
     ]);
+    await lexiconReady;
     const blocks: OCRBlock[] = mapVisionBlocksToOCRBlocks(primaryResult.blocks || []);
     const fullText = normalizeFullText(primaryResult.fullText, blocks);
 
@@ -154,92 +158,19 @@ type VisionOCRBlockLike = {
   candidates?: Array<{ text?: string; confidence?: number }>;
 };
 
-const OCR_SPACING_LEFT_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'do', 'for', 'from', 'had', 'has',
-  'have', 'he', 'her', 'his', 'i', 'if', 'in', 'is', 'it', 'its', 'may', 'not', 'of', 'on',
-  'or', 'our', 'she', 'so', 'that', 'the', 'their', 'they', 'this', 'to', 'we', 'were',
-  'with', 'you', 'your', 'idea', 'people', 'time', 'way', 'thing', 'work', 'world', 'life',
-  'story', 'part', 'point', 'place', 'case', 'level', 'team', 'word', 'text', 'line',
-]);
-
-const OCR_SPACING_RIGHT_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'do', 'for', 'from', 'had', 'has',
-  'have', 'he', 'her', 'his', 'i', 'if', 'in', 'is', 'it', 'its', 'may', 'not', 'of', 'on',
-  'or', 'our', 'she', 'so', 'that', 'the', 'their', 'they', 'this', 'to', 'we', 'were',
-  'with', 'you', 'your', 'about', 'after', 'before', 'into', 'over', 'than', 'through',
-  'under', 'when', 'where', 'which', 'while', 'who', 'will', 'would',
-]);
-
-const OCR_SPACING_INTACT_WORDS = new Set([
-  'another', 'anything', 'anyone', 'because', 'before', 'between', 'without', 'within',
-  'together', 'therefore', 'however', 'although', 'through', 'thought', 'though', 'whether',
-  'whatever', 'whenever', 'wherever', 'important', 'information', 'something', 'someone',
-]);
-
-function compactLatinLetters(value: string): string {
-  return value.toLowerCase().replace(/[^a-z]/g, '');
-}
-
-function isPlainLowercaseLatinToken(value: string): boolean {
-  return /^[a-z]{5,24}$/.test(value);
-}
-
-function spacedCandidateForOCRToken(
-  token: string,
+function candidateTextsOf(
   candidates?: Array<{ text?: string; confidence?: number }>
-): string | null {
-  if (!isPlainLowercaseLatinToken(token) || !Array.isArray(candidates)) return null;
-  const compactToken = compactLatinLetters(token);
-  const candidate = candidates
-    .map((item) => (item?.text || '').trim())
-    .find((text) => {
-      if (!/\s/.test(text)) return false;
-      if (compactLatinLetters(text) !== compactToken) return false;
-      const pieces = text.split(/\s+/).filter(Boolean);
-      return pieces.length >= 2 && pieces.length <= 4 && pieces.every((piece) => /^[A-Za-z]+$/.test(piece));
-    });
-  return candidate || null;
-}
-
-function restoreCommonOCRSpacingToken(token: string): string | null {
-  const normalized = token.toLowerCase();
-  if (!isPlainLowercaseLatinToken(normalized)) return null;
-  if (OCR_SPACING_INTACT_WORDS.has(normalized)) return null;
-  if (OCR_SPACING_LEFT_WORDS.has(normalized) || OCR_SPACING_RIGHT_WORDS.has(normalized)) return null;
-
-  let best: { text: string; score: number } | null = null;
-  for (let index = 1; index < normalized.length; index += 1) {
-    const left = normalized.slice(0, index);
-    const right = normalized.slice(index);
-    if (left.length < 1 || right.length < 1) continue;
-    const leftKnown = OCR_SPACING_LEFT_WORDS.has(left);
-    const rightKnown = OCR_SPACING_RIGHT_WORDS.has(right);
-    if (!leftKnown || !rightKnown) continue;
-
-    const functionWordBoundary = left.length <= 4 || right.length <= 5;
-    if (!functionWordBoundary) continue;
-
-    const score =
-      (left.length >= 3 ? 2 : 1) +
-      (right.length >= 3 ? 2 : 1) +
-      (rightKnown && right.length <= 5 ? 2 : 0);
-    if (!best || score > best.score) {
-      best = { text: `${left} ${right}`, score };
-    }
-  }
-  return best?.text || null;
-}
-
-function restoreOCRSpacingInText(text: string): string {
-  return text.replace(/\b[a-z]{5,24}\b/g, (token) => restoreCommonOCRSpacingToken(token) || token);
+): string[] {
+  if (!Array.isArray(candidates)) return [];
+  return candidates.map((candidate) => (candidate?.text || '').trim()).filter(Boolean);
 }
 
 function resolveOCRBlockText(block: VisionOCRBlockLike): string {
   const rawText = (block?.text || '').trim();
   if (!rawText) return '';
-  const candidate = spacedCandidateForOCRToken(rawText, block.candidates);
-  if (candidate) return candidate;
-  return normalizeOCRText(restoreOCRSpacingInText(rawText));
+  // Silently restore spaces OCR dropped ("anatural" → "a natural"); the user
+  // just sees the corrected text and can still edit it.
+  return normalizeOCRText(restoreOCRTextSpacing(rawText, candidateTextsOf(block.candidates)));
 }
 
 function mapVisionBlocksToOCRBlocks(visionBlocks: VisionOCRBlockLike[]): OCRBlock[] {
@@ -282,7 +213,8 @@ function hasLatin(text: string): boolean {
 function normalizeFullText(rawText: string | undefined, blocks: OCRBlock[]): string {
   const trimmedRaw = (rawText || '').trim();
   if (trimmedRaw) {
-    return normalizeOCRText(restoreOCRSpacingInText(trimmedRaw));
+    const candidateTexts = blocks.flatMap((block) => candidateTextsOf(block.candidates));
+    return normalizeOCRText(restoreOCRTextSpacing(trimmedRaw, candidateTexts));
   }
 
   const tokens = blocks.map((block) => block.text.trim()).filter(Boolean);

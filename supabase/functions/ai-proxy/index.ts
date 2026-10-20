@@ -48,6 +48,15 @@ import {
 } from './_shared/aiCostTracking.ts';
 import { CARD_SUBJECT_SELECTION_INSTRUCTION } from './_shared/cardSubjectPrompt.ts';
 import {
+  ENGLISH_PROPER_NOUNS_FRONT_CODED,
+  ENGLISH_WORDS_FRONT_CODED,
+} from './_shared/ocrSpacing/englishWords.generated.ts';
+import {
+  decodeEnglishLexicon,
+  restoreRunTogetherCardTarget,
+  type EnglishLexicon,
+} from './_shared/ocrSpacing/ocrSpacing.ts';
+import {
   FREE_STARTER_CARD_LIMIT,
   FREE_STARTER_PRONUNCIATION_LIMIT,
 } from './_shared/freeStarterAllowance.ts';
@@ -3953,6 +3962,46 @@ Return JSON in exactly this order:
 }
 // ==========================================
 
+let ocrSpacingLexicon: EnglishLexicon | null = null;
+
+/**
+ * Safety net for OCR run-together targets the app did not fix (e.g. older app
+ * versions): "anatural" in "you were anatural." becomes target "natural" in
+ * "you were a natural." before the model sees it, so it cannot invent a
+ * meaning for a non-word. Real words and new slang are left unchanged.
+ */
+function restoreGenerateCardPayloadSpacing(payload: unknown): GenerateCardPayload {
+  const cardPayload = payload as GenerateCardPayload;
+  if (!cardPayload || typeof cardPayload.targetWord !== 'string') return cardPayload;
+  try {
+    ocrSpacingLexicon ||= decodeEnglishLexicon(
+      ENGLISH_WORDS_FRONT_CODED,
+      ENGLISH_PROPER_NOUNS_FRONT_CODED
+    );
+    const restored = restoreRunTogetherCardTarget(
+      cardPayload.targetWord,
+      typeof cardPayload.originalSentence === 'string' ? cardPayload.originalSentence : '',
+      ocrSpacingLexicon
+    );
+    if (!restored) return cardPayload;
+    const previousTarget = cardPayload.targetWord.trim().toLowerCase();
+    const replaceIfPreviousTarget = (value?: string) =>
+      typeof value === 'string' && value.trim().toLowerCase() === previousTarget
+        ? restored.targetWord
+        : value;
+    return {
+      ...cardPayload,
+      targetWord: restored.targetWord,
+      originalSentence: restored.sentence || cardPayload.originalSentence,
+      cardSubject: replaceIfPreviousTarget(cardPayload.cardSubject),
+      canonicalSubject: replaceIfPreviousTarget(cardPayload.canonicalSubject),
+    };
+  } catch (error) {
+    console.warn('[ai-proxy] OCR spacing restore skipped:', error);
+    return cardPayload;
+  }
+}
+
 async function executeAction(
   action: Action,
   payload: unknown,
@@ -3966,16 +4015,16 @@ async function executeAction(
     return await handleGetOrCreateDemoCard(payload as DemoCardPayload, userId);
   }
   if (action === 'generate_card') {
-    return await handleGenerateCard(payload as GenerateCardPayload);
+    return await handleGenerateCard(restoreGenerateCardPayloadSpacing(payload));
   }
   if (action === 'generate_card_stream') {
-    return await handleGenerateCardStream(payload as GenerateCardPayload);
+    return await handleGenerateCardStream(restoreGenerateCardPayloadSpacing(payload));
   }
   if (action === 'generate_card_core_stream') {
-    return await handleGenerateCardCoreStream(payload as GenerateCardPayload);
+    return await handleGenerateCardCoreStream(restoreGenerateCardPayloadSpacing(payload));
   }
   if (action === 'generate_card_enrichment_stream') {
-    return await handleGenerateCardEnrichmentStream(payload as GenerateCardPayload);
+    return await handleGenerateCardEnrichmentStream(restoreGenerateCardPayloadSpacing(payload));
   }
   if (action === 'pronunciation_assess') {
     const startedAt = Date.now();
