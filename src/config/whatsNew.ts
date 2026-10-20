@@ -8,15 +8,15 @@ export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
     title: '更新功能',
     items: [
       {
-        number: '01',
+        number: '1',
         title: 'App-wide text size control in font settings',
       },
       {
-        number: '02',
+        number: '2',
         title: 'Pronunciation coach with live waveform & IPA',
       },
       {
-        number: '03',
+        number: '3',
         title: 'Smoother quiz feedback and instant card loading',
       },
     ],
