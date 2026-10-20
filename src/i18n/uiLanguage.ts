@@ -410,6 +410,7 @@ export type UIStringKey =
   | 'review.yourScore'
   | 'review.yourAnswer'
   | 'review.testMeNextTime'
+  | 'review.addedToNextTime'
   | 'review.next'
   | 'review.finalScore'
   | 'review.cardProgress'
@@ -903,6 +904,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.yourScore': 'Your score',
     'review.yourAnswer': 'Your answer',
     'review.testMeNextTime': 'test me next time',
+    'review.addedToNextTime': 'Added',
     'review.next': 'Next',
     'review.finalScore': 'Final score',
     'review.cardProgress': 'Card',
@@ -920,7 +922,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.summaryGreatJob':
       'Great job. Your retention is getting really solid.',
     'review.skippedPronunciation':
-      'pronunciation questions were skipped and saved for next time.',
+      'pronunciation questions were skipped.',
     'review.playAgain': 'Try Again',
     'review.done': 'Done',
     'review.micPermissionRequired':
@@ -1377,6 +1379,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.yourScore': '你的分數',
     'review.yourAnswer': '你的答案',
     'review.testMeNextTime': '下次再考我',
+    'review.addedToNextTime': '已加入',
     'review.next': '下一題',
     'review.finalScore': '最終分數',
     'review.cardProgress': '第',
@@ -1389,7 +1392,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.summaryOutstanding': '太強了，這些單字正在變成你的東西。',
     'review.summaryGoodEffort': '不錯，再跑一輪會進步很快。',
     'review.summaryGreatJob': '做得好，你的記憶正在穩定下來。',
-    'review.skippedPronunciation': '題發音題已略過，會留到下次。',
+    'review.skippedPronunciation': '題發音題已略過。',
     'review.playAgain': '再試一次',
     'review.done': '完成',
     'review.micPermissionRequired': '需要麥克風權限才能進行發音題。',
@@ -1841,6 +1844,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.yourScore': '你的分数',
     'review.yourAnswer': '你的答案',
     'review.testMeNextTime': '下次再考我',
+    'review.addedToNextTime': '已加入',
     'review.next': '下一题',
     'review.finalScore': '最终分数',
     'review.cardProgress': '第',
@@ -1853,7 +1857,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'review.summaryOutstanding': '太强了，这些单词正在变成你的东西。',
     'review.summaryGoodEffort': '不错，再跑一轮会进步很快。',
     'review.summaryGreatJob': '做得好，你的记忆正在稳定下来。',
-    'review.skippedPronunciation': '题发音题已跳过，会留到下次。',
+    'review.skippedPronunciation': '题发音题已跳过。',
     'review.playAgain': '再试一次',
     'review.done': '完成',
     'review.micPermissionRequired': '需要麦克风权限才能进行发音题。',

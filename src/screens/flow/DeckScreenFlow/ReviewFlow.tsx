@@ -23,6 +23,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import Reanimated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { Audio } from 'expo-av';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
@@ -1049,7 +1050,6 @@ function buildReviewQuestions(
   allCards: Card[],
   questionCount: number,
   pinnedCardIds: string[],
-  skippedPronunciationCardIds: string[],
   selectedQuestionTypes: ReviewQuestionType[],
   uiLanguage: UILanguage
 ): { questions: ReviewQuestion[]; isClamped: boolean; maxAvailable: number } {
@@ -1063,7 +1063,6 @@ function buildReviewQuestions(
     questionCount,
     selectedQuestionTypes: questionTypes,
     pinnedCardIds,
-    skippedPronunciationCardIds,
     canBuildQuestionType: (card, type) => canBuildQuestionTypeForCard(card, type),
   });
 
@@ -1677,7 +1676,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [results, setResults] = React.useState<Record<string, boolean>>({});
   const [skippedQuestionIds, setSkippedQuestionIds] = React.useState<Set<string>>(() => new Set());
   const [pinnedCardIds, setPinnedCardIds] = React.useState<string[]>([]);
-  const [skippedPronunciationCardIds, setSkippedPronunciationCardIds] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [reviewSetupError, setReviewSetupError] = React.useState<string | null>(null);
   const [pronunciationRecordingQuestionId, setPronunciationRecordingQuestionId] = React.useState<string | null>(null);
@@ -1800,9 +1798,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
       if (sessionBuildTokenRef.current !== sessionBuildToken) return;
 
       const nextPinned = prefs.pinnedCardIds.filter((id) => sourceCards.some((card) => card.id === id));
-      const nextSkippedPronunciation = prefs.skippedPronunciationCardIds.filter((id) =>
-        sourceCards.some((card) => card.id === id)
-      );
       const effectiveCount = requestedQuestionCount ?? prefs.questionCount;
       const validRequestedQuestionTypes = (requestedQuestionTypes || []).filter(
         (type): type is ReviewQuestionType =>
@@ -1813,8 +1808,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
           ? validRequestedQuestionTypes
           : prefs.selectedQuestionTypes;
 
-      setPinnedCardIds(nextPinned);
-      setSkippedPronunciationCardIds(nextSkippedPronunciation);
       setSelectedAnswers({});
       setSpellingDrafts({});
       setResults({});
@@ -1850,7 +1843,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
           allCards,
           effectiveCount,
           nextPinned,
-          nextSkippedPronunciation,
           effectiveQuestionTypes,
           uiLanguage
         );
@@ -1863,6 +1855,16 @@ export default function ReviewFlow({ navigation, route }: Props) {
         }
       }
       setClampedNotice(sessionClampedNotice);
+
+      // A pin means "test me next time": once the card is in this session the
+      // pin is used up, so the toggle starts off and the user re-pins if needed.
+      const sessionCardIds = new Set(nextQuestions.map((question) => question.cardId));
+      setPinnedCardIds(nextPinned.filter((id) => !sessionCardIds.has(id)));
+      const persistedPinned = prefs.pinnedCardIds.filter((id) => !sessionCardIds.has(id));
+      if (persistedPinned.length !== prefs.pinnedCardIds.length) {
+        void saveAlbumReviewPreferences(albumId, { pinnedCardIds: persistedPinned });
+      }
+
       setRecoveredPronunciationIpa(
         usesDemoPronunciationBackend
           ? Object.fromEntries(
@@ -2196,11 +2198,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
     void ReminderNotificationService.evaluateAndSchedule().catch((error) => {
       console.warn('[Reminders] schedule after pronunciation quiz failed:', error);
     });
-    if (skippedPronunciationCardIds.includes(question.cardId)) {
-      const nextSkipped = skippedPronunciationCardIds.filter((id) => id !== question.cardId);
-      setSkippedPronunciationCardIds(nextSkipped);
-      void saveAlbumReviewPreferences(albumId, { skippedPronunciationCardIds: nextSkipped });
-    }
 
     const flipValue = getFlipValue(flipValuesRef, question.id);
     setTimeout(() => {
@@ -2227,7 +2224,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
         ]).start();
       });
     }, OPTION_FEEDBACK_DURATION_MS);
-  }, [albumId, allCards, selectedAnswers, skippedPronunciationCardIds, uiLanguage]);
+  }, [albumId, allCards, selectedAnswers, uiLanguage]);
 
   const handleChangeSpellingDraft = React.useCallback((questionId: string, value: string) => {
     setSpellingDrafts((prev) => ({ ...prev, [questionId]: value }));
@@ -2711,34 +2708,30 @@ export default function ReviewFlow({ navigation, route }: Props) {
       return next;
     });
 
-    const nextSkippedPronunciation = skippedPronunciationCardIds.includes(question.cardId)
-      ? skippedPronunciationCardIds
-      : [question.cardId, ...skippedPronunciationCardIds];
-    if (nextSkippedPronunciation !== skippedPronunciationCardIds) {
-      setSkippedPronunciationCardIds(nextSkippedPronunciation);
-      await saveAlbumReviewPreferences(albumId, { skippedPronunciationCardIds: nextSkippedPronunciation });
-    }
-
     void Haptics.selectionAsync();
     const questionIndex = questions.findIndex((item) => item.id === question.id);
     const nextIndex = questionIndex >= 0 ? questionIndex + 1 : currentIndex + 1;
     goToSlide(Math.min(nextIndex, slides.length - 1));
   }, [
-    albumId,
     currentIndex,
     goToSlide,
     pronunciationAnalyzingQuestionId,
     questions,
     selectedAnswers,
-    skippedPronunciationCardIds,
     slides.length,
   ]);
 
   const handleTogglePinned = React.useCallback(async (cardId: string) => {
-    const nextPinned = pinnedCardIds.includes(cardId)
+    const wasPinned = pinnedCardIds.includes(cardId);
+    const nextPinned = wasPinned
       ? pinnedCardIds.filter((id) => id !== cardId)
       : [...pinnedCardIds, cardId];
 
+    if (wasPinned) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
     setPinnedCardIds(nextPinned);
     await saveAlbumReviewPreferences(albumId, { pinnedCardIds: nextPinned });
   }, [albumId, pinnedCardIds]);
@@ -3299,42 +3292,64 @@ export default function ReviewFlow({ navigation, route }: Props) {
             )}
 
             <View style={[styles.answerActionFooter, styles.answerFooterRow]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={tUI(uiLanguage, 'review.testMeNextTime')}
-                accessibilityState={{ selected: isPinned }}
-                style={({ pressed }) => [
-                  styles.bookmarkButton,
-                  { backgroundColor: palette.nextTimeBg, borderColor: palette.nextTimeBorder },
-                  isPinned
-                    ? { backgroundColor: palette.nextTimeActiveBg, borderColor: palette.nextTimeActiveBorder }
-                    : null,
-                  pressed ? styles.secondaryButtonPressed : null,
-                ]}
-                onPress={() => void handleTogglePinned(question.cardId)}
-              >
-                <Text
-                  style={[
-                    styles.nextTimeText,
-                    { color: isPinned ? feedbackColors.brand : palette.nextTimeText },
-                    isPinned && styles.nextTimeTextActive,
+              <Reanimated.View layout={PIN_FOOTER_TRANSITION}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={tUI(uiLanguage, 'review.testMeNextTime')}
+                  accessibilityState={{ selected: isPinned }}
+                  style={({ pressed }) => [
+                    styles.bookmarkButton,
+                    isPinned
+                      ? { backgroundColor: feedbackColors.brand, borderColor: feedbackColors.brand }
+                      : { backgroundColor: palette.nextTimeBg, borderColor: palette.nextTimeBorder },
+                    pressed ? styles.secondaryButtonPressed : null,
                   ]}
-                  numberOfLines={1}
+                  onPress={() => void handleTogglePinned(question.cardId)}
                 >
-                  {tUI(uiLanguage, 'review.testMeNextTime')}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.nextButton,
-                  styles.nextButtonInRow,
-                  { backgroundColor: continueButtonColor },
-                  pressed ? styles.primaryButtonPressed : null,
-                ]}
-                onPress={handleNext}
-              >
-                <Text style={[styles.nextButtonText, { color: feedbackColors.onBrand }]}>{tUI(uiLanguage, 'review.next')}</Text>
-              </Pressable>
+                  {isPinned ? (
+                    <Reanimated.View
+                      key="pinned"
+                      entering={FadeIn.duration(180).delay(80)}
+                      exiting={FadeOut.duration(100)}
+                      style={styles.nextTimeConfirmRow}
+                    >
+                      <Ionicons name="checkmark-circle" size={18} color={feedbackColors.onBrand} />
+                      <Text
+                        style={[styles.nextTimeText, { color: feedbackColors.onBrand }]}
+                        numberOfLines={1}
+                      >
+                        {tUI(uiLanguage, 'review.addedToNextTime')}
+                      </Text>
+                    </Reanimated.View>
+                  ) : (
+                    <Reanimated.View
+                      key="unpinned"
+                      entering={FadeIn.duration(180).delay(80)}
+                      exiting={FadeOut.duration(100)}
+                    >
+                      <Text
+                        style={[styles.nextTimeText, { color: palette.nextTimeText }]}
+                        numberOfLines={1}
+                      >
+                        {tUI(uiLanguage, 'review.testMeNextTime')}
+                      </Text>
+                    </Reanimated.View>
+                  )}
+                </Pressable>
+              </Reanimated.View>
+              <Reanimated.View layout={PIN_FOOTER_TRANSITION} style={styles.nextButtonInRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.nextButton,
+                    styles.nextButtonFill,
+                    { backgroundColor: continueButtonColor },
+                    pressed ? styles.primaryButtonPressed : null,
+                  ]}
+                  onPress={handleNext}
+                >
+                  <Text style={[styles.nextButtonText, { color: feedbackColors.onBrand }]}>{tUI(uiLanguage, 'review.next')}</Text>
+                </Pressable>
+              </Reanimated.View>
             </View>
           </Animated.View>
         </View>
@@ -3699,6 +3714,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
   );
 }
 
+// Shared by the pin button and Next so the pin shrinking and Next growing move together.
+const PIN_FOOTER_TRANSITION = LinearTransition.duration(260);
+
 const styles = StyleSheet.create({
   clozeBlank: {
     borderRadius: 6,
@@ -3791,8 +3809,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  nextTimeConfirmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   nextButtonInRow: {
     flex: 1,
+  },
+  nextButtonFill: {
     marginTop: 0,
   },
   scoreChipRow: {
@@ -4453,8 +4478,6 @@ const styles = StyleSheet.create({
   nextTimeText: {
     fontSize: 15,
     fontWeight: '800',
-  },
-  nextTimeTextActive: {
   },
   celebrationSpark: {
     marginLeft: 8,

@@ -4,7 +4,6 @@ import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 export type AlbumReviewPreferences = {
   questionCount: number;
   pinnedCardIds: string[];
-  skippedPronunciationCardIds: string[];
   todayNewWordsOnly?: boolean;
   selectedQuestionTypes: ReviewQuestionType[];
   selectedSourceAlbumIds: string[];
@@ -47,11 +46,6 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   const pinnedCardIds = Array.isArray(raw?.pinnedCardIds)
     ? raw!.pinnedCardIds.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : [];
-  const skippedPronunciationCardIds = Array.isArray(raw?.skippedPronunciationCardIds)
-    ? raw!.skippedPronunciationCardIds.filter(
-        (value): value is string => typeof value === 'string' && value.trim().length > 0
-      )
-    : [];
   const selectedQuestionTypes = Array.isArray(raw?.selectedQuestionTypes)
     ? raw!.selectedQuestionTypes
         .map((value): ReviewQuestionType =>
@@ -74,7 +68,6 @@ function normalizePreferences(raw?: Partial<AlbumReviewPreferences> | null): Alb
   return {
     questionCount,
     pinnedCardIds: Array.from(new Set(pinnedCardIds)),
-    skippedPronunciationCardIds: Array.from(new Set(skippedPronunciationCardIds)),
     todayNewWordsOnly: raw?.todayNewWordsOnly !== false,
     selectedQuestionTypes:
       selectedQuestionTypes.length > 0

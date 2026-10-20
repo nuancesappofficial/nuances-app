@@ -103,27 +103,6 @@ test('planReviewQuestions spaces out cards to avoid consecutive duplicate cards 
   }
 });
 
-test('planReviewQuestions prioritizes skippedPronunciationCardIds with pronunciation', () => {
-  const cards = [
-    { id: 'card-1' },
-    { id: 'card-2' },
-  ];
-  const selectedQuestionTypes = ['fill_blank', 'pronunciation'];
-
-  const result = planReviewQuestions({
-    cards,
-    questionCount: 2,
-    selectedQuestionTypes,
-    skippedPronunciationCardIds: ['card-2'],
-    canBuildQuestionType: () => true,
-  });
-
-  assert.equal(result.items.length, 2);
-  const card2Item = result.items.find((item) => item.cardId === 'card-2');
-  assert.ok(card2Item);
-  assert.equal(card2Item.questionType, 'pronunciation');
-});
-
 test('planReviewQuestions prioritizes pinnedCardIds before unpinned cards', () => {
   const cards = [
     { id: 'card-1' },

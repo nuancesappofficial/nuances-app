@@ -17,7 +17,6 @@ export interface PlanReviewQuestionsOptions<T extends { id: string }> {
   questionCount: number;
   selectedQuestionTypes: ReviewQuestionType[];
   pinnedCardIds?: string[];
-  skippedPronunciationCardIds?: string[];
   canBuildQuestionType?: (card: T, type: ReviewQuestionType) => boolean;
   randomFn?: () => number;
 }
@@ -84,7 +83,6 @@ export function planReviewQuestions<T extends { id: string }>({
   questionCount,
   selectedQuestionTypes,
   pinnedCardIds = [],
-  skippedPronunciationCardIds = [],
   canBuildQuestionType = () => true,
   randomFn = Math.random,
 }: PlanReviewQuestionsOptions<T>): ReviewQuestionPlan {
@@ -124,24 +122,12 @@ export function planReviewQuestions<T extends { id: string }>({
   const isClamped = questionCount > maxAvailable;
 
   const cardMap = new Map(eligibleCards.map((c) => [c.id, c]));
-  const skippedPronunciationSet = new Set(
-    skippedPronunciationCardIds.filter((id) => {
-      const types = validTypesByCard.get(id);
-      return types && types.includes('pronunciation');
-    })
-  );
+  const pinnedSet = new Set(pinnedCardIds.filter((id) => cardMap.has(id)));
 
-  const pinnedSet = new Set(
-    pinnedCardIds.filter((id) => cardMap.has(id) && !skippedPronunciationSet.has(id))
-  );
-
-  const skippedList = Array.from(skippedPronunciationSet).map((id) => cardMap.get(id)!);
   const pinnedList = Array.from(pinnedSet).map((id) => cardMap.get(id)!);
-  const otherList = eligibleCards.filter(
-    (c) => !skippedPronunciationSet.has(c.id) && !pinnedSet.has(c.id)
-  );
+  const otherList = eligibleCards.filter((c) => !pinnedSet.has(c.id));
 
-  const cardOrdering = [...skippedList, ...pinnedList, ...otherList];
+  const cardOrdering = [...pinnedList, ...otherList];
   const usedTypesByCard = new Map<string, Set<ReviewQuestionType>>();
   eligibleCards.forEach((c) => usedTypesByCard.set(c.id, new Set()));
 
@@ -155,15 +141,11 @@ export function planReviewQuestions<T extends { id: string }>({
     const used = usedTypesByCard.get(card.id)!;
 
     let chosenType: ReviewQuestionType | null = null;
-    if (skippedPronunciationSet.has(card.id)) {
-      chosenType = 'pronunciation';
-    } else {
-      // Pick next available type
-      const candidates = availableTypes.filter((t) => !used.has(t));
-      if (candidates.length > 0) {
-        // Distribute types evenly using index
-        chosenType = candidates[i % candidates.length];
-      }
+    // Pick next available type
+    const candidates = availableTypes.filter((t) => !used.has(t));
+    if (candidates.length > 0) {
+      // Distribute types evenly using index
+      chosenType = candidates[i % candidates.length];
     }
 
     if (chosenType) {
@@ -176,10 +158,9 @@ export function planReviewQuestions<T extends { id: string }>({
     }
   }
 
-  // Guarantee pronunciation in Round 0 if pronunciation is selected and no skipped pronunciation card was present
+  // Guarantee pronunciation in Round 0 if pronunciation is selected
   if (
     selectedQuestionTypes.includes('pronunciation') &&
-    skippedPronunciationSet.size === 0 &&
     items.length > 0 &&
     !items.some((item) => item.questionType === 'pronunciation')
   ) {

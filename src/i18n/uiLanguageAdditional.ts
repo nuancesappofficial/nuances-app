@@ -469,6 +469,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.yourScore': 'あなたのスコア',
     'review.yourAnswer': 'あなたの答え',
     'review.testMeNextTime': '次回は私をテストしてください',
+    'review.addedToNextTime': '追加しました',
     'review.next': '次へ',
     'review.finalScore': '最終スコア',
     'review.cardProgress': 'カード',
@@ -487,7 +488,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.summaryGreatJob':
       '素晴らしい仕事だ。定着率は本当に確実になってきています。',
     'review.skippedPronunciation':
-      '発音の質問はスキップされ、次回のために保存されました。',
+      '問の発音問題をスキップしました。',
     'review.playAgain': 'もう一度',
     'review.done': '完了',
     'review.micPermissionRequired':
@@ -973,6 +974,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.yourScore': '당신의 점수',
     'review.yourAnswer': '귀하의 답변',
     'review.testMeNextTime': '다음에 나를 시험해봐',
+    'review.addedToNextTime': '추가됨',
     'review.next': '다음',
     'review.finalScore': '최종 점수',
     'review.cardProgress': '카드',
@@ -991,7 +993,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.summaryGreatJob':
       '정말 잘했어요. 귀하의 유지율이 정말 견고해지고 있습니다.',
     'review.skippedPronunciation':
-      '발음 문제는 건너뛰고 다음 시간을 위해 저장했습니다.',
+      '개의 발음 문제를 건너뛰었습니다.',
     'review.playAgain': '다시 시도',
     'review.done': '완료',
     'review.micPermissionRequired': '발음 질문에는 마이크 접근이 필요합니다.',
@@ -1494,6 +1496,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.yourScore': 'Tu puntuación',
     'review.yourAnswer': 'Tu respuesta',
     'review.testMeNextTime': 'ponme a prueba la próxima vez',
+    'review.addedToNextTime': 'Añadida',
     'review.next': 'Siguiente',
     'review.finalScore': 'Puntuación final',
     'review.cardProgress': 'tarjeta',
@@ -1511,7 +1514,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.summaryGreatJob':
       'Gran trabajo. Tu retención se está volviendo realmente sólida.',
     'review.skippedPronunciation':
-      'Las preguntas de pronunciación se omitieron y se guardaron para la próxima vez.',
+      'preguntas de pronunciación omitidas.',
     'review.playAgain': 'Inténtalo de nuevo',
     'review.done': 'Listo',
     'review.micPermissionRequired':
@@ -2015,6 +2018,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.yourScore': 'Votre note',
     'review.yourAnswer': 'Votre Réponse',
     'review.testMeNextTime': 'teste-moi la prochaine fois',
+    'review.addedToNextTime': 'Ajoutée',
     'review.next': 'Suivant',
     'review.finalScore': 'Score final',
     'review.cardProgress': 'Carte',
@@ -2032,7 +2036,7 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'review.summaryGreatJob':
       'Excellent travail. Votre rétention devient vraiment solide.',
     'review.skippedPronunciation':
-      'les questions de prononciation ont été ignorées et enregistrées pour la prochaine fois.',
+      'questions de prononciation ignorées.',
     'review.playAgain': 'Réessayez',
     'review.done': 'Terminé',
     'review.micPermissionRequired':
