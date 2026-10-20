@@ -1576,8 +1576,7 @@ function CardDetailCarouselCardUI({
       >
         <Pressable
           style={styles.detailCardShell}
-          onPress={hasExpandedContent ? undefined : toggleFlip}
-          disabled={hasExpandedContent}
+          onPress={toggleFlip}
           accessible={false}
         >
           <View
@@ -1731,11 +1730,9 @@ function CardDetailCarouselCardUI({
                     showsVerticalScrollIndicator
                     nestedScrollEnabled
                     directionalLockEnabled
-                    scrollEnabled={Platform.OS === 'android' ? (isFullSentenceExpanded || isFrontBodyScrollable) : true}
-                    bounces={isFullSentenceExpanded || isFrontBodyScrollable}
-                    alwaysBounceVertical={
-                      isFullSentenceExpanded || isFrontBodyScrollable
-                    }
+                    scrollEnabled
+                    bounces
+                    alwaysBounceVertical
                     scrollIndicatorInsets={{
                       bottom: FRONT_BODY_ACTION_ROW_CLEARANCE,
                     }}
@@ -2257,17 +2254,9 @@ function CardDetailCarouselCardUI({
                       showsVerticalScrollIndicator
                       nestedScrollEnabled
                       directionalLockEnabled
-                      scrollEnabled={Platform.OS === 'android' ? (isExamplesExpanded || isAnyAuxBackFieldExpanded || isBackBodyScrollable) : true}
-                      bounces={
-                        isExamplesExpanded ||
-                        isAnyAuxBackFieldExpanded ||
-                        isBackBodyScrollable
-                      }
-                      alwaysBounceVertical={
-                        isExamplesExpanded ||
-                        isAnyAuxBackFieldExpanded ||
-                        isBackBodyScrollable
-                      }
+                      scrollEnabled
+                      bounces
+                      alwaysBounceVertical
                       scrollIndicatorInsets={{
                         bottom: BACK_BODY_FOOTER_CLEARANCE,
                       }}
@@ -2289,61 +2278,45 @@ function CardDetailCarouselCardUI({
                                 : 'cardDetail.collocation'
                             )}
                           </Text>
-                          <CollapsibleBackField
-                            fieldKey="collocations"
-                            resetKey={`${item.id}-collocations`}
-                            collapsedHeight={collocationsCollapsedLimit}
-                            shouldOfferExpansion={
-                              backDynamicLayout.shouldOfferExpansion.collocations
-                            }
-                            uiLanguage={uiLanguage}
-                            color={ui.secondaryText}
-                            onExpandedChange={handleBackFieldExpandedChange}
-                            onCollapse={resetBackBodyScroll}
-                            onMeasuredHeightChange={
-                              handleBackSectionMeasuredHeight
-                            }
-                          >
-                            {collocationItems.map((collocation) => (
-                              <View
-                                key={`${collocation.phrase}-${collocation.translation || ''}`}
-                                style={localStyles.collocationLineBlock}
+                          {collocationItems.map((collocation) => (
+                            <View
+                              key={`${collocation.phrase}-${collocation.translation || ''}`}
+                              style={localStyles.collocationLineBlock}
+                            >
+                              <Text
+                                style={[
+                                  styles.referenceCollocationItem,
+                                  {
+                                    color: ui.primaryText,
+                                    fontSize: backTextFontSize,
+                                    lineHeight: backTextLineHeight,
+                                  },
+                                ]}
                               >
+                                {`• ${collocation.phrase}`}
+                              </Text>
+                              {collocation.translation ? (
                                 <Text
                                   style={[
-                                    styles.referenceCollocationItem,
+                                    localStyles.collocationTranslationText,
                                     {
-                                      color: ui.primaryText,
-                                      fontSize: backTextFontSize,
-                                      lineHeight: backTextLineHeight,
+                                      color: ui.secondaryText,
+                                      fontSize: Math.max(
+                                        12,
+                                        backTextFontSize - 4
+                                      ),
+                                      lineHeight: Math.max(
+                                        16,
+                                        backTextLineHeight - 4
+                                      ),
                                     },
                                   ]}
                                 >
-                                  {`• ${collocation.phrase}`}
+                                  {collocation.translation}
                                 </Text>
-                                {collocation.translation ? (
-                                  <Text
-                                    style={[
-                                      localStyles.collocationTranslationText,
-                                      {
-                                        color: ui.secondaryText,
-                                        fontSize: Math.max(
-                                          12,
-                                          backTextFontSize - 4
-                                        ),
-                                        lineHeight: Math.max(
-                                          16,
-                                          backTextLineHeight - 4
-                                        ),
-                                      },
-                                    ]}
-                                  >
-                                    {collocation.translation}
-                                  </Text>
-                                ) : null}
-                              </View>
-                            ))}
-                          </CollapsibleBackField>
+                              ) : null}
+                            </View>
+                          ))}
                         </View>
                       ) : null}
 
@@ -2371,79 +2344,60 @@ function CardDetailCarouselCardUI({
                             >
                               {tUI(uiLanguage, 'cardDetail.semanticRelations')}
                             </Text>
-                            <CollapsibleBackField
-                              fieldKey="semanticRelations"
-                              resetKey={`${item.id}-semantic-relations`}
-                              collapsedHeight={
-                                semanticRelationsCollapsedLimit
-                              }
-                              shouldOfferExpansion={
-                                backDynamicLayout.shouldOfferExpansion
-                                  .semanticRelations
-                              }
-                              uiLanguage={uiLanguage}
-                              color={ui.secondaryText}
-                              onExpandedChange={handleBackFieldExpandedChange}
-                              onCollapse={resetBackBodyScroll}
-                              onMeasuredHeightChange={
-                                handleBackSectionMeasuredHeight
-                              }
-                            >
-                              <View style={localStyles.semanticChipWrap}>
-                                {semanticRelationItems.map((relation) => (
-                                  <View
-                                    key={`${relation.kind}-${relation.term}`}
+                            <View style={localStyles.semanticChipWrap}>
+                              {semanticRelationItems.map((relation) => (
+                                <View
+                                  key={`${relation.kind}-${relation.term}`}
+                                  style={[
+                                    localStyles.semanticChip,
+                                    {
+                                      backgroundColor: isLightMode
+                                        ? 'rgba(78,175,244,0.09)'
+                                        : 'rgba(78,175,244,0.12)',
+                                      borderColor: isLightMode
+                                        ? 'rgba(46,126,194,0.24)'
+                                        : 'rgba(101,185,247,0.28)',
+                                    },
+                                  ]}
+                                >
+                                  <Text
                                     style={[
-                                      localStyles.semanticChip,
+                                      localStyles.semanticChipSymbol,
                                       {
-                                        backgroundColor: isLightMode
-                                          ? 'rgba(78,175,244,0.09)'
-                                          : 'rgba(78,175,244,0.12)',
-                                        borderColor: isLightMode
-                                          ? 'rgba(46,126,194,0.24)'
-                                          : 'rgba(101,185,247,0.28)',
+                                        color:
+                                          relation.kind === 'synonym'
+                                            ? '#2E7EC2'
+                                            : ui.secondaryText,
                                       },
                                     ]}
                                   >
+                                    {relation.kind === 'synonym' ? '≈' : '≠'}
+                                  </Text>
+                                  <View
+                                    style={localStyles.semanticChipTextBlock}
+                                  >
                                     <Text
                                       style={[
-                                        localStyles.semanticChipSymbol,
-                                        {
-                                          color:
-                                            relation.kind === 'synonym'
-                                              ? '#2E7EC2'
-                                              : ui.secondaryText,
-                                        },
+                                        localStyles.semanticChipTerm,
+                                        { color: ui.primaryText },
                                       ]}
                                     >
-                                      {relation.kind === 'synonym' ? '≈' : '≠'}
+                                      {relation.term}
                                     </Text>
-                                    <View
-                                      style={localStyles.semanticChipTextBlock}
-                                    >
+                                    {relation.translation ? (
                                       <Text
                                         style={[
-                                          localStyles.semanticChipTerm,
-                                          { color: ui.primaryText },
+                                          localStyles.semanticChipTranslation,
+                                          { color: ui.secondaryText },
                                         ]}
                                       >
-                                        {relation.term}
+                                        {relation.translation}
                                       </Text>
-                                      {relation.translation ? (
-                                        <Text
-                                          style={[
-                                            localStyles.semanticChipTranslation,
-                                            { color: ui.secondaryText },
-                                          ]}
-                                        >
-                                          {relation.translation}
-                                        </Text>
-                                      ) : null}
-                                    </View>
+                                    ) : null}
                                   </View>
-                                ))}
-                              </View>
-                            </CollapsibleBackField>
+                                </View>
+                              ))}
+                            </View>
                           </View>
                         </>
                       ) : null}
@@ -2459,7 +2413,7 @@ function CardDetailCarouselCardUI({
                               ]}
                             />
                           ) : null}
-                          <Reanimated.View
+                          <View
                             style={[
                               styles.referenceSubSection,
                               { marginTop: 0 },
@@ -2473,106 +2427,10 @@ function CardDetailCarouselCardUI({
                             >
                               {tUI(uiLanguage, 'cardDetail.exampleSentence')}
                             </Text>
-                            {examplesMeasuredHeight === 0 ? (
-                              <View
-                                accessible={false}
-                                aria-hidden
-                                accessibilityElementsHidden
-                                importantForAccessibility="no-hide-descendants"
-                                style={localStyles.exampleMeasurementLayer}
-                                onLayout={handleFullExamplesLayout}
-                              >
-                                {renderExampleRows(true)}
-                              </View>
-                            ) : null}
-                            <Reanimated.View
-                              style={
-                                shouldOfferFullExamples
-                                  ? examplesBodyStyle
-                                  : undefined
-                              }
-                            >
-                              <View>
-                                {renderExampleRows(false)}
-                              </View>
-                            </Reanimated.View>
-                            {shouldOfferFullExamples ? (
-                              <Pressable
-                                style={({ pressed }) => [
-                                  localStyles.showFullSentenceRow,
-                                  pressed
-                                    ? localStyles.showFullSentenceRowPressed
-                                    : null,
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel={tUI(
-                                  uiLanguage,
-                                  isExamplesExpanded
-                                    ? 'cardDetail.hideExampleSentences'
-                                    : 'cardDetail.showExampleSentences'
-                                )}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  setIsExamplesExpanded((current) => {
-                                    if (current) {
-                                      resetBackBodyScroll();
-                                    }
-                                    return !current;
-                                  });
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    localStyles.showFullSentenceText,
-                                    { color: ui.secondaryText },
-                                  ]}
-                                >
-                                  {tUI(
-                                    uiLanguage,
-                                    isExamplesExpanded
-                                      ? 'cardDetail.hideExampleSentences'
-                                      : 'cardDetail.showExampleSentences'
-                                  )}
-                                </Text>
-                                <View style={localStyles.expandArrowSlot}>
-                                  <Animated.View
-                                    style={[
-                                      localStyles.expandArrowLayer,
-                                      {
-                                        opacity: examplesArrowDownOpacity,
-                                        transform: [
-                                          { rotate: examplesArrowDownRotate },
-                                        ],
-                                      },
-                                    ]}
-                                  >
-                                    <Ionicons
-                                      name="chevron-down"
-                                      size={14}
-                                      color={ui.secondaryText}
-                                    />
-                                  </Animated.View>
-                                  <Animated.View
-                                    style={[
-                                      localStyles.expandArrowLayer,
-                                      {
-                                        opacity: examplesArrowUpOpacity,
-                                        transform: [
-                                          { rotate: examplesArrowUpRotate },
-                                        ],
-                                      },
-                                    ]}
-                                  >
-                                    <Ionicons
-                                      name="chevron-up"
-                                      size={14}
-                                      color={ui.secondaryText}
-                                    />
-                                  </Animated.View>
-                                </View>
-                              </Pressable>
-                            ) : null}
-                          </Reanimated.View>
+                            <View>
+                              {renderExampleRows(false)}
+                            </View>
+                          </View>
                         </>
                       ) : null}
 
@@ -2598,36 +2456,19 @@ function CardDetailCarouselCardUI({
                           {tUI(uiLanguage, 'cardDetail.personalNotes')}
                         </Text>
                         {hasStickyNote ? (
-                          <CollapsibleBackField
-                            fieldKey="personalNotes"
-                            resetKey={`${item.id}-personal-notes`}
-                            collapsedHeight={personalNotesCollapsedLimit}
-                            shouldOfferExpansion={
-                              backDynamicLayout.shouldOfferExpansion
-                                .personalNotes
-                            }
-                            uiLanguage={uiLanguage}
-                            color={ui.secondaryText}
-                            onExpandedChange={handleBackFieldExpandedChange}
-                            onCollapse={resetBackBodyScroll}
-                            onMeasuredHeightChange={
-                              handleBackSectionMeasuredHeight
-                            }
+                          <Text
+                            style={[
+                              localStyles.dualSentenceText,
+                              {
+                                color: ui.primaryText,
+                                fontSize: backTextFontSize,
+                                lineHeight: backTextLineHeight,
+                                fontWeight: '500',
+                              },
+                            ]}
                           >
-                            <Text
-                              style={[
-                                localStyles.dualSentenceText,
-                                {
-                                  color: ui.primaryText,
-                                  fontSize: backTextFontSize,
-                                  lineHeight: backTextLineHeight,
-                                  fontWeight: '500',
-                                },
-                              ]}
-                            >
-                              {stickyNoteText?.trim()}
-                            </Text>
-                          </CollapsibleBackField>
+                            {stickyNoteText?.trim()}
+                          </Text>
                         ) : null}
                         <Pressable
                           style={({ pressed }) => [

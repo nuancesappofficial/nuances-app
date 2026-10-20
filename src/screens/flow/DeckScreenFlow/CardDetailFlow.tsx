@@ -2322,7 +2322,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
               onMomentumScrollEnd={handleMomentumEnd}
               snapInterval={SNAP_INTERVAL}
               sidePadding={SIDE_PADDING}
-              horizontalScrollEnabled={!isCardContentExpanded}
+              horizontalScrollEnabled={true}
             />
           </Reanimated.View>
         )}

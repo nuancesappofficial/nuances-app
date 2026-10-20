@@ -40,7 +40,7 @@ test('展開動畫的 height 動畫應使用 reanimated（UI thread）而非 JS 
 
 test('展開動畫的 height 動畫已遷移到 reanimated withTiming', () => {
   // 每個 height 動畫都應以 reanimated 的 withTiming 驅動（UI thread）
-  for (const anim of ['sentenceBodyHeightAnim', 'contextBodyHeightAnim', 'examplesBodyHeightAnim']) {
+  for (const anim of ['sentenceBodyHeightAnim', 'contextBodyHeightAnim']) {
     const usesWithTiming = new RegExp(`${anim}\\.value = withTiming`).test(source);
     assert.ok(
       usesWithTiming,
@@ -49,35 +49,15 @@ test('展開動畫的 height 動畫已遷移到 reanimated withTiming', () => {
   }
 });
 
-test('例句區塊必須維持獨立測量層（解耦 Reanimated 動畫容器）', () => {
-  const hasMeasurementPass =
-    /examplesMeasuredHeight === 0\s*\?[\s\S]*?exampleMeasurementLayer[\s\S]*?handleFullExamplesLayout/.test(
+test('背面例句區塊平鋪展示且不設高度拘束', () => {
+  const rendersFlat =
+    /\{tUI\(uiLanguage,\s*'cardDetail\.exampleSentence'\)\}[\s\S]*?\{renderExampleRows\(false\)\}/.test(
       source,
     );
 
   assert.ok(
-    hasMeasurementPass,
-    [
-      '❌ [例句收合失效風險] CardDetailCarouselCardUI 遺失了受 examplesMeasuredHeight === 0 控制的獨立測量層（exampleMeasurementLayer）！',
-      '📌 問題原因：若將 onLayout 直接放在受 Reanimated 限制高度的容器內，會造成「高度死結」——父層限制 114px 導致子層永遠量不到完整高度，使展開動畫無法取得目標高度，例句將永遠全開且無法收合。',
-      '🛠 修正方式：保持獨立測量層在 examplesMeasuredHeight === 0 時掛載並測量，測量完成後卸載，動畫容器僅負責以 examplesBodyStyle 執行高度過渡。',
-    ].join('\n'),
-  );
-});
-
-test('卡片切換生命週期必須重設 hasMeasuredExamplesRef', () => {
-  const hasRefReset =
-    /useEffect\(\(\)\s*=>\s*\{[\s\S]*?hasMeasuredExamplesRef\.current\s*=\s*false[\s\S]*?item\.id/.test(
-      source,
-    );
-
-  assert.ok(
-    hasRefReset,
-    [
-      '❌ [卡片切換動畫失效風險] item.id 重設 useEffect 中遺失了 hasMeasuredExamplesRef.current = false！',
-      '📌 問題原因：若切換卡片未重設此 Ref，第二張之後的卡片會誤判為「已完成測量」，導致 Reanimated 跳過高度初始化，新卡片的例句將無法正確展開或收合。',
-      '🛠 修正方式：在 item.id 觸發的 reset effect 內加入 hasMeasuredExamplesRef.current = false;。',
-    ].join('\n'),
+    rendersFlat,
+    '❌ CardDetailCarouselCardUI 背面例句應平鋪展示且不設收合容器！',
   );
 });
 
