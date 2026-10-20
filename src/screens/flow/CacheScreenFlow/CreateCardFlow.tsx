@@ -120,6 +120,10 @@ import {
   claimUnsavedCards,
 } from '../../../features/createCard/optimisticCardSave';
 import {
+  resolveCardCroppedImage,
+  resolveCardOriginalImage,
+} from '../../../features/createCard/cardImageSource';
+import {
   isRecognizedTextEditingAvailable,
   resolveRecognizedWordPressAction,
 } from '../../../features/createCard/recognizedTextEditMode';
@@ -802,13 +806,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     () => getCachedItemSourceText(cachedItem),
     [cachedItem]
   );
-  const ocrImageUri = React.useMemo(
+  const croppedCardImageUri = React.useMemo(
     () =>
-      croppedImageUri ||
-      routeOriginalImageUri ||
-      cachedItem.mediaUri ||
-      cachedItem.imageStoragePath ||
-      null,
+      resolveCardCroppedImage({
+        croppedImageUri,
+        cachedItemImageStoragePath: cachedItem.imageStoragePath,
+        routeOriginalImageUri,
+        cachedItemMediaUri: cachedItem.mediaUri,
+      }),
     [
       cachedItem.imageStoragePath,
       cachedItem.mediaUri,
@@ -816,13 +821,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       routeOriginalImageUri,
     ]
   );
+  const ocrImageUri = croppedCardImageUri;
   const originalImageUri = React.useMemo(
     () =>
-      routeOriginalImageUri ||
-      cachedItem.mediaUri ||
-      croppedImageUri ||
-      cachedItem.imageStoragePath ||
-      null,
+      resolveCardOriginalImage({
+        croppedImageUri,
+        cachedItemImageStoragePath: cachedItem.imageStoragePath,
+        routeOriginalImageUri,
+        cachedItemMediaUri: cachedItem.mediaUri,
+      }),
     [
       cachedItem.imageStoragePath,
       cachedItem.mediaUri,
@@ -2597,7 +2604,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   ) => {
     if (cardsToPersist.length === 0) return;
     setSaving(true);
-    const analyticsSourceType = originalImageUri ? 'image' : 'text';
+    const analyticsSourceType =
+      croppedCardImageUri || originalImageUri ? 'image' : 'text';
     analytics.track('card_creation_started', {
       source_type: analyticsSourceType,
       selected_card_count: cardsToPersist.length,
@@ -2607,8 +2615,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         cachedItem.userId,
         '這筆 Cache 資料'
       );
-      const imageSourceForUpload =
-        originalImageUri || cachedItem.imageStoragePath || '';
+      const imageSourceForUpload = croppedCardImageUri || '';
 
       const cardsCollection = database.get<Card>('cards');
       const createdCardIds: string[] = [];
@@ -2701,7 +2708,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         }
       });
 
-      const localImageSource = originalImageUri || imageSourceForUpload;
+      const localImageSource = croppedCardImageUri;
       if (localImageSource) {
         const durableUploads = await Promise.all(
           createdCardIds.map(async (id) => {
@@ -3645,8 +3652,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     card={card}
                     palette={palette}
                     isLight={isLight}
-                    hasImage={Boolean(originalImageUri)}
-                    imageUri={originalImageUri || null}
+                    hasImage={Boolean(croppedCardImageUri)}
+                    imageUri={croppedCardImageUri || null}
                     statusText=""
                     revealState={COMPLETE_PREVIEW_REVEAL}
                     phase="complete"
@@ -3687,8 +3694,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 card={previewDisplayCard}
                 palette={palette}
                 isLight={isLight}
-                hasImage={Boolean(originalImageUri)}
-                imageUri={originalImageUri || null}
+                hasImage={Boolean(croppedCardImageUri)}
+                imageUri={croppedCardImageUri || null}
                 statusText={
                   streamStatusText ||
                   tUI(

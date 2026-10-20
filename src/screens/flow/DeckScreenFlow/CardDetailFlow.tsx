@@ -62,6 +62,7 @@ import {
 } from '@services/errors/showTranslatedError';
 import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
 import { resolveCardImageUri } from '@services/media/cardImage';
+import { resolveCardDetailImageCandidates } from '../../../features/createCard/cardImageSource';
 import { prefetchEnglishNaturally, speakEnglishNaturally } from '@services/tts/localSpeech';
 import {
   playDefaultExperiencePronunciation,
@@ -866,11 +867,11 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           const cachedItem = item.cachedItemId
             ? cachedItemById[item.cachedItemId]
             : undefined;
-          const candidates = [
-            cachedItem?.mediaUri || null,
-            item.imageUrl || null,
-            cachedItem?.imageStoragePath || null,
-          ].filter((value): value is string => Boolean(value));
+          const candidates = resolveCardDetailImageCandidates({
+            cachedItemImageStoragePath: cachedItem?.imageStoragePath,
+            cardImageUrl: item.imageUrl,
+            cachedItemMediaUri: cachedItem?.mediaUri,
+          });
 
           let resolvedUri: string | null = null;
           for (const candidate of candidates) {
