@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useReducedMotion } from 'react-native-reanimated';
-import Svg, { Circle } from 'react-native-svg';
+import ScoreRingUI, { SCORE_RING_SIZE } from '../shared/ScoreRingUI';
 import { resolveFeedbackColors, type FeedbackColors } from '../../../theme/colors';
 import type { UILanguage } from '../../../services/settings/userSettings';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -71,14 +71,8 @@ const PRONUNCIATION_PASS_SCORE = 60;
 // ---- Result reveal: mic button flies into the score ring ----
 const MORPH_MS = 520;
 const RESULT_IN_AT_MS = 460;
-const RING_DRAW_MS = 850;
-const RING_SIZE = 88;
-const RING_STROKE = 8;
-const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+const RING_SIZE = SCORE_RING_SIZE;
 const EASE_OUT = Easing.bezier(0.3, 0.7, 0.2, 1);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
 type WindowRect = { x: number; y: number; width: number; height: number };
 type MorphGeometry = {
   left: number;
@@ -132,62 +126,6 @@ function findWeakLetterRange(
   return weakest;
 }
 
-function ScoreRing({
-  score,
-  progress,
-  color,
-  trackColor,
-  textColor,
-}: {
-  score: number;
-  progress: Animated.Value;
-  color: string;
-  trackColor: string;
-  textColor: string;
-}) {
-  const [shownScore, setShownScore] = React.useState(score);
-  React.useEffect(() => {
-    const id = progress.addListener(({ value }) => {
-      setShownScore(Math.round(score * value));
-    });
-    return () => progress.removeListener(id);
-  }, [progress, score]);
-
-  const dashOffset = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [RING_CIRCUMFERENCE, RING_CIRCUMFERENCE * (1 - score / 100)],
-  });
-
-  return (
-    <View style={styles.scoreRing}>
-      <View style={styles.scoreRingSvg}>
-        <Svg width={RING_SIZE} height={RING_SIZE}>
-          <Circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
-            stroke={trackColor}
-            strokeWidth={RING_STROKE}
-            fill="none"
-          />
-          <AnimatedCircle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
-            stroke={color}
-            strokeWidth={RING_STROKE}
-            strokeLinecap="round"
-            fill="none"
-            strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
-            strokeDashoffset={dashOffset}
-          />
-        </Svg>
-      </View>
-      <Text style={[styles.scoreRingText, { color: textColor }]}>{shownScore}</Text>
-    </View>
-  );
-}
-
 export default function PronunciationCoachUI({
   isActiveCard,
   isRecording,
@@ -202,6 +140,7 @@ export default function PronunciationCoachUI({
   recoveredIpaPhonemes = [],
   isIpaLookupLoading = false,
   ipaLookupError,
+  phoneticTranscription,
   waveformValues,
   recordingMetering,
   itemWord,
@@ -222,8 +161,8 @@ export default function PronunciationCoachUI({
     () =>
       isLight
         ? {
-            cardBg: '#F7F9FC',
-            cardBorder: '#D9E2EC',
+            cardBg: '#FFFFFF',
+            cardBorder: '#E6E8EC',
             primaryText: '#111111',
             secondaryText: '#8A8E97',
             softButtonBg: '#FFFFFF',
@@ -238,8 +177,8 @@ export default function PronunciationCoachUI({
             errorText: '#FF6B6B',
           }
         : {
-            cardBg: '#1E293B',
-            cardBorder: '#334155',
+            cardBg: '#171E28',
+            cardBorder: '#2B3544',
             primaryText: '#F8FAFC',
             secondaryText: '#94A3B8',
             softButtonBg: 'rgba(255,255,255,0.08)',
@@ -256,6 +195,11 @@ export default function PronunciationCoachUI({
     [isLight]
   );
   const feedback: FeedbackColors = resolveFeedbackColors(colorScheme);
+  const ipaText = React.useMemo(() => {
+    const raw = phoneticTranscription?.trim();
+    if (!raw) return null;
+    return /^[/[]/.test(raw) ? raw : `/${raw}/`;
+  }, [phoneticTranscription]);
   const hasResultContent =
     pronunciationScore !== null ||
     phonemeChips.length > 0 ||
@@ -272,7 +216,7 @@ export default function PronunciationCoachUI({
   // Front = record screen, back = result. Opacity cross-fade + morph (no 3D flip).
   const frontOpacity = React.useRef(new Animated.Value(showResult ? 0 : 1)).current;
   const backOpacity = React.useRef(new Animated.Value(showResult ? 1 : 0)).current;
-  const ringProgress = React.useRef(new Animated.Value(showResult ? 1 : 0)).current;
+  const [ringPlay, setRingPlay] = React.useState({ id: 0, delayMs: 0 });
   const wordReveal = React.useRef(new Animated.Value(showResult ? 1 : 0)).current;
   const footerReveal = React.useRef(new Animated.Value(showResult ? 1 : 0)).current;
   const morphProgress = React.useRef(new Animated.Value(0)).current;
@@ -299,7 +243,6 @@ export default function PronunciationCoachUI({
     const setFinal = (result: boolean) => {
       frontOpacity.setValue(result ? 0 : 1);
       backOpacity.setValue(result ? 1 : 0);
-      ringProgress.setValue(result ? 1 : 0);
       wordReveal.setValue(result ? 1 : 0);
       footerReveal.setValue(result ? 1 : 0);
       morphOpacity.setValue(0);
@@ -324,7 +267,6 @@ export default function PronunciationCoachUI({
       ]);
       running.start(() => {
         if (cancelled) return;
-        ringProgress.setValue(0);
         wordReveal.setValue(0);
         footerReveal.setValue(0);
         setIsTransitioning(false);
@@ -339,7 +281,6 @@ export default function PronunciationCoachUI({
     setIsTransitioning(true);
     setStaggerChips(true);
     backOpacity.setValue(0);
-    ringProgress.setValue(0);
     wordReveal.setValue(0);
     footerReveal.setValue(0);
 
@@ -360,6 +301,8 @@ export default function PronunciationCoachUI({
               scale: ring.width / mic.width,
             }
           : null;
+      const resultInAt = geometry ? RESULT_IN_AT_MS : 120;
+      setRingPlay((current) => ({ id: current.id + 1, delayMs: resultInAt }));
       if (geometry) {
         morphProgress.setValue(0);
         morphOpacity.setValue(1);
@@ -374,16 +317,10 @@ export default function PronunciationCoachUI({
           useNativeDriver: true,
         }),
         Animated.sequence([
-          Animated.delay(geometry ? RESULT_IN_AT_MS : 120),
+          Animated.delay(resultInAt),
           Animated.parallel([
             Animated.timing(backOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
             Animated.timing(morphOpacity, { toValue: 0, duration: 260, useNativeDriver: true }),
-            Animated.timing(ringProgress, {
-              toValue: 1,
-              duration: RING_DRAW_MS,
-              easing: EASE_OUT,
-              useNativeDriver: false,
-            }),
             Animated.sequence([
               Animated.delay(120),
               Animated.timing(wordReveal, {
@@ -538,33 +475,41 @@ export default function PronunciationCoachUI({
             },
           ]}
         >
-          <Text
-            style={[
-              styles.questionWord,
-              { color: palette.primaryText },
-              itemWord.length > 16
-                ? styles.questionWordSmall
-                : itemWord.length > 10
-                ? styles.questionWordMedium
-                : null,
-            ]}
-            numberOfLines={2}
-          >
-            {itemWord}
-          </Text>
+          <View style={styles.frontCenterGroup}>
+          <View style={styles.frontWordBlock}>
+            <Text
+              style={[
+                styles.questionWord,
+                { color: palette.primaryText },
+                itemWord.length > 16
+                  ? styles.questionWordSmall
+                  : itemWord.length > 10
+                  ? styles.questionWordMedium
+                  : null,
+              ]}
+              numberOfLines={2}
+            >
+              {itemWord}
+            </Text>
+            {ipaText ? (
+              <Text style={[styles.frontIpa, { color: palette.secondaryText }]} numberOfLines={1}>
+                {ipaText}
+              </Text>
+            ) : null}
+          </View>
 
           <SiriSpeakerButton
             isPlaying={isWordPlaying}
             isLoading={isWordDownloading}
             disabled={!isActiveCard || playbackBusy || isRecording || isAnalyzing}
-            size={76}
-            idleBackgroundColor="#FFFFFF"
-            idleBorderColor="#E2E8F0"
-            activeBackgroundColor="#FFFFFF"
-            activeBorderColor="#E2E8F0"
-            glowColor="#2997FF"
-            iconColor="#0F172A"
-            activeIconColor="#2997FF"
+            size={52}
+            idleBackgroundColor={palette.cardBg}
+            idleBorderColor={palette.cardBorder}
+            activeBackgroundColor={palette.cardBg}
+            activeBorderColor={palette.cardBorder}
+            glowColor={feedback.brand}
+            iconColor={palette.primaryText}
+            activeIconColor={feedback.brand}
             onPress={() => onPlayWord(itemWord)}
           />
 
@@ -598,6 +543,7 @@ export default function PronunciationCoachUI({
               onPress={onPrimaryAction}
             />
             </View>
+          </View>
           </View>
 
           <Pressable
@@ -634,9 +580,10 @@ export default function PronunciationCoachUI({
           <View style={styles.resultContent}>
             <View ref={ringRef} collapsable={false} style={styles.scoreRingSlot}>
               {pronunciationScore !== null ? (
-                <ScoreRing
+                <ScoreRingUI
                   score={pronunciationScore}
-                  progress={ringProgress}
+                  playId={ringPlay.id}
+                  delayMs={ringPlay.delayMs}
                   color={passed ? feedback.ok : feedback.bad}
                   trackColor={feedback.track}
                   textColor={palette.primaryText}
@@ -824,6 +771,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  frontCenterGroup: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 22,
+    paddingBottom: 12,
+  },
+  frontWordBlock: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  frontIpa: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
   micContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -961,22 +926,6 @@ const styles = StyleSheet.create({
     width: RING_SIZE,
     height: RING_SIZE,
     marginTop: 8,
-  },
-  scoreRing: {
-    width: RING_SIZE,
-    height: RING_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreRingSvg: {
-    ...StyleSheet.absoluteFillObject,
-    transform: [{ rotate: '-90deg' }],
-  },
-  scoreRingText: {
-    fontSize: 26,
-    lineHeight: 32,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
   },
   resultWordRow: {
     width: '100%',

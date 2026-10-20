@@ -42,8 +42,9 @@ import {
   speakIpaPhoneme,
   stopBundledPhonicsPlayback,
 } from '@services/pronunciation/ipaPhonemes';
-import AnimatedGlowPressable from '../../../components/UI/shared/AnimatedGlowPressable';
+import SiriSpeakerButton from '../../../components/UI/shared/SiriSpeakerButton';
 import SiriVoiceWaveButton from '../../../components/UI/shared/SiriVoiceWaveButton';
+import ScoreRingUI from '../../../components/UI/shared/ScoreRingUI';
 import PronunciationPhonemeSectionUI from '../../../components/UI/DeckScreenUI/PronunciationPhonemeSectionUI';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { speakEnglishNaturally } from '@services/tts/localSpeech';
@@ -175,12 +176,85 @@ type ReviewSlide =
   | { id: 'summary'; type: 'summary' };
 
 const OPTION_FEEDBACK_DURATION_MS = 320;
+// Above this many questions the header falls back to one continuous bar.
+const MAX_PROGRESS_SEGMENTS = 20;
 const PRONUNCIATION_PASS_SCORE = 60;
 const MIN_PRONUNCIATION_RECORDING_MS = 350;
 const AUDIO_SESSION_ACTIVE_TIMEOUT_MS = 8000;
 const AUDIO_SESSION_ACTIVE_SETTLE_MS = 180;
 const REVIEW_SESSION_BUILD_TIMEOUT_MS = 8000;
 const CLOZE_BLANK = '＿＿＿＿＿';
+const NBSP = '\u00A0';
+const QUOTED_TERM_PATTERN = /[“「]([^”」]+)[”」]/;
+
+type SentenceMarkColors = { bg: string; fg: string; line: string };
+
+/**
+ * Renders a review sentence with
+ * - the cloze blank as one non-breaking coloured slot (filled with the answer
+ *   once answered), instead of '＿＿＿＿＿' which wraps across lines;
+ * - the quoted learning term highlighted (quotes removed).
+ */
+function renderReviewSentence(
+  sentence: string,
+  opts: {
+    blankFill: string | null;
+    blankColors: SentenceMarkColors;
+    highlightTerm: boolean;
+    highlightColors: SentenceMarkColors;
+  }
+): React.ReactNode {
+  if (sentence.includes(CLOZE_BLANK)) {
+    const fill = opts.blankFill?.trim();
+    const slotText = fill
+      ? `${NBSP}${fill.length <= 18 ? fill.replace(/ /g, NBSP) : fill}${NBSP}`
+      : NBSP.repeat(12);
+    const parts = sentence.split(CLOZE_BLANK);
+    return parts.flatMap((part, index) =>
+      index === 0
+        ? [part]
+        : [
+            <Text
+              key={`blank-${index}`}
+              style={[
+                styles.clozeBlank,
+                {
+                  backgroundColor: opts.blankColors.bg,
+                  color: opts.blankColors.fg,
+                  textDecorationColor: opts.blankColors.line,
+                },
+              ]}
+            >
+              {slotText}
+            </Text>,
+            part,
+          ]
+    );
+  }
+  if (opts.highlightTerm) {
+    const match = QUOTED_TERM_PATTERN.exec(sentence);
+    if (match) {
+      return [
+        sentence.slice(0, match.index),
+        <Text
+          key="term"
+          style={[
+            styles.termHighlight,
+            {
+              backgroundColor: opts.highlightColors.bg,
+              color: opts.highlightColors.fg,
+              textDecorationColor: opts.highlightColors.line,
+            },
+          ]}
+        >
+          {`${NBSP}${match[1]}${NBSP}`}
+        </Text>,
+        sentence.slice(match.index + match[0].length),
+      ];
+    }
+  }
+  return sentence;
+}
 const SPELLING_KEYBOARD_GAP = 12;
 const DEFAULT_EXPERIENCE_IPA_PHONEMES = ['n', 'u', 'ɑ', 'n', 's', 'ɪ', 'z'];
 const DEFAULT_EXPERIENCE_MOCK_PRONUNCIATION_SCORE = 92;
@@ -1527,13 +1601,13 @@ export default function ReviewFlow({ navigation, route }: Props) {
             softButtonBg: '#FFFFFF',
             softButtonBorder: 'rgba(0,0,0,0.06)',
             progressTrack: 'rgba(17,17,17,0.08)',
-            optionBg: '#F5F6FA',
-            optionBorder: '#ECECF0',
+            optionBg: '#FFFFFF',
+            optionBorder: '#E4E6EB',
             optionAnsweredBorder: 'rgba(17,17,17,0.12)',
-            optionCorrectBg: 'rgba(78,175,244,0.16)',
-            optionCorrectBorder: '#4EAFF4',
-            optionWrongBg: 'rgba(255,107,107,0.14)',
-            optionWrongBorder: '#FF6B6B',
+            optionCorrectBg: feedbackColors.okSoft,
+            optionCorrectBorder: feedbackColors.ok,
+            optionWrongBg: feedbackColors.badSoft,
+            optionWrongBorder: feedbackColors.bad,
             answerCardBg: '#FFFFFF',
             answerCardBorder: 'rgba(0,0,0,0.06)',
             nextTimeBg: '#FFFFFF',
@@ -1555,24 +1629,24 @@ export default function ReviewFlow({ navigation, route }: Props) {
           }
         : {
             screenBg: theme.screenBg,
-            cardBg: '#1E293B',
-            cardBorder: '#334155',
+            cardBg: '#171E28',
+            cardBorder: '#2B3544',
             primaryText: '#F8FAFC',
             secondaryText: '#94A3B8',
             softButtonBg: 'rgba(255,255,255,0.08)',
-            softButtonBorder: '#334155',
+            softButtonBorder: '#2B3544',
             progressTrack: 'rgba(255,255,255,0.08)',
-            optionBg: '#334155',
-            optionBorder: '#334155',
+            optionBg: '#1F2834',
+            optionBorder: '#2B3544',
             optionAnsweredBorder: 'rgba(248,250,252,0.2)',
-            optionCorrectBg: 'rgba(78,175,244,0.18)',
-            optionCorrectBorder: '#4EAFF4',
-            optionWrongBg: 'rgba(255,107,107,0.22)',
-            optionWrongBorder: '#FF6B6B',
-            answerCardBg: '#1E293B',
-            answerCardBorder: '#334155',
-            nextTimeBg: '#1E293B',
-            nextTimeBorder: '#334155',
+            optionCorrectBg: feedbackColors.okSoft,
+            optionCorrectBorder: feedbackColors.ok,
+            optionWrongBg: feedbackColors.badSoft,
+            optionWrongBorder: feedbackColors.bad,
+            answerCardBg: '#171E28',
+            answerCardBorder: '#2B3544',
+            nextTimeBg: '#1F2834',
+            nextTimeBorder: '#2B3544',
             nextTimeActiveBg: '#334155',
             nextTimeActiveBorder: '#4EAFF4',
             nextTimeText: '#F8FAFC',
@@ -1588,7 +1662,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
             celebrationIcon: '#E8FFF5',
             celebrationOverlay: 'rgba(52,199,89,0.16)',
           },
-    [isLightMode, theme]
+    [isLightMode, theme, feedbackColors]
   );
 
   const [allCards, setAllCards] = React.useState<Card[]>([]);
@@ -1598,6 +1672,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
   const [spellingDrafts, setSpellingDrafts] = React.useState<Record<string, string>>({});
+  // Sentence translations stay hidden until tapped (they give the answer away).
+  const [revealedHints, setRevealedHints] = React.useState<Record<string, boolean>>({});
   const [results, setResults] = React.useState<Record<string, boolean>>({});
   const [skippedQuestionIds, setSkippedQuestionIds] = React.useState<Set<string>>(() => new Set());
   const [pinnedCardIds, setPinnedCardIds] = React.useState<string[]>([]);
@@ -2720,7 +2796,7 @@ export default function ReviewFlow({ navigation, route }: Props) {
     const wordDownloadTarget = `word:${(question.correctAnswer || question.answerWord || '').trim()}`;
     const isPronunciationWordDownloading = pronunciationDownloadTarget === wordDownloadTarget;
     const isPronunciationWordPlaying = pronunciationPlaybackTarget === question.id;
-    const isPronunciationPlaybackBusy = isPronunciationWordPlaying || isPronunciationWordDownloading;
+    const isPronunciationPlaybackBusy = Boolean(pronunciationPlaybackTarget || pronunciationDownloadTarget);
     const answerQuickTranslation = (question.answerTranslation || '').trim();
     const spellingDraft = spellingDrafts[question.id] || '';
     const isLongAnswer = isLongAnswerText(question.answerWord);
@@ -2792,63 +2868,65 @@ export default function ReviewFlow({ navigation, route }: Props) {
       ...scoredPronunciationPhonemeSectionItems,
       ...recoveredPronunciationPhonemeSectionItems,
     ];
+    const sentenceMarkOptions = {
+      blankFill: selectedAnswer ? question.correctAnswer : null,
+      blankColors: selectedAnswer
+        ? { bg: feedbackColors.okSoft, fg: feedbackColors.ok, line: feedbackColors.ok }
+        : { bg: feedbackColors.brandSoft, fg: palette.primaryText, line: feedbackColors.brand },
+      highlightTerm: !isFillBlankQuestion && !isSpellingQuestion,
+      highlightColors: {
+        bg: feedbackColors.brandSoft,
+        fg: palette.primaryText,
+        line: feedbackColors.brand,
+      },
+    };
+    const answerStatusColor = isCorrect ? feedbackColors.ok : feedbackColors.bad;
+    const continueButtonColor = isPronunciationQuestion ? feedbackColors.brand : answerStatusColor;
     const renderPronunciationResult = () => {
       if (!isPronunciationQuestion) return null;
       return (
         <View style={styles.pronunciationResultContent}>
-          <View
-            style={[
-              styles.pronunciationResultTag,
-              {
-                backgroundColor: pronunciationResultPassed
-                  ? palette.successTint
-                  : palette.errorTint,
-                borderColor: pronunciationResultPassed
-                  ? palette.successText
-                  : palette.errorText,
-              },
-            ]}
-          >
-            <Ionicons
-              name={pronunciationResultPassed ? 'checkmark' : 'close'}
-              size={12}
-              color={
-                pronunciationResultPassed
-                  ? palette.successText
-                  : palette.errorText
-              }
+          {typeof pronunciationScore === 'number' ? (
+            <ScoreRingUI
+              score={Math.round(pronunciationScore)}
+              playId={1}
+              delayMs={OPTION_FEEDBACK_DURATION_MS + 200}
+              color={pronunciationResultPassed ? feedbackColors.ok : feedbackColors.bad}
+              trackColor={feedbackColors.track}
+              textColor={palette.primaryText}
             />
+          ) : null}
+
+          <View style={styles.pronunciationResultWordRow}>
             <Text
               style={[
-                styles.pronunciationResultTagText,
-                {
-                  color: pronunciationResultPassed
-                    ? palette.successText
-                    : palette.errorText,
-                },
+                styles.pronunciationResultWord,
+                isLongAnswer ? styles.answerWordLong : null,
+                styles.pronunciationResultWordInRow,
+                { color: palette.primaryText },
               ]}
+              numberOfLines={isLongAnswer ? 2 : 1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
             >
-              {tUI(
-                uiLanguage,
-                pronunciationResultPassed
-                  ? 'pronunciation.pass'
-                  : 'pronunciation.fail'
-              )}
+              {question.answerWord}
             </Text>
+            <SiriSpeakerButton
+              isPlaying={isPronunciationWordPlaying}
+              isLoading={isPronunciationWordDownloading}
+              disabled={isPronunciationPlaybackBusy}
+              size={44}
+              idleBackgroundColor={palette.softButtonBg}
+              idleBorderColor={palette.softButtonBorder}
+              activeBackgroundColor={palette.softButtonBg}
+              activeBorderColor={palette.softButtonBorder}
+              glowColor={feedbackColors.brand}
+              iconColor={palette.primaryText}
+              activeIconColor={feedbackColors.brand}
+              accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
+              onPress={() => handlePlayQuestionPronunciation(question)}
+            />
           </View>
-
-          <Text
-            style={[
-              styles.pronunciationResultWord,
-              isLongAnswer ? styles.answerWordLong : null,
-              { color: palette.primaryText },
-            ]}
-            numberOfLines={isLongAnswer ? 2 : 1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.5}
-          >
-            {question.answerWord}
-          </Text>
 
           {answerQuickTranslation ? (
             <Text
@@ -2861,43 +2939,6 @@ export default function ReviewFlow({ navigation, route }: Props) {
             </Text>
           ) : null}
 
-          <Text
-            style={[
-              styles.pronunciationResultScore,
-              {
-                color: pronunciationResultPassed
-                  ? palette.successText
-                  : palette.errorText,
-              },
-            ]}
-          >
-            {typeof pronunciationScore === 'number'
-              ? `${Math.round(pronunciationScore)}%`
-              : '—'}
-          </Text>
-
-          <AnimatedGlowPressable
-            accessibilityRole="button"
-            accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
-            active={isPronunciationWordPlaying || isPronunciationWordDownloading}
-            style={styles.pronunciationAnswerWordButton}
-            pressedStyle={!isPronunciationPlaybackBusy ? styles.pronunciationButtonPressed : null}
-            idleBackgroundColor={palette.softButtonBg}
-            idleBorderColor={palette.softButtonBorder}
-            disabled={isPronunciationPlaybackBusy}
-            onPress={() => handlePlayQuestionPronunciation(question)}
-          >
-            {isPronunciationWordDownloading ? (
-              <ActivityIndicator size="small" color={palette.optionCorrectBorder} />
-            ) : (
-              <Ionicons
-                name="volume-medium-outline"
-                size={28}
-                color={isPronunciationWordPlaying ? '#BFE7FF' : palette.primaryText}
-              />
-            )}
-          </AnimatedGlowPressable>
-
           {pronunciationPhonemeSectionItems.length > 0 ? (
             <PronunciationPhonemeSectionUI
               items={pronunciationPhonemeSectionItems}
@@ -2906,7 +2947,9 @@ export default function ReviewFlow({ navigation, route }: Props) {
               secondaryTextColor={palette.secondaryText}
               surfaceColor={palette.optionBg}
               borderColor={palette.optionBorder}
-              accentColor={palette.optionCorrectBorder}
+              accentColor={feedbackColors.brand}
+              staggerIn
+              staggerBaseDelayMs={OPTION_FEEDBACK_DURATION_MS + 420}
               onPressItem={(item) =>
                 handlePlayQuestionIpaPhoneme(question.id, item.value)
               }
@@ -2923,26 +2966,50 @@ export default function ReviewFlow({ navigation, route }: Props) {
             style={[
               styles.cardFace,
               { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
-              {
-                transform: [{ perspective: 1200 }, { rotateY: frontRotate }],
-              },
+              // Choice questions keep the question visible under the answer sheet;
+              // pronunciation fades to its full-card result.
+              isPronunciationQuestion
+                ? { opacity: flipValue.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }
+                : null,
             ]}
           >
             <View style={styles.questionContentAvoider}>
-            <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>{question.prompt.toUpperCase()}</Text>
+            {isPartOfSpeechQuestion || isSpellingQuestion ? (
+              <Text style={[styles.questionEyebrow, { color: palette.secondaryText }]}>{question.prompt.toUpperCase()}</Text>
+            ) : null}
             {isFillBlankQuestion || isSpellingQuestion ? (
               <View style={styles.fillBlankSentenceBlock}>
                 <Text style={[styles.sentenceText, styles.fillBlankSentenceText, { color: palette.primaryText }]}>
-                  {question.sentence}
+                  {renderReviewSentence(question.sentence, sentenceMarkOptions)}
                 </Text>
                 {(question.sentenceTranslation || '').trim() ? (
-                  <Text style={[styles.fillBlankTranslationText, { color: palette.secondaryText }]}>
-                    {question.sentenceTranslation}
-                  </Text>
+                  revealedHints[question.id] || selectedAnswer ? (
+                    <Text style={[styles.fillBlankTranslationText, { color: palette.secondaryText }]}>
+                      {question.sentenceTranslation}
+                    </Text>
+                  ) : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={tUI(uiLanguage, 'review.wordTranslation')}
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles.hintButton,
+                        { borderColor: palette.optionBorder },
+                        pressed ? styles.secondaryButtonPressed : null,
+                      ]}
+                      onPress={() =>
+                        setRevealedHints((prev) => ({ ...prev, [question.id]: true }))
+                      }
+                    >
+                      <Ionicons name="language-outline" size={17} color={palette.secondaryText} />
+                    </Pressable>
+                  )
                 ) : null}
               </View>
             ) : (
-              <Text style={[styles.sentenceText, { color: palette.primaryText }]}>{question.sentence}</Text>
+              <Text style={[styles.sentenceText, { color: palette.primaryText }]}>
+                {renderReviewSentence(question.sentence, sentenceMarkOptions)}
+              </Text>
             )}
 
             {isSpellingQuestion ? (
@@ -2959,27 +3026,22 @@ export default function ReviewFlow({ navigation, route }: Props) {
                     { transform: [{ translateY: Animated.multiply(spellingKeyboardLift, -1) }] },
                   ]}
                 >
-                <AnimatedGlowPressable
-                  accessibilityRole="button"
-                  accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
-                  active={isPronunciationWordPlaying || isPronunciationWordDownloading}
-                  style={[styles.pronunciationWordButton, styles.spellingPronunciationButton]}
-                  pressedStyle={!isPronunciationPlaybackBusy ? styles.pronunciationButtonPressed : null}
-                  idleBackgroundColor={palette.softButtonBg}
-                  idleBorderColor={palette.softButtonBorder}
+                <SiriSpeakerButton
+                  isPlaying={isPronunciationWordPlaying}
+                  isLoading={isPronunciationWordDownloading}
                   disabled={isPronunciationPlaybackBusy}
+                  size={52}
+                  idleBackgroundColor={palette.cardBg}
+                  idleBorderColor={palette.cardBorder}
+                  activeBackgroundColor={palette.cardBg}
+                  activeBorderColor={palette.cardBorder}
+                  glowColor={feedbackColors.brand}
+                  iconColor={palette.primaryText}
+                  activeIconColor={feedbackColors.brand}
+                  accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
+                  style={styles.spellingPronunciationButton}
                   onPress={() => handlePlayQuestionPronunciation(question)}
-                >
-                  {isPronunciationWordDownloading ? (
-                    <ActivityIndicator size="small" color={palette.optionCorrectBorder} />
-                  ) : (
-                    <Ionicons
-                      name="volume-medium-outline"
-                      size={40}
-                      color={isPronunciationWordPlaying ? '#BFE7FF' : palette.primaryText}
-                    />
-                  )}
-                </AnimatedGlowPressable>
+                />
                 {answerQuickTranslation &&
                 answerQuickTranslation !== '-' &&
                 !(question.sentenceTranslation || '').trim() ? (
@@ -3040,27 +3102,25 @@ export default function ReviewFlow({ navigation, route }: Props) {
               </View>
             ) : isPronunciationQuestion ? (
               <View style={styles.pronunciationQuizPanel}>
-                <AnimatedGlowPressable
-                  accessibilityRole="button"
+                <SiriSpeakerButton
+                  isPlaying={isPronunciationWordPlaying}
+                  isLoading={isPronunciationWordDownloading}
+                  disabled={
+                    isPronunciationPlaybackBusy ||
+                    isPronunciationRecording ||
+                    isPronunciationAnalyzing
+                  }
+                  size={52}
+                  idleBackgroundColor={palette.cardBg}
+                  idleBorderColor={palette.cardBorder}
+                  activeBackgroundColor={palette.cardBg}
+                  activeBorderColor={palette.cardBorder}
+                  glowColor={feedbackColors.brand}
+                  iconColor={palette.primaryText}
+                  activeIconColor={feedbackColors.brand}
                   accessibilityLabel={tUI(uiLanguage, 'review.playPronunciation')}
-                  active={isPronunciationWordPlaying || isPronunciationWordDownloading}
-                  style={styles.pronunciationWordButton}
-                  pressedStyle={!isPronunciationPlaybackBusy ? styles.pronunciationButtonPressed : null}
-                  idleBackgroundColor={palette.softButtonBg}
-                  idleBorderColor={palette.softButtonBorder}
-                  disabled={isPronunciationPlaybackBusy}
                   onPress={() => handlePlayQuestionPronunciation(question)}
-                >
-                  {isPronunciationWordDownloading ? (
-                    <ActivityIndicator size="small" color={palette.optionCorrectBorder} />
-                  ) : (
-                    <Ionicons
-                      name="volume-medium-outline"
-                      size={40}
-                      color={isPronunciationWordPlaying ? '#BFE7FF' : palette.primaryText}
-                    />
-                  )}
-                </AnimatedGlowPressable>
+                />
                 <Text style={[styles.pronunciationQuizHint, { color: palette.secondaryText }]}>
                   {tUI(uiLanguage, 'review.pronunciationHint')}
                 </Text>
@@ -3159,14 +3219,34 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
           <Animated.View
             pointerEvents={selectedAnswer ? 'auto' : 'none'}
-            style={[
-              styles.cardFace,
-              styles.backFace,
-              { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
-              {
-                transform: [{ perspective: 1200 }, { rotateY: backRotate }],
-              },
-            ]}
+            style={
+              isPronunciationQuestion
+                ? [
+                    styles.cardFace,
+                    styles.backFace,
+                    { backgroundColor: palette.cardBg, borderColor: palette.cardBorder },
+                    { opacity: flipValue },
+                  ]
+                : [
+                    styles.answerSheet,
+                    {
+                      backgroundColor: palette.cardBg,
+                      borderColor: palette.cardBorder,
+                      borderTopColor: answerStatusColor,
+                    },
+                    {
+                      opacity: flipValue,
+                      transform: [
+                        {
+                          translateY: flipValue.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [80, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]
+            }
           >
             {isCorrect ? (
               <Animated.View
@@ -3180,148 +3260,51 @@ export default function ReviewFlow({ navigation, route }: Props) {
             {isPronunciationQuestion ? (
               renderPronunciationResult()
             ) : (
-            <ScrollView
-              style={styles.answerContentScroll}
-              contentContainerStyle={styles.answerContentContainer}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-              bounces={false}
-            >
-            {!isCorrect && selectedAnswer ? (
-              <View style={styles.answerComparisonStack}>
-                <View
-                  style={[
-                    styles.answerComparisonCard,
-                    styles.answerComparisonTopCard,
-                    { backgroundColor: palette.answerCardBg, borderColor: palette.answerCardBorder },
-                  ]}
-                >
-                  <View style={styles.answerCompactHeader}>
-                    <View style={styles.answerPreviewWordWrap}>
-                      <View style={styles.answerStatusRow}>
-                        <View style={[styles.correctAnswerTag, { backgroundColor: palette.optionCorrectBg, borderColor: palette.optionCorrectBorder }]}>
-                          <Text style={[styles.correctAnswerTagText, { color: palette.optionCorrectBorder }]}>
-                            {tUI(uiLanguage, 'review.answer')}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text
-                        style={[
-                          styles.answerWord,
-                          isLongAnswer ? styles.answerWordLong : null,
-                          { color: palette.primaryText },
-                        ]}
-                        numberOfLines={isLongAnswer ? 2 : 1}
-                        ellipsizeMode="tail"
-                        adjustsFontSizeToFit
-                        minimumFontScale={isLongAnswer ? 0.5 : 0.68}
-                      >
-                        {question.answerWord}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text
-                    style={[styles.answerQuickTranslation, { color: palette.primaryText }]}
-                  >
-                    {answerQuickTranslation}
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.answerComparisonCard,
-                    styles.answerComparisonBottomCard,
-                    { backgroundColor: palette.answerCardBg, borderColor: palette.answerCardBorder },
-                  ]}
-                >
-                  <View style={styles.answerStatusRow}>
-                    <View style={[styles.wrongAnswerTag, { backgroundColor: palette.errorTint, borderColor: palette.errorText }]}>
-                      <Ionicons name="close" size={12} color={palette.errorText} />
-                      <Text style={[styles.wrongAnswerTagText, { color: palette.errorText }]}>
-                        {tUI(uiLanguage, 'review.yourAnswer')}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text
-                    style={[
-                      styles.answerComparisonValue,
-                      selectedAnswerIsLong ? styles.answerComparisonValueLong : null,
-                      { color: palette.primaryText },
-                    ]}
-                    numberOfLines={selectedAnswerIsLong ? 2 : 1}
-                    ellipsizeMode="tail"
-                    adjustsFontSizeToFit
-                    minimumFontScale={selectedAnswerIsLong ? 0.5 : 0.68}
-                  >
-                    {selectedAnswerLabel}
-                  </Text>
-                  {shouldShowSelectedAnswerTranslation ? (
-                    <Text style={[styles.answerWrongTranslation, { color: palette.secondaryText }]}>
-                      {selectedAnswerTranslation}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-            ) : (
-              <View
-                style={[
-                  styles.answerCompactCard,
-                  { backgroundColor: palette.answerCardBg, borderColor: palette.answerCardBorder },
-                ]}
-              >
-                <View style={styles.answerCompactHeader}>
-                  <View style={styles.answerPreviewWordWrap}>
-                    <View style={styles.answerStatusRow}>
-                      <View style={[styles.correctAnswerTag, { backgroundColor: palette.successTint, borderColor: palette.successText }]}>
-                        <Text style={[styles.correctAnswerTagText, { color: palette.successText }]}>
-                          {tUI(uiLanguage, 'review.correct')}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text
-                      style={[
-                        styles.answerWord,
-                        isLongAnswer ? styles.answerWordLong : null,
-                        { color: palette.primaryText },
-                      ]}
-                      numberOfLines={isLongAnswer ? 2 : 1}
-                      ellipsizeMode="tail"
-                      adjustsFontSizeToFit
-                      minimumFontScale={isLongAnswer ? 0.5 : 0.68}
-                    >
-                      {question.answerWord}
-                    </Text>
-                  </View>
-                  <View style={styles.resultBadgeRow}>
-                    {isCorrect ? (
-                      <Animated.View
-                        style={[
-                          styles.celebrationSpark,
-                          {
-                            opacity: celebrationIconOpacity,
-                            transform: [{ translateY: celebrationFloat }, { scale: celebrationScale }],
-                          },
-                        ]}
-                      >
-                        <Ionicons name="sparkles" size={16} color={palette.celebrationIcon} />
-                      </Animated.View>
-                    ) : null}
-                  </View>
+            <View style={styles.answerSheetBody}>
+              <View style={styles.answerSheetHeader}>
+                <View style={[styles.answerStatusDot, { backgroundColor: answerStatusColor }]}>
+                  <Ionicons
+                    name={isCorrect ? 'checkmark' : 'close'}
+                    size={16}
+                    color={feedbackColors.onBrand}
+                  />
                 </View>
                 <Text
-                  style={[styles.answerQuickTranslation, { color: palette.primaryText }]}
+                  style={[styles.answerSheetWord, { color: palette.primaryText }]}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
                 >
-                  {answerQuickTranslation}
+                  {question.answerWord}
                 </Text>
               </View>
-            )}
-            </ScrollView>
+              {answerQuickTranslation ? (
+                <Text style={[styles.answerSheetTranslation, { color: palette.secondaryText }]}>
+                  {answerQuickTranslation}
+                </Text>
+              ) : null}
+              {!isCorrect && selectedAnswer ? (
+                <View style={[styles.answerSheetMistake, { backgroundColor: feedbackColors.badSoft }]}>
+                  <Ionicons name="close" size={14} color={feedbackColors.bad} />
+                  <Text
+                    style={[styles.answerSheetMistakeText, { color: feedbackColors.bad }]}
+                    numberOfLines={2}
+                  >
+                    {selectedAnswerLabel}
+                    {shouldShowSelectedAnswerTranslation ? `  ${selectedAnswerTranslation}` : ''}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             )}
 
-            <View style={styles.answerActionFooter}>
+            <View style={[styles.answerActionFooter, styles.answerFooterRow]}>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={tUI(uiLanguage, 'review.testMeNextTime')}
+                accessibilityState={{ selected: isPinned }}
                 style={({ pressed }) => [
-                  styles.nextTimeButton,
+                  styles.bookmarkButton,
                   { backgroundColor: palette.nextTimeBg, borderColor: palette.nextTimeBorder },
                   isPinned
                     ? { backgroundColor: palette.nextTimeActiveBg, borderColor: palette.nextTimeActiveBorder }
@@ -3330,25 +3313,27 @@ export default function ReviewFlow({ navigation, route }: Props) {
                 ]}
                 onPress={() => void handleTogglePinned(question.cardId)}
               >
-                <Ionicons
-                  name={isPinned ? 'bookmark' : 'bookmark-outline'}
-                  size={16}
-                  color={palette.nextTimeText}
-                />
-                <Text style={[styles.nextTimeText, { color: palette.nextTimeText }, isPinned && styles.nextTimeTextActive]}>
+                <Text
+                  style={[
+                    styles.nextTimeText,
+                    { color: isPinned ? feedbackColors.brand : palette.nextTimeText },
+                    isPinned && styles.nextTimeTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
                   {tUI(uiLanguage, 'review.testMeNextTime')}
                 </Text>
               </Pressable>
-
               <Pressable
                 style={({ pressed }) => [
                   styles.nextButton,
-                  { backgroundColor: palette.nextButtonBg },
+                  styles.nextButtonInRow,
+                  { backgroundColor: continueButtonColor },
                   pressed ? styles.primaryButtonPressed : null,
                 ]}
                 onPress={handleNext}
               >
-                <Text style={[styles.nextButtonText, { color: palette.nextButtonText }]}>{tUI(uiLanguage, 'review.next')}</Text>
+                <Text style={[styles.nextButtonText, { color: feedbackColors.onBrand }]}>{tUI(uiLanguage, 'review.next')}</Text>
               </Pressable>
             </View>
           </Animated.View>
@@ -3378,6 +3363,8 @@ export default function ReviewFlow({ navigation, route }: Props) {
     pronunciationRecordingQuestionId,
     pronunciationScores,
     results,
+    revealedHints,
+    feedbackColors,
     selectedAnswers,
     spellingDrafts,
     spellingKeyboardLift,
@@ -3623,22 +3610,51 @@ export default function ReviewFlow({ navigation, route }: Props) {
 
           <View style={styles.headerTextWrap}>
             <Text style={[styles.headerTitle, { color: palette.primaryText }]}>{albumName}</Text>
-            <Text style={[styles.headerSubTitle, { color: palette.secondaryText }]}>{headerProgressLabel}</Text>
           </View>
 
-          <View style={[styles.scoreChip, { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder }]}>
+          <View
+            style={[
+              styles.scoreChip,
+              styles.scoreChipRow,
+              { backgroundColor: palette.softButtonBg, borderColor: palette.softButtonBorder },
+            ]}
+          >
+            <Ionicons name="checkmark" size={15} color={feedbackColors.ok} />
             <Text style={[styles.scoreChipText, { color: palette.primaryText }]}>{correctCount}</Text>
           </View>
         </View>
 
-        <View style={[styles.progressTrack, { backgroundColor: palette.progressTrack }]}>
-          <View
-            style={[
-              styles.progressFill,
-              { width: `${((Math.min(currentIndex, questions.length - 1) + 1) / questions.length) * 100}%`, backgroundColor: themeColor },
-            ]}
-          />
-        </View>
+        {questions.length > 0 && questions.length <= MAX_PROGRESS_SEGMENTS ? (
+          // One segment per question: green = right, red = wrong, blue = current.
+          <View style={styles.progressSegments}>
+            {questions.map((item, index) => {
+              const result = results[item.id];
+              const segmentColor =
+                result === true
+                  ? feedbackColors.ok
+                  : result === false
+                  ? feedbackColors.bad
+                  : index === currentIndex
+                  ? feedbackColors.brand
+                  : palette.progressTrack;
+              return (
+                <View
+                  key={item.id}
+                  style={[styles.progressSegment, { backgroundColor: segmentColor }]}
+                />
+              );
+            })}
+          </View>
+        ) : (
+          <View style={[styles.progressTrack, { backgroundColor: palette.progressTrack }]}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${((Math.min(currentIndex, questions.length - 1) + 1) / questions.length) * 100}%`, backgroundColor: feedbackColors.brand },
+              ]}
+            />
+          </View>
+        )}
 
         {clampedNotice ? (
           <View
@@ -3684,6 +3700,126 @@ export default function ReviewFlow({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  clozeBlank: {
+    borderRadius: 6,
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+  },
+  termHighlight: {
+    borderRadius: 6,
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+  },
+  hintButton: {
+    alignSelf: 'flex-start',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  answerSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderTopWidth: 4,
+    padding: 20,
+    gap: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -6 },
+    elevation: 12,
+  },
+  answerSheetBody: {
+    gap: 8,
+  },
+  answerSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  answerStatusDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  answerSheetWord: {
+    flex: 1,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  answerSheetTranslation: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  answerSheetMistake: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  answerSheetMistakeText: {
+    flexShrink: 1,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    textDecorationLine: 'line-through',
+  },
+  answerFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  bookmarkButton: {
+    height: 56,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextButtonInRow: {
+    flex: 1,
+    marginTop: 0,
+  },
+  scoreChipRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  progressSegments: {
+    flexDirection: 'row',
+    gap: 4,
+    height: 6,
+    marginHorizontal: 16,
+  },
+  progressSegment: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+  },
+  pronunciationResultWordRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  pronunciationResultWordInRow: {
+    flexShrink: 1,
+  },
   container: {
     flex: 1,
   },
@@ -3831,7 +3967,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
   optionCardStacked: {
     width: '100%',
@@ -3921,15 +4057,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingBottom: 0,
-  },
-  pronunciationWordButton: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   pronunciationQuizHint: {
     fontSize: 15,
@@ -4336,7 +4463,7 @@ const styles = StyleSheet.create({
   },
   celebrationOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 28,
+    borderRadius: 24,
   },
   nextButton: {
     marginTop: 12,
