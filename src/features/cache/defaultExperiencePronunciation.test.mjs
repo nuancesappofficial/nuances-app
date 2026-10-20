@@ -8,7 +8,7 @@ import {
 } from './defaultExperiencePronunciation.ts';
 
 test('tutorial nuances card ships its phonetic transcription in the fixture', () => {
-  assert.equal(DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION, '/ˈnuː.ɑːn.sɪz/');
+  assert.equal(DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION, '/ˈnuː.ɑːns/');
 });
 
 test('tutorial nuances card detail uses the bundled reference TTS', () => {

@@ -70,3 +70,58 @@ test('CardDetailFlow 不應再包含死路畫面「找不到這張卡片」', ()
     'CardDetailFlow.tsx 必須包含骨架屏平滑淡出 Easing 過渡機制',
   );
 });
+
+test('CreateCardGhostPreviewSceneUI 必須對齊最新卡片版型與骨架屏狀態', () => {
+  const ghostPath = join(__dirname, '../CacheScreenUI/CreateCardGhostPreviewSceneUI.tsx');
+  assert.ok(existsSync(ghostPath), 'CreateCardGhostPreviewSceneUI.tsx 必須存在');
+
+  const source = readFileSync(ghostPath, 'utf8');
+
+  // 1. 正面音標行（音標 + 喇叭）
+  assert.ok(
+    /previewIpaRow/.test(source) && /previewSpeakerBtn/.test(source),
+    'Ghost Card 必須包含獨立音標列與喇叭按鈕',
+  );
+
+  // 2. 釋義行（詞性 Badge + 釋義）
+  assert.ok(
+    /previewMeaningRow/.test(source) && /previewPosChip/.test(source),
+    'Ghost Card 必須包含詞性 Badge 與釋義橫條',
+  );
+
+  // 3. 底部操作列（練發音 Practice 膠囊按鈕 + 3 顆次要操作圖示）
+  assert.ok(
+    /practiceButton/.test(source) && /secondaryActions/.test(source),
+    'Ghost Card 必須包含練發音膠囊與 3 顆次要按鈕操作列',
+  );
+
+  // 4. Thinking 骨架佔位區塊
+  assert.ok(
+    /skeletonIpaLine/.test(source) && /skeletonPracticePill/.test(source),
+    'Ghost Card 必須在 thinking 載入期間呈現對齊新版的骨架脈動佔位',
+  );
+
+  // 5. 背面章節揭露順序遮罩（搭配詞 -> 近/反義字 -> 例句，杜絕跨章節搶顯）
+  assert.ok(
+    /showBackCollocation\s*\?\s*1\s*:\s*0/.test(source),
+    'Ghost Card 搭配詞區塊必須綁定 showBackCollocation 遮罩',
+  );
+  assert.ok(
+    /showBackSemanticRelations\s*\?\s*1\s*:\s*0/.test(source),
+    'Ghost Card 近/反義字區塊必須綁定 showBackSemanticRelations 遮罩',
+  );
+  assert.ok(
+    /showBackExample\s*\?\s*1\s*:\s*0/.test(source),
+    'Ghost Card 例句區塊必須綁定 showBackExample 遮罩，防止搶在近/反義字前顯現',
+  );
+});
+
+test('CreateCardFlow 必須優先呈現 post-crop 裁切後圖片', () => {
+  const createCardFlowPath = join(__dirname, '../../../screens/flow/CacheScreenFlow/CreateCardFlow.tsx');
+  const source = readFileSync(createCardFlowPath, 'utf8');
+
+  assert.ok(
+    /source=\{\{\s*uri:\s*croppedCardImageUri\s*\|\|\s*originalImageUri/.test(source),
+    'CreateCardFlow 來源圖片預覽必須優先展示 croppedCardImageUri (post-cropped image)',
+  );
+});

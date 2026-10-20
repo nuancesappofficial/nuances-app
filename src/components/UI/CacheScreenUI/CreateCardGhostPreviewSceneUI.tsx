@@ -27,6 +27,8 @@ import Reanimated, {
 import {
   parseCardContextSections,
   parseCulturalBackgroundInsight,
+  parseStreamingCulturalBackgroundInsight,
+  extractCulturalBackgroundDisplayText,
   splitInsiderInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from '../DeckScreenUI/NuanceMetricsLeverUI';
@@ -58,6 +60,7 @@ export type GhostPreviewCard = {
   note: string;
   sourceSentence: string;
   manualMode: boolean;
+  phoneticTranscription?: string | null;
   isFavorite?: boolean;
   isBookmarked?: boolean;
 };
@@ -230,6 +233,8 @@ function getGhostCardTone(params: {
       statusBorder: 'rgba(15,23,42,0.08)',
       footerBg: 'rgba(15,23,42,0.03)',
       footerBorder: 'rgba(15,23,42,0.08)',
+      skeletonBlock: '#E2E8F0',
+      skeletonBorder: '#F1F5F9',
       outlineBase: 0.22,
       outlinePulse: 0.22,
       shadowBase: 0.08,
@@ -246,6 +251,8 @@ function getGhostCardTone(params: {
     statusBorder: 'rgba(148,163,184,0.18)',
     footerBg: 'rgba(255,255,255,0.02)',
     footerBorder: 'rgba(148,163,184,0.18)',
+    skeletonBlock: '#1F2834',
+    skeletonBorder: '#2A374A',
     outlineBase: 0.58,
     outlinePulse: 0.28,
     shadowBase: 0.18,
@@ -526,14 +533,15 @@ export function CreateCardGhostPreviewScene({
     [isLight]
   );
   const previewWord = card?.displayWord || processingWord;
+  const previewPhonetic = card?.phoneticTranscription?.trim() || '';
+  const feedbackColors = React.useMemo(() => resolveFeedbackColors(isLight ? 'light' : 'dark'), [isLight]);
   const targetWordHighlight = React.useMemo<TargetWordHighlight>(() => {
-    const feedbackColors = resolveFeedbackColors(isLight ? 'light' : 'dark');
     return {
       fg: isLight ? '#111111' : '#F8FAFC',
       bg: feedbackColors.brandSoft,
       line: feedbackColors.brand,
     };
-  }, [isLight]);
+  }, [feedbackColors, isLight]);
   const isPhraseCard = isPhraseLikeCardSubject(previewWord, card?.partOfSpeech);
   const previewPartOfSpeech = card?.partOfSpeech
     ? formatPartOfSpeechLabel(
@@ -581,12 +589,15 @@ export function CreateCardGhostPreviewScene({
       : buildCulturalBackgroundText(card, uiLanguage)
     : statusText;
   const previewCulturalInsight = React.useMemo(
-    () => parseCulturalBackgroundInsight(previewCultural),
+    () => parseStreamingCulturalBackgroundInsight(previewCultural),
     [previewCultural]
   );
-  const culturalDisplayText = previewCulturalInsight
-    ? previewCulturalInsight.insider_insight
-    : previewCultural;
+  const culturalDisplayText = React.useMemo(() => {
+    if (previewCulturalInsight?.insider_insight) {
+      return previewCulturalInsight.insider_insight;
+    }
+    return extractCulturalBackgroundDisplayText(previewCultural);
+  }, [previewCultural, previewCulturalInsight]);
   const previewStructuredInsight = React.useMemo(
     () => splitInsiderInsight(culturalDisplayText),
     [culturalDisplayText]
@@ -678,6 +689,12 @@ export function CreateCardGhostPreviewScene({
     }
 
     if (streamStage === 'colloc') {
+      if (previewCollocationItems.length > 0) {
+        const timer = setTimeout(() => {
+          setStreamStage((current) => (current === 'colloc' ? 'semantic' : current));
+        }, 260);
+        return () => clearTimeout(timer);
+      }
       if (
         isCollocStreamComplete &&
         (!previewCollocation.trim() || previewCollocation === statusText)
@@ -688,18 +705,31 @@ export function CreateCardGhostPreviewScene({
     }
 
     if (streamStage === 'semantic') {
-      if (isSemanticStreamComplete && previewSemanticRelationItems.length === 0) {
-        setStreamStage('example');
-      } else {
+      if (previewSemanticRelationItems.length > 0) {
         const timer = setTimeout(() => {
           setStreamStage((current) => (current === 'semantic' ? 'example' : current));
-        }, 220);
+        }, 280);
         return () => clearTimeout(timer);
+      }
+      if (isSemanticStreamComplete && previewSemanticRelationItems.length === 0) {
+        setStreamStage('example');
       }
       return;
     }
 
     if (streamStage === 'example') {
+      if (previewExampleItems.length > 0) {
+        const timer = setTimeout(() => {
+          setStreamStage((current) => {
+            if (current === 'example') {
+              onSequentialRevealComplete?.();
+              return 'complete';
+            }
+            return current;
+          });
+        }, 320);
+        return () => clearTimeout(timer);
+      }
       if (
         isExampleStreamComplete &&
         (!previewExample.trim() || previewExample === statusText)
@@ -847,6 +877,10 @@ export function CreateCardGhostPreviewScene({
     };
   }, [tone]);
 
+  const animatedSkeletonPulseStyle = useAnimatedStyle(() => ({
+    opacity: 0.4 + pulse.value * 0.45,
+  }));
+
   const captureFacePreview = React.useCallback(async (face: 'front' | 'back') => {
     const ref = face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
     if (!ref) return null;
@@ -934,173 +968,266 @@ export function CreateCardGhostPreviewScene({
       >
         {hasImage && imageUri ? <Image source={{ uri: imageUri }} style={styles.previewHeroImage} resizeMode="cover" /> : null}
         <View style={styles.previewBody}>
-          <View style={styles.previewHeaderRow}>
-            <View style={styles.previewHeaderMain}>
-              <Reanimated.View entering={FadeIn.duration(240)}>
-                <ProgressiveText
-                  text={previewWord}
-                  active={effectiveRevealState.showFrontWord || isThinking}
-                  animate={shouldAnimateText}
-                  style={[styles.previewWord, { color: palette.textOnContainer }]}
-                  textProps={{
-                    adjustsFontSizeToFit: true,
-                    minimumFontScale: 0.72,
-                    numberOfLines: 2,
-                  }}
-                />
-              </Reanimated.View>
-              {previewPartOfSpeech ? (
-                <Reanimated.View entering={FadeIn.duration(220)} style={[styles.previewPosChip, { backgroundColor: tone.chipBg, borderColor: tone.chipBorder }]}>
-                  <ProgressiveText
-                    text={previewPartOfSpeech}
-                    active={effectiveRevealState.showFrontWord || isThinking}
-                    animate={shouldAnimateText}
-                    style={[styles.previewPosChipText, { color: palette.secondaryText }]}
-                    textProps={{
-                      adjustsFontSizeToFit: true,
-                      minimumFontScale: 0.75,
-                      numberOfLines: 1,
-                    }}
-                  />
-                </Reanimated.View>
-              ) : null}
-            </View>
+          {/* 1. 單字標題獨立列 */}
+          <View style={styles.previewWordRow}>
+            <Reanimated.View entering={FadeIn.duration(240)}>
+              <ProgressiveText
+                text={previewWord}
+                active={effectiveRevealState.showFrontWord || isThinking}
+                animate={shouldAnimateText}
+                style={[styles.previewWord, { color: palette.textOnContainer }]}
+                textProps={{
+                  adjustsFontSizeToFit: true,
+                  minimumFontScale: 0.72,
+                  numberOfLines: 2,
+                }}
+              />
+            </Reanimated.View>
+          </View>
+
+          {/* 1b. 音標列 + 播放喇叭 */}
+          <View style={styles.previewIpaRow}>
+            {isThinking && !previewPhonetic ? (
+              <Reanimated.View
+                style={[
+                  styles.skeletonIpaLine,
+                  { backgroundColor: tone.skeletonBlock },
+                  animatedSkeletonPulseStyle,
+                ]}
+              />
+            ) : previewPhonetic ? (
+              <Text style={[styles.previewIpaText, { color: palette.secondaryText }]} numberOfLines={1}>
+                {previewPhonetic}
+              </Text>
+            ) : null}
             <Pressable
               disabled={!canPlayWord}
               onPress={onPlayWord}
               hitSlop={styles.previewActionHitSlop}
               style={({ pressed }) => [
-                styles.previewAudioWrap,
-                !canPlayWord ? styles.previewAudioWrapDisabled : null,
+                styles.previewSpeakerBtn,
+                { borderColor: tone.divider },
+                !canPlayWord ? styles.previewSpeakerBtnDisabled : null,
                 pressed && canPlayWord ? styles.previewActionIconBtnPressed : null,
               ]}
             >
               <Ionicons
                 name={isWordAudioLoading ? 'ellipsis-horizontal' : 'volume-medium-outline'}
-                size={28}
+                size={20}
                 color={palette.secondaryText}
               />
             </Pressable>
           </View>
           {headerAccessory}
 
-          <View style={styles.previewDefinitionRow}>
-            <ProgressiveText
-              text={previewDefinition}
-              active={effectiveRevealState.showFrontDefinition}
-              animate={shouldAnimateText}
-              isStreamComplete={isDefStreamComplete}
-              onComplete={handleDefComplete}
-              style={[styles.previewDefinitionText, { color: palette.textOnContainer }]}
-            />
-            {isThinking && !effectiveRevealState.showFrontDefinition ? (
-              <View style={[styles.previewStatusSlot, { backgroundColor: tone.statusBg, borderColor: tone.statusBorder }]}>
-                <Reanimated.Text allowFontScaling={false} maxFontSizeMultiplier={1} key={statusText} entering={FadeIn.duration(280)} exiting={FadeOut.duration(220)} style={[styles.previewStatusText, { color: palette.secondaryText }]}>
-                  {statusText}
-                </Reanimated.Text>
-              </View>
+          {/* 2. 詞性膠囊 Badge + 釋義橫條 */}
+          <View style={styles.previewMeaningRow}>
+            {previewPartOfSpeech ? (
+              <Reanimated.View entering={FadeIn.duration(220)} style={[styles.previewPosChip, { backgroundColor: tone.chipBg, borderColor: tone.chipBorder }]}>
+                <Text style={[styles.previewPosChipText, { color: palette.secondaryText }]}>
+                  {previewPartOfSpeech}
+                </Text>
+              </Reanimated.View>
+            ) : isThinking && !effectiveRevealState.showFrontDefinition ? (
+              <Reanimated.View
+                style={[
+                  styles.skeletonPosBadge,
+                  { backgroundColor: tone.skeletonBlock },
+                  animatedSkeletonPulseStyle,
+                ]}
+              />
             ) : null}
+            <View style={styles.previewMeaningTextSlot}>
+              <ProgressiveText
+                text={previewDefinition}
+                active={effectiveRevealState.showFrontDefinition}
+                animate={shouldAnimateText}
+                isStreamComplete={isDefStreamComplete}
+                onComplete={handleDefComplete}
+                style={[styles.previewDefinitionText, { color: palette.textOnContainer }]}
+              />
+              {isThinking && !effectiveRevealState.showFrontDefinition ? (
+                <View style={[styles.previewStatusSlot, { backgroundColor: tone.statusBg, borderColor: tone.statusBorder }]}>
+                  <Reanimated.Text allowFontScaling={false} maxFontSizeMultiplier={1} key={statusText} entering={FadeIn.duration(280)} exiting={FadeOut.duration(220)} style={[styles.previewStatusText, { color: palette.secondaryText }]}>
+                    {statusText}
+                  </Reanimated.Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
+          {/* 分隔線 1 */}
           <View style={[styles.previewDivider, { backgroundColor: tone.divider }]} />
 
+          {/* 3. 雙語例句區塊 */}
           <View style={styles.previewFrontSection}>
-            <ProgressiveText
-              text={previewSourceSentence}
-              highlightTerm={previewWord}
-              highlight={targetWordHighlight}
-              active={effectiveRevealState.showFrontSentence}
-              animate={shouldAnimateText}
-              style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
-            />
-            <ProgressiveText
-              text={previewTranslation}
-              highlightTerm={previewWord}
-              highlight={targetWordHighlight}
-              active={effectiveRevealState.showFrontTranslation}
-              animate={shouldAnimateText}
-              isStreamComplete={isTransStreamComplete}
-              onComplete={handleTransComplete}
-              style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
-            />
+            {isThinking && !previewSourceSentence ? (
+              <View style={styles.skeletonSentenceBlock}>
+                <Reanimated.View
+                  style={[
+                    styles.skeletonTextLine,
+                    { width: '92%', height: 16, backgroundColor: tone.skeletonBlock },
+                    animatedSkeletonPulseStyle,
+                  ]}
+                />
+                <Reanimated.View
+                  style={[
+                    styles.skeletonTextLine,
+                    { width: '74%', height: 16, backgroundColor: tone.skeletonBlock, marginTop: 10 },
+                    animatedSkeletonPulseStyle,
+                  ]}
+                />
+              </View>
+            ) : (
+              <>
+                <ProgressiveText
+                  text={previewSourceSentence}
+                  highlightTerm={previewWord}
+                  highlight={targetWordHighlight}
+                  active={effectiveRevealState.showFrontSentence}
+                  animate={shouldAnimateText}
+                  style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
+                />
+                <ProgressiveText
+                  text={previewTranslation}
+                  highlightTerm={previewWord}
+                  highlight={targetWordHighlight}
+                  active={effectiveRevealState.showFrontTranslation}
+                  animate={shouldAnimateText}
+                  isStreamComplete={isTransStreamComplete}
+                  onComplete={handleTransComplete}
+                  style={[styles.previewSentenceText, styles.previewTranslationText, { color: palette.textOnContainer }]}
+                />
+              </>
+            )}
           </View>
 
+          {/* 4. 細節辨析/指標區塊 (Nuance Metrics & Insight) */}
           <View style={styles.previewSectionBlock}>
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.context')}
             </FixedText>
-            {previewCulturalInsight && (effectivePhase === 'complete' || effectiveRevealState.showBackCultural) ? (
-              <NuanceMetricsLeverUI
-                formality={previewCulturalInsight.metrics.formality}
-                intensity={previewCulturalInsight.metrics.intensity}
-                ui={{
-                  noteText: palette.textOnContainer,
-                  secondaryText: palette.secondaryText,
-                  divider: tone.divider,
-                }}
-                animate={shouldAnimateText}
-              />
-            ) : null}
-            {effectiveRevealState.showBackCultural ? (
-              <StructuredInsiderInsightUI
-                insight={previewStructuredInsight}
-                isExpanded={isGhostContextExpanded}
-                onToggleExpand={() => setIsGhostContextExpanded((prev) => !prev)}
-                showToggle={effectivePhase === 'complete' || isCulturalStreamComplete}
-                textColor={palette.textOnContainer}
-                secondaryTextColor={palette.secondaryText}
-                uiLanguage={uiLanguage}
-                isLight={isLight}
-                contentScale={1}
-                collapsedLines={2}
-                animate={shouldAnimateText && streamStage === 'cultural'}
-                active={effectiveRevealState.showBackCultural}
-                isStreamComplete={isCulturalStreamComplete}
-                onComplete={handleCulturalComplete}
-              />
-            ) : null}
+            {isThinking && !previewCulturalInsight && !effectiveRevealState.showBackCultural ? (
+              <View style={styles.skeletonMetricsBlock}>
+                <Reanimated.View
+                  style={[
+                    styles.skeletonTextLine,
+                    { width: '84%', height: 14, backgroundColor: tone.skeletonBlock },
+                    animatedSkeletonPulseStyle,
+                  ]}
+                />
+                <Reanimated.View
+                  style={[
+                    styles.skeletonTextLine,
+                    { width: '58%', height: 14, backgroundColor: tone.skeletonBlock, marginTop: 8 },
+                    animatedSkeletonPulseStyle,
+                  ]}
+                />
+              </View>
+            ) : (
+              <>
+                {previewCulturalInsight && (effectivePhase === 'complete' || effectiveRevealState.showBackCultural) ? (
+                  <NuanceMetricsLeverUI
+                    formality={previewCulturalInsight.metrics.formality}
+                    intensity={previewCulturalInsight.metrics.intensity}
+                    ui={{
+                      noteText: palette.textOnContainer,
+                      secondaryText: palette.secondaryText,
+                      divider: tone.divider,
+                    }}
+                    animate={shouldAnimateText}
+                  />
+                ) : null}
+                {effectiveRevealState.showBackCultural ? (
+                  <StructuredInsiderInsightUI
+                    insight={previewStructuredInsight}
+                    isExpanded={isGhostContextExpanded}
+                    onToggleExpand={() => setIsGhostContextExpanded((prev) => !prev)}
+                    showToggle={effectivePhase === 'complete' || isCulturalStreamComplete}
+                    textColor={palette.textOnContainer}
+                    secondaryTextColor={palette.secondaryText}
+                    uiLanguage={uiLanguage}
+                    isLight={isLight}
+                    contentScale={1}
+                    collapsedLines={2}
+                    animate={shouldAnimateText && streamStage === 'cultural'}
+                    active={effectiveRevealState.showBackCultural}
+                    isStreamComplete={isCulturalStreamComplete}
+                    onComplete={handleCulturalComplete}
+                  />
+                ) : null}
+              </>
+            )}
           </View>
 
-          <View style={styles.previewFooterRow}>
-            <Pressable
-              style={({ pressed }) => [styles.previewActionIconBtn, pressed ? styles.previewActionIconBtnPressed : null]}
-              onPress={onOpenPronunciationModal}
-              hitSlop={styles.previewActionHitSlop}
-            >
-              <Ionicons name="mic-outline" size={28} color={ui.icon} />
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.previewActionIconBtn, pressed ? styles.previewActionIconBtnPressed : null]}
-              onPress={() => void openSharePicker()}
-              hitSlop={styles.previewActionHitSlop}
-            >
-              <Ionicons name="share-outline" size={28} color={ui.icon} />
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.previewActionIconBtn, pressed ? styles.previewActionIconBtnPressed : null]}
-              onPress={onToggleFavorite}
-              hitSlop={styles.previewActionHitSlop}
-            >
-              <Ionicons
-                name={isFavorite ? 'heart' : 'heart-outline'}
-                size={28}
-                color={isFavorite ? ui.starActive : ui.starInactive}
+          {/* 5. 底部操作列：左「練發音」膠囊 + 右 3 顆圖示 (Share, Heart, Folder) */}
+          <View style={styles.cardActionRow}>
+            {isThinking && !canPlayWord ? (
+              <Reanimated.View
+                style={[
+                  styles.skeletonPracticePill,
+                  { backgroundColor: tone.skeletonBlock },
+                  animatedSkeletonPulseStyle,
+                ]}
               />
-            </Pressable>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.practiceButton,
+                  { backgroundColor: feedbackColors.mic },
+                  pressed ? styles.previewActionIconBtnPressed : null,
+                ]}
+                onPress={onOpenPronunciationModal}
+              >
+                <Ionicons name="mic" size={18} color="#FFFFFF" />
+                <Text style={styles.practiceButtonText} numberOfLines={1}>
+                  {tUI(uiLanguage, 'cardDetail.practicePronunciation')}
+                </Text>
+              </Pressable>
+            )}
 
-            <Pressable
-              style={({ pressed }) => [styles.previewActionIconBtn, pressed ? styles.previewActionIconBtnPressed : null]}
-              onPress={onOpenAlbumSheet}
-              hitSlop={styles.previewActionHitSlop}
-            >
-              <Ionicons
-                name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                size={28}
-                color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
-              />
-            </Pressable>
+            <View style={styles.secondaryActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionBtn,
+                  pressed ? styles.previewActionIconBtnPressed : null,
+                ]}
+                onPress={() => void openSharePicker()}
+                hitSlop={styles.previewActionHitSlop}
+              >
+                <Ionicons name="share-outline" size={24} color={ui.icon} />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionBtn,
+                  pressed ? styles.previewActionIconBtnPressed : null,
+                ]}
+                onPress={onToggleFavorite}
+                hitSlop={styles.previewActionHitSlop}
+              >
+                <Ionicons
+                  name={isFavorite ? 'heart' : 'heart-outline'}
+                  size={24}
+                  color={isFavorite ? feedbackColors.bad : ui.icon}
+                />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionBtn,
+                  pressed ? styles.previewActionIconBtnPressed : null,
+                ]}
+                onPress={onOpenAlbumSheet}
+                hitSlop={styles.previewActionHitSlop}
+              >
+                <Ionicons
+                  name={isBookmarked ? 'folder' : 'folder-outline'}
+                  size={24}
+                  color={isBookmarked ? feedbackColors.brand : ui.icon}
+                />
+              </Pressable>
+            </View>
           </View>
         </View>
       </Reanimated.View>
@@ -1112,19 +1239,39 @@ export function CreateCardGhostPreviewScene({
         style={[styles.previewCardShell, { backgroundColor: palette.containerBg, shadowColor: tone.pulseShadowColor, opacity: backVisible ? 1 : 0.9 }, animatedCardStyle]}
       >
         <View style={styles.previewBody}>
-          {previewCollocation ? <View style={styles.previewSectionBlock}>
-            <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-              {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
-            </FixedText>
-            <ProgressiveText
-              text={previewCollocation}
-              active={effectiveRevealState.showBackCollocation}
-              animate={shouldAnimateText}
-              isStreamComplete={isCollocStreamComplete}
-              onComplete={handleCollocComplete}
-              style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
-            />
-          </View> : null}
+          {previewCollocationItems.length > 0 ? (
+            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackCollocation ? 1 : 0 }]}>
+              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
+              </FixedText>
+              {previewCollocationItems.map((colloc, idx) => (
+                <View key={`colloc-${idx}`} style={styles.previewCollocationLineBlock}>
+                  <Text style={[styles.previewCollocationItem, { color: palette.textOnContainer }]}>
+                    {`• ${colloc.phrase}`}
+                  </Text>
+                  {colloc.translation ? (
+                    <Text style={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}>
+                      {colloc.translation}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : previewCollocation ? (
+            <View style={styles.previewSectionBlock}>
+              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
+              </FixedText>
+              <ProgressiveText
+                text={previewCollocation}
+                active={effectiveRevealState.showBackCollocation}
+                animate={shouldAnimateText}
+                isStreamComplete={isCollocStreamComplete}
+                onComplete={handleCollocComplete}
+                style={[styles.previewBackMainText, { color: palette.textOnContainer }]}
+              />
+            </View>
+          ) : null}
 
           {previewSemanticRelationItems.length > 0 ? (
             <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackSemanticRelations ? 1 : 0 }]}>
@@ -1167,7 +1314,25 @@ export function CreateCardGhostPreviewScene({
             </View>
           ) : null}
 
-          {previewExample ? (
+          {previewExampleItems.length > 0 ? (
+            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackExample ? 1 : 0 }]}>
+              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                {tUI(uiLanguage, 'cardDetail.exampleSentence')}
+              </FixedText>
+              {previewExampleItems.map((example, idx) => (
+                <View key={`example-${idx}`} style={styles.previewCollocationLineBlock}>
+                  <Text style={[styles.previewCollocationItem, { color: palette.textOnContainer }]}>
+                    {example.sentence}
+                  </Text>
+                  {example.translation ? (
+                    <Text style={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}>
+                      {example.translation}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : previewExample ? (
             <View style={styles.previewSectionBlock}>
               <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
                 {tUI(uiLanguage, 'cardDetail.exampleSentence')}
@@ -1183,7 +1348,7 @@ export function CreateCardGhostPreviewScene({
             </View>
           ) : null}
 
-          <View style={styles.previewSectionBlock}>
+          <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackNote ? 1 : 0 }]}>
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.personalNotes')}
             </FixedText>
@@ -1311,33 +1476,55 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   previewBody: { flex: 1 },
-  previewHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  previewWordRow: {
+    marginBottom: 4,
   },
-  previewHeaderMain: { flex: 1, paddingRight: 12 },
   previewWord: { fontSize: 34, fontWeight: '800', lineHeight: 38 },
-  previewPosChip: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
+  previewIpaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
   },
-  previewPosChipText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.35 },
-  previewAudioWrap: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  previewAudioWrapDisabled: { opacity: 0.36 },
-  previewDefinitionRow: { marginTop: 18 },
-  previewDefinitionText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
-  previewStatusSlot: {
-    minHeight: 78,
+  previewIpaText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  previewSpeakerBtn: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  previewSpeakerBtnDisabled: { opacity: 0.36 },
+  previewMeaningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 2,
+  },
+  previewPosChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: 'center',
+  },
+  previewPosChipText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.35 },
+  previewMeaningTextSlot: {
+    flex: 1,
+  },
+  previewDefinitionText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  previewStatusSlot: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    marginTop: 4,
   },
   previewStatusText: {
     fontSize: 15,
@@ -1346,8 +1533,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     opacity: 0.56,
   },
-  previewDivider: { marginTop: 18, height: 1, borderRadius: 999 },
-  previewFrontSection: { marginTop: 18, gap: 12 },
+  previewDivider: { marginTop: 16, marginBottom: 14, height: 1, borderRadius: 999 },
+  previewFrontSection: { marginTop: 4, gap: 10 },
   previewSentenceText: { fontSize: 20, lineHeight: 28, fontWeight: '600' },
   previewTranslationText: { marginTop: 2 },
   previewSectionBlock: { marginTop: 18 },
@@ -1361,6 +1548,51 @@ const styles = StyleSheet.create({
   previewSectionBody: { fontSize: 18, lineHeight: 26, fontWeight: '500' },
   previewSectionBodyStrong: { fontSize: 19, lineHeight: 27, fontWeight: '600' },
   previewBackMainText: { fontSize: 20, lineHeight: 28, fontWeight: '600' },
+  previewCollocationLineBlock: {
+    marginBottom: 12,
+  },
+  previewCollocationItem: {
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '600',
+  },
+  previewCollocationTranslation: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+    paddingLeft: 12,
+  },
+  skeletonIpaLine: {
+    width: 88,
+    height: 16,
+    borderRadius: 6,
+  },
+  skeletonPosBadge: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+  },
+  skeletonTextLine: {
+    borderRadius: 6,
+  },
+  skeletonSentenceBlock: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  skeletonMetricsBlock: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  skeletonPracticePill: {
+    width: 104,
+    height: 40,
+    borderRadius: 20,
+  },
+  skeletonActionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
   previewSemanticChipWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1395,19 +1627,43 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: '500',
   },
-  previewFooterRow: {
-    marginTop: 18,
+  cardActionRow: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 1,
+    justifyContent: 'space-between',
+    marginTop: 20,
+    paddingHorizontal: 2,
   },
-  previewActionIconBtn: {
-    flex: 1,
+  practiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 16,
+    height: 42,
+    borderRadius: 21,
+    shadowColor: '#4EAFF4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  practiceButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+  },
+  secondaryActionBtn: {
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 38,
-    backgroundColor: 'transparent',
   },
   previewActionIconBtnPressed: {
     opacity: 0.9,

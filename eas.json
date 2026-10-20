@@ -88,6 +88,12 @@
         "serviceAccountKeyPath": "/Users/users/.eas-keys/google-service-account.json",
         "track": "internal"
       }
+    },
+    "closed": {
+      "android": {
+        "serviceAccountKeyPath": "/Users/users/.eas-keys/google-service-account.json",
+        "track": "alpha"
+      }
     }
   }
 }

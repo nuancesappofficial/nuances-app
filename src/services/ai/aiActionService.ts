@@ -486,152 +486,239 @@ type DemoLocalizedCopy = {
   collocations: Array<{ phrase: string; translation: string }>;
   examples: Array<{ sentence: string; translation: string }>;
   synonyms: Array<{ term: string; translation: string }>;
+  antonyms?: Array<{ term: string; translation: string }>;
 };
 
 const DEFAULT_EXPERIENCE_COPY: Record<DemoReplyLanguage, DemoLocalizedCopy> = {
   'zh-TW': {
-    definition: '細節，細微的差異',
-    sentenceTranslation: '最細微的差異，也能帶來最大的不同。',
-    contextualExplanation: '這裡的 nuances 指不易察覺、卻會影響整體結果的細節或差異。',
+    definition: '細微差別',
+    sentenceTranslation: '最細微的差別往往能造成巨大的影響。',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'nuance 意指隱晦的細節，與粗糙的 distinction 形成鮮明對比。\n• 典故與語境：源自法語，強調感官或思維中極難察覺的層次，常用於描述藝術、語言或人際互動中那種「只可意會」的精妙之處。\n• 近義詞辨析：與 subtlety 相比，nuance 更側重於多層次的細微差異，而 distinction 則顯得較為生硬且界線分明。',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: '細微差異' },
-      { phrase: 'cultural nuances', translation: '文化上的細微差異' },
+      { phrase: 'capture the nuance', translation: '捕捉到細微差別' },
+      { phrase: 'a subtle nuance', translation: '一個微妙的細節' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: '她注意到他語氣中的細微差異。' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: '理解文化上的細微差異有助於避免誤會。',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: '譯者不懈地努力，以捕捉原詩中那細微的差別。',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: '他的語氣中有一種微妙的細節，暗示他並未完全信服。',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: '細微之處' },
-      { term: 'fine distinctions', translation: '細微區別' },
+      { term: 'subtlety', translation: '微妙之處' },
+      { term: 'refinement', translation: '精緻細節' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: '明顯性' },
     ],
   },
   'zh-CN': {
-    definition: '细节，细微的差异',
-    sentenceTranslation: '最细微的差异，也能带来最大的不同。',
-    contextualExplanation: '这里的 nuances 指不易察觉、却会影响整体结果的细节或差异。',
+    definition: '细微差别',
+    sentenceTranslation: '最细微的差别往往能造成巨大的影响。',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'nuance 意指隐晦的细节，与粗糙的 distinction 形成鲜明对比。\n• 典故与语境：源自法语，强调感官或思维中极难察觉的层次，常用于描述艺术、语言或人际互动中那种“只可意会”的精妙之处。\n• 近义词辨析：与 subtlety 相比，nuance 更侧重于多层次的细微差异，而 distinction 则显得较为生硬且界线分明。',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: '细微差异' },
-      { phrase: 'cultural nuances', translation: '文化上的细微差异' },
+      { phrase: 'capture the nuance', translation: '捕捉到细微差别' },
+      { phrase: 'a subtle nuance', translation: '一个微妙的细节' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: '她注意到他语气中的细微差异。' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: '理解文化上的细微差异有助于避免误会。',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: '译者不懈地努力，以捕捉原诗中那细微的差别。',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: '他的语气中有一种微妙的细节，暗示他并未完全信服。',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: '细微之处' },
-      { term: 'fine distinctions', translation: '细微区别' },
+      { term: 'subtlety', translation: '微妙之处' },
+      { term: 'refinement', translation: '精致细节' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: '明显性' },
     ],
   },
   en: {
-    definition: 'details; subtle differences',
-    sentenceTranslation: 'Even the smallest subtle details can create the biggest differences.',
-    contextualExplanation:
-      'Here, nuances means small, hard-to-notice details or differences that can shape the overall result.',
+    definition: 'subtle distinction',
+    sentenceTranslation: 'The smallest nuances can make the biggest differences.',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'Nuance highlights hidden depths, contrasting sharply with coarse distinctions.\n• Origin & Context: Derived from French, it evokes subtle shades of meaning or sensory perception, capturing things felt rather than stated.\n• Synonym Nuance: Unlike subtlety, nuance emphasizes layered complexity; distinction denotes rigid, clearly marked boundaries.',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: 'small, hard-to-notice differences' },
-      { phrase: 'cultural nuances', translation: 'subtle differences shaped by culture' },
+      { phrase: 'capture the nuance', translation: 'grasp the subtle quality' },
+      { phrase: 'a subtle nuance', translation: 'a delicate distinction' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: 'She noticed small differences in his tone.' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: 'Understanding subtle cultural differences helps prevent misunderstandings.',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: 'The translator strove to preserve the delicate shades of meaning in the poem.',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: 'His tone carries a quiet undertone suggesting lingering doubt.',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: 'small subtle details' },
-      { term: 'fine distinctions', translation: 'small but meaningful differences' },
+      { term: 'subtlety', translation: 'delicate aspect' },
+      { term: 'refinement', translation: 'fine precision' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: 'blatant clarity' },
     ],
   },
   ja: {
-    definition: '細部、わずかな違い',
-    sentenceTranslation: 'ほんのわずかなニュアンスが、最も大きな違いを生むことがあります。',
-    contextualExplanation:
-      'ここでの nuances は、気づきにくくても全体の結果に影響する細部やわずかな違いを指します。',
+    definition: '微妙なニュアンス、微細な差異',
+    sentenceTranslation: 'ほんのわずかなニュアンスが、時に最も大きな違いを生み出します。',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'nuance は隠れた繊細なディテールを指し、大まかな distinction と鮮やかに対比されます。\n• 由来と語境：フランス語由来で、感覚や思考における極めて捉えにくい陰影を表し、言葉や芸術の「言外の妙」によく用いられます。\n• 類義語の識別：subtlety に比べ、nuance は多面的な微細差に重きを置き、distinction はより明確で硬い境界線を示します。',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: '微妙なニュアンス' },
-      { phrase: 'cultural nuances', translation: '文化的なニュアンス' },
+      { phrase: 'capture the nuance', translation: 'ニュアンスを捉える' },
+      { phrase: 'a subtle nuance', translation: '微妙なニュアンス' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: '彼女は彼の口調の微妙なニュアンスに気づきました。' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: '文化的なニュアンスを理解すると、誤解を防ぎやすくなります。',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: '翻訳者は原詩の微細なニュアンスを捉えるため、熱心に取り組みました。',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: '彼の口調には、完全には納得していないことを匂わせる微妙なニュアンスがありました。',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: '微妙な点' },
-      { term: 'fine distinctions', translation: '細かな違い' },
+      { term: 'subtlety', translation: '繊細さ' },
+      { term: 'refinement', translation: '洗練された細部' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: '明白さ' },
     ],
   },
   ko: {
-    definition: '세부적인 차이, 미묘한 차이',
-    sentenceTranslation: '아주 작은 뉘앙스가 가장 큰 차이를 만들 수 있습니다.',
-    contextualExplanation:
-      '여기서 nuances는 눈에 잘 띄지 않지만 전체 결과에 영향을 줄 수 있는 세부적이거나 미묘한 차이를 뜻합니다.',
+    definition: '미묘한 차이, 뉘앙스',
+    sentenceTranslation: '가장 작은 뉘앙스가 가장 큰 차이를 만들어내기도 합니다.',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'nuance는 눈에 잘 띄지 않는 숨은 디테일을 뜻하며, 단순한 distinction과 뚜렷이 대비됩니다。\n• 유래와 맥락：프랑스어에서 유래하여 감각이나 사고 속 섬세한 결을 강조하며, 예술이나 대화 속 \'말로 다 표현 못할\' 정교함에 쓰입니다。\n• 유의어 구별：subtlety에 비해 nuance는 겹겹이 쌓인 미세한 차이에 초점을 맞추며, distinction은 단단하고 명확한 구분을 나타냅니다。',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: '미묘한 뉘앙스' },
-      { phrase: 'cultural nuances', translation: '문화적 뉘앙스' },
+      { phrase: 'capture the nuance', translation: '미묘한 차이를 포착하다' },
+      { phrase: 'a subtle nuance', translation: '섬세한 뉘앙스' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: '그녀는 그의 말투에서 미묘한 뉘앙스를 알아챘습니다.' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: '문화적 뉘앙스를 이해하면 오해를 예방하는 데 도움이 됩니다.',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: '번역가는 원시의 미묘한 뉘앙스를 담아내기 위해 끊임없이 노력했습니다。',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: '그의 어조에는 완전히 납득하지 못했음을 암시하는 미묘한 뉘앙스가 묻어납니다。',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: '미묘한 점' },
-      { term: 'fine distinctions', translation: '세밀한 차이' },
+      { term: 'subtlety', translation: '섬세함' },
+      { term: 'refinement', translation: '정교한 세부사항' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: '명백함' },
     ],
   },
   es: {
-    definition: 'detalles, diferencias sutiles',
-    sentenceTranslation: 'Los matices más pequeños pueden marcar las mayores diferencias.',
-    contextualExplanation:
-      'Aquí, nuances se refiere a detalles o diferencias difíciles de percibir que pueden influir en el resultado general.',
+    definition: 'matiz, diferencia sutil',
+    sentenceTranslation: 'Los matices más sutiles suelen marcar las mayores diferencias.',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'Nuance denota detalles sutiles e implícitos, en claro contraste con una simple distinction.\n• Origen y contexto: Proviene del francés y evoca tonalidades o capas casi imperceptibles, común en el arte y la comunicación tácita.\n• Matiz frente a sinónimos: Frente a subtlety, nuance enfatiza múltiples capas de significado; distinction marca límites rígidos y definidos.',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: 'matices sutiles' },
-      { phrase: 'cultural nuances', translation: 'matices culturales' },
+      { phrase: 'capture the nuance', translation: 'captar el matiz' },
+      { phrase: 'a subtle nuance', translation: 'un matiz sutil' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: 'Ella notó matices sutiles en su tono.' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: 'Comprender los matices culturales ayuda a evitar malentendidos.',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: 'El traductor trabajó sin descanso para captar el matiz del poema original.',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: 'Hay un matiz sutil en su tono que insinúa que no está totalmente convencido.',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: 'sutilezas' },
-      { term: 'fine distinctions', translation: 'distinciones sutiles' },
+      { term: 'subtlety', translation: 'sutileza' },
+      { term: 'refinement', translation: 'refinamiento' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: 'obviedad' },
     ],
   },
   fr: {
-    definition: 'détails, différences subtiles',
-    sentenceTranslation: 'Les nuances les plus subtiles peuvent faire les plus grandes différences.',
-    contextualExplanation:
-      'Ici, nuances désigne des détails ou des différences difficiles à percevoir qui peuvent influencer le résultat global.',
+    definition: 'nuance, distinction subtile',
+    sentenceTranslation: 'Les nuances les plus subtiles créent souvent les plus grands impacts.',
+    contextualExplanation: JSON.stringify({
+      metrics: {
+        formality: 7,
+        intensity: 3,
+      },
+      insider_insight:
+        'Nuance évoque des détails implicites, en contraste frappant avec une distinction rigide.\n• Origine et contexte: D\'origine française, le mot souligne des degrés de sens très fins dans l\'art ou les échanges humains tacites.\n• Distinction des synonymes: Par rapport à subtlety, nuance accentue la richesse des strates, tandis que distinction trace des frontières nettes.',
+    }),
     collocations: [
-      { phrase: 'subtle nuances', translation: 'nuances subtiles' },
-      { phrase: 'cultural nuances', translation: 'nuances culturelles' },
+      { phrase: 'capture the nuance', translation: 'saisir la nuance' },
+      { phrase: 'a subtle nuance', translation: 'une nuance subtile' },
     ],
     examples: [
-      { sentence: 'She noticed subtle nuances in his tone.', translation: 'Elle a remarqué des nuances subtiles dans son ton.' },
       {
-        sentence: 'Understanding cultural nuances helps prevent misunderstandings.',
-        translation: 'Comprendre les nuances culturelles aide à éviter les malentendus.',
+        sentence: 'The translator worked tirelessly to capture the nuance of the original poem.',
+        translation: 'Le traducteur a travaillé sans relâche pour saisir la nuance du poème original.',
+      },
+      {
+        sentence: 'There is a subtle nuance in his tone that suggests he is not entirely convinced.',
+        translation: 'Il y a une nuance subtile dans son ton suggérant qu’il n’est pas totalement convaincu.',
       },
     ],
     synonyms: [
-      { term: 'subtleties', translation: 'subtilités' },
-      { term: 'fine distinctions', translation: 'distinctions fines' },
+      { term: 'subtlety', translation: 'subtilité' },
+      { term: 'refinement', translation: 'raffinement' },
+    ],
+    antonyms: [
+      { term: 'obviousness', translation: 'évidence' },
     ],
   },
 };
@@ -657,14 +744,14 @@ async function buildDefaultExperienceCardContent(
   replyLanguage?: string,
   base: Partial<Awaited<ReturnType<typeof generateCardContent>>> = {}
 ): Promise<Awaited<ReturnType<typeof generateCardContent>>> {
-  const targetWord = 'nuances';
+  const targetWord = 'nuance';
   const originalSentence = 'The smallest nuances can make the biggest differences.';
   const copy = DEFAULT_EXPERIENCE_COPY[
     resolveDemoReplyLanguage(replyLanguage)
   ];
   return {
     ...base,
-    normalizedTargetWord: targetWord,
+    normalizedTargetWord: base.normalizedTargetWord || targetWord,
     meaningInContext: copy.definition,
     isLikelyTypo: false,
     correctedTargetWord: undefined,
@@ -689,7 +776,7 @@ async function buildDefaultExperienceCardContent(
       .join('\n'),
     semanticRelations: stringifySemanticRelations({
       synonyms: copy.synonyms,
-      antonyms: [],
+      antonyms: copy.antonyms || [],
     }),
     phoneticTranscription:
       base.phoneticTranscription || DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION,

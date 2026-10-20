@@ -289,6 +289,7 @@ type PartialGeneratedCardFields = {
   isLikelyTypo?: boolean;
   typoReason?: string;
   partOfSpeech?: string;
+  phoneticTranscription?: string;
   definition?: string;
   sentenceTranslation?: string;
   culturalBackground?: string;
@@ -531,6 +532,7 @@ function parseIncompleteGenerateCardJSON(
     isLikelyTypo: extractPartialJSONBoolean(raw, 'isLikelyTypo'),
     typoReason: extractPartialJSONString(raw, 'typoReason'),
     partOfSpeech: extractPartialJSONString(raw, 'partOfSpeech'),
+    phoneticTranscription: extractPartialJSONString(raw, 'phoneticTranscription'),
     definition: extractPartialJSONString(raw, 'definition'),
     sentenceTranslation: extractPartialJSONString(raw, 'sentenceTranslation'),
     culturalBackground: extractPartialJSONCulturalBackground(raw),
@@ -640,7 +642,7 @@ function buildPartialGhostCard(params: {
     collocationsText: usagePairs.collocations,
     semanticRelationsText: fields.semanticRelations || '',
     note: '',
-    phoneticTranscription: null,
+    phoneticTranscription: fields.phoneticTranscription || null,
     sourceSentence,
     manualMode: false,
     addedToDeck: true,
@@ -1945,8 +1947,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               : [];
             const simulatedPayload = JSON.stringify(
               {
-                normalizedTargetWord: generated.suggestedWord || word,
+                normalizedTargetWord: generated.suggestedWord || 'nuance',
                 partOfSpeech: generated.partOfSpeech || 'noun',
+                phoneticTranscription: generated.phoneticTranscription || '/ˈnuː.ɑːns/',
                 definition: generated.definition || '',
                 sentenceTranslation:
                   demoContextSections.sentenceTranslation || sentenceForCard,
@@ -1981,7 +1984,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               2
             );
 
-            const chunkSize = 4;
+            const chunkSize = 16;
             for (let i = 0; i < simulatedPayload.length; i += chunkSize) {
               const chunk = simulatedPayload.slice(i, i + chunkSize);
               handleStreamToken(chunk);
@@ -3014,7 +3017,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
         >
-          {!shouldHideSourcePanels && originalImageUri ? (
+          {!shouldHideSourcePanels && (croppedCardImageUri || originalImageUri) ? (
             <View
               style={[
                 styles.block,
@@ -3034,7 +3037,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 {tUI(uiLanguage, 'create.originalImage')}
               </Text>
               <Image
-                source={{ uri: originalImageUri }}
+                source={{ uri: croppedCardImageUri || originalImageUri || '' }}
                 style={[
                   styles.originalImage as ImageStyle,
                   { backgroundColor: palette.modalOptionBg },

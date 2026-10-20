@@ -2,7 +2,7 @@ export const DEFAULT_EXPERIENCE_CARD_SOURCE = 'Nuances';
 export const DEFAULT_EXPERIENCE_CARD_SENTENCE =
   'The smallest nuances can make the biggest differences.';
 export const DEFAULT_EXPERIENCE_TARGET_WORD = 'nuances';
-export const DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION = '/ˈnuː.ɑːn.sɪz/';
+export const DEFAULT_EXPERIENCE_PHONETIC_TRANSCRIPTION = '/ˈnuː.ɑːns/';
 
 type DefaultExperiencePronunciationCandidate = {
   sourceApp?: string | null;
@@ -38,9 +38,13 @@ export function shouldUseDefaultExperiencePronunciation(
     normalize(candidate.originalSentence) ===
       normalize(DEFAULT_EXPERIENCE_CARD_SENTENCE);
 
+  const targetWord = normalize(candidate.targetWord);
+  const isTargetMatch =
+    targetWord === normalize(DEFAULT_EXPERIENCE_TARGET_WORD) ||
+    targetWord === 'nuance';
+
   return (
-    normalize(candidate.targetWord) ===
-      normalize(DEFAULT_EXPERIENCE_TARGET_WORD) &&
+    isTargetMatch &&
     (hasDefaultQuestionId || isDefaultCard)
   );
 }

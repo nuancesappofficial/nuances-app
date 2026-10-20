@@ -16,6 +16,7 @@ export {
   type InsiderInsightBullet,
   type StructuredInsiderInsight,
   parseCulturalBackgroundInsight,
+  parseStreamingCulturalBackgroundInsight,
   extractCulturalBackgroundDisplayText,
   splitInsiderInsight,
 } from './culturalBackgroundInsight';

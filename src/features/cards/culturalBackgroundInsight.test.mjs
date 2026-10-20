@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 import {
   parseCulturalBackgroundInsight,
+  parseStreamingCulturalBackgroundInsight,
   extractCulturalBackgroundDisplayText,
   splitInsiderInsight,
 } from './culturalBackgroundInsight.ts';
@@ -201,5 +207,41 @@ test('splitInsiderInsight handles empty or null safely', () => {
   assert.deepEqual(splitInsiderInsight(''), { hookText: '', detailBullets: [] });
   assert.deepEqual(splitInsiderInsight(null), { hookText: '', detailBullets: [] });
   assert.deepEqual(splitInsiderInsight(undefined), { hookText: '', detailBullets: [] });
+});
+
+test('default experience demo card contextualExplanation contains structured metrics and 2-part insight', () => {
+  const filePath = join(__dirname, '../../services/ai/aiActionService.ts');
+  const source = readFileSync(filePath, 'utf8');
+
+  assert.ok(source.includes("'zh-TW': {"));
+  assert.ok(source.includes("definition: '細微差別'"));
+  assert.ok(source.includes("formality: 7"));
+  assert.ok(source.includes("intensity: 3"));
+  assert.ok(source.includes('nuance 意指隱晦的細節'));
+  assert.ok(source.includes('典故與語境'));
+  assert.ok(source.includes('近義詞辨析'));
+  assert.ok(source.includes("phrase: 'capture the nuance'"));
+  assert.ok(source.includes("phrase: 'a subtle nuance'"));
+  assert.ok(source.includes("term: 'subtlety'"));
+  assert.ok(source.includes("term: 'obviousness'"));
+});
+
+test('parseStreamingCulturalBackgroundInsight parses partial streaming JSON and extracts metrics and insight', () => {
+  const partial = '{"metrics": {"formality": 7, "intensity": 3}, "insider_insight": "nuance 意指隱晦的細節';
+  const result = parseStreamingCulturalBackgroundInsight(partial);
+  assert.ok(result);
+  assert.equal(result.metrics.formality, 7);
+  assert.equal(result.metrics.intensity, 3);
+  assert.equal(result.insider_insight, 'nuance 意指隱晦的細節');
+});
+
+test('extractCulturalBackgroundDisplayText never returns raw JSON for partial JSON', () => {
+  const partialNoInsight = '{"metrics": {"formality": 7, "intensity": 3}';
+  const result = extractCulturalBackgroundDisplayText(partialNoInsight);
+  assert.equal(result, '');
+
+  const partialWithInsight = '{"metrics": {"formality": 7}, "insider_insight": "最細微的差別';
+  const resultWithInsight = extractCulturalBackgroundDisplayText(partialWithInsight);
+  assert.equal(resultWithInsight, '最細微的差別');
 });
 

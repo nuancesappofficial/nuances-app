@@ -67,13 +67,55 @@ export function parseCulturalBackgroundInsight(
   return null;
 }
 
+export function parseStreamingCulturalBackgroundInsight(
+  rawText: string | undefined | null
+): CulturalBackgroundInsight | null {
+  if (!rawText) return null;
+  const complete = parseCulturalBackgroundInsight(rawText);
+  if (complete) return complete;
+
+  const sanitized = rawText.replace(/```(json)?/gi, '').trim();
+  if (!sanitized.startsWith('{')) return null;
+
+  const parseNumber = (matchStr: string | undefined): number | null => {
+    if (!matchStr) return null;
+    const num = parseInt(matchStr, 10);
+    return !Number.isNaN(num) ? Math.max(1, Math.min(10, num)) : null;
+  };
+  const formalityMatch = sanitized.match(/"formality"\s*:\s*(\d+)/);
+  const intensityMatch = sanitized.match(/"intensity"\s*:\s*(\d+)/);
+  const insightMatch = sanitized.match(/"insider_insight"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (formalityMatch || intensityMatch || insightMatch) {
+    let extractedInsight = '';
+    if (insightMatch && insightMatch[1]) {
+      try {
+        extractedInsight = JSON.parse(`"${insightMatch[1]}"`);
+      } catch {
+        extractedInsight = insightMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+      }
+    }
+    return {
+      metrics: {
+        formality: parseNumber(formalityMatch?.[1]),
+        intensity: parseNumber(intensityMatch?.[1]),
+      },
+      insider_insight: extractedInsight,
+    };
+  }
+  return null;
+}
+
 export function extractCulturalBackgroundDisplayText(
   rawText: string | undefined | null
 ): string {
   if (!rawText) return '';
-  const insight = parseCulturalBackgroundInsight(rawText);
+  const insight = parseStreamingCulturalBackgroundInsight(rawText);
   if (insight && insight.insider_insight) {
     return insight.insider_insight;
+  }
+  const clean = rawText.trim();
+  if (clean.startsWith('{') || clean.startsWith('```json')) {
+    return '';
   }
   return rawText;
 }
