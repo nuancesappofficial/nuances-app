@@ -30,7 +30,7 @@ sent.
 | `app_opened`                           | App becomes ready for an authenticated or anonymous user                                                                                                                             |
 | `onboarding_started`                   | Onboarding is presented                                                                                                                                                              |
 | `onboarding_completed`                 | Onboarding data is saved successfully                                                                                                                                                |
-| `video_tutorial_completed`             | First-run Video Tour is completed; manual replays are excluded                                                                                                                       |
+| `video_tutorial_completed`             | First-run Video Tour is completed; manual replays are excluded (bypassed in current first-run journey)                                               |
 | `interactive_tutorial_completed`       | Interactive first-run Tutorial is completed                                                                                                                                          |
 | `card_creation_started`                | User starts saving selected generated cards                                                                                                                                          |
 | `card_creation_succeeded`              | Cards are saved locally and queued for sync                                                                                                                                          |
@@ -65,14 +65,13 @@ characters.
 Create these PostHog insights:
 
 1. **Freemium User Journey funnel**
-   `onboarding_completed` → `video_tutorial_completed` →
-   `interactive_tutorial_completed` → `freemium_quota_updated` →
-   `paywall_viewed`
+   `onboarding_completed` → `interactive_tutorial_completed` →
+   `freemium_quota_updated` → `paywall_viewed`
 
-   Configure the fourth step with `quota_used = 20`. Configure the final step
+   Configure the third step with `quota_used = 20`. Configure the final step
    with `source = create_card` and `trigger_source = lite_card_cap`. Use unique
    users, ordered steps, and a 30-day conversion window. This measures where a
-   freemium learner stops between setup, the two tutorials, using the full
+   freemium learner stops between setup, the interactive tutorial, using the full
    Starter Allowance, and seeing the upgrade prompt.
 
 2. **Onboarding completion**

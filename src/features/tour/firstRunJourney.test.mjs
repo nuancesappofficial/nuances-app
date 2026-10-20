@@ -9,20 +9,26 @@ import {
   shouldOpenStarterPaywall,
 } from './firstRunJourney.ts';
 
-test('a new user completes onboarding, then video tour, then tutorial', () => {
+test('a new user completes onboarding, directly entering the interactive tutorial', () => {
   let journey = createFirstRunJourney();
 
   assert.equal(journey.stage, 'onboarding');
 
   journey = advanceFirstRunJourney(journey, 'onboarding-completed');
-  assert.equal(journey.stage, 'video-tour');
-
-  journey = advanceFirstRunJourney(journey, 'video-tour-completed');
   assert.equal(journey.stage, 'tutorial');
   assert.equal(getFirstRunTutorialStartTab(journey), 'cache');
 
   journey = advanceFirstRunJourney(journey, 'tutorial-completed');
   assert.equal(journey.stage, 'app');
+});
+
+test('a legacy or manual video tour completion still advances to tutorial', () => {
+  const journey = advanceFirstRunJourney(
+    { stage: 'video-tour' },
+    'video-tour-completed'
+  );
+  assert.equal(journey.stage, 'tutorial');
+  assert.equal(getFirstRunTutorialStartTab(journey), 'cache');
 });
 
 test('the tutorial never opens a membership paywall for card generation', () => {
@@ -58,7 +64,6 @@ test('finishing the tutorial quiz never opens a paywall', () => {
 test('skipping or completing the tutorial advances the journey directly to the app stage', () => {
   let journey = createFirstRunJourney();
   journey = advanceFirstRunJourney(journey, 'onboarding-completed');
-  journey = advanceFirstRunJourney(journey, 'video-tour-completed');
   assert.equal(journey.stage, 'tutorial');
 
   journey = advanceFirstRunJourney(journey, 'tutorial-completed');
