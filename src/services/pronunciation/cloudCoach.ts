@@ -381,3 +381,42 @@ export async function assessPronunciationCloud(params: {
     raw: result?.raw,
   };
 }
+
+/**
+ * Builds an IPA line for the reference text from Azure's per-phoneme
+ * assessment (the *expected* phonemes, so it doesn't depend on how well the
+ * user spoke). Phonemes are grouped back into words via each segment's word
+ * text. Returns null unless every reference word is covered, so a partial or
+ * misaligned result is never stored. Azure gives no stress marks.
+ */
+export function buildIpaFromAssessment(
+  referenceText: string,
+  letterSegments: CloudLetterSegmentFeedback[]
+): string | null {
+  const referenceWords = referenceText
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, '').toLowerCase())
+    .filter(Boolean);
+  if (referenceWords.length === 0 || letterSegments.length === 0) return null;
+
+  const words: Array<{ text: string; phonemes: string[] }> = [];
+  for (const segment of letterSegments) {
+    const text = (segment.text || '').trim().toLowerCase();
+    const phoneme = (segment.phoneme || '').trim();
+    if (!text || !phoneme) return null;
+    const last = words[words.length - 1];
+    if (last && last.text === text) {
+      last.phonemes.push(phoneme);
+    } else {
+      words.push({ text, phonemes: [phoneme] });
+    }
+  }
+  if (words.length !== referenceWords.length) return null;
+  if (words.some((word, index) => word.text.replace(/[^a-z']/g, '') !== referenceWords[index])) {
+    return null;
+  }
+  const ipa = words.map((word) => word.phonemes.join('')).join(' ');
+  return ipa ? `/${ipa}/` : null;
+}
+

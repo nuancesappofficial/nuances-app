@@ -359,6 +359,17 @@ function buildContextualExplanation(result: GenerateCardResult, originalSentence
   });
 }
 
+/** Keeps a plausible IPA string, wrapped in slashes; anything else → null. */
+export function normalizeIpaTranscription(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/^[\/\[]+|[\/\]]+$/g, '').trim();
+  if (!trimmed || trimmed.length > 118) return null;
+  // Must contain letters and must not look like prose / another script.
+  if (!/[a-zɑɐɒæɔəɚɛɜɝɪʊʌθðŋʃʒʔɹɾɡ]/i.test(trimmed)) return null;
+  if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(trimmed)) return null;
+  return `/${trimmed}/`;
+}
+
 function normalizeGeneratedCardResult(
   result: GenerateCardResult,
   targetWord: string,
@@ -405,12 +416,16 @@ function normalizeGeneratedCardResult(
     example,
     frequentCollocations,
     semanticRelations: stringifySemanticRelations(result.semanticRelations),
+    // Prefer the AI's IPA (it sees the final card subject, phrases included);
+    // the bundled 7k-word list is only a last resort.
     phoneticTranscription:
+      normalizeIpaTranscription(
+        result.phoneticTranscription ||
+          result.pronunciation ||
+          result.ipa ||
+          result.phonetic
+      ) ||
       localPhonetic ||
-      result.phoneticTranscription ||
-      result.pronunciation ||
-      result.ipa ||
-      result.phonetic ||
       null,
     tags: result.tags || [],
   };

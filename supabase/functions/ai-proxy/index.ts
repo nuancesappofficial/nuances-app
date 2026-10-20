@@ -3886,6 +3886,7 @@ Meaning here in ${replyLanguage.label}: "${definition}"
 3. Write one complete ${sourceLanguage.label} example sentence per collocation. CRITICAL FOR EXAMPLES: The example MUST naturally use that exact collocation and MUST be a brand-new sentence completely different from the source text "${originalSentence}". NEVER copy, quote, or paraphrase the source sentence. Then give the complete ${replyLanguage.label} translation.
 4. Give up to ${sectionBudget.synonymCount} sense-specific synonym(s) and ${sectionBudget.antonymCount} true antonym(s), only when they naturally exist.
 ${isLowContextSource ? 'For a standalone lookup, use common usage for the resolved meaning.' : ''}
+${sourceLanguage.code === 'en' ? `5. phoneticTranscription: General American IPA for the card subject "${canonicalSubject}" exactly as written (keep its inflection), as used in this sentence's sense. Wrap in slashes, mark primary stress with ˈ (and secondary with ˌ when present), separate the words of a phrase with spaces, no syllable dots. Examples: "nuances" -> "/ˈnuːɑːnsɪz/", "hold water" -> "/hoʊld ˈwɔtɚ/". Use an empty string if unsure.` : ''}
 
 Return JSON in exactly this order:
 {
@@ -3897,7 +3898,7 @@ Return JSON in exactly this order:
   "synonyms": [{ "term": "sense-specific synonym", "translation": "short translation" }],
   "antonyms": [{ "term": "true antonym", "translation": "short translation" }],
   "usagePairs": [{ "phrase": "real ${sourceLanguage.label} collocation", "translation": "${replyLanguage.label} translation", "exampleSentence": "brand-new ${sourceLanguage.label} example — NEVER the source sentence", "exampleTranslation": "complete ${replyLanguage.label} translation" }],
-  "tags": ["max 3 short tags"]
+  "tags": ["max 3 short tags"]${sourceLanguage.code === 'en' ? ',\n  "phoneticTranscription": "/IPA/"' : ''}
 }
 `;
 
