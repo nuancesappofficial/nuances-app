@@ -993,30 +993,17 @@ export default function App() {
         });
       };
 
-      const updateActionLabel = tUI(uiLanguage, 'appVersion.updateAction') || '點我更新';
-      const actions = status.isRequired
-        ? [{ text: updateActionLabel, onPress: openUpdateUrl }]
-        : [
-            {
-              text: tUI(uiLanguage, 'appVersion.laterAction'),
-              style: 'cancel' as const,
-              onPress: () => {
-                isPromptingAlertRef.current = false;
-              },
-            },
-            { text: updateActionLabel, onPress: openUpdateUrl },
-          ];
+      const updateActionLabel = tUI(uiLanguage, 'appVersion.updateAction') || '更新';
+      const actions = [{ text: updateActionLabel, onPress: openUpdateUrl }];
 
       isPromptingAlertRef.current = true;
       setTimeout(() => {
         Alert.alert(
-          tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredTitle' : 'appVersion.updateAvailableTitle'),
-          formatStoreText(
-            tUI(uiLanguage, status.isRequired ? 'appVersion.updateRequiredBody' : 'appVersion.updateAvailableBody')
-          ),
+          '',
+          tUI(uiLanguage, 'appVersion.updateAvailableBody'),
           actions,
           {
-            cancelable: !status.isRequired,
+            cancelable: false,
             onDismiss: () => {
               isPromptingAlertRef.current = false;
             },

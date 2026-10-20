@@ -407,13 +407,11 @@ export const ADDITIONAL_UI_STRINGS: Record<
       'App Store 更新リンクはまだ設定されていません。',
     'appVersion.updateUnavailableOpenFailed':
       'App Storeのアップデートページを開けません。後でもう一度試してください。',
-    'appVersion.updateRequiredTitle': 'アップデートが必要です',
+    'appVersion.updateRequiredTitle': '利用可能なアップデート',
     'appVersion.updateAvailableTitle': '利用可能なアップデート',
-    'appVersion.updateRequiredBody':
-      'サポートされている最新バージョンを引き続き使用するには、App Store から Nuance を更新してください。',
-    'appVersion.updateAvailableBody':
-      '新しいバージョンのNuancesが利用可能です。最新の修正と改善については、App Store からアップデートしてください。',
-    'appVersion.updateAction': 'タップして更新',
+    'appVersion.updateRequiredBody': '利用可能なアップデートがあります。',
+    'appVersion.updateAvailableBody': '利用可能なアップデートがあります。',
+    'appVersion.updateAction': '更新',
     'appVersion.laterAction': '後で',
     'auth.connecting': '接続中...',
     'auth.continueWithApple': 'Appleで続ける',
@@ -910,13 +908,11 @@ export const ADDITIONAL_UI_STRINGS: Record<
       'App Store 업데이트 링크가 아직 구성되지 않았습니다.',
     'appVersion.updateUnavailableOpenFailed':
       'App Store 업데이트 페이지를 열 수 없습니다. 나중에 다시 시도해 주세요.',
-    'appVersion.updateRequiredTitle': '업데이트 필요',
+    'appVersion.updateRequiredTitle': '업데이트 가능',
     'appVersion.updateAvailableTitle': '업데이트 가능',
-    'appVersion.updateRequiredBody':
-      '지원되는 최신 버전을 계속 사용하려면 App Store에서 Nuances를 업데이트하세요.',
-    'appVersion.updateAvailableBody':
-      'Nuances의 최신 버전을 사용할 수 있습니다. 최신 수정 사항 및 개선 사항을 보려면 App Store에서 업데이트하세요.',
-    'appVersion.updateAction': '탭하여 업데이트',
+    'appVersion.updateRequiredBody': '사용 가능한 업데이트가 있습니다.',
+    'appVersion.updateAvailableBody': '사용 가능한 업데이트가 있습니다.',
+    'appVersion.updateAction': '업데이트',
     'appVersion.laterAction': '나중에',
     'auth.connecting': '연결 중...',
     'auth.continueWithApple': 'Apple과 함께 계속하세요',
@@ -1425,13 +1421,11 @@ export const ADDITIONAL_UI_STRINGS: Record<
       'El enlace de actualización de la App Store aún no está configurado.',
     'appVersion.updateUnavailableOpenFailed':
       'No se puede abrir la página de actualización de la App Store. Inténtelo de nuevo más tarde.',
-    'appVersion.updateRequiredTitle': 'Actualización requerida',
+    'appVersion.updateRequiredTitle': 'Actualización disponible',
     'appVersion.updateAvailableTitle': 'Actualización disponible',
-    'appVersion.updateRequiredBody':
-      'Actualice Nuances desde la App Store para continuar usando la última versión compatible.',
-    'appVersion.updateAvailableBody':
-      'Hay disponible una versión más reciente de Nuances. Actualice desde App Store para obtener las últimas correcciones y mejoras.',
-    'appVersion.updateAction': 'Toca para actualizar',
+    'appVersion.updateRequiredBody': 'Hay una actualización disponible.',
+    'appVersion.updateAvailableBody': 'Hay una actualización disponible.',
+    'appVersion.updateAction': 'Actualizar',
     'appVersion.laterAction': 'Más tarde',
     'auth.connecting': 'Conectando...',
     'auth.continueWithApple': 'Continuar con Apple',
@@ -1945,13 +1939,11 @@ export const ADDITIONAL_UI_STRINGS: Record<
       "Le lien de mise à jour de l'App Store n'est pas encore configuré.",
     'appVersion.updateUnavailableOpenFailed':
       "Impossible d'ouvrir la page de mise à jour de l'App Store. Veuillez réessayer plus tard.",
-    'appVersion.updateRequiredTitle': 'Mise à jour requise',
+    'appVersion.updateRequiredTitle': 'Mise à jour disponible',
     'appVersion.updateAvailableTitle': 'Mise à jour disponible',
-    'appVersion.updateRequiredBody':
-      "Veuillez mettre à jour Nuances depuis l'App Store pour continuer à utiliser la dernière version prise en charge.",
-    'appVersion.updateAvailableBody':
-      "Une version plus récente de Nuances est disponible. Mise à jour depuis l'App Store pour les derniers correctifs et améliorations.",
-    'appVersion.updateAction': 'Toucher pour mettre à jour',
+    'appVersion.updateRequiredBody': 'Une mise à jour est disponible.',
+    'appVersion.updateAvailableBody': 'Une mise à jour est disponible.',
+    'appVersion.updateAction': 'Mettre à jour',
     'appVersion.laterAction': 'Plus tard',
     'auth.connecting': 'Connexion...',
     'auth.continueWithApple': 'Continuer avec Apple',

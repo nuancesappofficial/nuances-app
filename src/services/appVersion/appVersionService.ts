@@ -163,12 +163,8 @@ function buildStatus(
     minimumSupportedVersion,
     minimumSupportedBuildNumber,
     updateUrl,
-    title: policy.message_title?.trim() || (isRequired ? 'Update required' : 'Update available'),
-    message:
-      policy.message_body?.trim() ||
-      (isRequired
-        ? `Please update Nuances from ${storeName} to continue using the latest supported version.`
-        : `A newer version of Nuances is available. Update from ${storeName} for the latest fixes and improvements.`),
+    title: policy.message_title?.trim() || '',
+    message: policy.message_body?.trim() || 'There is an update available.',
   };
 }
 

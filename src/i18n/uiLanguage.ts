@@ -839,13 +839,11 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
       'The App Store update link is not configured yet.',
     'appVersion.updateUnavailableOpenFailed':
       'Unable to open the App Store update page. Please try again later.',
-    'appVersion.updateRequiredTitle': 'Update required',
+    'appVersion.updateRequiredTitle': 'Update available',
     'appVersion.updateAvailableTitle': 'Update available',
-    'appVersion.updateRequiredBody':
-      'Please update Nuances from the App Store to continue using the latest supported version.',
-    'appVersion.updateAvailableBody':
-      'A newer version of Nuances is available. Update from the App Store for the latest fixes and improvements.',
-    'appVersion.updateAction': 'Tap to Update',
+    'appVersion.updateRequiredBody': 'There is an update available.',
+    'appVersion.updateAvailableBody': 'There is an update available.',
+    'appVersion.updateAction': 'Update',
     'appVersion.laterAction': 'Later',
     'auth.connecting': 'Connecting...',
     'auth.continueWithApple': 'Continue with Apple',
@@ -1314,13 +1312,11 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'appVersion.updateUnavailableNoUrl': 'App Store 更新連結尚未設定。',
     'appVersion.updateUnavailableOpenFailed':
       '無法開啟 App Store 更新頁面，請稍後再試。',
-    'appVersion.updateRequiredTitle': '需要更新',
-    'appVersion.updateAvailableTitle': '有新版本',
-    'appVersion.updateRequiredBody':
-      '請從 App Store 更新 Nuances，才能繼續使用目前支援的版本。',
-    'appVersion.updateAvailableBody':
-      'Nuances 有新版本可用。更新後可取得最新修正與改進。',
-    'appVersion.updateAction': '點我更新',
+    'appVersion.updateRequiredTitle': '發現新版本',
+    'appVersion.updateAvailableTitle': '發現新版本',
+    'appVersion.updateRequiredBody': '有新版本可用。',
+    'appVersion.updateAvailableBody': '有新版本可用。',
+    'appVersion.updateAction': '更新',
     'appVersion.laterAction': '稍後',
     'auth.connecting': '連線中...',
     'auth.continueWithApple': '使用 Apple 繼續',
@@ -1776,13 +1772,11 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'appVersion.updateUnavailableNoUrl': 'App Store 更新链接尚未设置。',
     'appVersion.updateUnavailableOpenFailed':
       '无法打开 App Store 更新页面，请稍后再试。',
-    'appVersion.updateRequiredTitle': '需要更新',
-    'appVersion.updateAvailableTitle': '有新版本',
-    'appVersion.updateRequiredBody':
-      '请从 App Store 更新 Nuances，才能继续使用当前支持的版本。',
-    'appVersion.updateAvailableBody':
-      'Nuances 有新版本可用。更新后可获得最新修复与改进。',
-    'appVersion.updateAction': '点我更新',
+    'appVersion.updateRequiredTitle': '发现新版本',
+    'appVersion.updateAvailableTitle': '发现新版本',
+    'appVersion.updateRequiredBody': '有新版本可用。',
+    'appVersion.updateAvailableBody': '有新版本可用。',
+    'appVersion.updateAction': '更新',
     'appVersion.laterAction': '稍后',
     'auth.connecting': '连接中...',
     'auth.continueWithApple': '使用 Apple 继续',
