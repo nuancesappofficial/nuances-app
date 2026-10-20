@@ -1,9 +1,10 @@
-name: Daily Auto Sync App Version Policy
+name: Auto Sync App Version Policy
 
 on:
   schedule:
-    # 每日台灣時間上午 09:00（UTC 01:00）自動巡邏一次
-    - cron: '0 1 * * *'
+    # 台灣時間（UTC+8）每 3 小時的 07 分自動巡邏（06:07, 09:07, 12:07, 15:07, 18:07, 21:07）
+    # 避開整點塞車高峰，並具備全天多次防跳過重試機制
+    - cron: '7 22,1,4,7,10,13 * * *'
   workflow_dispatch: # 支援在 GitHub 網頁手動一鍵觸發
 
 jobs:
