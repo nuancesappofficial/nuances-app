@@ -19,7 +19,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Q } from '@nozbe/watermelondb';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
   Extrapolation,
@@ -968,6 +967,15 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   useEffect(() => {
     if (!navigation?.addListener) return;
 
+    let rafId1: number | null = null;
+    let rafId2: number | null = null;
+    const cancelTransitionRafs = () => {
+      if (rafId1 !== null) cancelAnimationFrame(rafId1);
+      if (rafId2 !== null) cancelAnimationFrame(rafId2);
+      rafId1 = null;
+      rafId2 = null;
+    };
+
     const executePostFocusTasks = () => {
       if (postFocusTimerRef.current) {
         clearTimeout(postFocusTimerRef.current);
@@ -979,8 +987,13 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
 
     const offTransitionEnd = navigation.addListener('transitionEnd', () => {
       if (navigation.isFocused?.() ?? true) {
-        // Returned to CacheList and transition physically finished
-        executePostFocusTasks();
+        // Returned to CacheList and transition physically finished: cushion with 2 RAFs before heavy tasks
+        cancelTransitionRafs();
+        rafId1 = requestAnimationFrame(() => {
+          rafId2 = requestAnimationFrame(() => {
+            executePostFocusTasks();
+          });
+        });
       }
     });
 
@@ -996,7 +1009,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       setIsCacheFocused((prev) => (prev ? prev : true));
 
       if (isReturningFromBlurRef.current) {
-        // Returning from CreateCard: wait strictly for transitionEnd, with 500ms safety fallback
+        // Returning from CardDetail / CreateCard: wait strictly for transitionEnd + 2 RAFs, with 500ms safety fallback
         if (postFocusTimerRef.current) {
           clearTimeout(postFocusTimerRef.current);
         }
@@ -1012,6 +1025,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     });
 
     const offBlur = navigation.addListener('blur', () => {
+      cancelTransitionRafs();
       isReturningFromBlurRef.current = true;
       if (postFocusTimerRef.current) {
         clearTimeout(postFocusTimerRef.current);
@@ -1028,6 +1042,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     });
 
     return () => {
+      cancelTransitionRafs();
       if (restoreTimerRef.current) {
         clearTimeout(restoreTimerRef.current);
         restoreTimerRef.current = null;
@@ -1360,7 +1375,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
   );
 
   return (
-    <GestureHandlerRootView style={[styles.container, { backgroundColor: palette.screenBg }]}>
+    <View style={[styles.container, { backgroundColor: palette.screenBg }]}>
       <View style={[styles.vocabSection, { transform: [{ translateY: todayUploadSectionOffset }] }]}>
         <Text
           style={[
@@ -1491,7 +1506,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         onToggleFacing={toggleQuickCameraFacing}
         onCapture={() => void captureQuickPhoto()}
       />
-    </GestureHandlerRootView>
+    </View>
   );
 }
 

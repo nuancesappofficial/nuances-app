@@ -22,6 +22,7 @@ import {
   CardStyleInterpolators,
   TransitionPresets,
   createStackNavigator,
+  type StackCardStyleInterpolator,
   type StackNavigationOptions,
 } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,6 +112,12 @@ const IOS_CARD_SCREEN_OPTIONS: StackNavigationOptions = {
   ...TransitionPresets.SlideFromRightIOS,
   cardOverlayEnabled: false,
 };
+
+const forStationaryRoot: StackCardStyleInterpolator = () => ({
+  cardStyle: {
+    transform: [{ translateX: 0 }],
+  },
+});
 
 function getActiveRouteName(state?: unknown): string | null {
   let current: any = state;
@@ -227,6 +234,8 @@ const CacheStack = React.memo(function CacheStack({
             component={CacheScreenFlow}
             options={{
               ...IOS_CARD_SCREEN_OPTIONS,
+              cardStyleInterpolator:
+                Platform.OS === 'android' ? forStationaryRoot : CardStyleInterpolators.forHorizontalIOS,
               gestureEnabled: Platform.OS === 'ios',
             }}
           />
