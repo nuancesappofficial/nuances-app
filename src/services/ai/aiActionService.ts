@@ -12,6 +12,7 @@ import {
   buildGenerateCardStreamPayload,
 } from './generateCardPayload';
 import { parseCoreStream } from './parseCoreStream';
+import { normalizeSentenceTranslation } from './sentenceTranslation';
 import {
   isPhraseSubject,
   isProperNounSubject,
@@ -183,44 +184,6 @@ type EnrichmentResult = Partial<GenerateCardResult> & {
     exampleTranslation?: string;
   }>;
 };
-
-function isMostlyLatinText(value: string): boolean {
-  const compact = value.replace(/\s+/g, '');
-  if (!compact) return false;
-  const latinCount = (compact.match(/[A-Za-z]/g) || []).length;
-  const cjkKanaHangulCount = (compact.match(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
-  return latinCount > 0 && latinCount >= cjkKanaHangulCount;
-}
-
-function normalizeLatinQuoteMarks(value: string): string {
-  if (!isMostlyLatinText(value)) return value;
-  return value
-    .replace(/「([^」]+)」/g, '“$1”')
-    .replace(/『([^』]+)』/g, '“$1”')
-    .replace(/（([^）]+)）/g, '($1)');
-}
-
-function normalizeSentenceTranslation(value: unknown, originalSentence: string): string {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  const lines = raw
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const cleanOriginal = originalSentence.trim();
-  const sourceLine = cleanOriginal || lines[0] || '';
-  const normalizedFirstLine = normalizeLexicalSequence(lines[0] || '');
-  const normalizedOriginal = normalizeLexicalSequence(cleanOriginal);
-  const firstLineRepeatsSource =
-    Boolean(normalizedOriginal) &&
-    (normalizedFirstLine === normalizedOriginal ||
-      normalizedFirstLine.includes(normalizedOriginal) ||
-      normalizedOriginal.includes(normalizedFirstLine));
-  const translationLine = (firstLineRepeatsSource ? lines.slice(1) : lines).join(' ').trim();
-
-  const normalizedSource = normalizeLatinQuoteMarks(sourceLine || cleanOriginal);
-  const normalizedTranslation = normalizeLatinQuoteMarks(translationLine);
-  return [normalizedSource, normalizedTranslation].filter(Boolean).join('\n');
-}
 
 function normalizeDirectDefinition(value: unknown, fallback = ''): string {
   if (typeof value !== 'string') return fallback;

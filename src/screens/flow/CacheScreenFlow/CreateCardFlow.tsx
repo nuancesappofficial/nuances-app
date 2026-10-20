@@ -51,6 +51,7 @@ import {
   isLiteQuotaExceededError,
   isPremiumFeatureError,
 } from '@services/ai/edgeAiClient';
+import { respaceSourceSentenceFromContext } from '@services/ai/sentenceTranslation';
 import { prefetchEnglishNaturally, speakEnglishNaturally } from '@services/tts/localSpeech';
 import type { EntitlementSnapshot } from '@services/subscription/SubscriptionService';
 import SubscriptionService, {
@@ -2101,8 +2102,13 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           note: '',
           phoneticTranscription: generated.phoneticTranscription || null,
           // The source excerpt is selected locally. AI may quote or format it
-          // for translation, but must never replace the stored original.
-          sourceSentence: sentenceForCard,
+          // for translation, but must never replace the stored original —
+          // except to restore spaces OCR dropped ("anatural" → "a natural").
+          sourceSentence:
+            respaceSourceSentenceFromContext(
+              sentenceForCard,
+              generated.contextualExplanation
+            ) || sentenceForCard,
           manualMode: false,
           addedToDeck: true,
           selectedAlbumIds: [...selectedBatchAlbumIds],

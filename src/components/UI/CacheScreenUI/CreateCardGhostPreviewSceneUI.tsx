@@ -40,7 +40,7 @@ import { isPhraseLikeCardSubject, isSameCardUsage } from '../../../features/card
 import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
 import { tUI } from '../../../i18n/uiLanguage';
 import { formatPartOfSpeechLabel } from '../../../i18n/partOfSpeech';
-import { MODAL_CTA_COLOR, resolveThemeColors } from '../../../theme/colors';
+import { MODAL_CTA_COLOR, resolveFeedbackColors, resolveThemeColors } from '../../../theme/colors';
 import { useAppIsActive } from '../../../hooks/useAppIsActive';
 import {
   DEMO_GHOST_PREVIEW_TYPE_INTERVAL_MS,
@@ -174,19 +174,19 @@ export function buildSentenceTranslationText(card: GhostPreviewCard): string {
     sourceSentence: card.sourceSentence,
     manualMode: card.manualMode,
   }).sentenceTranslation;
+  // Compare letters only, so a line that merely restores dropped spaces
+  // ("a natural" vs. "anatural") still counts as the source sentence.
   const sourceComparable = card.sourceSentence
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .replace(/[^\p{L}\p{N}]+/gu, '');
   return sentenceTranslation
     .split('\n')
     .filter((line) => {
       const lineComparable = line
         .normalize('NFKC')
         .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, ' ')
-        .trim();
+        .replace(/[^\p{L}\p{N}]+/gu, '');
       return !sourceComparable || lineComparable !== sourceComparable;
     })
     .map((line) => quoteLearningTermInText(line, card.displayWord))
@@ -253,10 +253,14 @@ function getGhostCardTone(params: {
   };
 }
 
+// Same target-word mark as the card detail and quiz: highlighter background +
+// brand underline, no italic / coloured text.
+type TargetWordHighlight = { fg: string; bg: string; line: string };
+
 function ProgressiveText({
   text,
   highlightTerm,
-  highlightColor,
+  highlight,
   active,
   animate = true,
   style,
@@ -266,7 +270,7 @@ function ProgressiveText({
 }: {
   text: string;
   highlightTerm?: string;
-  highlightColor?: string;
+  highlight?: TargetWordHighlight;
   active: boolean;
   animate?: boolean;
   style: any;
@@ -413,11 +417,17 @@ function ProgressiveText({
       seg.isBold ? (
         <Text
           key={`bold-${i}-${seg.text}`}
-          style={{
-            fontWeight: '800',
-            color: highlightColor,
-            fontStyle: 'italic',
-          }}
+          style={
+            highlight
+              ? {
+                  fontWeight: '800',
+                  color: highlight.fg,
+                  backgroundColor: highlight.bg,
+                  textDecorationLine: 'underline',
+                  textDecorationColor: highlight.line,
+                }
+              : { fontWeight: '800' }
+          }
         >
           {seg.text}
         </Text>
@@ -425,7 +435,7 @@ function ProgressiveText({
         seg.text
       )
     );
-  }, [active, isSegmented, segments, visibleCount, textUnits, highlightColor]);
+  }, [active, isSegmented, segments, visibleCount, textUnits, highlight]);
 
   return (
     <FixedText {...textProps} style={style}>
@@ -516,7 +526,14 @@ export function CreateCardGhostPreviewScene({
     [isLight]
   );
   const previewWord = card?.displayWord || processingWord;
-  const targetWordHighlightColor = isLight ? '#2E7EC2' : '#4EAFF4';
+  const targetWordHighlight = React.useMemo<TargetWordHighlight>(() => {
+    const feedbackColors = resolveFeedbackColors(isLight ? 'light' : 'dark');
+    return {
+      fg: isLight ? '#111111' : '#F8FAFC',
+      bg: feedbackColors.brandSoft,
+      line: feedbackColors.brand,
+    };
+  }, [isLight]);
   const isPhraseCard = isPhraseLikeCardSubject(previewWord, card?.partOfSpeech);
   const previewPartOfSpeech = card?.partOfSpeech
     ? formatPartOfSpeechLabel(
@@ -991,7 +1008,7 @@ export function CreateCardGhostPreviewScene({
             <ProgressiveText
               text={previewSourceSentence}
               highlightTerm={previewWord}
-              highlightColor={targetWordHighlightColor}
+              highlight={targetWordHighlight}
               active={effectiveRevealState.showFrontSentence}
               animate={shouldAnimateText}
               style={[styles.previewSentenceText, { color: palette.textOnContainer }]}
@@ -999,7 +1016,7 @@ export function CreateCardGhostPreviewScene({
             <ProgressiveText
               text={previewTranslation}
               highlightTerm={previewWord}
-              highlightColor={targetWordHighlightColor}
+              highlight={targetWordHighlight}
               active={effectiveRevealState.showFrontTranslation}
               animate={shouldAnimateText}
               isStreamComplete={isTransStreamComplete}
