@@ -3218,7 +3218,7 @@ const localStyles = StyleSheet.create({
   secondaryActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 18,
   },
   secondaryActionBtn: {
     width: 42,
