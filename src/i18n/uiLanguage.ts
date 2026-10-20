@@ -64,6 +64,7 @@ export type UIStringKey =
   | 'cardDetail.showFullSentence'
   | 'cardDetail.hideFullSentence'
   | 'cardDetail.showFullContent'
+  | 'cardDetail.practicePronunciation'
   | 'cardDetail.hideFullContent'
   | 'cardDetail.showExampleSentences'
   | 'cardDetail.hideExampleSentences'
@@ -512,6 +513,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.showFullSentence': 'View full sentence',
     'cardDetail.hideFullSentence': 'Hide full sentence',
     'cardDetail.showFullContent': 'View full content',
+    'cardDetail.practicePronunciation': 'Practice',
     'cardDetail.hideFullContent': 'Hide full content',
     'cardDetail.showExampleSentences': 'View all examples',
     'cardDetail.hideExampleSentences': 'Hide extra examples',
@@ -1008,6 +1010,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.showFullSentence': '查看完整語句',
     'cardDetail.hideFullSentence': '收起完整語句',
     'cardDetail.showFullContent': '查看完整內容',
+    'cardDetail.practicePronunciation': '練發音',
     'cardDetail.hideFullContent': '收起完整內容',
     'cardDetail.showExampleSentences': '查看全部例句',
     'cardDetail.hideExampleSentences': '收起其他例句',
@@ -1468,6 +1471,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'cardDetail.showFullSentence': '查看完整语句',
     'cardDetail.hideFullSentence': '收起完整语句',
     'cardDetail.showFullContent': '查看完整内容',
+    'cardDetail.practicePronunciation': '练发音',
     'cardDetail.hideFullContent': '收起完整内容',
     'cardDetail.showExampleSentences': '查看全部例句',
     'cardDetail.hideExampleSentences': '收起其他例句',

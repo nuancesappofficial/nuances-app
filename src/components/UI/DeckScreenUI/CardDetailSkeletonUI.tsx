@@ -38,9 +38,10 @@ export default function CardDetailSkeletonUI({
     opacity: pulse.value,
   }));
 
-  const paperBg = isLightMode ? '#FFFFFF' : '#1E293B';
-  const paperBorder = isLightMode ? '#E2E8F0' : '#334155';
-  const blockColor = isLightMode ? '#E2E8F0' : '#334155';
+  // Dark values match the neutral card detail paper (#171E28 / #2B3544).
+  const paperBg = isLightMode ? '#FFFFFF' : '#171E28';
+  const paperBorder = isLightMode ? '#E2E8F0' : '#2B3544';
+  const blockColor = isLightMode ? '#E2E8F0' : '#1F2834';
   const subBlockBorder = isLightMode ? '#F1F5F9' : '#2A374A';
 
   return (
@@ -82,11 +83,22 @@ export default function CardDetailSkeletonUI({
                       { backgroundColor: paperBg },
                     ]}
                   >
-                    {/* 2.1 單字標題 + 右側發音鈕 */}
+                    {/* 2.1 單字標題 */}
                     <View style={styles.referenceRowTop}>
                       <Reanimated.View
                         style={[
                           styles.skeletonWord,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                    </View>
+
+                    {/* 2.1b 音標 + 喇叭 (對齊新版：喇叭在音標旁) */}
+                    <View style={styles.ipaRow}>
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonIpaLine,
                           { backgroundColor: blockColor },
                           animatedPulseStyle,
                         ]}
@@ -184,19 +196,28 @@ export default function CardDetailSkeletonUI({
                       />
                     </View>
 
-                    {/* 2.7 底部操作列 (4 顆均勻分佈圖示：Mic, Share, Heart, Bookmark) */}
+                    {/* 2.7 底部操作列：左「練發音」膠囊 + 右 3 顆圖示 (Share, Heart, Folder) */}
                     <View style={styles.cardActionRow}>
-                      {[0, 1, 2, 3].map((slotIdx) => (
-                        <View key={slotIdx} style={styles.actionIconSlot}>
-                          <Reanimated.View
-                            style={[
-                              styles.skeletonActionIcon,
-                              { backgroundColor: blockColor },
-                              animatedPulseStyle,
-                            ]}
-                          />
-                        </View>
-                      ))}
+                      <Reanimated.View
+                        style={[
+                          styles.skeletonPracticePill,
+                          { backgroundColor: blockColor },
+                          animatedPulseStyle,
+                        ]}
+                      />
+                      <View style={styles.secondaryActions}>
+                        {[0, 1, 2].map((slotIdx) => (
+                          <View key={slotIdx} style={styles.actionIconSlot}>
+                            <Reanimated.View
+                              style={[
+                                styles.skeletonActionIcon,
+                                { backgroundColor: blockColor },
+                                animatedPulseStyle,
+                              ]}
+                            />
+                          </View>
+                        ))}
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -302,11 +323,22 @@ const styles = StyleSheet.create({
     width: '58%',
     borderRadius: 8,
   },
+  ipaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: -6,
+    marginBottom: 10,
+  },
+  skeletonIpaLine: {
+    width: 96,
+    height: 16,
+    borderRadius: 6,
+  },
   skeletonSpeakerBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginTop: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   referenceMeaningRow: {
     marginTop: 4,
@@ -340,7 +372,7 @@ const styles = StyleSheet.create({
   },
   cardActionRow: {
     flexShrink: 0,
-    minHeight: 36,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -350,15 +382,25 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     transform: [{ translateY: 8 }],
   },
+  skeletonPracticePill: {
+    width: 104,
+    height: 42,
+    borderRadius: 21,
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   actionIconSlot: {
-    width: 52,
-    height: 36,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
   skeletonActionIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
 });

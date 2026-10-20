@@ -50,6 +50,7 @@ import type Card from '@database/models/Card';
 import type CachedItem from '@database/models/CachedItem';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import {
+  buildIpaFromAssessment,
   assessPronunciationCloud,
   detectPronunciationLocale,
   type CloudPhonemeFeedback,
@@ -174,6 +175,8 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+// Neutral dark background for this screen only.
+const CARD_DETAIL_DARK_BG = '#0D1117';
 const PRONUNCIATION_RECORDING_OPTIONS = {
   android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
   ios: {
@@ -1351,6 +1354,34 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           }
         );
       }
+      // Backfill the card's IPA line from Azure's expected phonemes when the
+      // card never got one (older cards). Never overwrite an existing value.
+      const isDemoAssessment = !!route.params?.interactiveTutorial || appTour.isActive;
+      if (analyzedCardId && !isDemoAssessment) {
+        const backfillIpa = buildIpaFromAssessment(
+          pronunciationText,
+          result.letterSegments || []
+        );
+        if (backfillIpa) {
+          void (async () => {
+            try {
+              const targetCard = await database.get<Card>('cards').find(analyzedCardId);
+              if ((targetCard.phoneticTranscription || '').trim()) return;
+              await database.write(async () => {
+                await targetCard.update((record) => {
+                  record.phoneticTranscription = backfillIpa;
+                });
+              });
+              queueSavedCardsForCloudPersistence({
+                userId: targetCard.userId,
+                cardIds: [targetCard.id],
+              });
+            } catch (backfillError) {
+              console.warn('[CardDetail][Pronunciation] IPA backfill failed:', backfillError);
+            }
+          })();
+        }
+      }
       Vibration.vibrate(20);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
@@ -2231,7 +2262,11 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: palette.screenBg }]}
+      style={[
+        styles.container,
+        // Card detail uses the neutral dark (matches review/quiz), not the navy app bg.
+        { backgroundColor: colorScheme === 'light' ? palette.screenBg : CARD_DETAIL_DARK_BG },
+      ]}
       edges={[]}
     >
       <CardDetailHeaderActionsUI

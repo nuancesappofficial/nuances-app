@@ -13,6 +13,8 @@ export type StructuredInsiderInsightUIProps = {
   showToggle?: boolean;
   textColor: string;
   secondaryTextColor: string;
+  /** Colour for the core hook line and highlighted English terms (defaults to textColor). */
+  emphasisTextColor?: string;
   uiLanguage: string;
   isLight?: boolean;
   contentScale?: number;
@@ -79,15 +81,13 @@ function splitTextForHighlight(text: string): Array<{ text: string; isHighlighte
 
 type BentoPalette = {
   icon: string;
-  cardBg: string;
-  cardBorder: string;
-  badgeBg: string;
-  badgeBorder: string;
-  badgeText: string;
-  termBg: string;
-  termText: string;
+  surface: string;
+  labelText: string;
+  emphasisText: string;
 };
 
+// Neutral section (direction A): one soft grey box per section, grey label,
+// plain body, English terms in bold ink. No coloured boxes or chips.
 const BentoCardItem: React.FC<{
   bullet: { label?: string; body: string };
   palette: BentoPalette;
@@ -105,33 +105,17 @@ const BentoCardItem: React.FC<{
 
   return (
     <View
-      style={[
-        styles.bentoCard,
-        {
-          backgroundColor: palette.cardBg,
-          borderColor: palette.cardBorder,
-        },
-      ]}
+      style={[styles.bentoCard, { backgroundColor: palette.surface }]}
     >
       <View style={styles.badgeRow}>
-        <View
-          style={[
-            styles.bentoBadge,
-            {
-              backgroundColor: palette.badgeBg,
-              borderColor: palette.badgeBorder,
-            },
-          ]}
-        >
-          <Text style={[styles.bentoBadgeIcon, { color: palette.badgeText }]}>
-            {palette.icon}
+        <Text style={[styles.bentoBadgeIcon, { color: palette.labelText }]}>
+          {palette.icon}
+        </Text>
+        {bullet.label ? (
+          <Text style={[styles.bentoBadgeText, { color: palette.labelText }]}>
+            {bullet.label}
           </Text>
-          {bullet.label ? (
-            <Text style={[styles.bentoBadgeText, { color: palette.badgeText }]}>
-              {bullet.label}
-            </Text>
-          ) : null}
-        </View>
+        ) : null}
       </View>
 
       <Text
@@ -148,15 +132,9 @@ const BentoCardItem: React.FC<{
           seg.isHighlighted ? (
             <Text
               key={`seg-${sIdx}`}
-              style={[
-                styles.termHighlight,
-                {
-                  color: palette.termText,
-                  backgroundColor: palette.termBg,
-                },
-              ]}
+              style={[styles.termHighlight, { color: palette.emphasisText }]}
             >
-              {seg.text}
+              {seg.text.trim()}
             </Text>
           ) : (
             seg.text
@@ -174,6 +152,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   showToggle = false,
   textColor,
   secondaryTextColor,
+  emphasisTextColor,
   uiLanguage,
   isLight = true,
   contentScale = 1,
@@ -192,31 +171,18 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   const bodyFontSize = Math.round(14.5 * scale);
   const bodyLineHeight = Math.round(22 * scale);
 
-  const bentoColors: Record<BentoTheme, BentoPalette> = React.useMemo(
-    () => ({
-      blue: {
-        icon: '✦',
-        cardBg: isLight ? 'rgba(14, 165, 233, 0.025)' : 'rgba(56, 189, 248, 0.04)',
-        cardBorder: isLight ? 'rgba(14, 165, 233, 0.14)' : 'rgba(56, 189, 248, 0.16)',
-        badgeBg: isLight ? 'rgba(14, 165, 233, 0.08)' : 'rgba(56, 189, 248, 0.14)',
-        badgeBorder: isLight ? 'rgba(14, 165, 233, 0.20)' : 'rgba(56, 189, 248, 0.26)',
-        badgeText: isLight ? '#0369A1' : '#38BDF8',
-        termBg: isLight ? 'rgba(14, 165, 233, 0.06)' : 'rgba(56, 189, 248, 0.12)',
-        termText: isLight ? '#0369A1' : '#7DD3FC',
-      },
-      rose: {
-        icon: '⇄',
-        cardBg: isLight ? 'rgba(244, 63, 94, 0.025)' : 'rgba(251, 113, 133, 0.04)',
-        cardBorder: isLight ? 'rgba(244, 63, 94, 0.14)' : 'rgba(251, 113, 133, 0.16)',
-        badgeBg: isLight ? 'rgba(244, 63, 94, 0.08)' : 'rgba(251, 113, 133, 0.14)',
-        badgeBorder: isLight ? 'rgba(244, 63, 94, 0.20)' : 'rgba(251, 113, 133, 0.26)',
-        badgeText: isLight ? '#BE123C' : '#FB7185',
-        termBg: isLight ? 'rgba(244, 63, 94, 0.06)' : 'rgba(251, 113, 133, 0.12)',
-        termText: isLight ? '#BE123C' : '#FDA4AF',
-      },
-    }),
-    [isLight]
-  );
+  const emphasisColor = emphasisTextColor || textColor;
+  const bentoColors: Record<BentoTheme, BentoPalette> = React.useMemo(() => {
+    const neutral = {
+      surface: isLight ? '#F4F5F7' : '#1F2834',
+      labelText: secondaryTextColor,
+      emphasisText: emphasisColor,
+    };
+    return {
+      blue: { icon: '✦', ...neutral },
+      rose: { icon: '⇄', ...neutral },
+    };
+  }, [emphasisColor, isLight, secondaryTextColor]);
 
   const toggleLabel = isExpanded
     ? (uiLanguage.startsWith('zh') ? '收起完整內容' : tUI(uiLanguage as UILanguage, 'cardDetail.hideFullContent'))
@@ -346,7 +312,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
           style={[
             styles.hookText,
             {
-              color: textColor,
+              color: emphasisColor,
               fontSize: hookFontSize,
               lineHeight: hookLineHeight,
               marginBottom: isExpanded && hasBullets && visibleBullets.length > 0 ? 10 : 0,
@@ -419,19 +385,11 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 13,
     borderRadius: 14,
-    borderWidth: 1,
   },
   badgeRow: {
-    marginBottom: 6,
-  },
-  bentoBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    alignSelf: 'flex-start',
+    marginBottom: 4,
   },
   bentoBadgeIcon: {
     fontSize: 10.5,
@@ -448,8 +406,6 @@ const styles = StyleSheet.create({
   },
   termHighlight: {
     fontWeight: '600',
-    borderRadius: 3,
-    paddingHorizontal: 3,
     letterSpacing: 0.15,
   },
   toggleRow: {

@@ -69,10 +69,14 @@ import {
   unquoteLearningTermInText,
 } from '../../../features/cards/learningTermQuotes';
 
+type TargetHighlight = { fg: string; bg: string; line: string };
+
+// Target word is marked like the quiz: highlighter background + brand underline
+// (no italic / coloured text), so it reads the same across the app.
 function renderSentenceWithBoldTarget(
   text: string,
   term: string,
-  targetColor?: string
+  highlight: TargetHighlight
 ) {
   const segments = segmentSentenceWithTargetWord(text, term);
   if (segments.length <= 1 && !segments[0]?.isBold) {
@@ -84,8 +88,10 @@ function renderSentenceWithBoldTarget(
         key={`bold-${i}-${seg.text}`}
         style={{
           fontWeight: '800',
-          color: targetColor,
-          fontStyle: 'italic',
+          color: highlight.fg,
+          backgroundColor: highlight.bg,
+          textDecorationLine: 'underline',
+          textDecorationColor: highlight.line,
         }}
       >
         {seg.text}
@@ -101,6 +107,7 @@ import {
 } from '../../../features/cards/cardUsage';
 import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
+import { resolveFeedbackColors } from '../../../theme/colors';
 import TutorialSpotlight from '../shared/TutorialSpotlight';
 import type { AppTourStep } from '../../../contexts/AppTourContext';
 import { tUI } from '../../../i18n/uiLanguage';
@@ -161,6 +168,9 @@ const FRONT_BODY_ACTION_ROW_CLEARANCE = 56;
 const BACK_BODY_SCROLL_OVERFLOW_EPSILON = 8;
 const BACK_BODY_FOOTER_CLEARANCE = 48;
 const FRONT_SENTENCE_COLLAPSED_LINES = 3;
+// Speaker sits next to the IPA line as a small outlined button.
+const SPEAKER_ICON_SIZE = 18;
+const SPEAKER_BUTTON_SIZE = 32;
 const FRONT_CONTEXT_COLLAPSED_LINES = 4;
 
 type CollapsibleBackFieldProps = {
@@ -533,14 +543,14 @@ function CardDetailCarouselCardUI({
             starInactive: '#1F2937',
           }
         : {
-            paperBg: '#1E293B',
-            paperBorder: '#334155',
+            paperBg: '#171E28',
+            paperBorder: '#2B3544',
             primaryText: '#F8FAFC',
             secondaryText: '#94A3B8',
             noteText: '#94A3B8',
-            posBg: '#334155',
+            posBg: '#1F2834',
             posText: '#F8FAFC',
-            divider: '#334155',
+            divider: '#2B3544',
             icon: '#94A3B8',
             noteActionBg: 'rgba(30,41,59,0.45)',
             noteActionBorder: '#334155',
@@ -559,8 +569,18 @@ function CardDetailCarouselCardUI({
   });
   const itemWord =
     itemPronunciationText || item.targetWord || item.targetPhrase || '-';
-  const targetWordHighlightColor = isLightMode ? '#2E7EC2' : '#4EAFF4';
+  const feedbackColors = resolveFeedbackColors(isLightMode ? 'light' : 'dark');
+  const targetWordHighlight: TargetHighlight = {
+    fg: isLightMode ? '#111111' : '#F8FAFC',
+    bg: feedbackColors.brandSoft,
+    line: feedbackColors.brand,
+  };
   const isPhraseCard = isPhraseLikeCardSubject(itemWord, item.partOfSpeech);
+  const ipaText = React.useMemo(() => {
+    const raw = (item.phoneticTranscription || '').trim();
+    if (!raw) return null;
+    return /^[/[]/.test(raw) ? raw : `/${raw}/`;
+  }, [item.phoneticTranscription]);
   const itemCaption = formatPartOfSpeechLabel(
     isPhraseCard ? 'phrase' : item.partOfSpeech || item.sourceApp || '',
     uiLanguage
@@ -1337,7 +1357,7 @@ function CardDetailCarouselCardUI({
     width: interpolate(
       audioProgress.value,
       [0, 1],
-      [0, 28],
+      [0, SPEAKER_ICON_SIZE],
       Extrapolation.CLAMP
     ),
   }));
@@ -1634,27 +1654,30 @@ function CardDetailCarouselCardUI({
                         {itemWord}
                       </Text>
                     </View>
-                    <Animated.View
-                      style={[
-                        {
-                          position: 'absolute',
-                          right: 0,
-                          top: 0,
-                          width: 28,
-                          height: 28,
-                          transform: [{ scale: playBtnScale }],
-                        },
-                      ]}
-                    >
+                  </View>
+
+                  {/* 1b. 音標 + 喇叭 */}
+                  <View style={localStyles.ipaRow}>
+                    {ipaText ? (
+                      <Text
+                        style={[localStyles.ipaText, { color: ui.secondaryText }]}
+                        numberOfLines={1}
+                      >
+                        {ipaText}
+                      </Text>
+                    ) : null}
+                    <Animated.View style={{ transform: [{ scale: playBtnScale }] }}>
                       <TouchableOpacity
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         activeOpacity={0.9}
                         style={[
                           styles.referencePlayBtn,
                           {
-                            width: 28,
-                            height: 28,
-                            borderRadius: 0,
+                            width: SPEAKER_BUTTON_SIZE,
+                            height: SPEAKER_BUTTON_SIZE,
+                            borderRadius: SPEAKER_BUTTON_SIZE / 2,
+                            borderWidth: 1,
+                            borderColor: ui.divider,
                             backgroundColor: 'transparent',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1668,7 +1691,7 @@ function CardDetailCarouselCardUI({
                         }
                       >
                         {isActiveCard && isTtsDownloading ? (
-                          <DynamicArcSpinner size={24} color={activeSpeakerColor} strokeWidth={2.4} />
+                          <DynamicArcSpinner size={SPEAKER_ICON_SIZE} color={activeSpeakerColor} strokeWidth={2.4} />
                         ) : (
                           <View style={localStyles.speakerIconWrap}>
                             <Ionicons
@@ -1677,7 +1700,7 @@ function CardDetailCarouselCardUI({
                                   ? 'volume-high'
                                   : 'volume-medium-outline'
                               }
-                              size={28}
+                              size={SPEAKER_ICON_SIZE}
                               color={ui.icon}
                             />
                             {isActiveCard && isPlaying ? (
@@ -1689,7 +1712,7 @@ function CardDetailCarouselCardUI({
                               >
                                 <Ionicons
                                   name="volume-high"
-                                  size={28}
+                                  size={SPEAKER_ICON_SIZE}
                                   color={activeSpeakerColor}
                                   style={localStyles.speakerProgressIcon}
                                 />
@@ -1816,7 +1839,7 @@ function CardDetailCarouselCardUI({
                             {renderSentenceWithBoldTarget(
                               sourceSentenceText,
                               itemWord,
-                              targetWordHighlightColor
+                              targetWordHighlight
                             )}
                           </Text>
                         ) : null}
@@ -1842,7 +1865,7 @@ function CardDetailCarouselCardUI({
                           {renderSentenceWithBoldTarget(
                             translationDisplayText,
                             itemWord,
-                            targetWordHighlightColor
+                            targetWordHighlight
                           )}
                         </Text>
                       </Reanimated.View>
@@ -1974,6 +1997,7 @@ function CardDetailCarouselCardUI({
                               showToggle={false}
                               textColor={ui.noteText}
                               secondaryTextColor={ui.secondaryText}
+                              emphasisTextColor={ui.primaryText}
                               uiLanguage={uiLanguage}
                               isLight={isLightMode}
                               contentScale={frontContentScale}
@@ -2122,93 +2146,76 @@ function CardDetailCarouselCardUI({
                   </ScrollView>
 
                   {/* ----- 第一頁底部操作列 ----- */}
+                  {/* Primary: practise pronunciation (brand pill). Secondary icons stay
+                      neutral and only take colour when active. */}
                   <View
                     pointerEvents="box-none"
-                    style={localStyles.cardActionRow}
+                    style={[localStyles.cardActionRow, localStyles.cardActionRowSplit]}
                   >
                     <TutorialSpotlight
                       active={
                         tourStep === 'STEP_9_COACH_SAMPLE' && isActiveCard
                       }
-                      style={[
-                        localStyles.actionIconSlot,
-                        localStyles.micActionIconSlot,
-                      ]}
+                      style={localStyles.practiceSlot}
                       onSpotlightPress={handleTourPronunciationPress}
                     >
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={tUI(uiLanguage, 'cardDetail.practicePronunciation')}
                         style={({ pressed }) => [
-                          localStyles.actionIconBtn,
+                          localStyles.practiceButton,
+                          { backgroundColor: feedbackColors.mic },
                           pressed ? localStyles.actionIconBtnPressed : null,
                         ]}
                         onPress={onOpenPronunciationModal}
                       >
-                        <Ionicons
-                          name="mic-outline"
-                          size={28}
-                          color={ui.icon}
-                        />
+                        <Ionicons name="mic" size={18} color="#FFFFFF" />
+                        <Text style={localStyles.practiceButtonText} numberOfLines={1}>
+                          {tUI(uiLanguage, 'cardDetail.practicePronunciation')}
+                        </Text>
                       </Pressable>
                     </TutorialSpotlight>
 
-                    <View
-                      style={[
-                        localStyles.actionIconSlot,
-                        localStyles.shareActionIconSlot,
-                      ]}
-                    >
+                    <View style={localStyles.secondaryActions}>
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Share"
                         style={({ pressed }) => [
-                          localStyles.actionIconBtn,
+                          localStyles.secondaryActionBtn,
                           pressed ? localStyles.actionIconBtnPressed : null,
                         ]}
                         onPress={handleSharePress}
                       >
-                        <Ionicons
-                          name="share-outline"
-                          size={28}
-                          color={ui.icon}
-                        />
+                        <Ionicons name="share-outline" size={24} color={ui.icon} />
                       </Pressable>
-                    </View>
-
-                    <View
-                      style={[
-                        localStyles.actionIconSlot,
-                        localStyles.heartActionIconSlot,
-                      ]}
-                    >
                       <Pressable
-                        style={localStyles.actionIconBtn}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isFavorite }}
+                        style={({ pressed }) => [
+                          localStyles.secondaryActionBtn,
+                          pressed ? localStyles.actionIconBtnPressed : null,
+                        ]}
                         onPress={onToggleFavorite}
                       >
                         <Ionicons
                           name={isFavorite ? 'heart' : 'heart-outline'}
-                          size={28}
-                          color={isFavorite ? ui.starActive : ui.starInactive}
+                          size={24}
+                          color={isFavorite ? feedbackColors.bad : ui.icon}
                         />
                       </Pressable>
-                    </View>
-
-                    <View
-                      style={[
-                        localStyles.actionIconSlot,
-                        localStyles.bookmarkActionIconSlot,
-                      ]}
-                    >
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isBookmarked }}
                         style={({ pressed }) => [
-                          localStyles.actionIconBtn,
-                          pressed
-                            ? localStyles.rigidActionIconBtnPressed
-                            : null,
+                          localStyles.secondaryActionBtn,
+                          pressed ? localStyles.rigidActionIconBtnPressed : null,
                         ]}
                         onPress={onOpenAlbumSheet}
                       >
                         <Ionicons
-                          name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                          size={28}
-                          color={isBookmarked ? '#4EAFF4' : ui.folderIcon}
+                          name={isBookmarked ? 'folder' : 'folder-outline'}
+                          size={24}
+                          color={isBookmarked ? feedbackColors.brand : ui.icon}
                         />
                       </Pressable>
                     </View>
@@ -3187,6 +3194,39 @@ const localStyles = StyleSheet.create({
     paddingBottom: 0,
     transform: [{ translateY: 8 }],
   },
+  cardActionRowSplit: {
+    justifyContent: 'space-between',
+    minHeight: 44,
+  },
+  practiceSlot: {
+    flexShrink: 0,
+  },
+  practiceButton: {
+    height: 42,
+    borderRadius: 21,
+    paddingLeft: 14,
+    paddingRight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  practiceButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  secondaryActionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionIconBtn: {
     width: '100%',
     height: 36,
@@ -3382,8 +3422,8 @@ const localStyles = StyleSheet.create({
     borderRadius: 12,
   },
   speakerIconWrap: {
-    width: 28,
-    height: 28,
+    width: SPEAKER_ICON_SIZE,
+    height: SPEAKER_ICON_SIZE,
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3396,8 +3436,21 @@ const localStyles = StyleSheet.create({
     overflow: 'hidden',
   },
   speakerProgressIcon: {
-    width: 28,
-    height: 28,
+    width: SPEAKER_ICON_SIZE,
+    height: SPEAKER_ICON_SIZE,
+  },
+  ipaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  ipaText: {
+    flexShrink: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '500',
   },
 });
 
