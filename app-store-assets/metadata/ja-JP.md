@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: 英単語帳・英語学習
 
 ## Subtitle
 
-日常の英語を学習カードに
+撮って保存、「あとで調べる」は卒業
 
 ## Promotional Text
 
-日常で出会った英語を、文脈の解説、自然な音声、発音フィードバック付きの学習カードに変えて、自分だけの英語メモリーバンクを作りましょう。
+「あとで調べる」はもう終わり！撮るか共有するだけで、出会った英語が単語カードに。文脈、ニュアンス、発音チェック、クイズ付き。新規ユーザーはAIカード20枚まで無料。
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-英語,英単語,単語帳,フラッシュカード,発音,英会話,例文,英語学習,AI,勉強
+TOEIC,英検,TOEFL,IELTS,共通テスト,暗記,フラッシュカード,翻訳,辞書,発音,リスニング,英会話,語彙,熟語,AI
 
 ## Support URL
 

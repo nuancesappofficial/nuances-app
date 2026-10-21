@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: Vocabulaire anglais
 
 ## Subtitle
 
-L’anglais réel en cartes
+Fini le « on verra plus tard »
 
 ## Promotional Text
 
-Transformez l’anglais rencontré au quotidien en cartes avec contexte, voix naturelle et entraînement à la prononciation. Créez votre mémoire d’anglais.
+Fini le « je chercherai plus tard ». Prenez une photo ou partagez : Nuances en fait des cartes avec contexte, prononciation et quiz. 20 cartes IA offertes.
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-anglais,vocabulaire,cartes,prononciation,langue,révision,oral,exemples,IA,mémoire
+toeic,toefl,ielts,cambridge,b2,flashcards,cartes,traduction,dictionnaire,prononciation,révision,IA
 
 ## Support URL
 

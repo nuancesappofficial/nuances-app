@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: Vocabulario en inglés
 
 ## Subtitle
 
-Inglés real en tarjetas
+Adiós al «luego lo busco»
 
 ## Promotional Text
 
-Convierte el inglés que encuentras cada día en tarjetas con contexto, audio natural y práctica de pronunciación. Crea tu propia memoria de inglés.
+Dile adiós al «luego lo busco». Haz una foto o compártelo y Nuances lo convierte en tarjetas con contexto, pronunciación y quizzes. 20 tarjetas IA gratis.
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-inglés,vocabulario,tarjetas,pronunciación,idiomas,estudiar,hablar,ejemplos,IA,memoria
+cambridge,b2,c1,ielts,toefl,toeic,eoi,tarjetas,flashcards,traductor,diccionario,pronunciación,IA
 
 ## Support URL
 

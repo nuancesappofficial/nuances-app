@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: 英语单词卡
 
 ## Subtitle
 
-把生活英语变成学习卡片
+拍照存单词，告别“懒得查”
 
 ## Promotional Text
 
-把生活中遇到的英语转换成学习卡片，结合自然发音、语境解析与发音反馈，建立真正属于你的英语记忆库。
+跟“懒得查”说 bye bye！拍照或分享就能把英语存成单词卡，路上遇到的单词一个都不放过。新用户免费 20 张 AI 卡片。
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-英语,单词,学英语,英语学习,单词卡,发音,口语,例句,AI,记忆
+四六级,四级,六级,考研,雅思,托福,专四,专八,IELTS,TOEFL,翻译,词典,查单词,背单词,词汇,短语,英语学习,发音,听力,口语,AI
 
 ## Support URL
 

@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: English Vocab Cards
 
 ## Subtitle
 
-English from real life
+No more “look it up later”
 
 ## Promotional Text
 
-Turn real-life English into study cards, natural audio, and pronunciation feedback in one focused learning workspace.
+See a word you don’t know? Snap or share it — Nuances turns it into a flashcard with context, nuance, pronunciation scoring and quizzes. Your first 20 AI cards are free.
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-english,flashcards,ielts,vocabulary,pronunciation,language,study,ai,tts,speaking
+vocabulary,flashcard,esl,toefl,ielts,toeic,sat,gre,pronunciation,dictionary,translate,photo,quiz
 
 ## Support URL
 

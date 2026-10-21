@@ -2,15 +2,15 @@
 
 ## App Name
 
-Nuances: English Flashcards
+Nuances: 영단어장
 
 ## Subtitle
 
-일상 영어를 학습 카드로
+“나중에 찾지 뭐”는 이제 그만
 
 ## Promotional Text
 
-일상에서 만난 영어를 문맥 설명, 자연스러운 음성, 발음 피드백이 담긴 학습 카드로 바꾸고 나만의 영어 기억 저장소를 만들어 보세요.
+“나중에 찾지 뭐”는 이제 그만! 사진을 찍거나 공유만 하면 마주친 영어가 단어 카드로. 문맥, 뉘앙스, 발음 평가, 퀴즈까지. 신규 사용자는 AI 카드 20장 무료.
 
 ## Description
 
@@ -39,7 +39,7 @@ https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=
 
 ## Keywords
 
-영어,영단어,단어장,플래시카드,발음,영어회화,예문,영어공부,AI,학습
+토익,토플,아이엘츠,수능,오픽,토익스피킹,TOEIC,IELTS,단어암기,플래시카드,번역,사전,발음,듣기,영어회화,어휘,AI
 
 ## Support URL
 
