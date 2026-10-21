@@ -10,7 +10,7 @@ No more “look it up later”
 
 ## Promotional Text
 
-See a word you don’t know? Snap or share it — Nuances turns it into a flashcard with context, nuance, pronunciation scoring and quizzes. Your first 20 AI cards are free.
+See a word you don’t know? Snap or share it — Nuances turns it into a flashcard with context, nuance, pronunciation scoring and quizzes. Free to start.
 
 ## Description
 

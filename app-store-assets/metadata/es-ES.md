@@ -10,7 +10,7 @@ Adiós al «luego lo busco»
 
 ## Promotional Text
 
-Dile adiós al «luego lo busco». Haz una foto o compártelo y Nuances lo convierte en tarjetas con contexto, pronunciación y quizzes. 20 tarjetas IA gratis.
+Dile adiós al «luego lo busco». Haz una foto o compártelo y Nuances lo convierte en tarjetas con contexto, pronunciación y quizzes. Empieza gratis.
 
 ## Description
 

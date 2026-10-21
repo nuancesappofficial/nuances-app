@@ -10,7 +10,7 @@ Fini le « on verra plus tard »
 
 ## Promotional Text
 
-Fini le « je chercherai plus tard ». Prenez une photo ou partagez : Nuances en fait des cartes avec contexte, prononciation et quiz. 20 cartes IA offertes.
+Fini le « je chercherai plus tard ». Prenez une photo ou partagez : Nuances en fait des cartes avec contexte, prononciation et quiz. Commencez gratuitement.
 
 ## Description
 
