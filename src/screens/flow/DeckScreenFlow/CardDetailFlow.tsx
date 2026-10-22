@@ -1453,7 +1453,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         try {
           leftover.setOnRecordingStatusUpdate(null);
           await leftover.stopAndUnloadAsync();
-        } catch {}
+        } catch {
+          // 錄音可能已經停止或卸載，忽略即可
+        }
         recordingRef.current = null;
         setIsRecording(false);
       }
