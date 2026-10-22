@@ -316,6 +316,23 @@ export type UIStringKey =
   | 'settings.membership.exit.reason.notEnoughUse'
   | 'settings.membership.exit.thanks'
   | 'settings.membership.exit.done'
+  | 'settings.membership.intro.title'
+  | 'settings.membership.intro.titleDone'
+  | 'settings.membership.intro.hintCollect'
+  | 'settings.membership.intro.hintSwitch'
+  | 'settings.membership.intro.hintDone'
+  | 'settings.membership.intro.hintNext'
+  | 'settings.membership.intro.collectIdle'
+  | 'settings.membership.intro.collectDoing'
+  | 'settings.membership.intro.collectDone'
+  | 'settings.membership.intro.switchIdle'
+  | 'settings.membership.intro.switchDoing'
+  | 'settings.membership.intro.switchDone'
+  | 'settings.membership.intro.unitWords'
+  | 'settings.membership.intro.unitTimes'
+  | 'settings.membership.intro.found'
+  | 'settings.membership.intro.foundDone'
+  | 'settings.membership.intro.skip'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -824,6 +841,23 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.notEnoughUse': "Won't use that much",
     'settings.membership.exit.thanks': 'Got it — thanks for telling us.',
     'settings.membership.exit.done': 'Got it',
+    'settings.membership.intro.title': 'Gathering what you have learned',
+    'settings.membership.intro.titleDone': 'All gathered',
+    'settings.membership.intro.hintCollect': 'Finding the words you saved',
+    'settings.membership.intro.hintSwitch': 'Every card is one less trip to a dictionary',
+    'settings.membership.intro.hintDone': 'You built all of this yourself',
+    'settings.membership.intro.hintNext': 'Word #21',
+    'settings.membership.intro.collectIdle': 'Words collected',
+    'settings.membership.intro.collectDoing': 'Finding the words you saved…',
+    'settings.membership.intro.collectDone': 'Words you saved yourself',
+    'settings.membership.intro.switchIdle': 'Fewer app switches',
+    'settings.membership.intro.switchDoing': 'Counting the app switches you skipped…',
+    'settings.membership.intro.switchDone': 'Fewer trips to a dictionary app',
+    'settings.membership.intro.unitWords': 'words',
+    'settings.membership.intro.unitTimes': 'times',
+    'settings.membership.intro.found': 'Found {count} cards',
+    'settings.membership.intro.foundDone': '{count} cards ✓',
+    'settings.membership.intro.skip': 'Tap to skip',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
     'settings.membership.currentPlan': 'Current plan',
@@ -1330,6 +1364,23 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.notEnoughUse': '用不到那麼多',
     'settings.membership.exit.thanks': '收到了，謝謝你告訴我們。',
     'settings.membership.exit.done': '知道了',
+    'settings.membership.intro.title': '正在整理你的學習成果',
+    'settings.membership.intro.titleDone': '整理好了',
+    'settings.membership.intro.hintCollect': '找出你這陣子存下的字',
+    'settings.membership.intro.hintSwitch': '每建一張卡，就少開一次字典',
+    'settings.membership.intro.hintDone': '這些都是你自己累積的',
+    'settings.membership.intro.hintNext': '第 21 個字',
+    'settings.membership.intro.collectIdle': '單字收集',
+    'settings.membership.intro.collectDoing': '正在找出你存下的字…',
+    'settings.membership.intro.collectDone': '已收集你親手存下的字',
+    'settings.membership.intro.switchIdle': '少切換 App',
+    'settings.membership.intro.switchDoing': '正在計算少切換的次數…',
+    'settings.membership.intro.switchDone': '少切換到字典 App',
+    'settings.membership.intro.unitWords': '個字',
+    'settings.membership.intro.unitTimes': '次',
+    'settings.membership.intro.found': '已找到 {count} 張卡',
+    'settings.membership.intro.foundDone': '{count} 張卡 ✓',
+    'settings.membership.intro.skip': '點一下略過',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
     'settings.membership.currentPlan': '目前使用中方案',
@@ -1820,6 +1871,23 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.notEnoughUse': '用不到那么多',
     'settings.membership.exit.thanks': '收到了，谢谢你告诉我们。',
     'settings.membership.exit.done': '知道了',
+    'settings.membership.intro.title': '正在整理你的学习成果',
+    'settings.membership.intro.titleDone': '整理好了',
+    'settings.membership.intro.hintCollect': '找出你这阵子存下的字',
+    'settings.membership.intro.hintSwitch': '每建一张卡，就少开一次字典',
+    'settings.membership.intro.hintDone': '这些都是你自己累积的',
+    'settings.membership.intro.hintNext': '第 21 个字',
+    'settings.membership.intro.collectIdle': '单词收集',
+    'settings.membership.intro.collectDoing': '正在找出你存下的字…',
+    'settings.membership.intro.collectDone': '已收集你亲手存下的字',
+    'settings.membership.intro.switchIdle': '少切换 App',
+    'settings.membership.intro.switchDoing': '正在计算少切换的次数…',
+    'settings.membership.intro.switchDone': '少切换到字典 App',
+    'settings.membership.intro.unitWords': '个字',
+    'settings.membership.intro.unitTimes': '次',
+    'settings.membership.intro.found': '已找到 {count} 张卡',
+    'settings.membership.intro.foundDone': '{count} 张卡 ✓',
+    'settings.membership.intro.skip': '点一下跳过',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
     'settings.membership.currentPlan': '当前使用中方案',

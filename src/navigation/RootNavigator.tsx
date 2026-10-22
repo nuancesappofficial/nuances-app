@@ -56,7 +56,7 @@ import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay
 import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
 import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
-import { clearPaywallExitSeenLocally } from '../features/subscription/paywallExitSeen';
+import { clearPaywallSeenFlagsLocally } from '../features/subscription/paywallSeenFlags';
 import {
   FREE_STARTER_LIMIT,
   type PendingPaywallCard,
@@ -835,12 +835,14 @@ export default function RootNavigator({
       if (!devLink) return;
       // kind（截圖卡）與 pron（發音段）保留給之後的切片。
       console.log('[Membership] Dev paywall link:', devLink);
-      if (devLink.kind === 'exit-reset') {
+      if (devLink.kind === 'reset') {
         void getCurrentSessionUserId()
-          .then((userId) => clearPaywallExitSeenLocally(userId))
-          .then(() => console.log('[Membership] Paywall exit screen reset.'))
+          .then((userId) => clearPaywallSeenFlagsLocally(userId))
+          .then(() =>
+            console.log('[Membership] Paywall results intro and exit screen reset.')
+          )
           .catch((error) =>
-            console.warn('[Membership] Paywall exit reset failed:', error)
+            console.warn('[Membership] Paywall reset failed:', error)
           );
         return;
       }

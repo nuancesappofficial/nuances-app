@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   Animated,
   Easing,
@@ -30,14 +31,24 @@ import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFo
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
 import PaywallExitUI from '../../../components/UI/ProfileScreenUI/PaywallExitUI';
+import ResultsIntroUI from '../../../components/UI/ProfileScreenUI/ResultsIntroUI';
+import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
+import {
+  RESULTS_INTRO_CARD_LIMIT,
+  pickResultsIntroCards,
+  shouldPlayResultsIntro,
+  type ResultsIntroCard,
+} from '../../../features/subscription/resultsIntro';
 import {
   buildPaywallExitRows,
   shouldShowPaywallExit,
 } from '../../../features/subscription/paywallExit';
 import {
   hasSeenPaywallExitLocally,
+  hasSeenResultsIntroLocally,
   markPaywallExitSeenLocally,
-} from '../../../features/subscription/paywallExitSeen';
+  markResultsIntroSeenLocally,
+} from '../../../features/subscription/paywallSeenFlags';
 import { analytics } from '@services/analytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
@@ -110,6 +121,7 @@ import type {
 } from '../../../contexts/TabSwipeContext';
 import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
 import {
+  FREE_STARTER_LIMIT,
   mergeDevStarterUsage,
   resolvePaywallEntry,
   resolvePaywallHero,
@@ -731,6 +743,18 @@ export default function ProfileSettingOptionsFlow({
     null
   );
   const [paywallExitVisible, setPaywallExitVisible] = React.useState(false);
+  // 成果動畫：資料（卡片、是否看過、減少動態效果）都讀到才決定要不要播。
+  const [introCards, setIntroCards] = React.useState<ResultsIntroCard[] | null>(
+    null
+  );
+  const [introSeen, setIntroSeen] = React.useState<boolean | null>(null);
+  const [reduceMotion, setReduceMotion] = React.useState<boolean | null>(null);
+  const [introPhase, setIntroPhase] = React.useState<
+    'pending' | 'playing' | 'done'
+  >(pendingCard ? 'pending' : 'done');
+  const [heroEntrance, setHeroEntrance] = React.useState<'flip' | 'none'>(
+    'none'
+  );
   const membershipUserIdRef = React.useRef<string | null>(null);
   const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
     React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
@@ -799,6 +823,13 @@ export default function ProfileSettingOptionsFlow({
     };
   }, [kind, navigation]);
 
+  // 沒登入或讀取失敗時不播成果動畫，直接顯示 paywall。
+  const skipResultsIntro = React.useCallback(() => {
+    setIntroSeen(true);
+    setReduceMotion(true);
+    setIntroCards([]);
+  }, []);
+
   React.useEffect(() => {
     if (kind !== 'membership') return;
     let cancelled = false;
@@ -815,6 +846,42 @@ export default function ProfileSettingOptionsFlow({
             }
             membershipUserIdRef.current = userId;
             if (snapshot.planType === 'free' && pendingCard) {
+              void hasSeenResultsIntroLocally(userId)
+                .catch(() => true)
+                .then((seen) => {
+                  if (!cancelled) setIntroSeen(seen);
+                });
+              void AccessibilityInfo.isReduceMotionEnabled()
+                .catch(() => false)
+                .then((enabled) => {
+                  if (!cancelled) setReduceMotion(enabled);
+                });
+              void database
+                .get<Card>('cards')
+                .query(
+                  Q.where('user_id', userId),
+                  Q.where('deleted_at', null),
+                  Q.sortBy('created_at', Q.desc),
+                  Q.take(RESULTS_INTRO_CARD_LIMIT)
+                )
+                .fetch()
+                .then((cards) =>
+                  cards.map((card) => ({
+                    word: card.targetWord,
+                    sourceLabel: toSourceLabel(card.sourceApp),
+                    createdAt: card.createdAt.getTime(),
+                  }))
+                )
+                .catch((error) => {
+                  console.warn(
+                    '[ProfileSettingOptions] load intro cards failed:',
+                    error
+                  );
+                  return [];
+                })
+                .then((cards) => {
+                  if (!cancelled) setIntroCards(pickResultsIntroCards(cards));
+                });
               void hasSeenPaywallExitLocally(userId)
                 .then((seen) => {
                   if (!cancelled) setPaywallExitSeen(seen);
@@ -844,6 +911,7 @@ export default function ProfileSettingOptionsFlow({
             }
           } else if (!cancelled) {
             setMembershipStatusResolved(true);
+            skipResultsIntro();
           }
 
           if (!isRevenueCatConfigured()) {
@@ -872,7 +940,10 @@ export default function ProfileSettingOptionsFlow({
             '[ProfileSettingOptions] load membership failed:',
             error
           );
-          if (!cancelled) setMembershipStatusResolved(true);
+          if (!cancelled) {
+            setMembershipStatusResolved(true);
+            skipResultsIntro();
+          }
         }
       })();
     });
@@ -880,7 +951,7 @@ export default function ProfileSettingOptionsFlow({
       cancelled = true;
       task.cancel();
     };
-  }, [devStarterUsage, kind, pendingCard]);
+  }, [devStarterUsage, kind, pendingCard, skipResultsIntro]);
 
   React.useEffect(() => {
     if (kind !== 'theme') return;
@@ -1334,6 +1405,36 @@ export default function ProfileSettingOptionsFlow({
     },
     [litePackages, proPackages]
   );
+
+  React.useEffect(() => {
+    if (introPhase !== 'pending' || !membershipStatusResolved) return;
+    if (paywallHero?.kind !== 'next') {
+      setIntroPhase('done');
+      return;
+    }
+    if (introSeen == null || reduceMotion == null || introCards == null) return;
+    const play = shouldPlayResultsIntro({
+      heroKind: paywallHero.kind,
+      alreadySeen: introSeen,
+      reduceMotion,
+      cardCount: introCards.length,
+    });
+    setIntroPhase(play ? 'playing' : 'done');
+    if (play) {
+      void markResultsIntroSeenLocally(membershipUserIdRef.current).catch(
+        (error) => {
+          console.warn('[ProfileSettingOptions] mark intro seen failed:', error);
+        }
+      );
+    }
+  }, [
+    introCards,
+    introPhase,
+    introSeen,
+    membershipStatusResolved,
+    paywallHero?.kind,
+    reduceMotion,
+  ]);
 
   // ✕ 與「先去複習」:第 21 張卡的 paywall 第一次被拒絕時到退出畫面，其他情況直接關掉。
   const handleDeclinePaywall = React.useCallback(
@@ -2258,6 +2359,32 @@ export default function ProfileSettingOptionsFlow({
       },
     ];
 
+    // 第 21 張卡的 paywall：決定要不要播成果動畫前先保持空白，避免 paywall 閃一下。
+    if (introPhase === 'pending') {
+      return (
+        <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]} />
+      );
+    }
+
+    if (introPhase === 'playing' && paywallHero?.kind === 'next' && introCards) {
+      return (
+        <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
+          <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+            <ResultsIntroUI
+              cards={introCards}
+              nextWord={paywallHero.word}
+              createdCount={FREE_STARTER_LIMIT}
+              uiLanguage={settings.uiLanguage}
+              onFinish={(fromNextCard) => {
+                setHeroEntrance(fromNextCard ? 'flip' : 'none');
+                setIntroPhase('done');
+              }}
+            />
+          </SafeAreaView>
+        </View>
+      );
+    }
+
     if (paywallExitVisible && paywallHero?.kind === 'next') {
       return (
         <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
@@ -2336,6 +2463,7 @@ export default function ProfileSettingOptionsFlow({
               <PaywallHeroUI
                 hero={paywallHero}
                 uiLanguage={settings.uiLanguage}
+                entrance={heroEntrance}
               />
 
               <View style={styles.membershipTierSelector}>

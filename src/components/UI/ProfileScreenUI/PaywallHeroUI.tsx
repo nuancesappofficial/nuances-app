@@ -12,6 +12,8 @@ type Props = {
   // null：會員狀態還沒讀到，先保留空間，避免付費用戶閃過免費版畫面。
   hero: PaywallHero | null;
   uiLanguage: UILanguage;
+  // 'flip'：成果動畫停在虛線第 21 張後，卡片翻面接到 paywall。
+  entrance?: 'flip' | 'none';
 };
 
 const ACCENT = '#4EAFF4';
@@ -135,24 +137,63 @@ function SparkBurst() {
   );
 }
 
+function useFlipIn(entrance: 'flip' | 'none') {
+  const flip = React.useRef(new Animated.Value(entrance === 'flip' ? 0 : 1))
+    .current;
+  React.useEffect(() => {
+    if (entrance !== 'flip') return;
+    Animated.timing(flip, {
+      toValue: 1,
+      duration: 900,
+      easing: Easing.bezier(0.3, 1.25, 0.4, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance, flip]);
+  return {
+    transform: [
+      { perspective: 700 },
+      {
+        rotateY: flip.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['180deg', '0deg'],
+        }),
+      },
+      {
+        scale: flip.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }),
+      },
+      {
+        rotate: flip.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '-4deg'],
+        }),
+      },
+    ],
+  };
+}
+
+const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
 function NextCard({
   word,
   sourceLabel,
   signature,
+  entrance,
 }: {
   word: string;
   sourceLabel: string;
   signature: string;
+  entrance: 'flip' | 'none';
 }) {
   const sheen = useLoopingSheen();
+  const flipStyle = useFlipIn(entrance);
   return (
     <View style={styles.nextCardStage}>
-      <LinearGradient
+      <AnimatedLinearGradient
         colors={['#FDE68A', '#F59E0B', '#FDE68A', GOLD]}
         locations={[0, 0.45, 0.7, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.nextCardBorder}
+        style={[styles.nextCardBorder, flipStyle]}
       >
         <View style={styles.nextCardFace}>
           <View style={styles.nextCardTopRow}>
@@ -214,13 +255,17 @@ function NextCard({
             />
           </Animated.View>
         </View>
-      </LinearGradient>
+      </AnimatedLinearGradient>
       <SparkBurst />
     </View>
   );
 }
 
-export default function PaywallHeroUI({ hero, uiLanguage }: Props) {
+export default function PaywallHeroUI({
+  hero,
+  uiLanguage,
+  entrance = 'none',
+}: Props) {
   if (!hero) return <View style={styles.container} />;
 
   if (hero.kind === 'next') {
@@ -234,6 +279,7 @@ export default function PaywallHeroUI({ hero, uiLanguage }: Props) {
           word={hero.word}
           sourceLabel={hero.sourceLabel}
           signature={tUI(uiLanguage, 'settings.membership.next21.signature')}
+          entrance={entrance}
         />
         <Text
           style={styles.title}
@@ -364,7 +410,7 @@ const styles = StyleSheet.create({
     height: 174,
     borderRadius: 18,
     padding: 3,
-    transform: [{ rotate: '-4deg' }],
+    backfaceVisibility: 'hidden',
     shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 14,
