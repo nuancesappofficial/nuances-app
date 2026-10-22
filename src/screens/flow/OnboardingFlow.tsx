@@ -4,11 +4,13 @@ import {
   Alert,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
   type ImageSourcePropType,
   useColorScheme,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -50,7 +52,10 @@ import {
 import { prepareOCRLanguagesForLearningLanguages } from '../../services/ocr/languagePacks';
 import { analytics } from '../../services/analytics';
 import { tUI, type UIStringKey } from '../../i18n/uiLanguage';
-import { balanceOnboardingQuestion } from '../../features/onboarding/onboardingQuestionLayout';
+import {
+  balanceOnboardingQuestion,
+  getOnboardingLayoutMetrics,
+} from '../../features/onboarding/onboardingQuestionLayout';
 import { isDevFreshUserId } from '../../features/auth/devFreshUserSimulatorCore';
 
 type OnboardingStep = 1 | 2 | 3;
@@ -216,11 +221,13 @@ function ResponseLanguageSticker({
   uiLanguage,
   isSelected,
   onPress,
+  isCompact,
 }: {
   option: (typeof RESPONSE_LANGUAGE_OPTIONS)[number];
   uiLanguage: UILanguage;
   isSelected: boolean;
   onPress: () => void;
+  isCompact: boolean;
 }) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(
@@ -262,6 +269,11 @@ function ResponseLanguageSticker({
     });
   }, [pressScale]);
 
+  const svgWidth = isCompact ? 116 : 136;
+  const svgHeight = isCompact ? 68 : 88;
+  const svgFontSize = isCompact ? '28' : '33';
+  const svgY = isCompact ? '46' : '48';
+
   return (
     <Pressable
       onPress={onPress}
@@ -273,6 +285,7 @@ function ResponseLanguageSticker({
         <View
           style={[
             styles.languageStickerShell,
+            isCompact && styles.languageStickerShellCompact,
             {
               opacity: isSelected ? 1 : 0.82,
               shadowColor: isSelected ? '#00E5FF' : '#000000',
@@ -282,16 +295,16 @@ function ResponseLanguageSticker({
           ]}
         >
           <Svg
-            width={136}
-            height={88}
+            width={svgWidth}
+            height={svgHeight}
             viewBox="0 0 116 74"
             style={styles.languageStickerSvg}
           >
             <SvgText
               x="58"
-              y="48"
+              y={svgY}
               textAnchor="middle"
-              fontSize="33"
+              fontSize={svgFontSize}
               fontWeight="900"
               stroke={palette.screenBg}
               strokeWidth={8}
@@ -302,9 +315,9 @@ function ResponseLanguageSticker({
             </SvgText>
             <SvgText
               x="58"
-              y="48"
+              y={svgY}
               textAnchor="middle"
-              fontSize="33"
+              fontSize={svgFontSize}
               fontWeight="900"
               fill={palette.textOnBg}
             >
@@ -315,6 +328,7 @@ function ResponseLanguageSticker({
         <Text
           style={[
             styles.languageStickerLabel,
+            isCompact && styles.languageStickerLabelCompact,
             { color: isSelected ? MODAL_CTA_COLOR : palette.secondaryText },
           ]}
         >
@@ -330,11 +344,13 @@ function ResponseLanguageStickerLayout({
   uiLanguage,
   selectedValues,
   onToggle,
+  isCompact,
 }: {
   active: boolean;
   uiLanguage: UILanguage;
   selectedValues: string[];
   onToggle: (value: string) => void;
+  isCompact: boolean;
 }) {
   const visibleProgress = useSharedValue(active ? 1 : 0);
 
@@ -358,15 +374,25 @@ function ResponseLanguageStickerLayout({
         layoutStyle,
       ]}
     >
-      {RESPONSE_LANGUAGE_OPTIONS.map((option) => (
-        <ResponseLanguageSticker
-          key={option.value}
-          option={option}
-          uiLanguage={uiLanguage}
-          isSelected={selectedValues.includes(option.value)}
-          onPress={() => onToggle(option.value)}
-        />
-      ))}
+      <ScrollView
+        style={styles.languageStickerScrollView}
+        contentContainerStyle={styles.languageStickerScrollContent}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        <View style={styles.languageStickerGrid}>
+          {RESPONSE_LANGUAGE_OPTIONS.map((option) => (
+            <ResponseLanguageSticker
+              key={option.value}
+              option={option}
+              uiLanguage={uiLanguage}
+              isSelected={selectedValues.includes(option.value)}
+              onPress={() => onToggle(option.value)}
+              isCompact={isCompact}
+            />
+          ))}
+        </View>
+      </ScrollView>
     </Animated.View>
   );
 }
@@ -376,11 +402,13 @@ function SelectableSticker({
   label,
   isSelected,
   onPress,
+  isCompact = false,
 }: {
   imageSource: ImageSourcePropType;
   label: string;
   isSelected: boolean;
   onPress: () => void;
+  isCompact?: boolean;
 }) {
   const colorScheme = useColorScheme();
   const palette = React.useMemo(
@@ -423,12 +451,16 @@ function SelectableSticker({
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={styles.stickerPressable}
+      style={[
+        styles.stickerPressable,
+        isCompact && styles.stickerPressableCompact,
+      ]}
     >
       <Animated.View style={[styles.stickerGroup, stickerGroupStyle]}>
         <View
           style={[
             styles.stickerShell,
+            isCompact && styles.stickerShellCompact,
             {
               opacity: isSelected ? 1 : 0.82,
               shadowColor: isSelected ? '#00E5FF' : '#000000',
@@ -446,6 +478,7 @@ function SelectableSticker({
         <Text
           style={[
             styles.stickerLabel,
+            isCompact && styles.stickerLabelCompact,
             { color: isSelected ? MODAL_CTA_COLOR : palette.secondaryText },
           ]}
         >
@@ -462,12 +495,14 @@ function StickerOptionLayout({
   options,
   selectedValues,
   onToggle,
+  isCompact = false,
 }: {
   active: boolean;
   uiLanguage: UILanguage;
   options: StickerOption[];
   selectedValues: string[];
   onToggle: (value: string) => void;
+  isCompact?: boolean;
 }) {
   const visibleProgress = useSharedValue(active ? 1 : 0);
 
@@ -499,20 +534,28 @@ function StickerOptionLayout({
           label={tUI(uiLanguage, topOption.labelKey)}
           isSelected={selectedValues.includes(topOption.value)}
           onPress={() => onToggle(topOption.value)}
+          isCompact={isCompact}
         />
       </View>
-      <View style={styles.bottomStickerRow}>
+      <View
+        style={[
+          styles.bottomStickerRow,
+          isCompact && styles.bottomStickerRowCompact,
+        ]}
+      >
         <SelectableSticker
           imageSource={leftOption.imageSource}
           label={tUI(uiLanguage, leftOption.labelKey)}
           isSelected={selectedValues.includes(leftOption.value)}
           onPress={() => onToggle(leftOption.value)}
+          isCompact={isCompact}
         />
         <SelectableSticker
           imageSource={rightOption.imageSource}
           label={tUI(uiLanguage, rightOption.labelKey)}
           isSelected={selectedValues.includes(rightOption.value)}
           onPress={() => onToggle(rightOption.value)}
+          isCompact={isCompact}
         />
       </View>
     </Animated.View>
@@ -524,6 +567,11 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
   const palette = React.useMemo(
     () => resolveThemeColors(colorScheme),
     [colorScheme]
+  );
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const layoutMetrics = React.useMemo(
+    () => getOnboardingLayoutMetrics(windowWidth, windowHeight),
+    [windowWidth, windowHeight]
   );
   const [uiLanguage] = React.useState<UILanguage>(
     getNativeUILanguageFromDevice
@@ -733,8 +781,15 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           exiting={FadeOutLeft.duration(QUESTION_TRANSITION_OUT_MS)}
         >
           <Text
-            style={[styles.title, { color: palette.textOnBg }]}
-            numberOfLines={2}
+            style={[
+              styles.title,
+              { color: palette.textOnBg },
+              layoutMetrics.isCompact && {
+                fontSize: layoutMetrics.titleFontSize,
+                lineHeight: layoutMetrics.titleLineHeight,
+              },
+            ]}
+            numberOfLines={layoutMetrics.titleNumberOfLines}
           >
             {balanceOnboardingQuestion(getQuestionForStep(step, uiLanguage))}
           </Text>
@@ -750,6 +805,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           uiLanguage={answers.uiLanguage}
           selectedValues={selectedStickerIds[1]}
           onToggle={toggleSticker}
+          isCompact={layoutMetrics.isCompact}
         />
         <StickerOptionLayout
           active={step === 2}
@@ -757,6 +813,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           options={CAPTURE_HABIT_OPTIONS}
           selectedValues={selectedStickerIds[2]}
           onToggle={toggleSticker}
+          isCompact={layoutMetrics.isCompact}
         />
         <StickerOptionLayout
           active={step === 3}
@@ -764,6 +821,7 @@ export default function OnboardingFlow({ userId, onComplete }: Props) {
           options={STUMBLE_CONTEXT_OPTIONS}
           selectedValues={selectedStickerIds[3]}
           onToggle={toggleSticker}
+          isCompact={layoutMetrics.isCompact}
         />
       </View>
 
@@ -862,30 +920,53 @@ const styles = StyleSheet.create({
   },
   languageStickerLayout: {
     position: 'absolute',
-    width: '100%',
-    maxWidth: 360,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    columnGap: 18,
-    rowGap: 16,
+  },
+  languageStickerScrollView: {
+    width: '100%',
+    maxWidth: 360,
+  },
+  languageStickerScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  languageStickerGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   languageStickerPressable: {
-    width: 138,
+    width: '46%',
+    marginHorizontal: '2%',
+    marginVertical: 4,
     alignItems: 'center',
   },
   languageStickerGroup: {
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
   },
   languageStickerShell: {
-    width: 136,
+    width: '100%',
+    maxWidth: 136,
     height: 88,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 8 },
     elevation: 5,
+  },
+  languageStickerShellCompact: {
+    maxWidth: 120,
+    height: 68,
   },
   languageStickerSvg: {
     overflow: 'visible',
@@ -897,9 +978,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
+  languageStickerLabelCompact: {
+    fontSize: 12,
+    lineHeight: 14,
+  },
   stickerLayout: {
     position: 'absolute',
-    width: '100%',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
@@ -923,9 +1011,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 24,
   },
+  bottomStickerRowCompact: {
+    maxWidth: 270,
+    gap: 14,
+  },
   stickerPressable: {
     width: 138,
     alignItems: 'center',
+  },
+  stickerPressableCompact: {
+    width: 116,
   },
   stickerGroup: {
     alignItems: 'center',
@@ -939,6 +1034,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 9 },
     elevation: 5,
   },
+  stickerShellCompact: {
+    width: 104,
+    height: 104,
+  },
   stickerImage: {
     width: '112%',
     height: '112%',
@@ -949,6 +1048,10 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '800',
     letterSpacing: 0.2,
+  },
+  stickerLabelCompact: {
+    fontSize: 11,
+    lineHeight: 14,
   },
   actionSection: {
     paddingHorizontal: 20,

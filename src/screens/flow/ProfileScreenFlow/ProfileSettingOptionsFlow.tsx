@@ -455,6 +455,7 @@ function MembershipPlanOption({
   showMedalBadge,
   badgeLabel,
   goldMonthlyEquivalent,
+  isCompact = false,
 }: {
   title: string;
   price: string;
@@ -465,6 +466,7 @@ function MembershipPlanOption({
   showMedalBadge?: boolean;
   badgeLabel?: string;
   goldMonthlyEquivalent?: boolean;
+  isCompact?: boolean;
 }) {
   const selectedProgress = React.useRef(
     new Animated.Value(selected ? 1 : 0)
@@ -537,7 +539,13 @@ function MembershipPlanOption({
       onPressIn={() => animatePress(1)}
       onPressOut={() => animatePress(0)}
     >
-      <Animated.View style={[styles.membershipPlanCard, animatedCardStyle]}>
+      <Animated.View
+        style={[
+          styles.membershipPlanCard,
+          isCompact && styles.membershipPlanCardCompact,
+          animatedCardStyle,
+        ]}
+      >
         {showMedalBadge && badgeLabel ? (
           <View style={styles.membershipPlanBadge}>
             <Text
@@ -605,14 +613,15 @@ export default function ProfileSettingOptionsFlow({
     requestedMembershipTier ?? initialMembershipTab ?? 'pro';
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const palette = React.useMemo(
     () => resolveThemeColors(colorScheme),
     [colorScheme]
   );
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const isLight = colorScheme === 'light';
-  const membershipStageMinHeight = Math.max(728, windowHeight - 92);
+  const isCompact = windowHeight < 760 || windowWidth < 380;
+  const membershipStageMinHeight = isCompact ? 0 : Math.max(728, windowHeight - 92);
   const [settings, setSettings] = React.useState<UserAppSettings>(
     getInitialUserSettings
   );
@@ -2234,20 +2243,30 @@ export default function ProfileSettingOptionsFlow({
             style={styles.mainScroll}
             contentContainerStyle={[
               styles.membershipScrollContent,
-              { paddingBottom: Math.max(insets.bottom + 132, 156) },
+              {
+                paddingBottom: isCompact
+                  ? Math.max(insets.bottom + 48, 64)
+                  : Math.max(insets.bottom + 132, 156),
+              },
             ]}
             showsVerticalScrollIndicator={false}
-            scrollEnabled={false}
+            scrollEnabled
+            bounces={isCompact}
           >
             <View
               style={[
                 styles.membershipPremiumStage,
-                { minHeight: membershipStageMinHeight },
+                isCompact
+                  ? styles.membershipPremiumStageCompact
+                  : { minHeight: membershipStageMinHeight },
               ]}
             >
               <Image
                 source={MEMBERSHIP_APP_ICON}
-                style={styles.membershipHeroIcon}
+                style={[
+                  styles.membershipHeroIcon,
+                  isCompact && styles.membershipHeroIconCompact,
+                ]}
                 resizeMode="contain"
               />
               <LinearGradient
@@ -2260,11 +2279,26 @@ export default function ProfileSettingOptionsFlow({
                   'rgba(2,33,61,0.98)',
                 ]}
                 locations={[0, 0.28, 0.52, 0.72, 1]}
-                style={styles.membershipHeroMask}
+                style={[
+                  styles.membershipHeroMask,
+                  isCompact && styles.membershipHeroMaskCompact,
+                ]}
               />
-              <View style={styles.membershipHeadlineBlock}>
+              <View
+                style={[
+                  styles.membershipHeadlineBlock,
+                  isCompact && styles.membershipHeadlineBlockCompact,
+                ]}
+              >
                 <View style={styles.membershipBrandLine}>
-                  <Text style={styles.membershipBrandName}>Nuances</Text>
+                  <Text
+                    style={[
+                      styles.membershipBrandName,
+                      isCompact && styles.membershipBrandNameCompact,
+                    ]}
+                  >
+                    Nuances
+                  </Text>
                   <View style={styles.membershipProChip}>
                     <Text style={styles.membershipProChipText}>
                       {membershipTier === 'lite' ? 'LITE' : 'PRO'}
@@ -2273,7 +2307,12 @@ export default function ProfileSettingOptionsFlow({
                 </View>
               </View>
 
-              <View style={styles.membershipTierSelector}>
+              <View
+                style={[
+                  styles.membershipTierSelector,
+                  isCompact && styles.membershipTierSelectorCompact,
+                ]}
+              >
                 {tierOptions.map((option) => {
                   const active = membershipTier === option.key;
                   return (
@@ -2281,6 +2320,7 @@ export default function ProfileSettingOptionsFlow({
                       key={option.key}
                       style={({ pressed }) => [
                         styles.membershipTierOption,
+                        isCompact && styles.membershipTierOptionCompact,
                         active ? styles.membershipTierOptionActive : null,
                         pressed ? styles.pressed : null,
                       ]}
@@ -2302,16 +2342,30 @@ export default function ProfileSettingOptionsFlow({
                 })}
               </View>
 
-              <View style={styles.membershipFeatureList}>
+              <View
+                style={[
+                  styles.membershipFeatureList,
+                  isCompact && styles.membershipFeatureListCompact,
+                ]}
+              >
                 {featureItems.map((item) => (
-                  <View key={item} style={styles.membershipFeatureRow}>
+                  <View
+                    key={item}
+                    style={[
+                      styles.membershipFeatureRow,
+                      isCompact && styles.membershipFeatureRowCompact,
+                    ]}
+                  >
                     <Ionicons
                       name="checkmark"
-                      size={22}
+                      size={isCompact ? 18 : 22}
                       color={MODAL_CTA_COLOR}
                     />
                     <Text
-                      style={styles.membershipFeatureText}
+                      style={[
+                        styles.membershipFeatureText,
+                        isCompact && styles.membershipFeatureTextCompact,
+                      ]}
                       numberOfLines={1}
                       maxFontSizeMultiplier={1}
                     >
@@ -2320,7 +2374,12 @@ export default function ProfileSettingOptionsFlow({
                   </View>
                 ))}
               </View>
-              <View style={styles.membershipPlanGrid}>
+              <View
+                style={[
+                  styles.membershipPlanGrid,
+                  isCompact && styles.membershipPlanGridCompact,
+                ]}
+              >
                 {planItems.map((plan, index) => {
                   const hasSelectedPlan = planItems.some(
                     (item) => item.key === membershipPlan
@@ -2360,6 +2419,7 @@ export default function ProfileSettingOptionsFlow({
                               )
                           : undefined
                       }
+                      isCompact={isCompact}
                     />
                   );
                 })}
@@ -2367,6 +2427,7 @@ export default function ProfileSettingOptionsFlow({
               <Pressable
                 style={({ pressed }) => [
                   styles.membershipSubscribeButton,
+                  isCompact && styles.membershipSubscribeButtonCompact,
                   isCurrentPlanSelected
                     ? styles.membershipSubscribeButtonDisabled
                     : null,
@@ -3718,6 +3779,58 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
+  },
+  membershipPremiumStageCompact: {
+    minHeight: 0,
+    paddingBottom: 24,
+    paddingHorizontal: 12,
+  },
+  membershipHeroIconCompact: {
+    width: 140,
+    height: 140,
+    top: 6,
+    opacity: 0.45,
+  },
+  membershipHeroMaskCompact: {
+    height: 380,
+  },
+  membershipHeadlineBlockCompact: {
+    marginBottom: 8,
+    paddingHorizontal: 10,
+  },
+  membershipBrandNameCompact: {
+    fontSize: 30,
+    lineHeight: 36,
+  },
+  membershipTierSelectorCompact: {
+    marginBottom: 6,
+  },
+  membershipTierOptionCompact: {
+    paddingVertical: 6,
+  },
+  membershipFeatureListCompact: {
+    gap: 6,
+    marginBottom: -4,
+  },
+  membershipFeatureRowCompact: {
+    height: 22,
+    gap: 8,
+  },
+  membershipFeatureTextCompact: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  membershipPlanGridCompact: {
+    marginTop: 14,
+  },
+  membershipPlanCardCompact: {
+    minHeight: 74,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+  },
+  membershipSubscribeButtonCompact: {
+    height: 46,
+    marginTop: 12,
   },
   membershipSubscribeText: {
     color: TEXT_ON_CTA,

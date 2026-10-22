@@ -8,6 +8,7 @@ import {
   Linking,
   Dimensions,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { inAppMessageService, type AppMessage } from '../../../services/notifications/inAppMessageService';
@@ -124,7 +125,14 @@ export default function InAppMessageModal() {
 
           {/* Title & Body */}
           <Text style={styles.title}>{activeMessage.title}</Text>
-          <Text style={styles.body}>{activeMessage.body}</Text>
+          <ScrollView
+            style={styles.bodyScrollView}
+            contentContainerStyle={styles.bodyScrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <Text style={styles.body}>{activeMessage.body}</Text>
+          </ScrollView>
 
           {/* Action Buttons */}
           <View style={styles.actionsRow}>
@@ -166,6 +174,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: Math.min(width - 48, 380),
+    maxHeight: '85%',
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 22,
@@ -206,11 +215,17 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     marginBottom: 10,
   },
+  bodyScrollView: {
+    maxHeight: 220,
+    marginBottom: 20,
+  },
+  bodyScrollContent: {
+    flexGrow: 0,
+  },
   body: {
     fontSize: 15,
     color: '#475569',
     lineHeight: 22,
-    marginBottom: 20,
   },
   actionsRow: {
     flexDirection: 'row',
