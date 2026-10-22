@@ -44,6 +44,9 @@ const CARD_WIDTH = 132;
 const CARD_HEIGHT = 172;
 const CARD_GAP = 14;
 const STEP = CARD_WIDTH + CARD_GAP;
+const STAGE_HEIGHT = 220;
+// 還沒量到 paywall 那張卡時，輪播放在標題下方的預設位置。
+const DEFAULT_STAGE_TOP = 128;
 
 type RowState = 'idle' | 'active' | 'done';
 
@@ -202,7 +205,7 @@ function IntroRow({
 }
 
 // 輪播軌道：插值只建一次，整條在原生端跑；父元件重畫時這裡不會跟著重畫。
-// 最後一格是金邊的第 21 張卡（使用者要建的字），輪盤直接減速停在它上面。
+// 最後一格是第 21 張的虛線剪影（使用者要建的字），輪盤直接減速停在它上面。
 const CarouselTrack = React.memo(function CarouselTrack({
   cards,
   nextWord,
@@ -212,9 +215,8 @@ const CarouselTrack = React.memo(function CarouselTrack({
   trackOpacity,
   othersOpacity,
   lift,
-  handoff,
-  handoffOffset,
-  nextCardRef,
+  gold,
+  tilt,
   width,
 }: {
   cards: ResultsIntroCard[];
@@ -225,12 +227,12 @@ const CarouselTrack = React.memo(function CarouselTrack({
   trackOpacity: Animated.Value;
   // 結尾時其他卡片淡出，只留第 21 張。
   othersOpacity: Animated.Value;
-  // 0 → 1：第 21 張被挑起來（放大、往上浮、金色光暈）；交接前回到 0。
+  // 0 → 1：第 21 張被選中，原地往前放大、亮起光暈；交接前回到 0。
   lift: Animated.Value;
-  // 0 → 1：卡片移到 paywall 的位置並轉成同樣的角度。
-  handoff: Animated.Value;
-  handoffOffset: Animated.ValueXY;
-  nextCardRef: React.RefObject<View | null>;
+  // 0 → 1：金邊卡面疊到剪影上（剪影本身一直都在）。
+  gold: Animated.Value;
+  // 0 → 1：原地轉成 paywall 那張卡的 -4°。
+  tilt: Animated.Value;
   width: number;
 }) {
   const animated = React.useMemo(() => {
@@ -262,6 +264,7 @@ const CarouselTrack = React.memo(function CarouselTrack({
         ],
       };
     };
+    const lastIndex = cards.length - 1;
     const firstX = width / 2 - CARD_WIDTH / 2;
     return {
       track: {
@@ -285,19 +288,19 @@ const CarouselTrack = React.memo(function CarouselTrack({
         };
       }),
       nextCard: itemStyle(cards.length, true),
-      // 挑起來：放大一點、往上浮，同時移到 paywall 的位置並轉成 -4°。
+      // 剪影到中間時外框變藍（疊一層藍框的透明度，才能在原生端跑）。
+      silhouetteHighlight: {
+        opacity: position.interpolate({
+          inputRange: [lastIndex + 0.5, lastIndex + 1],
+          outputRange: [0, 1],
+          extrapolate: 'clamp' as const,
+        }),
+      },
+      // 被選中：位置完全不動，只往前放大，最後原地轉成 -4°。
       picked: {
         transform: [
-          { translateX: handoffOffset.x },
-          { translateY: handoffOffset.y },
           {
-            translateY: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, -10],
-            }),
-          },
-          {
-            rotate: handoff.interpolate({
+            rotate: tilt.interpolate({
               inputRange: [0, 1],
               outputRange: ['0deg', '-4deg'],
             }),
@@ -310,6 +313,7 @@ const CarouselTrack = React.memo(function CarouselTrack({
           },
         ],
       },
+      goldFace: { opacity: gold },
       auraGlow: {
         opacity: lift,
         transform: [
@@ -321,26 +325,15 @@ const CarouselTrack = React.memo(function CarouselTrack({
           },
         ],
       },
-      // 浮起來時下方的影子變深、變遠。
-      liftShadow: {
-        opacity: lift,
-        transform: [
-          {
-            translateY: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 18],
-            }),
-          },
-        ],
-      },
+      liftShadow: { opacity: lift },
     };
   }, [
     cards,
-    handoff,
-    handoffOffset,
+    gold,
     lift,
     othersOpacity,
     position,
+    tilt,
     trackOpacity,
     width,
   ]);
@@ -372,12 +365,7 @@ const CarouselTrack = React.memo(function CarouselTrack({
           <View style={[styles.cardLine, styles.cardLineShort]} />
         </Animated.View>
       ))}
-      {/* 量外層（沒有挑起的位移），交接後放回原大小時才會剛好對齊 paywall 的卡。 */}
-      <Animated.View
-        ref={nextCardRef}
-        collapsable={false}
-        style={[styles.nextSlot, animated.nextCard]}
-      >
+      <Animated.View style={[styles.nextSlot, animated.nextCard]}>
         <Animated.View style={[styles.nextSlotInner, animated.picked]}>
           <Animated.View
             pointerEvents="none"
@@ -387,13 +375,33 @@ const CarouselTrack = React.memo(function CarouselTrack({
             pointerEvents="none"
             style={[styles.auraGlow, animated.auraGlow]}
           />
-          <View style={styles.goldFace}>
+          {/* 虛線剪影：從頭到尾都在，不會消失。 */}
+          <View style={styles.silhouette}>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.silhouetteHighlight, animated.silhouetteHighlight]}
+            />
+            <Text
+              style={styles.silhouetteWord}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.45}
+              maxFontSizeMultiplier={1}
+            >
+              {nextWord}
+            </Text>
+            <Text style={styles.silhouetteNumber}>#21</Text>
+          </View>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.goldFace, animated.goldFace]}
+          >
             <TwentyFirstCardFace
               word={nextWord}
               sourceLabel={nextSourceLabel}
               signature={signature}
             />
-          </View>
+          </Animated.View>
         </Animated.View>
       </Animated.View>
     </Animated.View>
@@ -419,13 +427,23 @@ export default function ResultsIntroUI({
   const titleOpacity = React.useRef(new Animated.Value(0)).current;
   const chromeOpacity = React.useRef(new Animated.Value(1)).current;
   const lift = React.useRef(new Animated.Value(0)).current;
-  const handoff = React.useRef(new Animated.Value(0)).current;
-  const handoffOffset = React.useRef(new Animated.ValueXY({ x: 0, y: 0 }))
-    .current;
-  const nextCardRef = React.useRef<View | null>(null);
+  const gold = React.useRef(new Animated.Value(0)).current;
+  const tilt = React.useRef(new Animated.Value(0)).current;
+  // 第 21 張從頭到尾不移動：把輪播放在 paywall 那張卡的正上方。
+  const containerRef = React.useRef<View | null>(null);
+  const [containerTop, setContainerTop] = React.useState<number | null>(null);
+  const stageTop =
+    targetCenter && containerTop != null
+      ? Math.max(
+          0,
+          targetCenter.y -
+            containerTop -
+            STAGE_HEIGHT / 2 -
+            // 停在中間的卡會被輪播往上推 4px，這裡補回來。
+            resolveCarouselItemStyle(0, true).translateY
+        )
+      : DEFAULT_STAGE_TOP;
   // 計時器讀最新的值，不讓它們重設時間軸。
-  const targetCenterRef = React.useRef(targetCenter);
-  targetCenterRef.current = targetCenter;
   const onRevealRef = React.useRef(onReveal);
   onRevealRef.current = onReveal;
   const onFinishRef = React.useRef(onFinish);
@@ -496,17 +514,25 @@ export default function ResultsIntroUI({
       setTitleKey('settings.membership.intro.titleDone');
       setHintKey('settings.membership.intro.hintDone');
     });
-    // 挑起第 21 張：放大、往上浮、亮起金色光暈。
+    // 選中第 21 張：位置不動，原地往前放大、亮起金色光暈，金邊卡面疊到剪影上。
     at(timeline.pickStart, () => {
       setHintKey('settings.membership.intro.hintNext');
-      Animated.timing(lift, {
-        toValue: 1,
-        duration: timeline.pickDuration,
-        easing: Easing.out(Easing.back(1.4)),
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(lift, {
+          toValue: 1,
+          duration: timeline.pickDuration,
+          easing: Easing.out(Easing.back(1.4)),
+          useNativeDriver: true,
+        }),
+        Animated.timing(gold, {
+          toValue: 1,
+          duration: timeline.pickDuration,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
     });
-    // 卡片不動，其他東西交叉淡化：動畫的文字淡出、paywall 同時淡入；卡片移到 paywall 的位置。
+    // 卡片以外的東西交叉淡化：動畫的文字淡出、paywall 同時淡入。
     at(timeline.crossfadeStart, () => {
       Animated.timing(chromeOpacity, {
         toValue: 0,
@@ -515,38 +541,23 @@ export default function ResultsIntroUI({
         useNativeDriver: true,
       }).start();
       onRevealRef.current(timeline.crossfadeDuration);
-      const move = (dx: number, dy: number) =>
-        Animated.parallel([
-          Animated.timing(handoffOffset, {
-            toValue: { x: dx, y: dy },
-            duration: timeline.moveDuration,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-            useNativeDriver: true,
-          }),
-          Animated.timing(handoff, {
-            toValue: 1,
-            duration: timeline.moveDuration,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-            useNativeDriver: true,
-          }),
-        ]).start();
-      const target = targetCenterRef.current;
-      if (!target || !nextCardRef.current) {
-        move(0, 0);
-        return;
-      }
-      nextCardRef.current.measureInWindow((x, y, w, h) => {
-        move(target.x - (x + w / 2), target.y - (y + h / 2));
-      });
     });
-    // 放回原大小，和 paywall 上的卡完全重疊後交接。
+    // 原地放回原大小、轉成 paywall 那張卡的角度，完全重疊後交接。
     at(timeline.settleStart, () =>
-      Animated.timing(lift, {
-        toValue: 0,
-        duration: timeline.settleDuration,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      }).start()
+      Animated.parallel([
+        Animated.timing(lift, {
+          toValue: 0,
+          duration: timeline.settleDuration,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(tilt, {
+          toValue: 1,
+          duration: timeline.settleDuration,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start()
     );
     at(timeline.finish, () => finish(true));
 
@@ -557,11 +568,11 @@ export default function ResultsIntroUI({
   }, [
     chromeOpacity,
     finish,
-    handoff,
-    handoffOffset,
+    gold,
     lastIndex,
     lift,
     position,
+    tilt,
     timeline,
     titleOpacity,
     trackOpacity,
@@ -569,6 +580,12 @@ export default function ResultsIntroUI({
 
   return (
     <Pressable
+      ref={containerRef}
+      onLayout={() =>
+        requestAnimationFrame(() =>
+          containerRef.current?.measureInWindow((_x, y) => setContainerTop(y))
+        )
+      }
       style={styles.container}
       onPress={() => finish(false)}
       accessibilityRole="button"
@@ -597,7 +614,7 @@ export default function ResultsIntroUI({
         </Text>
       </Animated.View>
 
-      <View style={styles.stage}>
+      <View style={[styles.stage, { top: stageTop }]}>
         <CarouselTrack
           cards={cards}
           nextWord={nextWord}
@@ -607,14 +624,18 @@ export default function ResultsIntroUI({
           trackOpacity={trackOpacity}
           othersOpacity={chromeOpacity}
           lift={lift}
-          handoff={handoff}
-          handoffOffset={handoffOffset}
-          nextCardRef={nextCardRef}
+          gold={gold}
+          tilt={tilt}
           width={width}
         />
       </View>
 
-      <Animated.View style={[styles.chrome, { opacity: chromeOpacity }]}>
+      <Animated.View
+        style={[
+          styles.belowStage,
+          { top: stageTop + STAGE_HEIGHT, opacity: chromeOpacity },
+        ]}
+      >
 
       {rowStates[0] === 'idle' ? (
         <Text style={styles.counter} />
@@ -703,13 +724,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
   },
+  // 輪播固定在 paywall 第 21 張卡的高度（top 由元件算），卡片放大時疊在其他東西上面。
   stage: {
-    alignSelf: 'stretch',
-    height: 220,
-    marginTop: 22,
-    marginHorizontal: -22,
-    // 不裁切：結尾第 21 張卡會移出輪播區、疊在其他東西上面。
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: STAGE_HEIGHT,
     zIndex: 2,
+  },
+  belowStage: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    alignItems: 'center',
   },
   track: {
     position: 'absolute',
@@ -776,7 +803,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 第 21 張被挑起來時，下方變深、變遠的影子。
+  // 第 21 張的虛線剪影（同 v13 原型）。
+  silhouette: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  silhouetteHighlight: {
+    position: 'absolute',
+    top: -1.5,
+    left: -1.5,
+    right: -1.5,
+    bottom: -1.5,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(78,175,244,0.7)',
+  },
+  silhouetteWord: {
+    alignSelf: 'stretch',
+    color: '#FFFFFF',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  silhouetteNumber: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  // 第 21 張被選中時，下方變深的影子。
   liftShadow: {
     position: 'absolute',
     top: 24,

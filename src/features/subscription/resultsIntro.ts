@@ -41,12 +41,11 @@ const BASE = {
   gap: 600,
   switchWork: 1500,
   hold: 2300,
-  // 輪盤直接停在 #21 之後的收尾（依 Jeff 的指示，不換畫面）：
-  // 挑起 #21 → 其他東西交叉淡化、卡片同時移到 paywall → 放回原大小交接。
+  // 輪盤直接停在 #21 之後的收尾（依 Jeff 的指示，不換畫面、卡片不移動）：
+  // #21 往前放大 → 其他東西交叉淡化成 paywall → 原地放回原大小交接。
   pick: 500,
   crossfadeDelay: 300,
   crossfade: 600,
-  move: 700,
   settle21: 300,
   afterSettle: 100,
 };
@@ -66,7 +65,6 @@ export type ResultsIntroTimeline = {
   pickDuration: number;
   crossfadeStart: number;
   crossfadeDuration: number;
-  moveDuration: number;
   settleStart: number;
   settleDuration: number;
   finish: number;
@@ -81,7 +79,7 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
   const switchDone = switchStart + BASE.switchWork;
   const pickStart = switchDone + Math.round(BASE.hold * 0.55);
   const crossfadeStart = pickStart + BASE.crossfadeDelay;
-  const settleStart = crossfadeStart + BASE.move;
+  const settleStart = crossfadeStart + BASE.crossfade;
   return {
     titleIn: BASE.title,
     collectStart: BASE.collectStart,
@@ -97,7 +95,6 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     pickDuration: BASE.pick,
     crossfadeStart,
     crossfadeDuration: BASE.crossfade,
-    moveDuration: BASE.move,
     settleStart,
     settleDuration: BASE.settle21,
     finish: settleStart + BASE.settle21 + BASE.afterSettle,

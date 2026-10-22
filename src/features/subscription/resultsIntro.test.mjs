@@ -40,8 +40,8 @@ test('the centered card is full size and the next ones shrink and dim', () => {
 
 // 停在 #21 之前的預期值是 v13 原型在速度 1 時的節奏（BASE：title 300、collectStart 1000、
 // fadeIn 500、spin 4800、settle 700、gap 600、switchWork 1500、hold 2300）。
-// 輪盤直接減速停在 #21；之後（依 Jeff 的指示）：挑起 #21 500 → 其他交叉淡化 600、
-// 卡片同時移到 paywall 700 → 放回原大小 300。
+// 輪盤直接減速停在 #21；之後（依 Jeff 的指示，卡片不移動）：#21 往前放大 500 →
+// 其他交叉淡化成 paywall 600 → 原地放回原大小 300。
 test('the intro timeline follows the v13 prototype pacing', () => {
   assert.deepEqual(buildResultsIntroTimeline(), {
     titleIn: 300,
@@ -58,10 +58,9 @@ test('the intro timeline follows the v13 prototype pacing', () => {
     pickDuration: 500,
     crossfadeStart: 10365,
     crossfadeDuration: 600,
-    moveDuration: 700,
-    settleStart: 11065,
+    settleStart: 10965,
     settleDuration: 300,
-    finish: 11465,
+    finish: 11365,
   });
 });
 
