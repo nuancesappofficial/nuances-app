@@ -41,8 +41,6 @@ export type TabSwipeContextValue = {
       }
     | 'lite'
     | 'pro') => void;
-  // 切到卡片／Cache 分頁並回到該分頁的第一層；到了之後呼叫 onArrived。
-  routeToTabRoot: (tab: 'deck' | 'cache', onArrived?: () => void) => void;
   setCacheAddActionHandler: (handler: (() => void) | null) => void;
   triggerCacheAddAction: () => void;
   setTabBarHidden: (hidden: boolean) => void;

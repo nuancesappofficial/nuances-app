@@ -889,7 +889,7 @@ export default function RootNavigator({
     cacheNavigationRef.dispatch(StackActions.popToTop());
   }, [cacheNavigationRef]);
 
-  const routeToCacheRoot = React.useCallback((onArrived?: () => void) => {
+  const routeToCacheRoot = React.useCallback(() => {
     setTabBarForcedHidden(false);
     switchTabImmediately(1);
 
@@ -902,13 +902,12 @@ export default function RootNavigator({
         return;
       }
       resetCacheStackToRoot();
-      onArrived?.();
     };
 
     setTimeout(popCacheRootWhenReady, 280);
   }, [cacheNavigationRef, resetCacheStackToRoot, switchTabImmediately]);
 
-  const routeToDeckRoot = React.useCallback((onArrived?: () => void) => {
+  const routeToDeckRoot = React.useCallback(() => {
     setTabBarForcedHidden(false);
     switchTabImmediately(0);
 
@@ -923,7 +922,6 @@ export default function RootNavigator({
       if (cardsNavigationRef.canGoBack()) {
         cardsNavigationRef.dispatch(StackActions.popToTop());
       }
-      onArrived?.();
     };
 
     setTimeout(popDeckRootWhenReady, 280);
@@ -1129,8 +1127,6 @@ export default function RootNavigator({
       },
       goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => switchTabImmediately(index, options?.durationMs),
       openMembershipPaywall,
-      routeToTabRoot: (tab: 'deck' | 'cache', onArrived?: () => void) =>
-        tab === 'deck' ? routeToDeckRoot(onArrived) : routeToCacheRoot(onArrived),
       setCacheAddActionHandler: (handler: (() => void) | null) => {
         cacheAddActionHandlerRef.current = handler;
       },
@@ -1139,14 +1135,7 @@ export default function RootNavigator({
       fallbackTranslateY,
       isCacheTabActive: isCacheSettledActive,
     }),
-    [
-      fallbackTranslateY,
-      isCacheSettledActive,
-      openMembershipPaywall,
-      routeToCacheRoot,
-      routeToDeckRoot,
-      switchTabImmediately,
-    ]
+    [fallbackTranslateY, isCacheSettledActive, openMembershipPaywall, switchTabImmediately]
   );
 
   return (

@@ -3,13 +3,13 @@ import test from 'node:test';
 
 import { buildPaywallExitRows, shouldShowPaywallExit } from './paywallExit.ts';
 
-test('the exit screen lists review and Cache as actions and pronunciation as text', () => {
+test('the exit screen lists what stays free as plain text', () => {
   assert.deepEqual(
     buildPaywallExitRows({ savedCardCount: 20, pronunciationUsed: 8 }),
     [
-      { key: 'review', tappable: true, count: 20 },
-      { key: 'cache', tappable: true },
-      { key: 'pronunciation', tappable: false, remaining: 12 },
+      { key: 'review', count: 20 },
+      { key: 'cache' },
+      { key: 'pronunciation', remaining: 12 },
     ]
   );
 });
@@ -18,9 +18,9 @@ test('pronunciation shows no count when usage is unknown and disappears when use
   assert.deepEqual(
     buildPaywallExitRows({ savedCardCount: 5, pronunciationUsed: null }),
     [
-      { key: 'review', tappable: true, count: 5 },
-      { key: 'cache', tappable: true },
-      { key: 'pronunciation', tappable: false, remaining: null },
+      { key: 'review', count: 5 },
+      { key: 'cache' },
+      { key: 'pronunciation', remaining: null },
     ]
   );
   assert.deepEqual(

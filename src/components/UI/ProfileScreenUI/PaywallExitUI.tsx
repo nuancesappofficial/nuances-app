@@ -24,9 +24,8 @@ type Props = {
   rows: PaywallExitRow[];
   uiLanguage: UILanguage;
   bottomInset: number;
-  onReview: () => void;
-  onCache: () => void;
-  onStartReview: () => void;
+  // 底部按鈕：關掉 paywall，回到個人頁。
+  onDone: () => void;
   onReason: (reason: PaywallDeclineReason) => void;
 };
 
@@ -109,9 +108,7 @@ export default function PaywallExitUI({
   rows,
   uiLanguage,
   bottomInset,
-  onReview,
-  onCache,
-  onStartReview,
+  onDone,
   onReason,
 }: Props) {
   const rise = useStaggeredRise();
@@ -122,6 +119,7 @@ export default function PaywallExitUI({
     '{word}'
   );
 
+  // 「免費還能做的事」都是純文字，不能點。
   const renderRow = (row: PaywallExitRow, index: number) => {
     const content =
       row.key === 'review'
@@ -132,14 +130,12 @@ export default function PaywallExitUI({
               String(row.count)
             ),
             meta: tUI(uiLanguage, 'settings.membership.exit.reviewMeta'),
-            onPress: onReview,
           }
         : row.key === 'cache'
           ? {
               icon: 'add' as const,
               title: tUI(uiLanguage, 'settings.membership.exit.cache'),
               meta: tUI(uiLanguage, 'settings.membership.exit.cacheMeta'),
-              onPress: onCache,
             }
           : {
               icon: 'mic-outline' as const,
@@ -151,10 +147,12 @@ export default function PaywallExitUI({
                       uiLanguage,
                       'settings.membership.exit.pronunciationMeta'
                     ).replace('{count}', String(row.remaining)),
-              onPress: null,
             };
-    const body = (
-      <>
+    return (
+      <View
+        key={row.key}
+        style={[styles.row, index > 0 ? styles.rowDivider : null]}
+      >
         <View style={styles.rowIcon}>
           <Ionicons name={content.icon} size={16} color={ACCENT} />
         </View>
@@ -168,29 +166,7 @@ export default function PaywallExitUI({
             </Text>
           ) : null}
         </View>
-        {content.onPress ? (
-          <Ionicons name="chevron-forward" size={14} color={MUTED} />
-        ) : null}
-      </>
-    );
-    const rowStyle = [styles.row, index > 0 ? styles.rowDivider : null];
-    // 發音評分那列是純文字，不能點。
-    if (!content.onPress) {
-      return (
-        <View key={row.key} style={rowStyle}>
-          {body}
-        </View>
-      );
-    }
-    return (
-      <Pressable
-        key={row.key}
-        accessibilityRole="button"
-        style={({ pressed }) => [rowStyle, pressed ? styles.pressed : null]}
-        onPress={content.onPress}
-      >
-        {body}
-      </Pressable>
+      </View>
     );
   };
 
@@ -253,10 +229,10 @@ export default function PaywallExitUI({
             styles.startButton,
             pressed ? styles.pressed : null,
           ]}
-          onPress={onStartReview}
+          onPress={onDone}
         >
           <Text style={styles.startButtonText} maxFontSizeMultiplier={1.2}>
-            {tUI(uiLanguage, 'settings.membership.exit.startReview')}
+            {tUI(uiLanguage, 'settings.membership.exit.done')}
           </Text>
         </Pressable>
       </Animated.View>

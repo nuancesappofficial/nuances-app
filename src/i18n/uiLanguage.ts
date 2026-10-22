@@ -315,7 +315,7 @@ export type UIStringKey =
   | 'settings.membership.exit.reason.tryingFirst'
   | 'settings.membership.exit.reason.notEnoughUse'
   | 'settings.membership.exit.thanks'
-  | 'settings.membership.exit.startReview'
+  | 'settings.membership.exit.done'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -823,7 +823,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.tryingFirst': 'Trying it out first',
     'settings.membership.exit.reason.notEnoughUse': "Won't use that much",
     'settings.membership.exit.thanks': 'Got it — thanks for telling us.',
-    'settings.membership.exit.startReview': 'Start reviewing',
+    'settings.membership.exit.done': 'Got it',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
     'settings.membership.currentPlan': 'Current plan',
@@ -1329,7 +1329,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.tryingFirst': '先用用看',
     'settings.membership.exit.reason.notEnoughUse': '用不到那麼多',
     'settings.membership.exit.thanks': '收到了，謝謝你告訴我們。',
-    'settings.membership.exit.startReview': '開始複習',
+    'settings.membership.exit.done': '知道了',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
     'settings.membership.currentPlan': '目前使用中方案',
@@ -1819,7 +1819,7 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.exit.reason.tryingFirst': '先用用看',
     'settings.membership.exit.reason.notEnoughUse': '用不到那么多',
     'settings.membership.exit.thanks': '收到了，谢谢你告诉我们。',
-    'settings.membership.exit.startReview': '开始复习',
+    'settings.membership.exit.done': '知道了',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
     'settings.membership.currentPlan': '当前使用中方案',

@@ -64,7 +64,6 @@ export type AnalyticsEventProperties = {
   paywall_decline_reason: {
     reason: 'too_expensive' | 'trying_first' | 'not_enough_use';
   };
-  paywall_exit_action: { action: 'review' | 'cache' | 'start_review' };
   freemium_quota_updated: WithGrowthAttribution<{
     quota_limit: number;
     quota_used: number;

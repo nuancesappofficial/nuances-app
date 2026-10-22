@@ -86,7 +86,6 @@ import {
   shouldPurgeStaleDefaultExperienceQuizHint,
   shouldShowQuickQuizTutorialArrow,
 } from '../../../features/tour/tutorialFlowPolicy';
-import { START_TODAY_REVIEW_EVENT } from '../../../features/deck/startReviewEvent';
 
 type Props = {
   navigation: any;
@@ -1322,14 +1321,6 @@ export default function DeckMainFlow({
   React.useEffect(() => {
     pressTodayReviewRef.current = handlePressTodayReview;
   }, [handlePressTodayReview]);
-
-  React.useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener(
-      START_TODAY_REVIEW_EVENT,
-      () => pressTodayReviewRef.current()
-    );
-    return () => subscription.remove();
-  }, []);
 
   React.useEffect(() => {
     if (!__DEV__) return undefined;

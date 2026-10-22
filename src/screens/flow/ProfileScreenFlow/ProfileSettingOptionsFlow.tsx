@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Alert,
   Animated,
-  DeviceEventEmitter,
   Easing,
   Image,
   InteractionManager,
@@ -39,7 +38,6 @@ import {
   hasSeenPaywallExitLocally,
   markPaywallExitSeenLocally,
 } from '../../../features/subscription/paywallExitSeen';
-import { START_TODAY_REVIEW_EVENT } from '../../../features/deck/startReviewEvent';
 import { analytics } from '@services/analytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
@@ -1362,21 +1360,6 @@ export default function ProfileSettingOptionsFlow({
     [navigation, paywallExitSeen, paywallHero?.kind]
   );
 
-  const leavePaywallTo = React.useCallback(
-    (action: 'review' | 'cache' | 'start_review') => {
-      analytics.track('paywall_exit_action', { action });
-      navigation.goBack();
-      if (action === 'cache') {
-        tabSwipeContext?.routeToTabRoot('cache');
-        return;
-      }
-      tabSwipeContext?.routeToTabRoot('deck', () => {
-        DeviceEventEmitter.emit(START_TODAY_REVIEW_EVENT);
-      });
-    },
-    [navigation, tabSwipeContext]
-  );
-
   const handleManageSubscription = React.useCallback(async () => {
     try {
       await Linking.openURL(APPLE_SUBSCRIPTION_MANAGEMENT_URL);
@@ -2288,9 +2271,7 @@ export default function ProfileSettingOptionsFlow({
               })}
               uiLanguage={settings.uiLanguage}
               bottomInset={insets.bottom}
-              onReview={() => leavePaywallTo('review')}
-              onCache={() => leavePaywallTo('cache')}
-              onStartReview={() => leavePaywallTo('start_review')}
+              onDone={() => navigation.goBack()}
               onReason={(reason) =>
                 analytics.track('paywall_decline_reason', { reason })
               }
