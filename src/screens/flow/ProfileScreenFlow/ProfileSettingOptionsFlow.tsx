@@ -104,6 +104,7 @@ import {
   mergeDevStarterUsage,
   resolvePaywallEntry,
   resolvePaywallHero,
+  type PendingPaywallCard,
   type StarterUsage,
 } from '../../../features/subscription/paywallHero';
 import {
@@ -132,6 +133,7 @@ type Props = {
       initialTab?: 'lite' | 'pro';
       triggerSource?: MembershipPaywallTriggerSource;
       devStarterUsage?: Partial<StarterUsage>;
+      pendingCard?: PendingPaywallCard;
     };
   };
 };
@@ -700,6 +702,10 @@ export default function ProfileSettingOptionsFlow({
     null
   );
   const devStarterUsage = route.params?.devStarterUsage;
+  const pendingCard = route.params?.pendingCard;
+  const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
+    null
+  );
   const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
     React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
@@ -781,6 +787,21 @@ export default function ProfileSettingOptionsFlow({
               setMembershipStatus(snapshot.planType);
               setMembershipStatusResolved(true);
             }
+            if (snapshot.planType === 'free' && pendingCard) {
+              void database
+                .get<Card>('cards')
+                .query(Q.where('user_id', userId), Q.where('deleted_at', null))
+                .fetchCount()
+                .then((count) => {
+                  if (!cancelled) setSavedCardCount(count);
+                })
+                .catch((error) => {
+                  console.warn(
+                    '[ProfileSettingOptions] count saved cards failed:',
+                    error
+                  );
+                });
+            }
             if (snapshot.planType === 'free') {
               void SubscriptionService.fetchFreeStarterUsage()
                 .catch(() => null)
@@ -827,7 +848,7 @@ export default function ProfileSettingOptionsFlow({
       cancelled = true;
       task.cancel();
     };
-  }, [devStarterUsage, kind]);
+  }, [devStarterUsage, kind, pendingCard]);
 
   React.useEffect(() => {
     if (kind !== 'theme') return;
@@ -2102,7 +2123,11 @@ export default function ProfileSettingOptionsFlow({
       activeSubscriptionPeriod != null &&
       selectedPlanPeriod === activeSubscriptionPeriod;
     const paywallHero = membershipStatusResolved
-      ? resolvePaywallHero({ planType: membershipStatus, starterUsage })
+      ? resolvePaywallHero({
+          planType: membershipStatus,
+          starterUsage,
+          pendingCard,
+        })
       : null;
     const tierLabel = membershipTier === 'lite' ? 'LITE' : 'PRO';
     const periodRank = (
@@ -2351,7 +2376,9 @@ export default function ProfileSettingOptionsFlow({
                         ? tUI(settings.uiLanguage, 'settings.membership.active')
                         : tUI(
                             settings.uiLanguage,
-                            'settings.membership.upgrade'
+                            paywallHero?.kind === 'next'
+                              ? 'settings.membership.continueWith'
+                              : 'settings.membership.upgrade'
                           ).replace('{tier}', tierLabel)}
                 </Text>
                 <Ionicons
@@ -2374,6 +2401,33 @@ export default function ProfileSettingOptionsFlow({
                       settings.uiLanguage,
                       'settings.membership.manageSubscription'
                     )}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {paywallHero?.kind === 'next' &&
+              savedCardCount != null &&
+              savedCardCount > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  style={({ pressed }) => [
+                    styles.membershipReviewLink,
+                    pressed ? styles.pressed : null,
+                  ]}
+                  // S3 之前跟 ✕ 一樣只關掉 paywall；S3 會改成導到退出畫面。
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    navigation.goBack();
+                  }}
+                >
+                  <Text
+                    style={styles.membershipReviewLinkText}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    {tUI(
+                      settings.uiLanguage,
+                      'settings.membership.reviewMyCards'
+                    ).replace('{count}', String(savedCardCount))}
                   </Text>
                 </Pressable>
               ) : null}
@@ -3453,6 +3507,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  membershipReviewLink: {
+    alignSelf: 'center',
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    marginTop: 6,
+  },
+  membershipReviewLinkText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   membershipTierQuota: {
     color: '#94A3B8',

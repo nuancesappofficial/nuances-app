@@ -1,8 +1,12 @@
 import React from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { tUI } from '../../../i18n/uiLanguage';
 import type { UILanguage } from '@services/settings/userSettings';
-import type { PaywallHero } from '../../../features/subscription/paywallHero';
+import {
+  splitTemplateAroundToken,
+  type PaywallHero,
+} from '../../../features/subscription/paywallHero';
 
 type Props = {
   // null：會員狀態還沒讀到，先保留空間，避免付費用戶閃過免費版畫面。
@@ -34,8 +38,217 @@ function StarterProgressBar({ progress }: { progress: number }) {
   );
 }
 
+const GOLD = '#F5B53F';
+const CARD_WIDTH = 136;
+// 卡片翻開時從中心往外散開的金色光點（位移同 v13 原型）。
+const SPARKS: Array<{ dx: number; dy: number }> = [
+  { dx: -92, dy: -46 },
+  { dx: 90, dy: -52 },
+  { dx: -104, dy: 18 },
+  { dx: 102, dy: 22 },
+  { dx: -60, dy: -78 },
+  { dx: 64, dy: -80 },
+  { dx: -70, dy: 70 },
+  { dx: 74, dy: 66 },
+  { dx: 0, dy: -92 },
+  { dx: 4, dy: 88 },
+];
+
+function useLoopingSheen() {
+  const sheen = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sheen, {
+          toValue: 1,
+          duration: 1260,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay(2340),
+        Animated.timing(sheen, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    const start = setTimeout(() => loop.start(), 1400);
+    return () => {
+      clearTimeout(start);
+      loop.stop();
+    };
+  }, [sheen]);
+  return sheen;
+}
+
+function SparkBurst() {
+  const progress = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 1000,
+      delay: 550,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [progress]);
+
+  return (
+    <>
+      {SPARKS.map((spark) => (
+        <Animated.View
+          key={`${spark.dx},${spark.dy}`}
+          pointerEvents="none"
+          style={[
+            styles.spark,
+            {
+              opacity: progress.interpolate({
+                inputRange: [0, 0.25, 1],
+                outputRange: [0, 1, 0],
+              }),
+              transform: [
+                {
+                  translateX: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, spark.dx],
+                  }),
+                },
+                {
+                  translateY: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, spark.dy],
+                  }),
+                },
+                {
+                  scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.4, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
+    </>
+  );
+}
+
+function NextCard({
+  word,
+  sourceLabel,
+  signature,
+}: {
+  word: string;
+  sourceLabel: string;
+  signature: string;
+}) {
+  const sheen = useLoopingSheen();
+  return (
+    <View style={styles.nextCardStage}>
+      <LinearGradient
+        colors={['#FDE68A', '#F59E0B', '#FDE68A', GOLD]}
+        locations={[0, 0.45, 0.7, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.nextCardBorder}
+      >
+        <View style={styles.nextCardFace}>
+          <View style={styles.nextCardTopRow}>
+            <View style={styles.sourcePill}>
+              <Text style={styles.sourcePillText} numberOfLines={1}>
+                {sourceLabel}
+              </Text>
+            </View>
+            <Text style={styles.nextCardNumber}>#21</Text>
+          </View>
+          <View style={styles.nextCardWordBox}>
+            {/* 長字整體縮小，不在字中間斷行 */}
+            <Text
+              style={styles.nextCardWord}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.45}
+              maxFontSizeMultiplier={1}
+            >
+              {word}
+            </Text>
+          </View>
+          {/* AI 卡還沒產生：定義位置留虛線，不放假內容 */}
+          <View style={styles.definitionLine} />
+          <View style={[styles.definitionLine, styles.definitionLineShort]} />
+          <Text
+            style={styles.signature}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1}
+          >
+            {signature}
+          </Text>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.sheen,
+              {
+                transform: [
+                  { rotate: '25deg' },
+                  {
+                    translateX: sheen.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <LinearGradient
+              colors={[
+                'rgba(255,255,255,0)',
+                'rgba(255,255,255,0.7)',
+                'rgba(255,255,255,0)',
+              ]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        </View>
+      </LinearGradient>
+      <SparkBurst />
+    </View>
+  );
+}
+
 export default function PaywallHeroUI({ hero, uiLanguage }: Props) {
   if (!hero) return <View style={styles.container} />;
+
+  if (hero.kind === 'next') {
+    const title = splitTemplateAroundToken(
+      tUI(uiLanguage, 'settings.membership.next21.title'),
+      '{word}'
+    );
+    return (
+      <View style={styles.container}>
+        <NextCard
+          word={hero.word}
+          sourceLabel={hero.sourceLabel}
+          signature={tUI(uiLanguage, 'settings.membership.next21.signature')}
+        />
+        <Text
+          style={styles.title}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+          maxFontSizeMultiplier={1.2}
+        >
+          {title.before}
+          <Text style={styles.titleWord}>{hero.word}</Text>
+          {title.after}
+        </Text>
+      </View>
+    );
+  }
 
   if (hero.kind === 'plan') {
     const tierLabel = hero.tier === 'lite' ? 'LITE' : 'PRO';
@@ -139,6 +352,103 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
     fontSize: 11,
     fontWeight: '700',
+  },
+  nextCardStage: {
+    width: CARD_WIDTH,
+    height: 174,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextCardBorder: {
+    width: CARD_WIDTH,
+    height: 174,
+    borderRadius: 18,
+    padding: 3,
+    transform: [{ rotate: '-4deg' }],
+    shadowColor: '#000000',
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 10,
+  },
+  nextCardFace: {
+    flex: 1,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    padding: 7,
+    overflow: 'hidden',
+  },
+  nextCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  sourcePill: {
+    flexShrink: 1,
+    borderRadius: 8,
+    backgroundColor: '#EFEFF3',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  sourcePillText: {
+    color: '#858895',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  nextCardNumber: {
+    color: '#C99A2E',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  nextCardWordBox: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  nextCardWord: {
+    color: '#1C2530',
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  definitionLine: {
+    height: 6,
+    marginTop: 6,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#D9DEE6',
+  },
+  definitionLineShort: {
+    width: '62%',
+  },
+  signature: {
+    marginTop: 7,
+    color: '#A0A6B1',
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  sheen: {
+    position: 'absolute',
+    top: -60,
+    bottom: -60,
+    left: CARD_WIDTH / 2 - 30,
+    width: 60,
+  },
+  spark: {
+    position: 'absolute',
+    left: CARD_WIDTH / 2 - 3.5,
+    top: 174 / 2 - 3.5,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#FDE68A',
+  },
+  titleWord: {
+    color: GOLD,
   },
   planChip: {
     borderWidth: 2,

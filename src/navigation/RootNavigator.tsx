@@ -58,6 +58,7 @@ import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
 import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
 import {
   FREE_STARTER_LIMIT,
+  type PendingPaywallCard,
   type StarterUsage,
 } from '../features/subscription/paywallHero';
 import { resolveInitialTabIndex } from './navigationStartTabCore';
@@ -774,6 +775,7 @@ export default function RootNavigator({
         tier?: 'lite' | 'pro';
         triggerSource?: MembershipPaywallTriggerSource;
         devStarterUsage?: Partial<StarterUsage>;
+        pendingCard?: PendingPaywallCard;
       }
     | 'lite'
     | 'pro') => {
@@ -814,6 +816,7 @@ export default function RootNavigator({
         initialTab: normalizedOptions?.tier,
         triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
         devStarterUsage: normalizedOptions?.devStarterUsage,
+        pendingCard: normalizedOptions?.pendingCard,
       });
       traceFirstRun('paywall', 'screen_navigated', {
         source: normalizedOptions?.source ?? 'unknown',
@@ -829,7 +832,7 @@ export default function RootNavigator({
     const openPaywallFromDevLink = (url: string) => {
       const devLink = parsePaywallDevLink(url);
       if (!devLink) return;
-      // 第 21 張卡面的參數先保留給 S2，目前只用建卡額度。
+      // kind（截圖卡）與 pron（發音段）保留給之後的切片。
       console.log('[Membership] Dev paywall link:', devLink);
       if (devLink.kind === 'paywall-21') {
         openMembershipPaywall({
@@ -837,6 +840,7 @@ export default function RootNavigator({
           source: 'create_card',
           triggerSource: 'lite_card_cap',
           devStarterUsage: { cardsUsed: FREE_STARTER_LIMIT },
+          pendingCard: { word: devLink.word, sourceLabel: devLink.sourceLabel },
         });
         return;
       }

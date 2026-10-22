@@ -299,6 +299,10 @@ export type UIStringKey =
   | 'settings.membership.tierQuota.pro'
   | 'settings.membership.upgrade'
   | 'settings.membership.currentTier'
+  | 'settings.membership.next21.title'
+  | 'settings.membership.next21.signature'
+  | 'settings.membership.continueWith'
+  | 'settings.membership.reviewMyCards'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -790,6 +794,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.tierQuota.pro': '800 AI cards · 1,200 pronunciation checks a month',
     'settings.membership.upgrade': 'Upgrade to {tier}',
     'settings.membership.currentTier': "You're on {tier}",
+    'settings.membership.next21.title': 'Next up: {word}',
+    'settings.membership.next21.signature': '— Thank you, from Nuances',
+    'settings.membership.continueWith': 'Keep collecting with {tier}',
+    'settings.membership.reviewMyCards': 'Review my {count} cards first',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
     'settings.membership.currentPlan': 'Current plan',
@@ -1279,6 +1287,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.tierQuota.pro': '每月 800 張 AI 卡・1,200 次發音評分',
     'settings.membership.upgrade': '升級 {tier}',
     'settings.membership.currentTier': '你正在用 {tier}',
+    'settings.membership.next21.title': '下一個：{word}',
+    'settings.membership.next21.signature': '— Nuances 謝謝你',
+    'settings.membership.continueWith': '用 {tier} 繼續收集',
+    'settings.membership.reviewMyCards': '先去複習我的 {count} 張卡',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
     'settings.membership.currentPlan': '目前使用中方案',
@@ -1752,6 +1764,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.tierQuota.pro': '每月 800 张 AI 卡・1,200 次发音评分',
     'settings.membership.upgrade': '升级 {tier}',
     'settings.membership.currentTier': '你正在用 {tier}',
+    'settings.membership.next21.title': '下一个：{word}',
+    'settings.membership.next21.signature': '— Nuances 谢谢你',
+    'settings.membership.continueWith': '用 {tier} 继续收集',
+    'settings.membership.reviewMyCards': '先去复习我的 {count} 张卡',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
     'settings.membership.currentPlan': '当前使用中方案',

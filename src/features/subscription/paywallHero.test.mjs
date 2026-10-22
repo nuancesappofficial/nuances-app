@@ -5,7 +5,23 @@ import {
   mergeDevStarterUsage,
   resolvePaywallEntry,
   resolvePaywallHero,
+  splitTemplateAroundToken,
 } from './paywallHero.ts';
+
+test('a title template splits around the word so the word can be highlighted', () => {
+  assert.deepEqual(splitTemplateAroundToken('下一個：{word}', '{word}'), {
+    before: '下一個：',
+    after: '',
+  });
+  assert.deepEqual(splitTemplateAroundToken('{word}이 다음이에요', '{word}'), {
+    before: '',
+    after: '이 다음이에요',
+  });
+  assert.deepEqual(splitTemplateAroundToken('Next up', '{word}'), {
+    before: 'Next up',
+    after: '',
+  });
+});
 
 test('dev link usage overrides the fetched starter usage field by field', () => {
   const fetched = { cardsUsed: 3, pronunciationUsed: 5 };
@@ -71,6 +87,17 @@ test('a freemium learner who used the whole allowance sees a full bar and nothin
         progress: 1,
       },
     }
+  );
+});
+
+test('a freemium learner blocked on a new card sees that word as the 21st card', () => {
+  assert.deepEqual(
+    resolvePaywallHero({
+      planType: 'free',
+      starterUsage: null,
+      pendingCard: { word: 'situationship', sourceLabel: 'Netflix' },
+    }),
+    { kind: 'next', word: 'situationship', sourceLabel: 'Netflix' }
   );
 });
 

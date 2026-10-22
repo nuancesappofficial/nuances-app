@@ -149,6 +149,8 @@ import {
   runCardRevealSequence as runPreviewRevealSequence,
 } from '../../../features/createCard/revealSequence';
 import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
+import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
+import type { PendingPaywallCard } from '../../../features/subscription/paywallHero';
 import MovingTutorialArrow from '../../../components/UI/shared/MovingTutorialArrow';
 import {
   DEFAULT_EXPERIENCE_TARGET_WORD,
@@ -1842,13 +1844,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   );
 
   const openMembershipPaywall = React.useCallback(
-    (tier?: 'lite' | 'pro') => {
+    (tier?: 'lite' | 'pro', pendingCard?: PendingPaywallCard) => {
       traceFirstRun('paywall', 'create_card_limit_reached');
       tabSwipeContext?.openMembershipPaywall({
         returnTo: 'create-card',
         source: 'create_card',
         tier,
         triggerSource: 'lite_card_cap',
+        pendingCard,
       });
     },
     [tabSwipeContext]
@@ -2238,7 +2241,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             ) {
               openMembershipPaywall('pro');
             } else {
-              openMembershipPaywall();
+              openMembershipPaywall(undefined, {
+                word,
+                sourceLabel: toSourceLabel(cachedItem.sourceApp),
+              });
             }
           }
           return { status: 'blocked' as const };
@@ -2267,6 +2273,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       aiReplyLanguage,
       appendCompletedCard,
       appTour.step,
+      cachedItem.sourceApp,
       editedSourceText,
       ocrBlocks,
       openMembershipPaywall,
@@ -2389,7 +2396,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       (snapshot: EntitlementSnapshot) => {
         setEntitlementSnapshot(snapshot);
         if (!pendingPremiumRetryRef.current) return;
-        if (snapshot.planType !== 'premium' && snapshot.planType !== 'trial')
+        if (
+          snapshot.planType !== 'premium' &&
+          snapshot.planType !== 'trial' &&
+          snapshot.planType !== 'lite'
+        )
           return;
 
         pendingPremiumRetryRef.current = false;

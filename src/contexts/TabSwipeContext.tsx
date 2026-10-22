@@ -1,5 +1,8 @@
 import React from 'react';
-import type { StarterUsage } from '../features/subscription/paywallHero';
+import type {
+  PendingPaywallCard,
+  StarterUsage,
+} from '../features/subscription/paywallHero';
 
 export type SwipeExclusionRange = {
   top: number;
@@ -33,6 +36,8 @@ export type TabSwipeContextValue = {
         triggerSource?: MembershipPaywallTriggerSource;
         // 只給 __DEV__ deep link 用：覆蓋從後端讀到的入門額度已用次數。
         devStarterUsage?: Partial<StarterUsage>;
+        // 入門額度用完時正要建的那張卡（第 21 張）。
+        pendingCard?: PendingPaywallCard;
       }
     | 'lite'
     | 'pro') => void;

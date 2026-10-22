@@ -53,6 +53,7 @@ import { useCacheListDataSource } from './hooks/useCacheListDataSource';
 import { useCacheSwipeActions } from './hooks/useCacheSwipeActions';
 import type { TodayUploadSticker } from './hooks/useCacheListDataSource';
 import { resolveCacheCardTransition, areIdListsEqual } from '../../../features/cache/cacheEntranceAnimationPolicy';
+import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { DEFAULT_STICKER_FONT_KEY, resolveStickerFont, type StickerFontKey } from '../../../theme/stickerFonts';
 import {
@@ -650,19 +651,6 @@ function VocabStickerCloud({
       })}
     </View>
   );
-}
-
-function toSourceLabel(sourceApp?: string | null): string {
-  const value = (sourceApp || '').trim().toLowerCase();
-  if (!value) return 'Unknown';
-
-  if (value === 'share_sheet' || value === 'share sheet') return 'Share Sheet';
-  if (value === 'clipboard') return 'Clipboard';
-  if (value === 'manual entry') return 'Manual Entry';
-  if (value === 'quick add') return 'Quick Add';
-  if (value === 'camera') return 'Camera';
-
-  return sourceApp || 'Unknown';
 }
 
 function toRelativeImportTime(createdAt?: Date | null): string {
