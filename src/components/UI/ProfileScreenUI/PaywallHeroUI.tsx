@@ -7,14 +7,31 @@ import {
   splitTemplateAroundToken,
   type PaywallHero,
 } from '../../../features/subscription/paywallHero';
+import type { ResultsIntroCard } from '../../../features/subscription/resultsIntro';
+import {
+  IntroCarousel,
+  IntroCardUnderlay,
+  IntroChrome,
+  useIntroCardStyle,
+  useIntroPickedStyle,
+  type ResultsIntroController,
+} from './ResultsIntroUI';
+
+// 成果動畫：這張第 21 張卡就是輪播停下來的那一格（同一個元件，所以不會移動或換臉）。
+export type PaywallHeroIntro = {
+  controller: ResultsIntroController;
+  cards: ResultsIntroCard[];
+  createdCount: number;
+};
 
 type Props = {
   // null：會員狀態還沒讀到，先保留空間，避免付費用戶閃過免費版畫面。
   hero: PaywallHero | null;
   uiLanguage: UILanguage;
-  // 成果動畫播放時先藏起第 21 張卡，由動畫裡的同一張卡移過來交接。
-  nextCardHidden?: boolean;
-  onNextCardMeasured?: (center: CardScreenCenter) => void;
+  // 只在成果動畫播放時傳入。
+  intro?: PaywallHeroIntro | null;
+  // 成果動畫的時間軸（一直存在；沒播時不會用到）。
+  introController: ResultsIntroController;
 };
 
 const ACCENT = '#4EAFF4';
@@ -139,7 +156,7 @@ function SparkBurst() {
 }
 
 // 第 21 張卡的卡面（金邊 Cache 卡）。paywall 和成果動畫結尾共用，確保交接時長得一模一樣。
-export function TwentyFirstCardFace({
+function TwentyFirstCardFace({
   word,
   sourceLabel,
   signature,
@@ -191,77 +208,93 @@ export function TwentyFirstCardFace({
   );
 }
 
-// 卡片中心在螢幕上的位置，給成果動畫把卡片移到這裡。
-export type CardScreenCenter = { x: number; y: number };
+const STATIC_TILT = { transform: [{ rotate: '-4deg' }] };
 
 function NextCard({
   word,
   sourceLabel,
   signature,
-  hidden,
-  onMeasured,
+  uiLanguage,
+  intro,
+  introController,
 }: {
   word: string;
   sourceLabel: string;
   signature: string;
-  hidden: boolean;
-  onMeasured?: (center: CardScreenCenter) => void;
+  uiLanguage: UILanguage;
+  intro: PaywallHeroIntro | null;
+  introController: ResultsIntroController;
 }) {
   const sheen = useLoopingSheen();
-  const stageRef = React.useRef<View>(null);
-  const measure = React.useCallback(() => {
-    if (!onMeasured) return;
-    requestAnimationFrame(() => {
-      stageRef.current?.measureInWindow((x, y, width, height) => {
-        onMeasured({ x: x + width / 2, y: y + height / 2 });
-      });
-    });
-  }, [onMeasured]);
+  const controller = introController;
+  // 只有播放時才套用這些樣式。
+  const introCardStyle = useIntroCardStyle(controller);
+  const pickedStyle = useIntroPickedStyle(controller);
+  const playing = intro != null;
 
   return (
-    <View
-      ref={stageRef}
-      onLayout={measure}
-      style={[styles.nextCardStage, hidden ? styles.hidden : null]}
-    >
-      <View style={styles.nextCardTilt}>
-        <TwentyFirstCardFace
-          word={word}
-          sourceLabel={sourceLabel}
-          signature={signature}
+    <View style={styles.nextCardStage}>
+      {playing ? <IntroCarousel intro={controller} cards={intro.cards} /> : null}
+      {/* 播放時：依輪播位置縮放、變暗；停下來時跟平常完全一樣。 */}
+      <Animated.View style={[styles.nextCardFill, playing ? introCardStyle : null]}>
+        <Animated.View
+          style={[styles.nextCardFill, playing ? pickedStyle : STATIC_TILT]}
         >
+          {playing ? (
+            <IntroCardUnderlay intro={controller} word={word} />
+          ) : null}
           <Animated.View
-            pointerEvents="none"
             style={[
-              styles.sheen,
-              {
-                transform: [
-                  { rotate: '25deg' },
-                  {
-                    translateX: sheen.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
-                    }),
-                  },
-                ],
-              },
+              styles.nextCardFill,
+              playing ? { opacity: controller.gold } : null,
             ]}
           >
-            <LinearGradient
-              colors={[
-                'rgba(255,255,255,0)',
-                'rgba(255,255,255,0.7)',
-                'rgba(255,255,255,0)',
-              ]}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={StyleSheet.absoluteFill}
-            />
+            <TwentyFirstCardFace
+              word={word}
+              sourceLabel={sourceLabel}
+              signature={signature}
+            >
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.sheen,
+                  {
+                    transform: [
+                      { rotate: '25deg' },
+                      {
+                        translateX: sheen.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <LinearGradient
+                  colors={[
+                    'rgba(255,255,255,0)',
+                    'rgba(255,255,255,0.7)',
+                    'rgba(255,255,255,0)',
+                  ]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+            </TwentyFirstCardFace>
           </Animated.View>
-        </TwentyFirstCardFace>
-      </View>
-      {/* 卡片露出來的那一刻才散出金色光點 */}
-      {hidden ? null : <SparkBurst />}
+        </Animated.View>
+      </Animated.View>
+      {playing ? (
+        <IntroChrome
+          intro={controller}
+          createdCount={intro.createdCount}
+          uiLanguage={uiLanguage}
+        />
+      ) : null}
+      {/* 動畫播完（或沒有動畫）時才散出金色光點 */}
+      {playing ? null : <SparkBurst />}
     </View>
   );
 }
@@ -269,8 +302,8 @@ function NextCard({
 export default function PaywallHeroUI({
   hero,
   uiLanguage,
-  nextCardHidden = false,
-  onNextCardMeasured,
+  intro = null,
+  introController,
 }: Props) {
   if (!hero) return <View style={styles.container} />;
 
@@ -285,11 +318,16 @@ export default function PaywallHeroUI({
           word={hero.word}
           sourceLabel={hero.sourceLabel}
           signature={tUI(uiLanguage, 'settings.membership.next21.signature')}
-          hidden={nextCardHidden}
-          onMeasured={onNextCardMeasured}
+          uiLanguage={uiLanguage}
+          intro={intro}
+          introController={introController}
         />
-        <Text
-          style={styles.title}
+        {/* paywall 的標題：成果動畫結尾和其他部分一起淡入。 */}
+        <Animated.Text
+          style={[
+            styles.title,
+            intro ? { opacity: introController.reveal } : null,
+          ]}
           numberOfLines={2}
           adjustsFontSizeToFit
           minimumFontScale={0.7}
@@ -298,7 +336,7 @@ export default function PaywallHeroUI({
           {title.before}
           <Text style={styles.titleWord}>{hero.word}</Text>
           {title.after}
-        </Text>
+        </Animated.Text>
       </View>
     );
   }
@@ -424,11 +462,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 14 },
     elevation: 10,
   },
-  nextCardTilt: {
-    transform: [{ rotate: '-4deg' }],
-  },
-  hidden: {
-    opacity: 0,
+  nextCardFill: {
+    ...StyleSheet.absoluteFillObject,
   },
   nextCardFace: {
     flex: 1,

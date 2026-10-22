@@ -9,6 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tUI, type UIStringKey } from '../../../i18n/uiLanguage';
 import type { UILanguage } from '@services/settings/userSettings';
 import {
@@ -16,27 +17,10 @@ import {
   resolveCarouselItemStyle,
   type ResultsIntroCard,
 } from '../../../features/subscription/resultsIntro';
-import {
-  TwentyFirstCardFace,
-  type CardScreenCenter,
-} from './PaywallHeroUI';
 
-type Props = {
-  cards: ResultsIntroCard[];
-  // 使用者正要建的那張卡（第 21 張）。
-  nextWord: string;
-  nextSourceLabel: string;
-  signature: string;
-  // 實際建過的卡數（入門額度），「少切換 App」用這個數字。
-  createdCount: number;
-  uiLanguage: UILanguage;
-  // paywall 上第 21 張卡的中心；結尾把卡片移過去交接。還沒量到就原地交接。
-  targetCenter: CardScreenCenter | null;
-  // 卡片開始移動時通知 paywall 淡入。
-  onReveal: (durationMs: number) => void;
-  // completed：播完並交接給 paywall 的卡；false 表示使用者點了略過。
-  onFinish: (completed: boolean) => void;
-};
+// 成果動畫的第 21 張就是 paywall 上那張卡本身（同一個元件），所以從頭到尾不會移動、
+// 不會換臉。這個檔案提供：時間軸控制（useResultsIntro）、排在那張卡左邊的輪播、
+// 卡片上下的文字，以及整個螢幕的背景與略過。
 
 const ACCENT = '#4EAFF4';
 const NAVY = '#02213D';
@@ -44,62 +28,460 @@ const CARD_WIDTH = 132;
 const CARD_HEIGHT = 172;
 const CARD_GAP = 14;
 const STEP = CARD_WIDTH + CARD_GAP;
-const STAGE_HEIGHT = 220;
-// 還沒量到 paywall 那張卡時，輪播放在標題下方的預設位置。
-const DEFAULT_STAGE_TOP = 128;
+// paywall 第 21 張卡的外框尺寸（PaywallHeroUI 的 nextCardStage）。
+const HERO_WIDTH = 136;
+const HERO_HEIGHT = 174;
 
 type RowState = 'idle' | 'active' | 'done';
 
-// 輪播目前停在第幾張（1 起算）。數字只在這個小元件裡更新，不讓整個畫面跟著重畫。
-function useFoundCount(position: Animated.Value, lastIndex: number) {
+export type ResultsIntroController = {
+  active: boolean;
+  cardCount: number;
+  position: Animated.Value;
+  trackOpacity: Animated.Value;
+  titleOpacity: Animated.Value;
+  // 動畫的文字、其他卡片和背景；結尾淡出。
+  chromeOpacity: Animated.Value;
+  // paywall 其他部分；結尾淡入（和 chromeOpacity 交叉淡化）。
+  reveal: Animated.Value;
+  // 0 → 1：第 21 張被選中，原地往前放大、亮起光暈；交接前回到 0。
+  lift: Animated.Value;
+  // 0 → 1：金邊卡面疊到虛線剪影上。
+  gold: Animated.Value;
+  // 0 → 1：原地轉成 paywall 那張卡的 -4°。
+  tilt: Animated.Value;
+  titleKey: UIStringKey;
+  hintKey: UIStringKey | null;
+  collectDone: boolean;
+  rowStates: [RowState, RowState];
+  skip: () => void;
+};
+
+// 成果動畫的時間軸。active 變成 true 時開始播；播完或略過時呼叫 onFinish。
+export function useResultsIntro({
+  active,
+  cardCount,
+  onFinish,
+}: {
+  active: boolean;
+  cardCount: number;
+  onFinish: () => void;
+}): ResultsIntroController {
+  const timeline = React.useMemo(() => buildResultsIntroTimeline(), []);
+  const position = React.useRef(new Animated.Value(0)).current;
+  const trackOpacity = React.useRef(new Animated.Value(0)).current;
+  const titleOpacity = React.useRef(new Animated.Value(0)).current;
+  const chromeOpacity = React.useRef(new Animated.Value(1)).current;
+  const reveal = React.useRef(new Animated.Value(1)).current;
+  const lift = React.useRef(new Animated.Value(0)).current;
+  const gold = React.useRef(new Animated.Value(0)).current;
+  const tilt = React.useRef(new Animated.Value(0)).current;
+  const onFinishRef = React.useRef(onFinish);
+  onFinishRef.current = onFinish;
+  const finishedRef = React.useRef(false);
+  const timersRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const [titleKey, setTitleKey] = React.useState<UIStringKey>(
+    'settings.membership.intro.title'
+  );
+  const [hintKey, setHintKey] = React.useState<UIStringKey | null>(null);
+  const [collectDone, setCollectDone] = React.useState(false);
+  const [rowStates, setRowStates] = React.useState<[RowState, RowState]>([
+    'idle',
+    'idle',
+  ]);
+
+  const finish = React.useCallback(() => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    timersRef.current.forEach(clearTimeout);
+    onFinishRef.current();
+  }, []);
+
+  // 略過：所有東西直接跳到最後的樣子（第 21 張卡、完整的 paywall）。
+  const skip = React.useCallback(() => {
+    [position, trackOpacity, chromeOpacity, reveal, lift, gold, tilt].forEach(
+      (value) => value.stopAnimation()
+    );
+    position.setValue(cardCount);
+    chromeOpacity.setValue(0);
+    reveal.setValue(1);
+    lift.setValue(0);
+    gold.setValue(1);
+    tilt.setValue(1);
+    finish();
+  }, [cardCount, chromeOpacity, finish, gold, lift, position, reveal, tilt, trackOpacity]);
+
+  // 開始前就把 paywall 其他部分藏起來，避免第一格畫面閃一下。
+  React.useLayoutEffect(() => {
+    if (active) reveal.setValue(0);
+  }, [active, reveal]);
+
+  React.useEffect(() => {
+    if (!active) return undefined;
+    const timers = timersRef.current;
+    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
+    const timing = (
+      value: Animated.Value,
+      toValue: number,
+      duration: number,
+      easing: (t: number) => number = Easing.inOut(Easing.quad)
+    ) =>
+      Animated.timing(value, {
+        toValue,
+        duration,
+        easing,
+        useNativeDriver: true,
+      });
+    const setRow = (index: 0 | 1, state: RowState) =>
+      setRowStates((prev) => {
+        const next: [RowState, RowState] = [prev[0], prev[1]];
+        next[index] = state;
+        return next;
+      });
+
+    at(timeline.titleIn, () => timing(titleOpacity, 1, 600).start());
+    at(timeline.collectStart, () => {
+      setRow(0, 'active');
+      setHintKey('settings.membership.intro.hintCollect');
+      timing(trackOpacity, 1, timeline.carouselFadeIn).start();
+      // 輪盤：一開始最快，一路減速，直接停在第 21 張（使用者要建的字）。
+      Animated.timing(position, {
+        toValue: cardCount,
+        duration: timeline.carouselSpin,
+        delay: timeline.carouselSpinDelay,
+        easing: Easing.bezier(0.18, 0.45, 0.1, 1),
+        useNativeDriver: true,
+      }).start();
+    });
+    at(timeline.collectDone, () => {
+      setRow(0, 'done');
+      setCollectDone(true);
+    });
+    at(timeline.switchStart, () => {
+      setRow(1, 'active');
+      setHintKey('settings.membership.intro.hintSwitch');
+    });
+    at(timeline.switchDone, () => setRow(1, 'done'));
+    at(timeline.wrapUp, () => {
+      setTitleKey('settings.membership.intro.titleDone');
+      setHintKey('settings.membership.intro.hintDone');
+    });
+    // 選中第 21 張：位置不動，原地往前放大、亮起金色光暈，金邊卡面疊到剪影上。
+    at(timeline.pickStart, () => {
+      setHintKey('settings.membership.intro.hintNext');
+      Animated.parallel([
+        timing(lift, 1, timeline.pickDuration, Easing.out(Easing.back(1.4))),
+        timing(gold, 1, timeline.pickDuration, Easing.out(Easing.quad)),
+      ]).start();
+    });
+    // 卡片以外的東西交叉淡化：動畫的文字淡出、paywall 同時淡入。
+    at(timeline.crossfadeStart, () =>
+      Animated.parallel([
+        timing(chromeOpacity, 0, timeline.crossfadeDuration),
+        timing(reveal, 1, timeline.crossfadeDuration),
+      ]).start()
+    );
+    // 原地放回原大小、轉成 paywall 那張卡的角度。
+    at(timeline.settleStart, () =>
+      Animated.parallel([
+        timing(lift, 0, timeline.settleDuration),
+        timing(tilt, 1, timeline.settleDuration),
+      ]).start()
+    );
+    at(timeline.finish, finish);
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [
+    active,
+    cardCount,
+    chromeOpacity,
+    finish,
+    gold,
+    lift,
+    position,
+    reveal,
+    tilt,
+    timeline,
+    titleOpacity,
+    trackOpacity,
+  ]);
+
+  return {
+    active,
+    cardCount,
+    position,
+    trackOpacity,
+    titleOpacity,
+    chromeOpacity,
+    reveal,
+    lift,
+    gold,
+    tilt,
+    titleKey,
+    hintKey,
+    collectDone,
+    rowStates,
+    skip,
+  };
+}
+
+// 第 21 張（paywall 那張卡）在輪播裡的樣式：離中間越遠越小越暗；不做位移，
+// 停下來時跟 paywall 的位置完全一樣。
+export function useIntroCardStyle(intro: ResultsIntroController) {
+  return React.useMemo(() => {
+    const near = resolveCarouselItemStyle(0, true);
+    const far = resolveCarouselItemStyle(1, true);
+    const index = intro.cardCount;
+    const range = {
+      inputRange: [index - 1, index, index + 1],
+      extrapolate: 'clamp' as const,
+    };
+    return {
+      opacity: Animated.multiply(
+        intro.position.interpolate({
+          ...range,
+          outputRange: [far.opacity, near.opacity, far.opacity],
+        }),
+        intro.trackOpacity
+      ),
+      transform: [
+        {
+          scale: intro.position.interpolate({
+            ...range,
+            outputRange: [far.scale, near.scale, far.scale],
+          }),
+        },
+      ],
+    };
+  }, [intro.cardCount, intro.position, intro.trackOpacity]);
+}
+
+// 被選中時：原地往前放大，最後轉成 -4°。
+export function useIntroPickedStyle(intro: ResultsIntroController) {
+  return React.useMemo(
+    () => ({
+      transform: [
+        {
+          rotate: intro.tilt.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', '-4deg'],
+          }),
+        },
+        {
+          scale: intro.lift.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 1.12],
+          }),
+        },
+      ],
+    }),
+    [intro.lift, intro.tilt]
+  );
+}
+
+// 卡片下方的影子、金色光暈和虛線剪影（金邊卡面疊在上面）。
+export function IntroCardUnderlay({
+  intro,
+  word,
+}: {
+  intro: ResultsIntroController;
+  word: string;
+}) {
+  const lastIndex = intro.cardCount - 1;
+  const animated = React.useMemo(
+    () => ({
+      liftShadow: { opacity: intro.lift },
+      auraGlow: {
+        opacity: intro.lift,
+        transform: [
+          {
+            scale: intro.lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.85, 1],
+            }),
+          },
+        ],
+      },
+      // 剪影到中間時外框變藍（疊一層藍框的透明度，才能在原生端跑）。
+      highlight: {
+        opacity: intro.position.interpolate({
+          inputRange: [lastIndex + 0.5, lastIndex + 1],
+          outputRange: [0, 1],
+          extrapolate: 'clamp' as const,
+        }),
+      },
+    }),
+    [intro.lift, intro.position, lastIndex]
+  );
+  return (
+    <>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.liftShadow, animated.liftShadow]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.auraGlow, animated.auraGlow]}
+      />
+      {/* 虛線剪影：一直都在，金邊卡面亮起時疊在它上面。 */}
+      <View style={styles.silhouette} pointerEvents="none">
+        <Animated.View
+          style={[styles.silhouetteHighlight, animated.highlight]}
+        />
+        <Text
+          style={styles.silhouetteWord}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.45}
+          maxFontSizeMultiplier={1}
+        >
+          {word}
+        </Text>
+        <Text style={styles.silhouetteNumber}>#21</Text>
+      </View>
+    </>
+  );
+}
+
+// 排在第 21 張左邊的輪播（使用者自己的卡）。放在 paywall 那張卡的外框裡，
+// 所以座標一定對齊；插值只建一次，整條在原生端跑。
+export const IntroCarousel = React.memo(function IntroCarousel({
+  intro,
+  cards,
+}: {
+  intro: ResultsIntroController;
+  cards: ResultsIntroCard[];
+}) {
+  const { position, trackOpacity, chromeOpacity } = intro;
+  const animated = React.useMemo(() => {
+    const near = resolveCarouselItemStyle(0, false);
+    const far = resolveCarouselItemStyle(1, false);
+    // 第 k 張的左邊 = 第 21 張的左邊 + (k - position) × STEP。
+    const offset = (HERO_WIDTH - CARD_WIDTH) / 2;
+    return {
+      track: {
+        opacity: trackOpacity,
+        transform: [
+          {
+            translateX: position.interpolate({
+              inputRange: [0, 1],
+              outputRange: [offset, offset - STEP],
+              extrapolate: 'extend' as const,
+            }),
+          },
+        ],
+      },
+      cards: cards.map((_, index) => {
+        const range = {
+          inputRange: [index - 1, index, index + 1],
+          extrapolate: 'clamp' as const,
+        };
+        return {
+          // 結尾時跟著其他東西淡出。
+          opacity: Animated.multiply(
+            position.interpolate({
+              ...range,
+              outputRange: [far.opacity, near.opacity, far.opacity],
+            }),
+            chromeOpacity
+          ),
+          transform: [
+            {
+              translateY: position.interpolate({
+                ...range,
+                outputRange: [far.translateY, near.translateY, far.translateY],
+              }),
+            },
+            {
+              scale: position.interpolate({
+                ...range,
+                outputRange: [far.scale, near.scale, far.scale],
+              }),
+            },
+          ],
+        };
+      }),
+    };
+  }, [cards, chromeOpacity, position, trackOpacity]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.track, animated.track]}
+    >
+      {cards.map((card, index) => (
+        <Animated.View
+          key={`${card.createdAt}-${index}`}
+          style={[styles.card, animated.cards[index]]}
+        >
+          <View style={styles.sourcePill}>
+            <Text style={styles.sourcePillText} numberOfLines={1}>
+              {card.sourceLabel}
+            </Text>
+          </View>
+          <View style={styles.cardWordBox}>
+            <Text
+              style={styles.cardWord}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.45}
+              maxFontSizeMultiplier={1}
+            >
+              {card.word}
+            </Text>
+          </View>
+          <View style={styles.cardLine} />
+          <View style={[styles.cardLine, styles.cardLineShort]} />
+        </Animated.View>
+      ))}
+    </Animated.View>
+  );
+});
+
+// 輪播目前停在第幾張（1 起算，最多到使用者的卡片數）。只在這個小元件裡更新。
+function useFoundCount(position: Animated.Value, cardCount: number) {
   const [found, setFound] = React.useState(1);
   React.useEffect(() => {
     let last = 1;
     const id = position.addListener(({ value }) => {
-      const next = Math.max(0, Math.min(lastIndex, Math.round(value))) + 1;
+      const next = Math.max(1, Math.min(cardCount, Math.round(value) + 1));
       if (next !== last) {
         last = next;
         setFound(next);
       }
     });
     return () => position.removeListener(id);
-  }, [lastIndex, position]);
+  }, [cardCount, position]);
   return found;
 }
 
-function FoundValue({
-  position,
-  lastIndex,
-  done,
-}: {
-  position: Animated.Value;
-  lastIndex: number;
-  done: boolean;
-}) {
-  const found = useFoundCount(position, lastIndex);
-  return <>{done ? lastIndex + 1 : found}</>;
+function FoundValue({ intro }: { intro: ResultsIntroController }) {
+  const found = useFoundCount(intro.position, intro.cardCount);
+  return <>{intro.collectDone ? intro.cardCount : found}</>;
 }
 
 function FoundCounter({
-  position,
-  lastIndex,
-  done,
+  intro,
   uiLanguage,
 }: {
-  position: Animated.Value;
-  lastIndex: number;
-  done: boolean;
+  intro: ResultsIntroController;
   uiLanguage: UILanguage;
 }) {
-  const found = useFoundCount(position, lastIndex);
+  const found = useFoundCount(intro.position, intro.cardCount);
   return (
     <Text style={styles.counter} maxFontSizeMultiplier={1.2}>
       {tUI(
         uiLanguage,
-        done
+        intro.collectDone
           ? 'settings.membership.intro.foundDone'
           : 'settings.membership.intro.found'
-      ).replace('{count}', String(done ? lastIndex + 1 : found))}
+      ).replace(
+        '{count}',
+        String(intro.collectDone ? intro.cardCount : found)
+      )}
     </Text>
   );
 }
@@ -204,493 +586,121 @@ function IntroRow({
   );
 }
 
-// 輪播軌道：插值只建一次，整條在原生端跑；父元件重畫時這裡不會跟著重畫。
-// 最後一格是第 21 張的虛線剪影（使用者要建的字），輪盤直接減速停在它上面。
-const CarouselTrack = React.memo(function CarouselTrack({
-  cards,
-  nextWord,
-  nextSourceLabel,
-  signature,
-  position,
-  trackOpacity,
-  othersOpacity,
-  lift,
-  gold,
-  tilt,
-  width,
-}: {
-  cards: ResultsIntroCard[];
-  nextWord: string;
-  nextSourceLabel: string;
-  signature: string;
-  position: Animated.Value;
-  trackOpacity: Animated.Value;
-  // 結尾時其他卡片淡出，只留第 21 張。
-  othersOpacity: Animated.Value;
-  // 0 → 1：第 21 張被選中，原地往前放大、亮起光暈；交接前回到 0。
-  lift: Animated.Value;
-  // 0 → 1：金邊卡面疊到剪影上（剪影本身一直都在）。
-  gold: Animated.Value;
-  // 0 → 1：原地轉成 paywall 那張卡的 -4°。
-  tilt: Animated.Value;
-  width: number;
-}) {
-  const animated = React.useMemo(() => {
-    const itemStyle = (index: number, isNextCard: boolean) => {
-      const near = resolveCarouselItemStyle(0, isNextCard);
-      const far = resolveCarouselItemStyle(1, isNextCard);
-      const range = {
-        inputRange: [index - 1, index, index + 1],
-        extrapolate: 'clamp' as const,
-      };
-      return {
-        opacity: position.interpolate({
-          ...range,
-          outputRange: [far.opacity, near.opacity, far.opacity],
-        }),
-        transform: [
-          {
-            translateY: position.interpolate({
-              ...range,
-              outputRange: [far.translateY, near.translateY, far.translateY],
-            }),
-          },
-          {
-            scale: position.interpolate({
-              ...range,
-              outputRange: [far.scale, near.scale, far.scale],
-            }),
-          },
-        ],
-      };
-    };
-    const lastIndex = cards.length - 1;
-    const firstX = width / 2 - CARD_WIDTH / 2;
-    return {
-      track: {
-        opacity: trackOpacity,
-        transform: [
-          {
-            translateX: position.interpolate({
-              inputRange: [0, 1],
-              outputRange: [firstX, firstX - STEP],
-              extrapolate: 'extend' as const,
-            }),
-          },
-        ],
-      },
-      // 結尾時其他卡片跟著淡出（亮度乘上 othersOpacity）。
-      cards: cards.map((_, index) => {
-        const style = itemStyle(index, false);
-        return {
-          ...style,
-          opacity: Animated.multiply(style.opacity, othersOpacity),
-        };
-      }),
-      nextCard: itemStyle(cards.length, true),
-      // 剪影到中間時外框變藍（疊一層藍框的透明度，才能在原生端跑）。
-      silhouetteHighlight: {
-        opacity: position.interpolate({
-          inputRange: [lastIndex + 0.5, lastIndex + 1],
-          outputRange: [0, 1],
-          extrapolate: 'clamp' as const,
-        }),
-      },
-      // 被選中：位置完全不動，只往前放大，最後原地轉成 -4°。
-      picked: {
-        transform: [
-          {
-            rotate: tilt.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['0deg', '-4deg'],
-            }),
-          },
-          {
-            scale: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 1.12],
-            }),
-          },
-        ],
-      },
-      goldFace: { opacity: gold },
-      auraGlow: {
-        opacity: lift,
-        transform: [
-          {
-            scale: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.85, 1],
-            }),
-          },
-        ],
-      },
-      liftShadow: { opacity: lift },
-    };
-  }, [
-    cards,
-    gold,
-    lift,
-    othersOpacity,
-    position,
-    tilt,
-    trackOpacity,
-    width,
-  ]);
-
-  return (
-    <Animated.View style={[styles.track, animated.track]}>
-      {cards.map((card, index) => (
-        <Animated.View
-          key={`${card.createdAt}-${index}`}
-          style={[styles.card, animated.cards[index]]}
-        >
-          <View style={styles.sourcePill}>
-            <Text style={styles.sourcePillText} numberOfLines={1}>
-              {card.sourceLabel}
-            </Text>
-          </View>
-          <View style={styles.cardWordBox}>
-            <Text
-              style={styles.cardWord}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.45}
-              maxFontSizeMultiplier={1}
-            >
-              {card.word}
-            </Text>
-          </View>
-          <View style={styles.cardLine} />
-          <View style={[styles.cardLine, styles.cardLineShort]} />
-        </Animated.View>
-      ))}
-      <Animated.View style={[styles.nextSlot, animated.nextCard]}>
-        <Animated.View style={[styles.nextSlotInner, animated.picked]}>
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.liftShadow, animated.liftShadow]}
-          />
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.auraGlow, animated.auraGlow]}
-          />
-          {/* 虛線剪影：從頭到尾都在，不會消失。 */}
-          <View style={styles.silhouette}>
-            <Animated.View
-              pointerEvents="none"
-              style={[styles.silhouetteHighlight, animated.silhouetteHighlight]}
-            />
-            <Text
-              style={styles.silhouetteWord}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.45}
-              maxFontSizeMultiplier={1}
-            >
-              {nextWord}
-            </Text>
-            <Text style={styles.silhouetteNumber}>#21</Text>
-          </View>
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.goldFace, animated.goldFace]}
-          >
-            <TwentyFirstCardFace
-              word={nextWord}
-              sourceLabel={nextSourceLabel}
-              signature={signature}
-            />
-          </Animated.View>
-        </Animated.View>
-      </Animated.View>
-    </Animated.View>
-  );
-});
-
-export default function ResultsIntroUI({
-  cards,
-  nextWord,
-  nextSourceLabel,
-  signature,
+// 第 21 張卡上方的標題、下方的計數和清單。以那張卡為基準排版，所以不會壓到卡片。
+export function IntroChrome({
+  intro,
   createdCount,
   uiLanguage,
-  targetCenter,
-  onReveal,
-  onFinish,
-}: Props) {
+}: {
+  intro: ResultsIntroController;
+  createdCount: number;
+  uiLanguage: UILanguage;
+}) {
   const { width } = useWindowDimensions();
   const timeline = React.useMemo(() => buildResultsIntroTimeline(), []);
-  const lastIndex = cards.length - 1;
-  const position = React.useRef(new Animated.Value(0)).current;
-  const trackOpacity = React.useRef(new Animated.Value(0)).current;
-  const titleOpacity = React.useRef(new Animated.Value(0)).current;
-  const chromeOpacity = React.useRef(new Animated.Value(1)).current;
-  const lift = React.useRef(new Animated.Value(0)).current;
-  const gold = React.useRef(new Animated.Value(0)).current;
-  const tilt = React.useRef(new Animated.Value(0)).current;
-  // 第 21 張從頭到尾不移動：把輪播放在 paywall 那張卡的正上方。
-  const containerRef = React.useRef<View | null>(null);
-  const [containerTop, setContainerTop] = React.useState<number | null>(null);
-  const stageTop =
-    targetCenter && containerTop != null
-      ? Math.max(
-          0,
-          targetCenter.y -
-            containerTop -
-            STAGE_HEIGHT / 2 -
-            // 停在中間的卡會被輪播往上推 4px，這裡補回來。
-            resolveCarouselItemStyle(0, true).translateY
-        )
-      : DEFAULT_STAGE_TOP;
-  // 計時器讀最新的值，不讓它們重設時間軸。
-  const onRevealRef = React.useRef(onReveal);
-  onRevealRef.current = onReveal;
-  const onFinishRef = React.useRef(onFinish);
-  onFinishRef.current = onFinish;
-  const finishedRef = React.useRef(false);
-
-  const [titleKey, setTitleKey] = React.useState<UIStringKey>(
-    'settings.membership.intro.title'
+  // 文字區塊跟螢幕一樣寬，置中在卡片上。
+  const span = { left: -(width - HERO_WIDTH) / 2, width };
+  const { rowStates } = intro;
+  return (
+    <>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.above, span, { opacity: intro.chromeOpacity }]}
+      >
+        <Animated.Text
+          style={[styles.title, { opacity: intro.titleOpacity }]}
+          maxFontSizeMultiplier={1.2}
+        >
+          {tUI(uiLanguage, intro.titleKey)}
+        </Animated.Text>
+        <Text style={styles.hint} maxFontSizeMultiplier={1.2}>
+          {intro.hintKey ? tUI(uiLanguage, intro.hintKey) : ''}
+        </Text>
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.below, span, { opacity: intro.chromeOpacity }]}
+      >
+        {rowStates[0] === 'idle' ? (
+          <Text style={styles.counter} />
+        ) : (
+          <FoundCounter intro={intro} uiLanguage={uiLanguage} />
+        )}
+        <View style={styles.rows}>
+          <IntroRow
+            state={rowStates[0]}
+            label={tUI(
+              uiLanguage,
+              rowStates[0] === 'done'
+                ? 'settings.membership.intro.collectDone'
+                : rowStates[0] === 'active'
+                  ? 'settings.membership.intro.collectDoing'
+                  : 'settings.membership.intro.collectIdle'
+            )}
+            value={<FoundValue intro={intro} />}
+            unit={tUI(uiLanguage, 'settings.membership.intro.unitWords')}
+          />
+          <IntroRow
+            state={rowStates[1]}
+            label={tUI(
+              uiLanguage,
+              rowStates[1] === 'done'
+                ? 'settings.membership.intro.switchDone'
+                : rowStates[1] === 'active'
+                  ? 'settings.membership.intro.switchDoing'
+                  : 'settings.membership.intro.switchIdle'
+            )}
+            value={
+              <CountUpValue
+                to={createdCount}
+                durationMs={timeline.switchDuration}
+              />
+            }
+            unit={tUI(uiLanguage, 'settings.membership.intro.unitTimes')}
+          />
+        </View>
+      </Animated.View>
+    </>
   );
-  const [hintKey, setHintKey] = React.useState<UIStringKey | null>(null);
-  const [collectDone, setCollectDone] = React.useState(false);
-  const [rowStates, setRowStates] = React.useState<[RowState, RowState]>([
-    'idle',
-    'idle',
-  ]);
+}
 
-  // 不依賴父元件每次重畫都會換新的 onFinish，避免時間軸被重設。
-  const finish = React.useCallback((completed: boolean) => {
-    if (finishedRef.current) return;
-    finishedRef.current = true;
-    onFinishRef.current(completed);
-  }, []);
+// 整個螢幕（含狀態列）的背景；結尾淡出露出 paywall。
+export function IntroBackdrop({ intro }: { intro: ResultsIntroController }) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { opacity: intro.chromeOpacity }]}
+    >
+      <LinearGradient
+        colors={['#0B3A63', NAVY]}
+        locations={[0, 0.7]}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
+  );
+}
 
-  React.useEffect(() => {
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
-    const setRow = (index: 0 | 1, state: RowState) =>
-      setRowStates((prev) => {
-        const next: [RowState, RowState] = [prev[0], prev[1]];
-        next[index] = state;
-        return next;
-      });
-
-    at(timeline.titleIn, () =>
-      Animated.timing(titleOpacity, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }).start()
-    );
-    at(timeline.collectStart, () => {
-      setRow(0, 'active');
-      setHintKey('settings.membership.intro.hintCollect');
-      Animated.timing(trackOpacity, {
-        toValue: 1,
-        duration: timeline.carouselFadeIn,
-        useNativeDriver: true,
-      }).start();
-      // 輪盤：一開始最快，一路減速，直接停在第 21 張（使用者要建的字）。
-      Animated.timing(position, {
-        toValue: lastIndex + 1,
-        duration: timeline.carouselSpin,
-        delay: timeline.carouselSpinDelay,
-        easing: Easing.bezier(0.18, 0.45, 0.1, 1),
-        useNativeDriver: true,
-      }).start();
-    });
-    at(timeline.collectDone, () => {
-      setRow(0, 'done');
-      setCollectDone(true);
-    });
-    at(timeline.switchStart, () => {
-      setRow(1, 'active');
-      setHintKey('settings.membership.intro.hintSwitch');
-    });
-    at(timeline.switchDone, () => setRow(1, 'done'));
-    at(timeline.wrapUp, () => {
-      setTitleKey('settings.membership.intro.titleDone');
-      setHintKey('settings.membership.intro.hintDone');
-    });
-    // 選中第 21 張：位置不動，原地往前放大、亮起金色光暈，金邊卡面疊到剪影上。
-    at(timeline.pickStart, () => {
-      setHintKey('settings.membership.intro.hintNext');
-      Animated.parallel([
-        Animated.timing(lift, {
-          toValue: 1,
-          duration: timeline.pickDuration,
-          easing: Easing.out(Easing.back(1.4)),
-          useNativeDriver: true,
-        }),
-        Animated.timing(gold, {
-          toValue: 1,
-          duration: timeline.pickDuration,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    });
-    // 卡片以外的東西交叉淡化：動畫的文字淡出、paywall 同時淡入。
-    at(timeline.crossfadeStart, () => {
-      Animated.timing(chromeOpacity, {
-        toValue: 0,
-        duration: timeline.crossfadeDuration,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-      onRevealRef.current(timeline.crossfadeDuration);
-    });
-    // 原地放回原大小、轉成 paywall 那張卡的角度，完全重疊後交接。
-    at(timeline.settleStart, () =>
-      Animated.parallel([
-        Animated.timing(lift, {
-          toValue: 0,
-          duration: timeline.settleDuration,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(tilt, {
-          toValue: 1,
-          duration: timeline.settleDuration,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start()
-    );
-    at(timeline.finish, () => finish(true));
-
-    return () => {
-      timers.forEach(clearTimeout);
-      position.stopAnimation();
-    };
-  }, [
-    chromeOpacity,
-    finish,
-    gold,
-    lastIndex,
-    lift,
-    position,
-    tilt,
-    timeline,
-    titleOpacity,
-    trackOpacity,
-  ]);
-
+// 蓋在最上層：點任何地方略過，底部顯示「點一下略過」。
+export function IntroSkipLayer({
+  intro,
+  uiLanguage,
+}: {
+  intro: ResultsIntroController;
+  uiLanguage: UILanguage;
+}) {
+  const insets = useSafeAreaInsets();
   return (
     <Pressable
-      ref={containerRef}
-      onLayout={() =>
-        requestAnimationFrame(() =>
-          containerRef.current?.measureInWindow((_x, y) => setContainerTop(y))
-        )
-      }
-      style={styles.container}
-      onPress={() => finish(false)}
+      style={StyleSheet.absoluteFill}
+      onPress={intro.skip}
       accessibilityRole="button"
       accessibilityLabel={tUI(uiLanguage, 'settings.membership.intro.skip')}
     >
-      {/* 背景和文字在結尾淡出，露出底下已經排好的 paywall。 */}
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { opacity: chromeOpacity }]}
-      >
-        <LinearGradient
-          colors={['#0B3A63', NAVY]}
-          locations={[0, 0.7]}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-      <Animated.View style={[styles.chrome, { opacity: chromeOpacity }]}>
-        <Animated.Text
-          style={[styles.title, { opacity: titleOpacity }]}
-          maxFontSizeMultiplier={1.2}
-        >
-          {tUI(uiLanguage, titleKey)}
-        </Animated.Text>
-        <Text style={styles.hint} maxFontSizeMultiplier={1.2}>
-          {hintKey ? tUI(uiLanguage, hintKey) : ''}
-        </Text>
-      </Animated.View>
-
-      <View style={[styles.stage, { top: stageTop }]}>
-        <CarouselTrack
-          cards={cards}
-          nextWord={nextWord}
-          nextSourceLabel={nextSourceLabel}
-          signature={signature}
-          position={position}
-          trackOpacity={trackOpacity}
-          othersOpacity={chromeOpacity}
-          lift={lift}
-          gold={gold}
-          tilt={tilt}
-          width={width}
-        />
-      </View>
-
-      <Animated.View
-        style={[
-          styles.belowStage,
-          { top: stageTop + STAGE_HEIGHT, opacity: chromeOpacity },
-        ]}
-      >
-
-      {rowStates[0] === 'idle' ? (
-        <Text style={styles.counter} />
-      ) : (
-        <FoundCounter
-          position={position}
-          lastIndex={lastIndex}
-          done={collectDone}
-          uiLanguage={uiLanguage}
-        />
-      )}
-
-      <View style={styles.rows}>
-        <IntroRow
-          state={rowStates[0]}
-          label={tUI(
-            uiLanguage,
-            rowStates[0] === 'done'
-              ? 'settings.membership.intro.collectDone'
-              : rowStates[0] === 'active'
-                ? 'settings.membership.intro.collectDoing'
-                : 'settings.membership.intro.collectIdle'
-          )}
-          value={
-            <FoundValue
-              position={position}
-              lastIndex={lastIndex}
-              done={collectDone}
-            />
-          }
-          unit={tUI(uiLanguage, 'settings.membership.intro.unitWords')}
-        />
-        <IntroRow
-          state={rowStates[1]}
-          label={tUI(
-            uiLanguage,
-            rowStates[1] === 'done'
-              ? 'settings.membership.intro.switchDone'
-              : rowStates[1] === 'active'
-                ? 'settings.membership.intro.switchDoing'
-                : 'settings.membership.intro.switchIdle'
-          )}
-          value={
-            <CountUpValue
-              to={createdCount}
-              durationMs={timeline.switchDuration}
-            />
-          }
-          unit={tUI(uiLanguage, 'settings.membership.intro.unitTimes')}
-        />
-      </View>
-      </Animated.View>
-
       <Animated.Text
-        style={[styles.skip, { opacity: chromeOpacity }]}
+        style={[
+          styles.skip,
+          { bottom: insets.bottom + 22, opacity: intro.chromeOpacity },
+        ]}
         maxFontSizeMultiplier={1.2}
       >
         {tUI(uiLanguage, 'settings.membership.intro.skip')}
@@ -700,15 +710,17 @@ export default function ResultsIntroUI({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  above: {
+    position: 'absolute',
+    bottom: HERO_HEIGHT + 18,
     alignItems: 'center',
-    paddingTop: 56,
     paddingHorizontal: 22,
   },
-  chrome: {
-    alignSelf: 'stretch',
+  below: {
+    position: 'absolute',
+    top: HERO_HEIGHT + 22,
     alignItems: 'center',
+    paddingHorizontal: 22,
   },
   title: {
     minHeight: 26,
@@ -724,27 +736,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
   },
-  // 輪播固定在 paywall 第 21 張卡的高度（top 由元件算），卡片放大時疊在其他東西上面。
-  stage: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: STAGE_HEIGHT,
-    zIndex: 2,
-  },
-  belowStage: {
-    position: 'absolute',
-    left: 22,
-    right: 22,
-    alignItems: 'center',
-  },
   track: {
     position: 'absolute',
     left: 0,
-    top: 0,
-    bottom: 0,
+    top: (HERO_HEIGHT - CARD_HEIGHT) / 2,
     flexDirection: 'row',
-    alignItems: 'center',
     gap: CARD_GAP,
   },
   card: {
@@ -793,19 +789,13 @@ const styles = StyleSheet.create({
   cardLineShort: {
     width: '60%',
   },
-  nextSlot: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-  },
-  nextSlotInner: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // 第 21 張的虛線剪影（同 v13 原型）。
+  // 第 21 張的虛線剪影（同 v13 原型），置中在 paywall 那張卡的外框裡。
   silhouette: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: (HERO_HEIGHT - CARD_HEIGHT) / 2,
+    left: (HERO_WIDTH - CARD_WIDTH) / 2,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
     borderRadius: 18,
     borderWidth: 1.5,
     borderStyle: 'dashed',
@@ -854,7 +844,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 12 },
   },
-  // 挑起第 21 張時的金色光暈。
+  // 選中第 21 張時的金色光暈。
   auraGlow: {
     position: 'absolute',
     top: -16,
@@ -868,15 +858,8 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 0 },
   },
-  // 和 paywall 第 21 張卡同尺寸（136×174），交接時看不出接縫。
-  goldFace: {
-    position: 'absolute',
-    width: 136,
-    height: 174,
-  },
   counter: {
     minHeight: 18,
-    marginTop: 2,
     color: 'rgba(255,255,255,0.6)',
     fontSize: 13,
     fontVariant: ['tabular-nums'],
@@ -884,7 +867,7 @@ const styles = StyleSheet.create({
   },
   rows: {
     alignSelf: 'stretch',
-    marginTop: 22,
+    marginTop: 18,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
@@ -946,7 +929,6 @@ const styles = StyleSheet.create({
   },
   skip: {
     position: 'absolute',
-    bottom: 22,
     left: 0,
     right: 0,
     color: 'rgba(255,255,255,0.4)',
