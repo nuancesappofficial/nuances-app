@@ -18,8 +18,8 @@ import {
   type ResultsIntroCard,
 } from '../../../features/subscription/resultsIntro';
 
-// 成果動畫的第 21 張就是 paywall 上那張卡本身（同一個元件），所以從頭到尾不會移動、
-// 不會換臉。這個檔案提供：時間軸控制（useResultsIntro）、排在那張卡左邊的輪播、
+// 成果動畫的第 21 張就是 paywall 上那張卡本身（同一個元件）：它是輪播的最後一格，
+// 停下來之後就不再移動、不會換臉。這個檔案提供：時間軸控制（useResultsIntro）、排在那張卡左邊的輪播、
 // 卡片上下的文字，以及整個螢幕的背景與略過。
 
 const ACCENT = '#4EAFF4';
@@ -228,8 +228,8 @@ export function useResultsIntro({
   };
 }
 
-// 第 21 張（paywall 那張卡）在輪播裡的樣式：離中間越遠越小越暗；不做位移，
-// 停下來時跟 paywall 的位置完全一樣。
+// 第 21 張（paywall 那張卡）在輪播裡的樣式：它是輪播的最後一格，跟其他卡一起從右邊
+// 滑進來；離中間越遠越小越暗。停下來時位移是 0，跟 paywall 的位置完全一樣。
 export function useIntroCardStyle(intro: ResultsIntroController) {
   return React.useMemo(() => {
     const near = resolveCarouselItemStyle(0, true);
@@ -248,6 +248,15 @@ export function useIntroCardStyle(intro: ResultsIntroController) {
         intro.trackOpacity
       ),
       transform: [
+        {
+          // 同輪播的公式：左邊 = paywall 卡的左邊 + (index - position) × STEP。
+          translateX: intro.position.interpolate({
+            inputRange: [index - 1, index],
+            outputRange: [STEP, 0],
+            extrapolateLeft: 'extend' as const,
+            extrapolateRight: 'clamp' as const,
+          }),
+        },
         {
           scale: intro.position.interpolate({
             ...range,
@@ -326,7 +335,7 @@ export function IntroCardUnderlay({
         pointerEvents="none"
         style={[styles.auraGlow, animated.auraGlow]}
       />
-      {/* 虛線剪影：一直都在，金邊卡面亮起時疊在它上面。 */}
+      {/* 虛線剪影：跟著輪播滑進來，金邊卡面亮起時疊在它上面。 */}
       <View style={styles.silhouette} pointerEvents="none">
         <Animated.View
           style={[styles.silhouetteHighlight, animated.highlight]}

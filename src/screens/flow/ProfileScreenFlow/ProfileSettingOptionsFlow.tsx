@@ -3849,7 +3849,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   membershipPlanCard: {
-    flex: 1,
+    // flexGrow（不是 flex: 1）：卡片高度要算進方案列，否則整列只剩約 26pt 高，
+    // 下面的按鈕會疊到卡片上。
+    flexGrow: 1,
     minHeight: 94,
     borderRadius: 18,
     borderWidth: 1,
