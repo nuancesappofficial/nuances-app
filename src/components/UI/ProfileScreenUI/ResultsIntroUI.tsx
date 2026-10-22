@@ -42,6 +42,7 @@ export type ResultsIntroController = {
   titleOpacity: Animated.Value;
   // 動畫的文字、其他卡片和背景；結尾淡出。
   chromeOpacity: Animated.Value;
+  backdropIn: Animated.Value;
   // paywall 其他部分；結尾淡入（和 chromeOpacity 交叉淡化）。
   reveal: Animated.Value;
   // 0 → 1：第 21 張被選中，原地往前放大、亮起光暈；交接前回到 0。
@@ -71,6 +72,8 @@ export function useResultsIntro({
   const position = React.useRef(new Animated.Value(0)).current;
   const trackOpacity = React.useRef(new Animated.Value(0)).current;
   const titleOpacity = React.useRef(new Animated.Value(0)).current;
+  // 0 → 1：開始時背景淡入（從 paywall 的底色換成動畫的漸層）。
+  const backdropIn = React.useRef(new Animated.Value(0)).current;
   const chromeOpacity = React.useRef(new Animated.Value(1)).current;
   const reveal = React.useRef(new Animated.Value(1)).current;
   const lift = React.useRef(new Animated.Value(0)).current;
@@ -100,9 +103,17 @@ export function useResultsIntro({
 
   // 略過：所有東西直接跳到最後的樣子（第 21 張卡、完整的 paywall）。
   const skip = React.useCallback(() => {
-    [position, trackOpacity, chromeOpacity, reveal, lift, gold, tilt].forEach(
-      (value) => value.stopAnimation()
-    );
+    [
+      position,
+      trackOpacity,
+      titleOpacity,
+      backdropIn,
+      chromeOpacity,
+      reveal,
+      lift,
+      gold,
+      tilt,
+    ].forEach((value) => value.stopAnimation());
     position.setValue(cardCount);
     chromeOpacity.setValue(0);
     reveal.setValue(1);
@@ -110,7 +121,19 @@ export function useResultsIntro({
     gold.setValue(1);
     tilt.setValue(1);
     finish();
-  }, [cardCount, chromeOpacity, finish, gold, lift, position, reveal, tilt, trackOpacity]);
+  }, [
+    backdropIn,
+    cardCount,
+    chromeOpacity,
+    finish,
+    gold,
+    lift,
+    position,
+    reveal,
+    tilt,
+    titleOpacity,
+    trackOpacity,
+  ]);
 
   // 開始前就把 paywall 其他部分藏起來，避免第一格畫面閃一下。
   React.useLayoutEffect(() => {
@@ -119,7 +142,19 @@ export function useResultsIntro({
 
   React.useEffect(() => {
     if (!active) return undefined;
-    const timers = timersRef.current;
+    // 每次開始播都重新來過（active 可能先變 false 再變回 true）。
+    finishedRef.current = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timersRef.current = timers;
+    [position, trackOpacity, titleOpacity, backdropIn, lift, gold, tilt].forEach(
+      (value) => value.setValue(0)
+    );
+    chromeOpacity.setValue(1);
+    reveal.setValue(0);
+    setTitleKey('settings.membership.intro.title');
+    setHintKey(null);
+    setCollectDone(false);
+    setRowStates(['idle', 'idle']);
     const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
     const timing = (
       value: Animated.Value,
@@ -140,6 +175,7 @@ export function useResultsIntro({
         return next;
       });
 
+    timing(backdropIn, 1, 300).start();
     at(timeline.titleIn, () => timing(titleOpacity, 1, 600).start());
     at(timeline.collectStart, () => {
       setRow(0, 'active');
@@ -196,6 +232,7 @@ export function useResultsIntro({
     };
   }, [
     active,
+    backdropIn,
     cardCount,
     chromeOpacity,
     finish,
@@ -216,6 +253,7 @@ export function useResultsIntro({
     trackOpacity,
     titleOpacity,
     chromeOpacity,
+    backdropIn,
     reveal,
     lift,
     gold,
@@ -467,9 +505,32 @@ function useFoundCount(position: Animated.Value, cardCount: number) {
   return found;
 }
 
-function FoundValue({ intro }: { intro: ResultsIntroController }) {
+type UnitLabels = { one: string; other: string };
+
+// 數字加單位；單位依數字選單數或複數（英文、西文、法文會不同）。
+function CountWithUnit({ count, unit }: { count: number; unit: UnitLabels }) {
+  return (
+    <>
+      {count}
+      <Text style={styles.rowUnit}> {count === 1 ? unit.one : unit.other}</Text>
+    </>
+  );
+}
+
+function FoundValue({
+  intro,
+  unit,
+}: {
+  intro: ResultsIntroController;
+  unit: UnitLabels;
+}) {
   const found = useFoundCount(intro.position, intro.cardCount);
-  return <>{intro.collectDone ? intro.cardCount : found}</>;
+  return (
+    <CountWithUnit
+      count={intro.collectDone ? intro.cardCount : found}
+      unit={unit}
+    />
+  );
 }
 
 function FoundCounter({
@@ -496,7 +557,15 @@ function FoundCounter({
 }
 
 // 從 0 數到 to（先快後慢）。只有這個數字會重畫。
-function CountUpValue({ to, durationMs }: { to: number; durationMs: number }) {
+function CountUpValue({
+  to,
+  durationMs,
+  unit,
+}: {
+  to: number;
+  durationMs: number;
+  unit: UnitLabels;
+}) {
   const [value, setValue] = React.useState(0);
   React.useEffect(() => {
     const startedAt = Date.now();
@@ -511,11 +580,24 @@ function CountUpValue({ to, durationMs }: { to: number; durationMs: number }) {
       if (frame != null) cancelAnimationFrame(frame);
     };
   }, [durationMs, to]);
-  return <>{value}</>;
+  return <CountWithUnit count={value} unit={unit} />;
 }
 
 function RowIcon({ state }: { state: RowState }) {
   const spin = React.useRef(new Animated.Value(0)).current;
+  const spinStyle = React.useMemo(
+    () => ({
+      transform: [
+        {
+          rotate: spin.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', '360deg'],
+          }),
+        },
+      ],
+    }),
+    [spin]
+  );
   React.useEffect(() => {
     if (state !== 'active') return undefined;
     const loop = Animated.loop(
@@ -542,18 +624,7 @@ function RowIcon({ state }: { state: RowState }) {
       style={[
         styles.rowIcon,
         state === 'active' ? styles.rowIconActive : null,
-        state === 'active'
-          ? {
-              transform: [
-                {
-                  rotate: spin.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0deg', '360deg'],
-                  }),
-                },
-              ],
-            }
-          : null,
+        state === 'active' ? spinStyle : null,
       ]}
     />
   );
@@ -563,12 +634,10 @@ function IntroRow({
   state,
   label,
   value,
-  unit,
 }: {
   state: RowState;
   label: string;
   value: React.ReactNode;
-  unit: string;
 }) {
   return (
     <View style={[styles.row, state === 'idle' ? styles.rowIdle : null]}>
@@ -588,7 +657,6 @@ function IntroRow({
           maxFontSizeMultiplier={1.2}
         >
           {value}
-          <Text style={styles.rowUnit}> {unit}</Text>
         </Text>
       ) : null}
     </View>
@@ -646,8 +714,15 @@ export function IntroChrome({
                   ? 'settings.membership.intro.collectDoing'
                   : 'settings.membership.intro.collectIdle'
             )}
-            value={<FoundValue intro={intro} />}
-            unit={tUI(uiLanguage, 'settings.membership.intro.unitWords')}
+            value={
+              <FoundValue
+                intro={intro}
+                unit={{
+                  one: tUI(uiLanguage, 'settings.membership.intro.unitWordsOne'),
+                  other: tUI(uiLanguage, 'settings.membership.intro.unitWords'),
+                }}
+              />
+            }
           />
           <IntroRow
             state={rowStates[1]}
@@ -663,9 +738,12 @@ export function IntroChrome({
               <CountUpValue
                 to={createdCount}
                 durationMs={timeline.switchDuration}
+                unit={{
+                  one: tUI(uiLanguage, 'settings.membership.intro.unitTimesOne'),
+                  other: tUI(uiLanguage, 'settings.membership.intro.unitTimes'),
+                }}
               />
             }
-            unit={tUI(uiLanguage, 'settings.membership.intro.unitTimes')}
           />
         </View>
       </Animated.View>
@@ -673,12 +751,17 @@ export function IntroChrome({
   );
 }
 
-// 整個螢幕（含狀態列）的背景；結尾淡出露出 paywall。
+// 整個螢幕（含狀態列）的背景；開始時淡入，結尾淡出露出 paywall。
 export function IntroBackdrop({ intro }: { intro: ResultsIntroController }) {
+  const { backdropIn, chromeOpacity } = intro;
+  const opacity = React.useMemo(
+    () => Animated.multiply(backdropIn, chromeOpacity),
+    [backdropIn, chromeOpacity]
+  );
   return (
     <Animated.View
       pointerEvents="none"
-      style={[StyleSheet.absoluteFill, { opacity: intro.chromeOpacity }]}
+      style={[StyleSheet.absoluteFill, { opacity }]}
     >
       <LinearGradient
         colors={['#0B3A63', NAVY]}

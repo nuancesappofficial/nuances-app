@@ -330,6 +330,8 @@ export type UIStringKey =
   | 'settings.membership.intro.switchDone'
   | 'settings.membership.intro.unitWords'
   | 'settings.membership.intro.unitTimes'
+  | 'settings.membership.intro.unitWordsOne'
+  | 'settings.membership.intro.unitTimesOne'
   | 'settings.membership.intro.found'
   | 'settings.membership.intro.foundDone'
   | 'settings.membership.intro.skip'
@@ -855,8 +857,10 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.switchDone': 'Fewer trips to a dictionary app',
     'settings.membership.intro.unitWords': 'words',
     'settings.membership.intro.unitTimes': 'times',
-    'settings.membership.intro.found': 'Found {count} cards',
-    'settings.membership.intro.foundDone': '{count} cards ✓',
+    'settings.membership.intro.unitWordsOne': 'word',
+    'settings.membership.intro.unitTimesOne': 'time',
+    'settings.membership.intro.found': 'Cards found: {count}',
+    'settings.membership.intro.foundDone': 'Cards: {count} ✓',
     'settings.membership.intro.skip': 'Tap to skip',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
@@ -1378,6 +1382,8 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.switchDone': '少切換到字典 App',
     'settings.membership.intro.unitWords': '個字',
     'settings.membership.intro.unitTimes': '次',
+    'settings.membership.intro.unitWordsOne': '個字',
+    'settings.membership.intro.unitTimesOne': '次',
     'settings.membership.intro.found': '已找到 {count} 張卡',
     'settings.membership.intro.foundDone': '{count} 張卡 ✓',
     'settings.membership.intro.skip': '點一下略過',
@@ -1885,6 +1891,8 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.switchDone': '少切换到字典 App',
     'settings.membership.intro.unitWords': '个字',
     'settings.membership.intro.unitTimes': '次',
+    'settings.membership.intro.unitWordsOne': '个字',
+    'settings.membership.intro.unitTimesOne': '次',
     'settings.membership.intro.found': '已找到 {count} 张卡',
     'settings.membership.intro.foundDone': '{count} 张卡 ✓',
     'settings.membership.intro.skip': '点一下跳过',

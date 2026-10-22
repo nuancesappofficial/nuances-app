@@ -226,6 +226,21 @@ function NextCard({
   introController: ResultsIntroController;
 }) {
   const sheen = useLoopingSheen();
+  // 插值只建一次：成果動畫播放時這個元件會一直重畫。
+  const sheenStyle = React.useMemo(
+    () => ({
+      transform: [
+        { rotate: '25deg' },
+        {
+          translateX: sheen.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
+          }),
+        },
+      ],
+    }),
+    [sheen]
+  );
   const controller = introController;
   // 只有播放時才套用這些樣式。
   const introCardStyle = useIntroCardStyle(controller);
@@ -256,20 +271,7 @@ function NextCard({
             >
               <Animated.View
                 pointerEvents="none"
-                style={[
-                  styles.sheen,
-                  {
-                    transform: [
-                      { rotate: '25deg' },
-                      {
-                        translateX: sheen.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-CARD_WIDTH * 1.4, CARD_WIDTH * 1.4],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
+                style={[styles.sheen, sheenStyle]}
               >
                 <LinearGradient
                   colors={[

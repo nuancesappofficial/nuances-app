@@ -216,6 +216,8 @@ const STICKER_SCALE_MIN = 75;
 const STICKER_SCALE_MAX = 125;
 const STICKER_SCALE_STEP = 5;
 const MEMBERSHIP_SCREEN_BG = '#02213D';
+// 決定要不要播成果動畫時最多等這麼久；讀取卡住就直接顯示 paywall，不播動畫。
+const RESULTS_INTRO_DECISION_TIMEOUT_MS = 3000;
 const MEMBERSHIP_HEADER_TEXT = '#FFFFFF';
 const MEMBERSHIP_PLAN_IDLE_BG = 'rgba(255,255,255,0.055)';
 const MEMBERSHIP_PLAN_ACTIVE_BG = 'rgba(78,175,244,0.14)';
@@ -1431,6 +1433,14 @@ export default function ProfileSettingOptionsFlow({
     },
     [litePackages, proPackages]
   );
+
+  React.useEffect(() => {
+    if (introPhase !== 'pending') return undefined;
+    const timer = setTimeout(() => {
+      setIntroPhase((phase) => (phase === 'pending' ? 'done' : phase));
+    }, RESULTS_INTRO_DECISION_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [introPhase]);
 
   React.useEffect(() => {
     if (introPhase !== 'pending' || !membershipStatusResolved) return;
