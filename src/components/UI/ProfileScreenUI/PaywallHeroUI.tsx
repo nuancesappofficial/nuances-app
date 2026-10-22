@@ -12,8 +12,9 @@ type Props = {
   // null：會員狀態還沒讀到，先保留空間，避免付費用戶閃過免費版畫面。
   hero: PaywallHero | null;
   uiLanguage: UILanguage;
-  // 'flip'：成果動畫停在虛線第 21 張後，卡片翻面接到 paywall。
-  entrance?: 'flip' | 'none';
+  // 成果動畫播放時先藏起第 21 張卡，由動畫裡的同一張卡移過來交接。
+  nextCardHidden?: boolean;
+  onNextCardMeasured?: (center: CardScreenCenter) => void;
 };
 
 const ACCENT = '#4EAFF4';
@@ -137,95 +138,98 @@ function SparkBurst() {
   );
 }
 
-function useFlipIn(entrance: 'flip' | 'none') {
-  const flip = React.useRef(new Animated.Value(entrance === 'flip' ? 0 : 1))
-    .current;
-  React.useEffect(() => {
-    if (entrance !== 'flip') return;
-    Animated.timing(flip, {
-      toValue: 1,
-      duration: 900,
-      easing: Easing.bezier(0.3, 1.25, 0.4, 1),
-      useNativeDriver: true,
-    }).start();
-  }, [entrance, flip]);
-  return {
-    transform: [
-      { perspective: 700 },
-      {
-        rotateY: flip.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['180deg', '0deg'],
-        }),
-      },
-      {
-        scale: flip.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }),
-      },
-      {
-        rotate: flip.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['0deg', '-4deg'],
-        }),
-      },
-    ],
-  };
+// 第 21 張卡的卡面（金邊 Cache 卡）。paywall 和成果動畫結尾共用，確保交接時長得一模一樣。
+export function TwentyFirstCardFace({
+  word,
+  sourceLabel,
+  signature,
+  children,
+}: {
+  word: string;
+  sourceLabel: string;
+  signature: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <LinearGradient
+      colors={['#FDE68A', '#F59E0B', '#FDE68A', GOLD]}
+      locations={[0, 0.45, 0.7, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.nextCardBorder}
+    >
+      <View style={styles.nextCardFace}>
+        <View style={styles.nextCardTopRow}>
+          <View style={styles.sourcePill}>
+            <Text style={styles.sourcePillText} numberOfLines={1}>
+              {sourceLabel}
+            </Text>
+          </View>
+          <Text style={styles.nextCardNumber}>#21</Text>
+        </View>
+        <View style={styles.nextCardWordBox}>
+          {/* 長字整體縮小，不在字中間斷行 */}
+          <Text
+            style={styles.nextCardWord}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.45}
+            maxFontSizeMultiplier={1}
+          >
+            {word}
+          </Text>
+        </View>
+        {/* AI 卡還沒產生：定義位置留虛線，不放假內容 */}
+        <View style={styles.definitionLine} />
+        <View style={[styles.definitionLine, styles.definitionLineShort]} />
+        <Text style={styles.signature} numberOfLines={1} maxFontSizeMultiplier={1}>
+          {signature}
+        </Text>
+        {children}
+      </View>
+    </LinearGradient>
+  );
 }
 
-const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+// 卡片中心在螢幕上的位置，給成果動畫把卡片移到這裡。
+export type CardScreenCenter = { x: number; y: number };
 
 function NextCard({
   word,
   sourceLabel,
   signature,
-  entrance,
+  hidden,
+  onMeasured,
 }: {
   word: string;
   sourceLabel: string;
   signature: string;
-  entrance: 'flip' | 'none';
+  hidden: boolean;
+  onMeasured?: (center: CardScreenCenter) => void;
 }) {
   const sheen = useLoopingSheen();
-  const flipStyle = useFlipIn(entrance);
+  const stageRef = React.useRef<View>(null);
+  const measure = React.useCallback(() => {
+    if (!onMeasured) return;
+    requestAnimationFrame(() => {
+      stageRef.current?.measureInWindow((x, y, width, height) => {
+        onMeasured({ x: x + width / 2, y: y + height / 2 });
+      });
+    });
+  }, [onMeasured]);
+
   return (
-    <View style={styles.nextCardStage}>
-      <AnimatedLinearGradient
-        colors={['#FDE68A', '#F59E0B', '#FDE68A', GOLD]}
-        locations={[0, 0.45, 0.7, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.nextCardBorder, flipStyle]}
-      >
-        <View style={styles.nextCardFace}>
-          <View style={styles.nextCardTopRow}>
-            <View style={styles.sourcePill}>
-              <Text style={styles.sourcePillText} numberOfLines={1}>
-                {sourceLabel}
-              </Text>
-            </View>
-            <Text style={styles.nextCardNumber}>#21</Text>
-          </View>
-          <View style={styles.nextCardWordBox}>
-            {/* 長字整體縮小，不在字中間斷行 */}
-            <Text
-              style={styles.nextCardWord}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.45}
-              maxFontSizeMultiplier={1}
-            >
-              {word}
-            </Text>
-          </View>
-          {/* AI 卡還沒產生：定義位置留虛線，不放假內容 */}
-          <View style={styles.definitionLine} />
-          <View style={[styles.definitionLine, styles.definitionLineShort]} />
-          <Text
-            style={styles.signature}
-            numberOfLines={1}
-            maxFontSizeMultiplier={1}
-          >
-            {signature}
-          </Text>
+    <View
+      ref={stageRef}
+      onLayout={measure}
+      style={[styles.nextCardStage, hidden ? styles.hidden : null]}
+    >
+      <View style={styles.nextCardTilt}>
+        <TwentyFirstCardFace
+          word={word}
+          sourceLabel={sourceLabel}
+          signature={signature}
+        >
           <Animated.View
             pointerEvents="none"
             style={[
@@ -254,9 +258,10 @@ function NextCard({
               style={StyleSheet.absoluteFill}
             />
           </Animated.View>
-        </View>
-      </AnimatedLinearGradient>
-      <SparkBurst />
+        </TwentyFirstCardFace>
+      </View>
+      {/* 卡片露出來的那一刻才散出金色光點 */}
+      {hidden ? null : <SparkBurst />}
     </View>
   );
 }
@@ -264,7 +269,8 @@ function NextCard({
 export default function PaywallHeroUI({
   hero,
   uiLanguage,
-  entrance = 'none',
+  nextCardHidden = false,
+  onNextCardMeasured,
 }: Props) {
   if (!hero) return <View style={styles.container} />;
 
@@ -279,7 +285,8 @@ export default function PaywallHeroUI({
           word={hero.word}
           sourceLabel={hero.sourceLabel}
           signature={tUI(uiLanguage, 'settings.membership.next21.signature')}
-          entrance={entrance}
+          hidden={nextCardHidden}
+          onMeasured={onNextCardMeasured}
         />
         <Text
           style={styles.title}
@@ -410,12 +417,18 @@ const styles = StyleSheet.create({
     height: 174,
     borderRadius: 18,
     padding: 3,
-    backfaceVisibility: 'hidden',
+
     shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 14 },
     elevation: 10,
+  },
+  nextCardTilt: {
+    transform: [{ rotate: '-4deg' }],
+  },
+  hidden: {
+    opacity: 0,
   },
   nextCardFace: {
     flex: 1,

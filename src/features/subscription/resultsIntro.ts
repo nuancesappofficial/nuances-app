@@ -42,6 +42,13 @@ const BASE = {
   switchWork: 1500,
   hold: 2300,
   slide: 900,
+  // 停在 #21 之後的收尾（v13 原型之後，依 Jeff 的指示改成不換畫面）。
+  aura: 600,
+  chromeFadeDelay: 300,
+  chromeFade: 500,
+  handoffDelay: 300,
+  handoff: 700,
+  settleAfterHandoff: 100,
 };
 
 export type ResultsIntroTimeline = {
@@ -57,6 +64,12 @@ export type ResultsIntroTimeline = {
   wrapUp: number;
   slideToNext: number;
   slideToNextDuration: number;
+  auraStart: number;
+  auraDuration: number;
+  chromeFadeStart: number;
+  chromeFadeDuration: number;
+  handoffStart: number;
+  handoffDuration: number;
   finish: number;
 };
 
@@ -67,6 +80,11 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     BASE.collectStart + carouselSpinDelay + BASE.spin + BASE.settle;
   const switchStart = collectDone + BASE.gap;
   const switchDone = switchStart + BASE.switchWork;
+  const slideToNext = switchDone + Math.round(BASE.hold * 0.55);
+  // 停在 #21 → 金色光暈 → 其他文字淡出 → 卡片移到 paywall 的位置、paywall 淡入。
+  const auraStart = slideToNext + BASE.slide;
+  const chromeFadeStart = auraStart + BASE.chromeFadeDelay;
+  const handoffStart = chromeFadeStart + BASE.handoffDelay;
   return {
     titleIn: BASE.title,
     collectStart: BASE.collectStart,
@@ -78,9 +96,15 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     switchDuration: BASE.switchWork,
     switchDone,
     wrapUp: switchDone + 200,
-    slideToNext: switchDone + Math.round(BASE.hold * 0.55),
+    slideToNext,
     slideToNextDuration: BASE.slide,
-    finish: switchDone + BASE.hold,
+    auraStart,
+    auraDuration: BASE.aura,
+    chromeFadeStart,
+    chromeFadeDuration: BASE.chromeFade,
+    handoffStart,
+    handoffDuration: BASE.handoff,
+    finish: handoffStart + BASE.handoff + BASE.settleAfterHandoff,
   };
 }
 

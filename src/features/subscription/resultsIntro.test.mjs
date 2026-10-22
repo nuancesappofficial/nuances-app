@@ -38,8 +38,9 @@ test('the centered card is full size and the next ones shrink and dim', () => {
   });
 });
 
-// 預期值是 v13 原型在速度 1 時的節奏（BASE：title 300、collectStart 1000、
+// 停在 #21 之前的預期值是 v13 原型在速度 1 時的節奏（BASE：title 300、collectStart 1000、
 // fadeIn 500、spin 4800、settle 700、gap 600、switchWork 1500、hold 2300）。
+// 之後：停在 #21 → 金色光暈 600 → 文字淡出 500 → 卡片移到 paywall、paywall 淡入 700。
 test('the intro timeline follows the v13 prototype pacing', () => {
   assert.deepEqual(buildResultsIntroTimeline(), {
     titleIn: 300,
@@ -54,7 +55,13 @@ test('the intro timeline follows the v13 prototype pacing', () => {
     wrapUp: 9000,
     slideToNext: 10065,
     slideToNextDuration: 900,
-    finish: 11100,
+    auraStart: 10965,
+    auraDuration: 600,
+    chromeFadeStart: 11265,
+    chromeFadeDuration: 500,
+    handoffStart: 11565,
+    handoffDuration: 700,
+    finish: 12365,
   });
 });
 

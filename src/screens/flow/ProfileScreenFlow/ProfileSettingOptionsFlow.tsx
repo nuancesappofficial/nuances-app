@@ -29,7 +29,9 @@ import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
-import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
+import PaywallHeroUI, {
+  type CardScreenCenter,
+} from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
 import PaywallExitUI from '../../../components/UI/ProfileScreenUI/PaywallExitUI';
 import ResultsIntroUI from '../../../components/UI/ProfileScreenUI/ResultsIntroUI';
 import { buildDevSampleIntroCards } from '../../../features/dev/paywallDevLinks';
@@ -756,9 +758,11 @@ export default function ProfileSettingOptionsFlow({
   const [introPhase, setIntroPhase] = React.useState<
     'pending' | 'playing' | 'done'
   >(pendingCard ? 'pending' : 'done');
-  const [heroEntrance, setHeroEntrance] = React.useState<'flip' | 'none'>(
-    'none'
-  );
+  // paywall 上第 21 張卡的螢幕位置；成果動畫結尾把卡片移到這裡。
+  const [heroCardCenter, setHeroCardCenter] =
+    React.useState<CardScreenCenter | null>(null);
+  // 成果動畫播放時 paywall 先排好版但隱藏，結尾再淡入。
+  const paywallOpacity = React.useRef(new Animated.Value(1)).current;
   const membershipUserIdRef = React.useRef<string | null>(null);
   const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
     React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
@@ -1436,6 +1440,7 @@ export default function ProfileSettingOptionsFlow({
       reduceMotion,
       cardCount: introCards.length,
     });
+    if (play) paywallOpacity.setValue(0);
     setIntroPhase(play ? 'playing' : 'done');
     if (play) {
       void markResultsIntroSeenLocally(membershipUserIdRef.current).catch(
@@ -2383,24 +2388,38 @@ export default function ProfileSettingOptionsFlow({
       );
     }
 
-    if (introPhase === 'playing' && paywallHero?.kind === 'next' && introCards) {
-      return (
-        <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
+    // 成果動畫疊在已經排好版（但先隱藏）的 paywall 上，結尾第 21 張卡直接移到 paywall 的位置。
+    const resultsIntroOverlay =
+      introPhase === 'playing' && paywallHero?.kind === 'next' && introCards ? (
+        <View style={StyleSheet.absoluteFill}>
           <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
             <ResultsIntroUI
               cards={introCards}
               nextWord={paywallHero.word}
+              nextSourceLabel={paywallHero.sourceLabel}
+              signature={tUI(
+                settings.uiLanguage,
+                'settings.membership.next21.signature'
+              )}
               createdCount={FREE_STARTER_LIMIT}
               uiLanguage={settings.uiLanguage}
-              onFinish={(fromNextCard) => {
-                setHeroEntrance(fromNextCard ? 'flip' : 'none');
+              targetCenter={heroCardCenter}
+              onReveal={(durationMs) =>
+                Animated.timing(paywallOpacity, {
+                  toValue: 1,
+                  duration: durationMs,
+                  easing: Easing.inOut(Easing.quad),
+                  useNativeDriver: true,
+                }).start()
+              }
+              onFinish={() => {
+                paywallOpacity.setValue(1);
                 setIntroPhase('done');
               }}
             />
           </SafeAreaView>
         </View>
-      );
-    }
+      ) : null;
 
     if (paywallExitVisible && paywallHero?.kind === 'next') {
       return (
@@ -2427,6 +2446,7 @@ export default function ProfileSettingOptionsFlow({
 
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
+        <Animated.View style={[styles.safeArea, { opacity: paywallOpacity }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
             <Pressable
@@ -2480,7 +2500,8 @@ export default function ProfileSettingOptionsFlow({
               <PaywallHeroUI
                 hero={paywallHero}
                 uiLanguage={settings.uiLanguage}
-                entrance={heroEntrance}
+                nextCardHidden={introPhase === 'playing'}
+                onNextCardMeasured={setHeroCardCenter}
               />
 
               <View style={styles.membershipTierSelector}>
@@ -2661,6 +2682,8 @@ export default function ProfileSettingOptionsFlow({
             uiLanguage={settings.uiLanguage}
           />
         </SafeAreaView>
+        </Animated.View>
+        {resultsIntroOverlay}
         {premiumTransitionVisible ? (
           <View style={styles.premiumTransitionBlocker} pointerEvents="auto">
             <AnimatedSplashV2

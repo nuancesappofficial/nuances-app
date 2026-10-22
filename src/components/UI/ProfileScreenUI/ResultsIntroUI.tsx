@@ -16,16 +16,26 @@ import {
   resolveCarouselItemStyle,
   type ResultsIntroCard,
 } from '../../../features/subscription/resultsIntro';
+import {
+  TwentyFirstCardFace,
+  type CardScreenCenter,
+} from './PaywallHeroUI';
 
 type Props = {
   cards: ResultsIntroCard[];
-  // 使用者正要建的字（虛線的第 21 張）。
+  // 使用者正要建的那張卡（第 21 張）。
   nextWord: string;
+  nextSourceLabel: string;
+  signature: string;
   // 實際建過的卡數（入門額度），「少切換 App」用這個數字。
   createdCount: number;
   uiLanguage: UILanguage;
-  // fromNextCard：播完並停在第 21 張（接翻面）；false 表示使用者點了略過。
-  onFinish: (fromNextCard: boolean) => void;
+  // paywall 上第 21 張卡的中心；結尾把卡片移過去交接。還沒量到就原地交接。
+  targetCenter: CardScreenCenter | null;
+  // 卡片開始移動時通知 paywall 淡入。
+  onReveal: (durationMs: number) => void;
+  // completed：播完並交接給 paywall 的卡；false 表示使用者點了略過。
+  onFinish: (completed: boolean) => void;
 };
 
 const ACCENT = '#4EAFF4';
@@ -195,14 +205,31 @@ function IntroRow({
 const CarouselTrack = React.memo(function CarouselTrack({
   cards,
   nextWord,
+  nextSourceLabel,
+  signature,
   position,
   trackOpacity,
+  othersOpacity,
+  aura,
+  handoff,
+  handoffOffset,
+  nextCardRef,
   width,
 }: {
   cards: ResultsIntroCard[];
   nextWord: string;
+  nextSourceLabel: string;
+  signature: string;
   position: Animated.Value;
   trackOpacity: Animated.Value;
+  // 結尾時其他卡片淡出，只留第 21 張。
+  othersOpacity: Animated.Value;
+  // 0 → 1：虛線卡亮起金色光暈並變成金邊卡。
+  aura: Animated.Value;
+  // 0 → 1：卡片移到 paywall 的位置並轉成同樣的角度。
+  handoff: Animated.Value;
+  handoffOffset: Animated.ValueXY;
+  nextCardRef: React.RefObject<View | null>;
   width: number;
 }) {
   const lastIndex = cards.length - 1;
@@ -249,8 +276,42 @@ const CarouselTrack = React.memo(function CarouselTrack({
           },
         ],
       },
-      cards: cards.map((_, index) => itemStyle(index, false)),
+      // 結尾時其他卡片跟著淡出（亮度乘上 othersOpacity）。
+      cards: cards.map((_, index) => {
+        const style = itemStyle(index, false);
+        return {
+          ...style,
+          opacity: Animated.multiply(style.opacity, othersOpacity),
+        };
+      }),
       nextCard: itemStyle(cards.length, true),
+      dashedFace: {
+        opacity: aura.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+      },
+      goldFace: { opacity: aura },
+      auraGlow: {
+        opacity: aura,
+        transform: [
+          {
+            scale: aura.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.85, 1],
+            }),
+          },
+        ],
+      },
+      handoff: {
+        transform: [
+          { translateX: handoffOffset.x },
+          { translateY: handoffOffset.y },
+          {
+            rotate: handoff.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['0deg', '-4deg'],
+            }),
+          },
+        ],
+      },
       // 虛線第 21 張到中間時，外框換成藍色（用疊一層藍框的透明度做，才能在原生端跑）。
       nextCardHighlight: {
         opacity: position.interpolate({
@@ -260,7 +321,17 @@ const CarouselTrack = React.memo(function CarouselTrack({
         }),
       },
     };
-  }, [cards, lastIndex, position, trackOpacity, width]);
+  }, [
+    aura,
+    cards,
+    handoff,
+    handoffOffset,
+    lastIndex,
+    othersOpacity,
+    position,
+    trackOpacity,
+    width,
+  ]);
 
   return (
     <Animated.View style={[styles.track, animated.track]}>
@@ -289,21 +360,43 @@ const CarouselTrack = React.memo(function CarouselTrack({
           <View style={[styles.cardLine, styles.cardLineShort]} />
         </Animated.View>
       ))}
-      <Animated.View style={[styles.nextCard, animated.nextCard]}>
+      <Animated.View style={[styles.nextSlot, animated.nextCard]}>
         <Animated.View
-          pointerEvents="none"
-          style={[styles.nextCardHighlight, animated.nextCardHighlight]}
-        />
-        <Text
-          style={styles.nextWord}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.45}
-          maxFontSizeMultiplier={1}
+          ref={nextCardRef}
+          collapsable={false}
+          style={[styles.nextSlotInner, animated.handoff]}
         >
-          {nextWord}
-        </Text>
-        <Text style={styles.nextNumber}>#21</Text>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.auraGlow, animated.auraGlow]}
+          />
+          <Animated.View style={[styles.nextCard, animated.dashedFace]}>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.nextCardHighlight, animated.nextCardHighlight]}
+            />
+            <Text
+              style={styles.nextWord}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.45}
+              maxFontSizeMultiplier={1}
+            >
+              {nextWord}
+            </Text>
+            <Text style={styles.nextNumber}>#21</Text>
+          </Animated.View>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.goldFace, animated.goldFace]}
+          >
+            <TwentyFirstCardFace
+              word={nextWord}
+              sourceLabel={nextSourceLabel}
+              signature={signature}
+            />
+          </Animated.View>
+        </Animated.View>
       </Animated.View>
     </Animated.View>
   );
@@ -312,8 +405,12 @@ const CarouselTrack = React.memo(function CarouselTrack({
 export default function ResultsIntroUI({
   cards,
   nextWord,
+  nextSourceLabel,
+  signature,
   createdCount,
   uiLanguage,
+  targetCenter,
+  onReveal,
   onFinish,
 }: Props) {
   const { width } = useWindowDimensions();
@@ -322,6 +419,19 @@ export default function ResultsIntroUI({
   const position = React.useRef(new Animated.Value(0)).current;
   const trackOpacity = React.useRef(new Animated.Value(0)).current;
   const titleOpacity = React.useRef(new Animated.Value(0)).current;
+  const chromeOpacity = React.useRef(new Animated.Value(1)).current;
+  const aura = React.useRef(new Animated.Value(0)).current;
+  const handoff = React.useRef(new Animated.Value(0)).current;
+  const handoffOffset = React.useRef(new Animated.ValueXY({ x: 0, y: 0 }))
+    .current;
+  const nextCardRef = React.useRef<View | null>(null);
+  // 計時器讀最新的值，不讓它們重設時間軸。
+  const targetCenterRef = React.useRef(targetCenter);
+  targetCenterRef.current = targetCenter;
+  const onRevealRef = React.useRef(onReveal);
+  onRevealRef.current = onReveal;
+  const onFinishRef = React.useRef(onFinish);
+  onFinishRef.current = onFinish;
   const finishedRef = React.useRef(false);
 
   const [titleKey, setTitleKey] = React.useState<UIStringKey>(
@@ -334,14 +444,12 @@ export default function ResultsIntroUI({
     'idle',
   ]);
 
-  const finish = React.useCallback(
-    (fromNextCard: boolean) => {
-      if (finishedRef.current) return;
-      finishedRef.current = true;
-      onFinish(fromNextCard);
-    },
-    [onFinish]
-  );
+  // 不依賴父元件每次重畫都會換新的 onFinish，避免時間軸被重設。
+  const finish = React.useCallback((completed: boolean) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    onFinishRef.current(completed);
+  }, []);
 
   React.useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -399,13 +507,69 @@ export default function ResultsIntroUI({
         useNativeDriver: true,
       }).start();
     });
+    // 停在第 21 張：亮起金色光暈，變成金邊卡。
+    at(timeline.auraStart, () =>
+      Animated.timing(aura, {
+        toValue: 1,
+        duration: timeline.auraDuration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start()
+    );
+    // 卡片留著，其他東西淡出。
+    at(timeline.chromeFadeStart, () =>
+      Animated.timing(chromeOpacity, {
+        toValue: 0,
+        duration: timeline.chromeFadeDuration,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }).start()
+    );
+    // 卡片移到 paywall 上那張卡的位置、轉成同樣角度，paywall 同時淡入。
+    at(timeline.handoffStart, () => {
+      onRevealRef.current(timeline.handoffDuration);
+      const move = (dx: number, dy: number) =>
+        Animated.parallel([
+          Animated.timing(handoffOffset, {
+            toValue: { x: dx, y: dy },
+            duration: timeline.handoffDuration,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            useNativeDriver: true,
+          }),
+          Animated.timing(handoff, {
+            toValue: 1,
+            duration: timeline.handoffDuration,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      const target = targetCenterRef.current;
+      if (!target || !nextCardRef.current) {
+        move(0, 0);
+        return;
+      }
+      nextCardRef.current.measureInWindow((x, y, w, h) => {
+        move(target.x - (x + w / 2), target.y - (y + h / 2));
+      });
+    });
     at(timeline.finish, () => finish(true));
 
     return () => {
       timers.forEach(clearTimeout);
       position.stopAnimation();
     };
-  }, [finish, lastIndex, position, timeline, titleOpacity, trackOpacity]);
+  }, [
+    aura,
+    chromeOpacity,
+    finish,
+    handoff,
+    handoffOffset,
+    lastIndex,
+    position,
+    timeline,
+    titleOpacity,
+    trackOpacity,
+  ]);
 
   return (
     <Pressable
@@ -414,31 +578,47 @@ export default function ResultsIntroUI({
       accessibilityRole="button"
       accessibilityLabel={tUI(uiLanguage, 'settings.membership.intro.skip')}
     >
-      <LinearGradient
+      {/* 背景和文字在結尾淡出，露出底下已經排好的 paywall。 */}
+      <Animated.View
         pointerEvents="none"
-        colors={['#0B3A63', NAVY]}
-        locations={[0, 0.7]}
-        style={StyleSheet.absoluteFill}
-      />
-      <Animated.Text
-        style={[styles.title, { opacity: titleOpacity }]}
-        maxFontSizeMultiplier={1.2}
+        style={[StyleSheet.absoluteFill, { opacity: chromeOpacity }]}
       >
-        {tUI(uiLanguage, titleKey)}
-      </Animated.Text>
-      <Text style={styles.hint} maxFontSizeMultiplier={1.2}>
-        {hintKey ? tUI(uiLanguage, hintKey) : ''}
-      </Text>
+        <LinearGradient
+          colors={['#0B3A63', NAVY]}
+          locations={[0, 0.7]}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <Animated.View style={[styles.chrome, { opacity: chromeOpacity }]}>
+        <Animated.Text
+          style={[styles.title, { opacity: titleOpacity }]}
+          maxFontSizeMultiplier={1.2}
+        >
+          {tUI(uiLanguage, titleKey)}
+        </Animated.Text>
+        <Text style={styles.hint} maxFontSizeMultiplier={1.2}>
+          {hintKey ? tUI(uiLanguage, hintKey) : ''}
+        </Text>
+      </Animated.View>
 
       <View style={styles.stage}>
         <CarouselTrack
           cards={cards}
           nextWord={nextWord}
+          nextSourceLabel={nextSourceLabel}
+          signature={signature}
           position={position}
           trackOpacity={trackOpacity}
+          othersOpacity={chromeOpacity}
+          aura={aura}
+          handoff={handoff}
+          handoffOffset={handoffOffset}
+          nextCardRef={nextCardRef}
           width={width}
         />
       </View>
+
+      <Animated.View style={[styles.chrome, { opacity: chromeOpacity }]}>
 
       {rowStates[0] === 'idle' ? (
         <Text style={styles.counter} />
@@ -490,10 +670,14 @@ export default function ResultsIntroUI({
           unit={tUI(uiLanguage, 'settings.membership.intro.unitTimes')}
         />
       </View>
+      </Animated.View>
 
-      <Text style={styles.skip} maxFontSizeMultiplier={1.2}>
+      <Animated.Text
+        style={[styles.skip, { opacity: chromeOpacity }]}
+        maxFontSizeMultiplier={1.2}
+      >
         {tUI(uiLanguage, 'settings.membership.intro.skip')}
-      </Text>
+      </Animated.Text>
     </Pressable>
   );
 }
@@ -504,7 +688,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 56,
     paddingHorizontal: 22,
-    backgroundColor: NAVY,
+  },
+  chrome: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
   },
   title: {
     minHeight: 26,
@@ -525,7 +712,8 @@ const styles = StyleSheet.create({
     height: 220,
     marginTop: 22,
     marginHorizontal: -22,
-    overflow: 'hidden',
+    // 不裁切：結尾第 21 張卡會移出輪播區、疊在其他東西上面。
+    zIndex: 2,
   },
   track: {
     position: 'absolute',
@@ -582,7 +770,38 @@ const styles = StyleSheet.create({
   cardLineShort: {
     width: '60%',
   },
+  nextSlot: {
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+  },
+  nextSlotInner: {
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 停在第 21 張時的金色光暈。
+  auraGlow: {
+    position: 'absolute',
+    top: -16,
+    left: -16,
+    right: -16,
+    bottom: -16,
+    borderRadius: 30,
+    backgroundColor: 'rgba(245,181,63,0.22)',
+    shadowColor: '#F5B53F',
+    shadowOpacity: 0.9,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  // 和 paywall 第 21 張卡同尺寸（136×174），交接時看不出接縫。
+  goldFace: {
+    position: 'absolute',
+    width: 136,
+    height: 174,
+  },
   nextCard: {
+    ...StyleSheet.absoluteFillObject,
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     borderRadius: 18,
