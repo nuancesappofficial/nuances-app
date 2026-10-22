@@ -116,8 +116,8 @@ import {
   saveCardStickyNotes,
 } from '../../../features/deck/cardStickyNotes';
 import {
-  loadPronunciationHistory,
-  upsertPronunciationResult,
+  loadCoachResults,
+  recordPronunciationAssessment,
 } from '../../../features/deck/pronunciationHistory';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
 import { SCREEN_BG, resolveThemeColors } from '../../../theme/colors';
@@ -682,7 +682,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
 
   React.useEffect(() => {
     let isMounted = true;
-    loadPronunciationHistory()
+    loadCoachResults()
       .then((history) => {
         if (isMounted) {
           setPronunciationResultsByCardId(history);
@@ -1345,11 +1345,12 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       setIsAnalyzing(true);
       setPronunciationAnalysisError(null);
       setPronunciationRevealStep(0);
+      const isDemoAssessment = !!route.params?.interactiveTutorial || appTour.isActive;
       const result = await assessPronunciationCloud({
         referenceText: pronunciationText,
         audioUri: uri,
         locale: detectPronunciationLocale(pronunciationText),
-        demoExperience: !!route.params?.interactiveTutorial || appTour.isActive,
+        demoExperience: isDemoAssessment,
       });
 
       setPronunciationScore(result.score);
@@ -1371,7 +1372,13 @@ export default function CardDetailScreen({ navigation, route }: Props) {
           ...prev,
           [analyzedCardId]: nextResult,
         }));
-        void upsertPronunciationResult(analyzedCardId, nextResult).catch(
+        // 示範或沒分數的評分不算一次練習，也不會存下來。
+        void recordPronunciationAssessment(analyzedCardId, {
+          score: result.score,
+          demo: isDemoAssessment,
+          at: new Date().toISOString(),
+          coach: nextResult,
+        }).catch(
           (storageError) => {
             console.warn(
               '[CardDetail][Pronunciation] save history failed:',
@@ -1382,7 +1389,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
       // Backfill the card's IPA line from Azure's expected phonemes when the
       // card never got one (older cards). Never overwrite an existing value.
-      const isDemoAssessment = !!route.params?.interactiveTutorial || appTour.isActive;
       if (analyzedCardId && !isDemoAssessment) {
         const backfillIpa = buildIpaFromAssessment(
           pronunciationText,

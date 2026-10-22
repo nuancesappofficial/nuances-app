@@ -1,15 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { CloudPhonemeFeedback } from '@services/pronunciation/cloudCoach';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
+import {
+  readStoredRecord,
+  recordAssessment,
+  type CoachResult,
+  type PronunciationAssessment,
+  type PronunciationRecord,
+} from './pronunciationRecord';
 
-export type StoredPronunciationResult = {
-  score: number | null;
-  feedbackLines: string[];
-  phonemeFeedback: CloudPhonemeFeedback[];
-  showFeedback: boolean;
-  updatedAt: string;
-};
-
+// 每張卡的 Pronunciation Record，只存在本機、每個帳號分開。舊格式在讀取時轉換，
+// 所以鍵名不變。
 const PRONUNCIATION_HISTORY_KEY = 'card_pronunciation_history_v1';
 
 async function getPronunciationHistoryKey(): Promise<string> {
@@ -17,36 +17,17 @@ async function getPronunciationHistoryKey(): Promise<string> {
   return `${PRONUNCIATION_HISTORY_KEY}:${userId ?? 'guest'}`;
 }
 
-function sanitizeResult(input: unknown): StoredPronunciationResult | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const raw = input as Partial<StoredPronunciationResult>;
-  const score = typeof raw.score === 'number' && Number.isFinite(raw.score) ? raw.score : null;
-  const feedbackLines = Array.isArray(raw.feedbackLines)
-    ? raw.feedbackLines.filter((item): item is string => typeof item === 'string')
-    : [];
-  const phonemeFeedback = Array.isArray(raw.phonemeFeedback)
-    ? raw.phonemeFeedback.filter((item): item is CloudPhonemeFeedback => {
-        return Boolean(item && typeof item === 'object' && typeof item.phoneme === 'string');
-      })
-    : [];
-  return {
-    score,
-    feedbackLines,
-    phonemeFeedback,
-    showFeedback: Boolean(raw.showFeedback ?? (score !== null || phonemeFeedback.length > 0)),
-    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
-  };
-}
-
-export async function loadPronunciationHistory(): Promise<Record<string, StoredPronunciationResult>> {
+export async function loadPronunciationRecords(): Promise<
+  Record<string, PronunciationRecord>
+> {
   try {
     const raw = await AsyncStorage.getItem(await getPronunciationHistoryKey());
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const entries = Object.entries(parsed).flatMap(([cardId, value]) => {
-      const result = sanitizeResult(value);
-      return result ? ([[cardId, result]] as const) : [];
+      const record = readStoredRecord(value);
+      return record ? ([[cardId, record]] as const) : [];
     });
     return Object.fromEntries(entries);
   } catch (error) {
@@ -55,18 +36,33 @@ export async function loadPronunciationHistory(): Promise<Record<string, StoredP
   }
 }
 
-export async function upsertPronunciationResult(
+// 發音教練重新打開卡片時要重畫的上次結果。
+export async function loadCoachResults(): Promise<Record<string, CoachResult>> {
+  const records = await loadPronunciationRecords();
+  return Object.fromEntries(
+    Object.entries(records).flatMap(([cardId, record]) =>
+      record.coach ? ([[cardId, record.coach]] as const) : []
+    )
+  );
+}
+
+// 一次只跑一個「讀 → 套用規則 → 寫回」，發音教練和測驗同時寫入時不會互相覆蓋。
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+export function recordPronunciationAssessment(
   cardId: string,
-  result: Omit<StoredPronunciationResult, 'updatedAt'>
-): Promise<Record<string, StoredPronunciationResult>> {
-  const current = await loadPronunciationHistory();
-  const next = {
-    ...current,
-    [cardId]: {
-      ...result,
-      updatedAt: new Date().toISOString(),
-    },
-  };
-  await AsyncStorage.setItem(await getPronunciationHistoryKey(), JSON.stringify(next));
-  return next;
+  assessment: PronunciationAssessment
+): Promise<PronunciationRecord | null> {
+  const run = writeQueue.then(async () => {
+    const current = await loadPronunciationRecords();
+    const next = recordAssessment(current[cardId] ?? null, assessment);
+    if (!next || next === current[cardId]) return next;
+    await AsyncStorage.setItem(
+      await getPronunciationHistoryKey(),
+      JSON.stringify({ ...current, [cardId]: next })
+    );
+    return next;
+  });
+  writeQueue = run.catch(() => undefined);
+  return run;
 }
