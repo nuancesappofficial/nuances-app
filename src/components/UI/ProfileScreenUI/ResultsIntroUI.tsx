@@ -202,6 +202,7 @@ function IntroRow({
 }
 
 // 輪播軌道：插值只建一次，整條在原生端跑；父元件重畫時這裡不會跟著重畫。
+// 最後一格是金邊的第 21 張卡（使用者要建的字），輪盤直接減速停在它上面。
 const CarouselTrack = React.memo(function CarouselTrack({
   cards,
   nextWord,
@@ -210,7 +211,7 @@ const CarouselTrack = React.memo(function CarouselTrack({
   position,
   trackOpacity,
   othersOpacity,
-  aura,
+  lift,
   handoff,
   handoffOffset,
   nextCardRef,
@@ -224,15 +225,14 @@ const CarouselTrack = React.memo(function CarouselTrack({
   trackOpacity: Animated.Value;
   // 結尾時其他卡片淡出，只留第 21 張。
   othersOpacity: Animated.Value;
-  // 0 → 1：虛線卡亮起金色光暈並變成金邊卡。
-  aura: Animated.Value;
+  // 0 → 1：第 21 張被挑起來（放大、往上浮、金色光暈）；交接前回到 0。
+  lift: Animated.Value;
   // 0 → 1：卡片移到 paywall 的位置並轉成同樣的角度。
   handoff: Animated.Value;
   handoffOffset: Animated.ValueXY;
   nextCardRef: React.RefObject<View | null>;
   width: number;
 }) {
-  const lastIndex = cards.length - 1;
   const animated = React.useMemo(() => {
     const itemStyle = (index: number, isNextCard: boolean) => {
       const near = resolveCarouselItemStyle(0, isNextCard);
@@ -285,48 +285,60 @@ const CarouselTrack = React.memo(function CarouselTrack({
         };
       }),
       nextCard: itemStyle(cards.length, true),
-      dashedFace: {
-        opacity: aura.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-      },
-      goldFace: { opacity: aura },
-      auraGlow: {
-        opacity: aura,
-        transform: [
-          {
-            scale: aura.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.85, 1],
-            }),
-          },
-        ],
-      },
-      handoff: {
+      // 挑起來：放大一點、往上浮，同時移到 paywall 的位置並轉成 -4°。
+      picked: {
         transform: [
           { translateX: handoffOffset.x },
           { translateY: handoffOffset.y },
+          {
+            translateY: lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, -10],
+            }),
+          },
           {
             rotate: handoff.interpolate({
               inputRange: [0, 1],
               outputRange: ['0deg', '-4deg'],
             }),
           },
+          {
+            scale: lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [1, 1.12],
+            }),
+          },
         ],
       },
-      // 虛線第 21 張到中間時，外框換成藍色（用疊一層藍框的透明度做，才能在原生端跑）。
-      nextCardHighlight: {
-        opacity: position.interpolate({
-          inputRange: [lastIndex + 0.5, lastIndex + 1],
-          outputRange: [0, 1],
-          extrapolate: 'clamp' as const,
-        }),
+      auraGlow: {
+        opacity: lift,
+        transform: [
+          {
+            scale: lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.85, 1],
+            }),
+          },
+        ],
+      },
+      // 浮起來時下方的影子變深、變遠。
+      liftShadow: {
+        opacity: lift,
+        transform: [
+          {
+            translateY: lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 18],
+            }),
+          },
+        ],
       },
     };
   }, [
-    aura,
     cards,
     handoff,
     handoffOffset,
-    lastIndex,
+    lift,
     othersOpacity,
     position,
     trackOpacity,
@@ -360,42 +372,28 @@ const CarouselTrack = React.memo(function CarouselTrack({
           <View style={[styles.cardLine, styles.cardLineShort]} />
         </Animated.View>
       ))}
-      <Animated.View style={[styles.nextSlot, animated.nextCard]}>
-        <Animated.View
-          ref={nextCardRef}
-          collapsable={false}
-          style={[styles.nextSlotInner, animated.handoff]}
-        >
+      {/* 量外層（沒有挑起的位移），交接後放回原大小時才會剛好對齊 paywall 的卡。 */}
+      <Animated.View
+        ref={nextCardRef}
+        collapsable={false}
+        style={[styles.nextSlot, animated.nextCard]}
+      >
+        <Animated.View style={[styles.nextSlotInner, animated.picked]}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.liftShadow, animated.liftShadow]}
+          />
           <Animated.View
             pointerEvents="none"
             style={[styles.auraGlow, animated.auraGlow]}
           />
-          <Animated.View style={[styles.nextCard, animated.dashedFace]}>
-            <Animated.View
-              pointerEvents="none"
-              style={[styles.nextCardHighlight, animated.nextCardHighlight]}
-            />
-            <Text
-              style={styles.nextWord}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.45}
-              maxFontSizeMultiplier={1}
-            >
-              {nextWord}
-            </Text>
-            <Text style={styles.nextNumber}>#21</Text>
-          </Animated.View>
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.goldFace, animated.goldFace]}
-          >
+          <View style={styles.goldFace}>
             <TwentyFirstCardFace
               word={nextWord}
               sourceLabel={nextSourceLabel}
               signature={signature}
             />
-          </Animated.View>
+          </View>
         </Animated.View>
       </Animated.View>
     </Animated.View>
@@ -420,7 +418,7 @@ export default function ResultsIntroUI({
   const trackOpacity = React.useRef(new Animated.Value(0)).current;
   const titleOpacity = React.useRef(new Animated.Value(0)).current;
   const chromeOpacity = React.useRef(new Animated.Value(1)).current;
-  const aura = React.useRef(new Animated.Value(0)).current;
+  const lift = React.useRef(new Animated.Value(0)).current;
   const handoff = React.useRef(new Animated.Value(0)).current;
   const handoffOffset = React.useRef(new Animated.ValueXY({ x: 0, y: 0 }))
     .current;
@@ -476,9 +474,9 @@ export default function ResultsIntroUI({
         duration: timeline.carouselFadeIn,
         useNativeDriver: true,
       }).start();
-      // 輪盤：一開始最快，一路減速，自然停在最近建的那張。
+      // 輪盤：一開始最快，一路減速，直接停在第 21 張（使用者要建的字）。
       Animated.timing(position, {
-        toValue: lastIndex,
+        toValue: lastIndex + 1,
         duration: timeline.carouselSpin,
         delay: timeline.carouselSpinDelay,
         easing: Easing.bezier(0.18, 0.45, 0.1, 1),
@@ -498,47 +496,36 @@ export default function ResultsIntroUI({
       setTitleKey('settings.membership.intro.titleDone');
       setHintKey('settings.membership.intro.hintDone');
     });
-    at(timeline.slideToNext, () => {
+    // 挑起第 21 張：放大、往上浮、亮起金色光暈。
+    at(timeline.pickStart, () => {
       setHintKey('settings.membership.intro.hintNext');
-      Animated.timing(position, {
-        toValue: lastIndex + 1,
-        duration: timeline.slideToNextDuration,
-        easing: Easing.bezier(0.25, 0.6, 0.2, 1),
+      Animated.timing(lift, {
+        toValue: 1,
+        duration: timeline.pickDuration,
+        easing: Easing.out(Easing.back(1.4)),
         useNativeDriver: true,
       }).start();
     });
-    // 停在第 21 張：亮起金色光暈，變成金邊卡。
-    at(timeline.auraStart, () =>
-      Animated.timing(aura, {
-        toValue: 1,
-        duration: timeline.auraDuration,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start()
-    );
-    // 卡片留著，其他東西淡出。
-    at(timeline.chromeFadeStart, () =>
+    // 卡片不動，其他東西交叉淡化：動畫的文字淡出、paywall 同時淡入；卡片移到 paywall 的位置。
+    at(timeline.crossfadeStart, () => {
       Animated.timing(chromeOpacity, {
         toValue: 0,
-        duration: timeline.chromeFadeDuration,
+        duration: timeline.crossfadeDuration,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
-      }).start()
-    );
-    // 卡片移到 paywall 上那張卡的位置、轉成同樣角度，paywall 同時淡入。
-    at(timeline.handoffStart, () => {
-      onRevealRef.current(timeline.handoffDuration);
+      }).start();
+      onRevealRef.current(timeline.crossfadeDuration);
       const move = (dx: number, dy: number) =>
         Animated.parallel([
           Animated.timing(handoffOffset, {
             toValue: { x: dx, y: dy },
-            duration: timeline.handoffDuration,
+            duration: timeline.moveDuration,
             easing: Easing.bezier(0.25, 0.1, 0.25, 1),
             useNativeDriver: true,
           }),
           Animated.timing(handoff, {
             toValue: 1,
-            duration: timeline.handoffDuration,
+            duration: timeline.moveDuration,
             easing: Easing.bezier(0.25, 0.1, 0.25, 1),
             useNativeDriver: true,
           }),
@@ -552,6 +539,15 @@ export default function ResultsIntroUI({
         move(target.x - (x + w / 2), target.y - (y + h / 2));
       });
     });
+    // 放回原大小，和 paywall 上的卡完全重疊後交接。
+    at(timeline.settleStart, () =>
+      Animated.timing(lift, {
+        toValue: 0,
+        duration: timeline.settleDuration,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }).start()
+    );
     at(timeline.finish, () => finish(true));
 
     return () => {
@@ -559,12 +555,12 @@ export default function ResultsIntroUI({
       position.stopAnimation();
     };
   }, [
-    aura,
     chromeOpacity,
     finish,
     handoff,
     handoffOffset,
     lastIndex,
+    lift,
     position,
     timeline,
     titleOpacity,
@@ -610,7 +606,7 @@ export default function ResultsIntroUI({
           position={position}
           trackOpacity={trackOpacity}
           othersOpacity={chromeOpacity}
-          aura={aura}
+          lift={lift}
           handoff={handoff}
           handoffOffset={handoffOffset}
           nextCardRef={nextCardRef}
@@ -780,7 +776,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 停在第 21 張時的金色光暈。
+  // 第 21 張被挑起來時，下方變深、變遠的影子。
+  liftShadow: {
+    position: 'absolute',
+    top: 24,
+    left: 10,
+    right: 10,
+    bottom: -6,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  // 挑起第 21 張時的金色光暈。
   auraGlow: {
     position: 'absolute',
     top: -16,
@@ -799,44 +809,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 136,
     height: 174,
-  },
-  nextCard: {
-    ...StyleSheet.absoluteFillObject,
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: 'rgba(255,255,255,0.3)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
-  },
-  nextCardHighlight: {
-    position: 'absolute',
-    top: -1.5,
-    left: -1.5,
-    right: -1.5,
-    bottom: -1.5,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: 'rgba(78,175,244,0.7)',
-  },
-  nextWord: {
-    alignSelf: 'stretch',
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  nextNumber: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 10.5,
-    fontWeight: '700',
   },
   counter: {
     minHeight: 18,

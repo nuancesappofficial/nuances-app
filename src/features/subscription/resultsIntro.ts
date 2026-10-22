@@ -41,14 +41,14 @@ const BASE = {
   gap: 600,
   switchWork: 1500,
   hold: 2300,
-  slide: 900,
-  // 停在 #21 之後的收尾（v13 原型之後，依 Jeff 的指示改成不換畫面）。
-  aura: 600,
-  chromeFadeDelay: 300,
-  chromeFade: 500,
-  handoffDelay: 300,
-  handoff: 700,
-  settleAfterHandoff: 100,
+  // 輪盤直接停在 #21 之後的收尾（依 Jeff 的指示，不換畫面）：
+  // 挑起 #21 → 其他東西交叉淡化、卡片同時移到 paywall → 放回原大小交接。
+  pick: 500,
+  crossfadeDelay: 300,
+  crossfade: 600,
+  move: 700,
+  settle21: 300,
+  afterSettle: 100,
 };
 
 export type ResultsIntroTimeline = {
@@ -62,14 +62,13 @@ export type ResultsIntroTimeline = {
   switchDuration: number;
   switchDone: number;
   wrapUp: number;
-  slideToNext: number;
-  slideToNextDuration: number;
-  auraStart: number;
-  auraDuration: number;
-  chromeFadeStart: number;
-  chromeFadeDuration: number;
-  handoffStart: number;
-  handoffDuration: number;
+  pickStart: number;
+  pickDuration: number;
+  crossfadeStart: number;
+  crossfadeDuration: number;
+  moveDuration: number;
+  settleStart: number;
+  settleDuration: number;
   finish: number;
 };
 
@@ -80,11 +79,9 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     BASE.collectStart + carouselSpinDelay + BASE.spin + BASE.settle;
   const switchStart = collectDone + BASE.gap;
   const switchDone = switchStart + BASE.switchWork;
-  const slideToNext = switchDone + Math.round(BASE.hold * 0.55);
-  // 停在 #21 → 金色光暈 → 其他文字淡出 → 卡片移到 paywall 的位置、paywall 淡入。
-  const auraStart = slideToNext + BASE.slide;
-  const chromeFadeStart = auraStart + BASE.chromeFadeDelay;
-  const handoffStart = chromeFadeStart + BASE.handoffDelay;
+  const pickStart = switchDone + Math.round(BASE.hold * 0.55);
+  const crossfadeStart = pickStart + BASE.crossfadeDelay;
+  const settleStart = crossfadeStart + BASE.move;
   return {
     titleIn: BASE.title,
     collectStart: BASE.collectStart,
@@ -96,15 +93,14 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     switchDuration: BASE.switchWork,
     switchDone,
     wrapUp: switchDone + 200,
-    slideToNext,
-    slideToNextDuration: BASE.slide,
-    auraStart,
-    auraDuration: BASE.aura,
-    chromeFadeStart,
-    chromeFadeDuration: BASE.chromeFade,
-    handoffStart,
-    handoffDuration: BASE.handoff,
-    finish: handoffStart + BASE.handoff + BASE.settleAfterHandoff,
+    pickStart,
+    pickDuration: BASE.pick,
+    crossfadeStart,
+    crossfadeDuration: BASE.crossfade,
+    moveDuration: BASE.move,
+    settleStart,
+    settleDuration: BASE.settle21,
+    finish: settleStart + BASE.settle21 + BASE.afterSettle,
   };
 }
 
