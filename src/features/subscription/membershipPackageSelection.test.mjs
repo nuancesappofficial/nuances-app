@@ -31,14 +31,25 @@ const proPackages = [
   packageSummary('nuances_pro_yearly', 'ANNUAL'),
 ];
 
-test('defaults to the monthly package inside the active tier', () => {
+test('defaults to the yearly package inside the active tier', () => {
   assert.equal(
     selectDefaultMembershipPackage('lite', litePackages, proPackages),
-    'nuances_lite_monthly'
+    'nuances_lite_yearly'
   );
   assert.equal(
     selectDefaultMembershipPackage('pro', litePackages, proPackages),
+    'nuances_pro_yearly'
+  );
+});
+
+test('falls back to monthly, then the first package, when a tier has no yearly plan', () => {
+  assert.equal(
+    selectDefaultMembershipPackage('pro', litePackages, proPackages.slice(0, 2)),
     'nuances_pro_monthly'
+  );
+  assert.equal(
+    selectDefaultMembershipPackage('pro', litePackages, proPackages.slice(0, 1)),
+    'nuances_pro_weekly'
   );
 });
 

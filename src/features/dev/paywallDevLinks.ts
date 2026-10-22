@@ -41,13 +41,14 @@ function parseQuery(url: string): Map<string, string> {
   return query;
 }
 
-// 免費入門額度：建卡、發音評分各 20 次。
-const STARTER_ALLOWANCE_LIMIT = 20;
+// 免費入門額度：建卡、發音評分各 20 次（同 subscription/paywallHero 的 FREE_STARTER_LIMIT；
+// node 測試不能跨檔 import，所以各自保留）。
+const FREE_STARTER_LIMIT = 20;
 
 function parseUsedCount(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!value || !Number.isFinite(parsed)) return fallback;
-  return Math.min(STARTER_ALLOWANCE_LIMIT, Math.max(0, Math.trunc(parsed)));
+  return Math.min(FREE_STARTER_LIMIT, Math.max(0, Math.trunc(parsed)));
 }
 
 export function parsePaywallDevLink(url: string): PaywallDevLink | null {

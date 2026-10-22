@@ -1,4 +1,5 @@
 import React from 'react';
+import type { StarterUsage } from '../features/subscription/paywallHero';
 
 export type SwipeExclusionRange = {
   top: number;
@@ -30,6 +31,8 @@ export type TabSwipeContextValue = {
         source?: MembershipPaywallSource;
         tier?: 'lite' | 'pro';
         triggerSource?: MembershipPaywallTriggerSource;
+        // 只給 __DEV__ deep link 用：覆蓋從後端讀到的入門額度已用次數。
+        devStarterUsage?: Partial<StarterUsage>;
       }
     | 'lite'
     | 'pro') => void;

@@ -26,9 +26,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Q } from '@nozbe/watermelondb';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
+import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
 import { analytics } from '@services/analytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
@@ -101,6 +101,12 @@ import type {
 } from '../../../contexts/TabSwipeContext';
 import { localizeDefaultExperienceSavedCard } from '../../../features/cache/defaultExperienceCard';
 import {
+  mergeDevStarterUsage,
+  resolvePaywallEntry,
+  resolvePaywallHero,
+  type StarterUsage,
+} from '../../../features/subscription/paywallHero';
+import {
   resolveMembershipPackageIdentifier,
   selectDefaultMembershipPackage,
 } from '../../../features/subscription/membershipPackageSelection';
@@ -125,6 +131,7 @@ type Props = {
       tier?: 'lite' | 'pro';
       initialTab?: 'lite' | 'pro';
       triggerSource?: MembershipPaywallTriggerSource;
+      devStarterUsage?: Partial<StarterUsage>;
     };
   };
 };
@@ -179,7 +186,6 @@ const PREVIEW_PAGE_GAP = 20;
 const STICKER_SCALE_MIN = 75;
 const STICKER_SCALE_MAX = 125;
 const STICKER_SCALE_STEP = 5;
-const MEMBERSHIP_APP_ICON = require('../../../../assets/app_icons/icon_cutout2.png');
 const MEMBERSHIP_SCREEN_BG = '#02213D';
 const MEMBERSHIP_HEADER_TEXT = '#FFFFFF';
 const MEMBERSHIP_PLAN_IDLE_BG = 'rgba(255,255,255,0.055)';
@@ -629,6 +635,7 @@ export default function ProfileSettingOptionsFlow({
           ? membershipSource
           : 'unknown',
       trigger_source: membershipTriggerSource,
+      entry: resolvePaywallEntry(membershipTriggerSource),
     });
   }, [kind, membershipSource, membershipTriggerSource]);
   const [stickerScaleSliderWidth, setStickerScaleSliderWidth] =
@@ -682,11 +689,17 @@ export default function ProfileSettingOptionsFlow({
   );
   const membershipTierRef = React.useRef(membershipTier);
   const [membershipPlan, setMembershipPlan] =
-    React.useState<MembershipBillingPlan>('monthly');
+    React.useState<MembershipBillingPlan>('yearly');
   const [savingMembership, setSavingMembership] = React.useState(false);
   const [membershipStatus, setMembershipStatus] = React.useState<
     'trial' | 'free' | 'lite' | 'premium'
   >('free');
+  const [membershipStatusResolved, setMembershipStatusResolved] =
+    React.useState(false);
+  const [starterUsage, setStarterUsage] = React.useState<StarterUsage | null>(
+    null
+  );
+  const devStarterUsage = route.params?.devStarterUsage;
   const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
     React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
@@ -764,7 +777,20 @@ export default function ProfileSettingOptionsFlow({
           if (userId) {
             const snapshot =
               await SubscriptionService.getEntitlementSnapshot(userId);
-            if (!cancelled) setMembershipStatus(snapshot.planType);
+            if (!cancelled) {
+              setMembershipStatus(snapshot.planType);
+              setMembershipStatusResolved(true);
+            }
+            if (snapshot.planType === 'free') {
+              void SubscriptionService.fetchFreeStarterUsage()
+                .catch(() => null)
+                .then((usage) => {
+                  if (cancelled) return;
+                  setStarterUsage(mergeDevStarterUsage(usage, devStarterUsage));
+                });
+            }
+          } else if (!cancelled) {
+            setMembershipStatusResolved(true);
           }
 
           if (!isRevenueCatConfigured()) {
@@ -785,7 +811,7 @@ export default function ProfileSettingOptionsFlow({
                 membershipTierRef.current,
                 summary.litePackages,
                 summary.proPackages
-              ) || 'monthly'
+              ) || 'yearly'
             );
           }
         } catch (error) {
@@ -793,6 +819,7 @@ export default function ProfileSettingOptionsFlow({
             '[ProfileSettingOptions] load membership failed:',
             error
           );
+          if (!cancelled) setMembershipStatusResolved(true);
         }
       })();
     });
@@ -800,7 +827,7 @@ export default function ProfileSettingOptionsFlow({
       cancelled = true;
       task.cancel();
     };
-  }, [kind]);
+  }, [devStarterUsage, kind]);
 
   React.useEffect(() => {
     if (kind !== 'theme') return;
@@ -1247,17 +1274,9 @@ export default function ProfileSettingOptionsFlow({
     (tier: 'lite' | 'pro') => {
       membershipTierRef.current = tier;
       setMembershipTier(tier);
-      const packages = tier === 'lite' ? litePackages : proPackages;
-      const monthlyPackage = packages.find((item) => {
-        const period =
-          resolveMembershipPeriodLabel(item.packageType) ||
-          resolveMembershipPeriodLabel(item.identifier) ||
-          resolveMembershipPeriodLabel(item.subscriptionPeriod) ||
-          resolveMembershipPeriodLabel(item.title);
-        return period === 'monthly';
-      });
       setMembershipPlan(
-        monthlyPackage?.identifier || packages[0]?.identifier || 'monthly'
+        selectDefaultMembershipPackage(tier, litePackages, proPackages) ||
+          'yearly'
       );
     },
     [litePackages, proPackages]
@@ -2082,27 +2101,10 @@ export default function ProfileSettingOptionsFlow({
         membershipStatus === 'lite') &&
       activeSubscriptionPeriod != null &&
       selectedPlanPeriod === activeSubscriptionPeriod;
-    const featureItems =
-      membershipTier === 'lite'
-        ? [
-            tUI(
-              settings.uiLanguage,
-              'settings.membership.feature.lite.aiCards'
-            ),
-            tUI(
-              settings.uiLanguage,
-              'settings.membership.feature.lite.voiceCache'
-            ),
-            tUI(settings.uiLanguage, 'settings.membership.feature.lite.review'),
-          ]
-        : [
-            tUI(settings.uiLanguage, 'settings.membership.feature.pro.aiCards'),
-            tUI(
-              settings.uiLanguage,
-              'settings.membership.feature.pro.voiceCache'
-            ),
-            tUI(settings.uiLanguage, 'settings.membership.feature.pro.speed'),
-          ];
+    const paywallHero = membershipStatusResolved
+      ? resolvePaywallHero({ planType: membershipStatus, starterUsage })
+      : null;
+    const tierLabel = membershipTier === 'lite' ? 'LITE' : 'PRO';
     const periodRank = (
       period: 'weekly' | 'monthly' | 'yearly' | null
     ): number =>
@@ -2186,8 +2188,11 @@ export default function ProfileSettingOptionsFlow({
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.header}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={tUI(settings.uiLanguage, 'common.close')}
+              hitSlop={8}
               style={({ pressed }) => [
-                styles.backButton,
+                styles.membershipCloseButton,
                 pressed ? styles.backButtonPressed : null,
               ]}
               onPress={() => {
@@ -2195,20 +2200,8 @@ export default function ProfileSettingOptionsFlow({
                 navigation.goBack();
               }}
             >
-              <Ionicons
-                name="chevron-back"
-                size={20}
-                color={MEMBERSHIP_HEADER_TEXT}
-              />
-              <Text
-                style={[styles.backText, { color: MEMBERSHIP_HEADER_TEXT }]}
-              >
-                {tUI(settings.uiLanguage, 'settings.membership.back')}
-              </Text>
+              <Ionicons name="close" size={18} color={MEMBERSHIP_HEADER_TEXT} />
             </Pressable>
-            <Text style={[styles.title, { color: MEMBERSHIP_HEADER_TEXT }]}>
-              {tUI(settings.uiLanguage, 'settings.title.membership')}
-            </Text>
             <Pressable
               style={({ pressed }) => [
                 styles.membershipRestoreButton,
@@ -2245,33 +2238,10 @@ export default function ProfileSettingOptionsFlow({
                 { minHeight: membershipStageMinHeight },
               ]}
             >
-              <Image
-                source={MEMBERSHIP_APP_ICON}
-                style={styles.membershipHeroIcon}
-                resizeMode="contain"
+              <PaywallHeroUI
+                hero={paywallHero}
+                uiLanguage={settings.uiLanguage}
               />
-              <LinearGradient
-                pointerEvents="none"
-                colors={[
-                  'rgba(2,33,61,0)',
-                  'rgba(2,33,61,0.12)',
-                  'rgba(2,33,61,0.58)',
-                  'rgba(2,33,61,0.88)',
-                  'rgba(2,33,61,0.98)',
-                ]}
-                locations={[0, 0.28, 0.52, 0.72, 1]}
-                style={styles.membershipHeroMask}
-              />
-              <View style={styles.membershipHeadlineBlock}>
-                <View style={styles.membershipBrandLine}>
-                  <Text style={styles.membershipBrandName}>Nuances</Text>
-                  <View style={styles.membershipProChip}>
-                    <Text style={styles.membershipProChipText}>
-                      {membershipTier === 'lite' ? 'LITE' : 'PRO'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
 
               <View style={styles.membershipTierSelector}>
                 {tierOptions.map((option) => {
@@ -2302,24 +2272,14 @@ export default function ProfileSettingOptionsFlow({
                 })}
               </View>
 
-              <View style={styles.membershipFeatureList}>
-                {featureItems.map((item) => (
-                  <View key={item} style={styles.membershipFeatureRow}>
-                    <Ionicons
-                      name="checkmark"
-                      size={22}
-                      color={MODAL_CTA_COLOR}
-                    />
-                    <Text
-                      style={styles.membershipFeatureText}
-                      numberOfLines={1}
-                      maxFontSizeMultiplier={1}
-                    >
-                      {item}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+              <Text style={styles.membershipTierQuota} maxFontSizeMultiplier={1.2}>
+                {tUI(
+                  settings.uiLanguage,
+                  membershipTier === 'lite'
+                    ? 'settings.membership.tierQuota.lite'
+                    : 'settings.membership.tierQuota.pro'
+                )}
+              </Text>
               <View style={styles.membershipPlanGrid}>
                 {planItems.map((plan, index) => {
                   const hasSelectedPlan = planItems.some(
@@ -2327,9 +2287,9 @@ export default function ProfileSettingOptionsFlow({
                   );
                   const selected =
                     membershipPlan === plan.key ||
-                    (!hasSelectedPlan && plan.isMonthly) ||
+                    (!hasSelectedPlan && plan.isYearly) ||
                     (!hasSelectedPlan &&
-                      !planItems.some((item) => item.isMonthly) &&
+                      !planItems.some((item) => item.isYearly) &&
                       index === 0);
                   return (
                     <MembershipPlanOption
@@ -2343,21 +2303,13 @@ export default function ProfileSettingOptionsFlow({
                         plan.isYearly ? plan.monthlyEquivalent : null
                       }
                       goldMonthlyEquivalent={plan.isYearly}
-                      showMedalBadge={
-                        (membershipTier === 'lite' && plan.isYearly) ||
-                        (membershipTier === 'pro' && plan.isYearly)
-                      }
+                      showMedalBadge={plan.isYearly}
                       badgeLabel={
                         plan.isYearly
-                          ? membershipTier === 'lite'
-                            ? tUI(
-                                settings.uiLanguage,
-                                'settings.membership.badge.save'
-                              )
-                            : tUI(
-                                settings.uiLanguage,
-                                'settings.membership.badge.value'
-                              )
+                          ? tUI(
+                              settings.uiLanguage,
+                              'settings.membership.badge.value'
+                            )
                           : undefined
                       }
                     />
@@ -2399,8 +2351,8 @@ export default function ProfileSettingOptionsFlow({
                         ? tUI(settings.uiLanguage, 'settings.membership.active')
                         : tUI(
                             settings.uiLanguage,
-                            'settings.membership.subscribe'
-                          )}
+                            'settings.membership.upgrade'
+                          ).replace('{tier}', tierLabel)}
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -3494,6 +3446,21 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '500',
   },
+  membershipCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipTierQuota: {
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   membershipRestoreButton: {
     minWidth: 64,
     minHeight: 34,
@@ -3516,53 +3483,6 @@ const styles = StyleSheet.create({
     overflow: 'visible',
     paddingHorizontal: 16,
     paddingBottom: 60,
-  },
-  membershipHeroIcon: {
-    position: 'absolute',
-    top: 18,
-    alignSelf: 'center',
-    width: 250,
-    height: 250,
-    opacity: 0.62,
-  },
-  membershipHeroMask: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -20,
-    height: 600,
-  },
-  membershipHeadlineBlock: {
-    alignItems: 'center',
-    marginBottom: 15,
-    paddingHorizontal: 18,
-  },
-  membershipBrandLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 9,
-  },
-  membershipBrandName: {
-    color: '#FFFFFF',
-    fontSize: 42,
-    lineHeight: 48,
-    fontWeight: '700',
-    letterSpacing: -1.2,
-  },
-  membershipProChip: {
-    borderWidth: 1.6,
-    borderColor: MODAL_CTA_COLOR,
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  membershipProChipText: {
-    color: MODAL_CTA_COLOR,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
   membershipTierSelector: {
     flexDirection: 'row',
@@ -3620,24 +3540,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     letterSpacing: 0.5,
-  },
-  membershipFeatureList: {
-    gap: 14,
-    paddingHorizontal: 6,
-    marginBottom: -12,
-  },
-  membershipFeatureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    height: 30,
-  },
-  membershipFeatureText: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: '800',
   },
   membershipPlanGrid: {
     flexDirection: 'row',

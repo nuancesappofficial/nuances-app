@@ -56,6 +56,7 @@ export type AnalyticsEventProperties = {
       | 'lite_pronunciation_cap'
       | 'lite_card_cap'
       | 'user_initiated';
+    entry: 'settings' | 'limit';
   };
   freemium_quota_updated: WithGrowthAttribution<{
     quota_limit: number;

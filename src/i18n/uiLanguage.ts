@@ -291,6 +291,14 @@ export type UIStringKey =
   | 'settings.membership.back'
   | 'settings.membership.restore'
   | 'settings.membership.subscribe'
+  | 'settings.membership.locked21.title'
+  | 'settings.membership.locked21.remaining'
+  | 'settings.membership.starter.cards'
+  | 'settings.membership.starter.pronunciation'
+  | 'settings.membership.tierQuota.lite'
+  | 'settings.membership.tierQuota.pro'
+  | 'settings.membership.upgrade'
+  | 'settings.membership.currentTier'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -774,6 +782,14 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.back': 'Back',
     'settings.membership.restore': 'Restore',
     'settings.membership.subscribe': 'Subscribe',
+    'settings.membership.locked21.title': 'Card #21 is still face down',
+    'settings.membership.locked21.remaining': '{count} more to flip it over',
+    'settings.membership.starter.cards': 'Cards {used}/{limit}',
+    'settings.membership.starter.pronunciation': 'Pronunciation {used}/{limit}',
+    'settings.membership.tierQuota.lite': '200 AI cards · 300 pronunciation checks a month',
+    'settings.membership.tierQuota.pro': '800 AI cards · 1,200 pronunciation checks a month',
+    'settings.membership.upgrade': 'Upgrade to {tier}',
+    'settings.membership.currentTier': "You're on {tier}",
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
     'settings.membership.currentPlan': 'Current plan',
@@ -1255,6 +1271,14 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.back': '返回',
     'settings.membership.restore': '恢復',
     'settings.membership.subscribe': '訂閱',
+    'settings.membership.locked21.title': '第 21 張還蓋著',
+    'settings.membership.locked21.remaining': '再 {count} 張就翻開',
+    'settings.membership.starter.cards': '建卡 {used}/{limit}',
+    'settings.membership.starter.pronunciation': '發音評分 {used}/{limit}',
+    'settings.membership.tierQuota.lite': '每月 200 張 AI 卡・300 次發音評分',
+    'settings.membership.tierQuota.pro': '每月 800 張 AI 卡・1,200 次發音評分',
+    'settings.membership.upgrade': '升級 {tier}',
+    'settings.membership.currentTier': '你正在用 {tier}',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
     'settings.membership.currentPlan': '目前使用中方案',
@@ -1720,6 +1744,14 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.back': '返回',
     'settings.membership.restore': '恢复',
     'settings.membership.subscribe': '订阅',
+    'settings.membership.locked21.title': '第 21 张还盖着',
+    'settings.membership.locked21.remaining': '再 {count} 张就翻开',
+    'settings.membership.starter.cards': '建卡 {used}/{limit}',
+    'settings.membership.starter.pronunciation': '发音评分 {used}/{limit}',
+    'settings.membership.tierQuota.lite': '每月 200 张 AI 卡・300 次发音评分',
+    'settings.membership.tierQuota.pro': '每月 800 张 AI 卡・1,200 次发音评分',
+    'settings.membership.upgrade': '升级 {tier}',
+    'settings.membership.currentTier': '你正在用 {tier}',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
     'settings.membership.currentPlan': '当前使用中方案',

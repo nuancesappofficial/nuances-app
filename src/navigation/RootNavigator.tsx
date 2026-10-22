@@ -56,6 +56,10 @@ import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay
 import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
 import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
+import {
+  FREE_STARTER_LIMIT,
+  type StarterUsage,
+} from '../features/subscription/paywallHero';
 import { resolveInitialTabIndex } from './navigationStartTabCore';
 import { traceFirstRun } from '../services/logging/firstRunTraceRuntime';
 
@@ -769,6 +773,7 @@ export default function RootNavigator({
         source?: 'settings' | 'create_card' | 'review' | 'card_detail' | 'unknown';
         tier?: 'lite' | 'pro';
         triggerSource?: MembershipPaywallTriggerSource;
+        devStarterUsage?: Partial<StarterUsage>;
       }
     | 'lite'
     | 'pro') => {
@@ -808,6 +813,7 @@ export default function RootNavigator({
         tier: normalizedOptions?.tier,
         initialTab: normalizedOptions?.tier,
         triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
+        devStarterUsage: normalizedOptions?.devStarterUsage,
       });
       traceFirstRun('paywall', 'screen_navigated', {
         source: normalizedOptions?.source ?? 'unknown',
@@ -823,13 +829,14 @@ export default function RootNavigator({
     const openPaywallFromDevLink = (url: string) => {
       const devLink = parsePaywallDevLink(url);
       if (!devLink) return;
-      // 參數先保留給之後的切片（第 21 張卡面、額度追蹤），目前只打開現有 paywall。
+      // 第 21 張卡面的參數先保留給 S2，目前只用建卡額度。
       console.log('[Membership] Dev paywall link:', devLink);
       if (devLink.kind === 'paywall-21') {
         openMembershipPaywall({
           returnTo: 'create-card',
           source: 'create_card',
           triggerSource: 'lite_card_cap',
+          devStarterUsage: { cardsUsed: FREE_STARTER_LIMIT },
         });
         return;
       }
@@ -837,6 +844,10 @@ export default function RootNavigator({
         returnTo: 'settings',
         source: 'settings',
         triggerSource: 'user_initiated',
+        devStarterUsage: {
+          cardsUsed: devLink.cardsUsed,
+          pronunciationUsed: devLink.pronunciationUsed,
+        },
       });
     };
 

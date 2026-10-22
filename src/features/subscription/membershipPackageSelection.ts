@@ -26,12 +26,15 @@ function resolveMembershipPeriod(
   return null;
 }
 
-function isMonthlyPackage(item: MembershipPackageCandidate): boolean {
+function hasMembershipPeriod(
+  item: MembershipPackageCandidate,
+  period: 'weekly' | 'monthly' | 'yearly'
+): boolean {
   return (
-    resolveMembershipPeriod(item.packageType) === 'monthly' ||
-    resolveMembershipPeriod(item.identifier) === 'monthly' ||
-    resolveMembershipPeriod(item.subscriptionPeriod) === 'monthly' ||
-    resolveMembershipPeriod(item.title) === 'monthly'
+    resolveMembershipPeriod(item.packageType) === period ||
+    resolveMembershipPeriod(item.identifier) === period ||
+    resolveMembershipPeriod(item.subscriptionPeriod) === period ||
+    resolveMembershipPeriod(item.title) === period
   );
 }
 
@@ -50,7 +53,10 @@ export function selectDefaultMembershipPackage(
 ): string | null {
   const tierPackages = getPackagesForTier(tier, litePackages, proPackages);
   return (
-    tierPackages.find(isMonthlyPackage)?.identifier ||
+    tierPackages.find((item) => hasMembershipPeriod(item, 'yearly'))
+      ?.identifier ||
+    tierPackages.find((item) => hasMembershipPeriod(item, 'monthly'))
+      ?.identifier ||
     tierPackages[0]?.identifier ||
     null
   );

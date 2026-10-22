@@ -19,6 +19,7 @@ import {
   restoreRevenueCatPurchases,
 } from './revenueCat';
 import { canAttemptPronunciationAssessment } from '../../features/subscription/pronunciationAccess';
+import type { StarterUsage } from '../../features/subscription/paywallHero';
 import { syncUserProfileAttributes } from '@services/analytics/profileSync';
 
 const DAILY_FREE_VOICE_LIMIT = 3;
@@ -400,6 +401,22 @@ export const SubscriptionService = {
     }
     const snapshot = await this.getEntitlementSnapshot(userId);
     return snapshot;
+  },
+
+  // 免費入門額度已用次數（建卡、發音評分），只存在 sync-entitlement 的回應裡。
+  // 讀不到時回傳 null，由呼叫端決定怎麼顯示。
+  async fetchFreeStarterUsage(): Promise<StarterUsage | null> {
+    const remote = await invokeSyncEntitlementEndpoint();
+    if (
+      typeof remote?.freeStarterCardClaimed !== 'number' ||
+      typeof remote.freeStarterPronunciationClaimed !== 'number'
+    ) {
+      return null;
+    }
+    return {
+      cardsUsed: remote.freeStarterCardClaimed,
+      pronunciationUsed: remote.freeStarterPronunciationClaimed,
+    };
   },
 
   async getEntitlementSnapshot(userId: string): Promise<EntitlementSnapshot> {
