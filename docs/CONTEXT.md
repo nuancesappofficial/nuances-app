@@ -106,6 +106,12 @@ lifetime allowance of 20 assessments, counted separately from the Starter
 Allowance, so it stays available after the 20 starter cards are used. Paying
 Users get a monthly allowance set by their plan.
 
+**Pronunciation Record**:
+A learner's per-card account of pronunciation assessments from both Pronunciation
+Coach and Quiz: the first score, the latest score, and how many times the card
+has been assessed.
+_Avoid_: Pronunciation history, score log
+
 **Ghost Preview Page**:
 The progressively assembled card for one Learning Term during a multi-card
 creation run. When creation advances to the next Ghost Preview Page, the
