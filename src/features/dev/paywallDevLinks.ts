@@ -75,3 +75,39 @@ export function parsePaywallDevLink(url: string): PaywallDevLink | null {
     pronunciation: pron === 'flat' || pron === 'none' ? pron : 'improved',
   };
 }
+
+// 只給 __DEV__ 的 paywall-21 連結用：帳號沒有任何卡時，成果動畫改用這 20 張示範卡。
+// 正式流程只用使用者真實的卡片。
+const DEV_SAMPLE_INTRO_CARDS: Array<[word: string, sourceLabel: string]> = [
+  ['ghosting', 'Netflix'],
+  ['delulu', 'TikTok'],
+  ['gaslight', 'Podcast'],
+  ['vibe check', 'YouTube'],
+  ['lowkey', 'Netflix'],
+  ['no cap', 'TikTok'],
+  ['main character', 'YouTube'],
+  ['touch grass', 'Reddit'],
+  ['salty', 'Netflix'],
+  ['the ick', 'Podcast'],
+  ['beige flag', 'TikTok'],
+  ['gatekeep', 'YouTube'],
+  ['soft launch', 'Instagram'],
+  ['doomscroll', 'Podcast'],
+  ['quiet quitting', 'Share Sheet'],
+  ['rent-free', 'Netflix'],
+  ['understood the assignment', 'YouTube'],
+  ['hard pass', 'Netflix'],
+  ['red flag', 'TikTok'],
+  ['slay', 'Instagram'],
+];
+
+export function buildDevSampleIntroCards(
+  now: number
+): Array<{ word: string; sourceLabel: string; createdAt: number }> {
+  const dayMs = 24 * 60 * 60 * 1000;
+  return DEV_SAMPLE_INTRO_CARDS.map(([word, sourceLabel], index) => ({
+    word,
+    sourceLabel,
+    createdAt: now - (DEV_SAMPLE_INTRO_CARDS.length - index) * dayMs,
+  }));
+}

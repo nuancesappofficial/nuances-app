@@ -36,6 +36,8 @@ export type TabSwipeContextValue = {
         triggerSource?: MembershipPaywallTriggerSource;
         // 只給 __DEV__ deep link 用：覆蓋從後端讀到的入門額度已用次數。
         devStarterUsage?: Partial<StarterUsage>;
+        // 只給 __DEV__ deep link 用：帳號沒有卡時，成果動畫改用示範卡。
+        devSampleIntroCards?: boolean;
         // 入門額度用完時正要建的那張卡（第 21 張）。
         pendingCard?: PendingPaywallCard;
       }

@@ -776,6 +776,7 @@ export default function RootNavigator({
         tier?: 'lite' | 'pro';
         triggerSource?: MembershipPaywallTriggerSource;
         devStarterUsage?: Partial<StarterUsage>;
+        devSampleIntroCards?: boolean;
         pendingCard?: PendingPaywallCard;
       }
     | 'lite'
@@ -817,6 +818,7 @@ export default function RootNavigator({
         initialTab: normalizedOptions?.tier,
         triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
         devStarterUsage: normalizedOptions?.devStarterUsage,
+        devSampleIntroCards: normalizedOptions?.devSampleIntroCards,
         pendingCard: normalizedOptions?.pendingCard,
       });
       traceFirstRun('paywall', 'screen_navigated', {
@@ -852,6 +854,7 @@ export default function RootNavigator({
           source: 'create_card',
           triggerSource: 'lite_card_cap',
           devStarterUsage: { cardsUsed: FREE_STARTER_LIMIT },
+          devSampleIntroCards: true,
           pendingCard: { word: devLink.word, sourceLabel: devLink.sourceLabel },
         });
         return;

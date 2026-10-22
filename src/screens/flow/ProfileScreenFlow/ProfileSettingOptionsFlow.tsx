@@ -32,6 +32,7 @@ import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter'
 import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
 import PaywallExitUI from '../../../components/UI/ProfileScreenUI/PaywallExitUI';
 import ResultsIntroUI from '../../../components/UI/ProfileScreenUI/ResultsIntroUI';
+import { buildDevSampleIntroCards } from '../../../features/dev/paywallDevLinks';
 import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
 import {
   RESULTS_INTRO_CARD_LIMIT,
@@ -154,6 +155,7 @@ type Props = {
       initialTab?: 'lite' | 'pro';
       triggerSource?: MembershipPaywallTriggerSource;
       devStarterUsage?: Partial<StarterUsage>;
+      devSampleIntroCards?: boolean;
       pendingCard?: PendingPaywallCard;
     };
   };
@@ -723,6 +725,8 @@ export default function ProfileSettingOptionsFlow({
     null
   );
   const devStarterUsage = route.params?.devStarterUsage;
+  const devSampleIntroCards =
+    __DEV__ && route.params?.devSampleIntroCards === true;
   const pendingCard = route.params?.pendingCard;
   const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
     null
@@ -880,7 +884,14 @@ export default function ProfileSettingOptionsFlow({
                   return [];
                 })
                 .then((cards) => {
-                  if (!cancelled) setIntroCards(pickResultsIntroCards(cards));
+                  if (cancelled) return;
+                  setIntroCards(
+                    pickResultsIntroCards(
+                      cards.length === 0 && devSampleIntroCards
+                        ? buildDevSampleIntroCards(Date.now())
+                        : cards
+                    )
+                  );
                 });
               void hasSeenPaywallExitLocally(userId)
                 .then((seen) => {
@@ -951,7 +962,13 @@ export default function ProfileSettingOptionsFlow({
       cancelled = true;
       task.cancel();
     };
-  }, [devStarterUsage, kind, pendingCard, skipResultsIntro]);
+  }, [
+    devSampleIntroCards,
+    devStarterUsage,
+    kind,
+    pendingCard,
+    skipResultsIntro,
+  ]);
 
   React.useEffect(() => {
     if (kind !== 'theme') return;

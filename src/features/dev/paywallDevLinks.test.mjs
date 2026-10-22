@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parsePaywallDevLink } from './paywallDevLinks.ts';
+import {
+  buildDevSampleIntroCards,
+  parsePaywallDevLink,
+} from './paywallDevLinks.ts';
+
+test('dev sample cards fill the intro carousel with 20 distinct words, oldest first', () => {
+  const cards = buildDevSampleIntroCards(Date.UTC(2026, 9, 22));
+  assert.equal(cards.length, 20);
+  assert.equal(new Set(cards.map((card) => card.word)).size, 20);
+  assert.ok(cards.every((card) => card.word && card.sourceLabel));
+  assert.ok(
+    cards.every((card, index) => index === 0 || card.createdAt > cards[index - 1].createdAt)
+  );
+  assert.ok(!cards.some((card) => card.word === 'situationship'));
+});
 
 test('the 21st-card link with no params simulates the handoff example', () => {
   assert.deepEqual(parsePaywallDevLink('nuances://dev/paywall-21'), {
