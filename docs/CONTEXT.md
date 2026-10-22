@@ -101,8 +101,10 @@ yearly billing plan.
 
 **Shared Pronunciation Quota**:
 The pronunciation-assessment allowance shared by Pronunciation Coach and Quiz.
-For a non-Premium learner it remains available while the Starter Allowance is
-active; both entry points consume the same daily allowance.
+Both entry points consume the same allowance. For Freemium Users it is a
+lifetime allowance of 20 assessments, counted separately from the Starter
+Allowance, so it stays available after the 20 starter cards are used. Paying
+Users get a monthly allowance set by their plan.
 
 **Ghost Preview Page**:
 The progressively assembled card for one Learning Term during a multi-card

@@ -55,8 +55,11 @@ import { useAppTour, TOUR_COMPLETION_GREETING_EVENT } from '../contexts/AppTourC
 import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay';
 import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
+import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
 import { resolveInitialTabIndex } from './navigationStartTabCore';
 import { traceFirstRun } from '../services/logging/firstRunTraceRuntime';
+
+let didHandleInitialPaywallDevLink = false;
 
 const CacheStackNav = createStackNavigator();
 const CardsStackNav = createStackNavigator();
@@ -813,6 +816,47 @@ export default function RootNavigator({
 
     setTimeout(navigateToMembership, 280);
   }, [profileNavigationRef, switchTabImmediately]);
+
+  React.useEffect(() => {
+    if (!__DEV__) return undefined;
+
+    const openPaywallFromDevLink = (url: string) => {
+      const devLink = parsePaywallDevLink(url);
+      if (!devLink) return;
+      // 參數先保留給之後的切片（第 21 張卡面、額度追蹤），目前只打開現有 paywall。
+      console.log('[Membership] Dev paywall link:', devLink);
+      if (devLink.kind === 'paywall-21') {
+        openMembershipPaywall({
+          returnTo: 'create-card',
+          source: 'create_card',
+          triggerSource: 'lite_card_cap',
+        });
+        return;
+      }
+      openMembershipPaywall({
+        returnTo: 'settings',
+        source: 'settings',
+        triggerSource: 'user_initiated',
+      });
+    };
+
+    const subscription = Linking.addEventListener('url', ({ url }) =>
+      openPaywallFromDevLink(url)
+    );
+    // RootNavigator 會隨帳號重新掛載；冷啟動網址只處理一次，避免換帳號後又跳 paywall。
+    if (!didHandleInitialPaywallDevLink) {
+      didHandleInitialPaywallDevLink = true;
+      Linking.getInitialURL()
+        .then((url) => {
+          if (url) openPaywallFromDevLink(url);
+        })
+        .catch(() => undefined);
+    }
+
+    return () => {
+      subscription.remove();
+    };
+  }, [openMembershipPaywall]);
 
   const resetCacheStackToRoot = React.useCallback(() => {
     if (!cacheNavigationRef.isReady()) return;

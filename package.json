@@ -19,6 +19,8 @@
     "check:android-release": "node scripts/check-android-release-readiness.js",
     "screenshots:demo-quiz": "xcrun simctl openurl booted 'nuances://dev/demo-quiz'",
     "screenshots:normal-quiz": "xcrun simctl openurl booted 'nuances://dev/normal-quiz'",
+    "paywall:21": "xcrun simctl openurl booted 'nuances://dev/paywall-21?word=situationship&source=Netflix'",
+    "paywall:settings": "xcrun simctl openurl booted 'nuances://dev/paywall?cards=12&pron=8'",
     "sync:app-version-policy": "node scripts/sync-app-version-policy.js",
     "sync:app-version-policy:dry": "node scripts/sync-app-version-policy.js --dry-run",
     "sync:app-version-policy:android": "node scripts/sync-app-version-policy.js --platform android",
