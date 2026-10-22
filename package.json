@@ -21,6 +21,7 @@
     "screenshots:normal-quiz": "xcrun simctl openurl booted 'nuances://dev/normal-quiz'",
     "paywall:21": "xcrun simctl openurl booted 'nuances://dev/paywall-21?word=situationship&source=Netflix'",
     "paywall:settings": "xcrun simctl openurl booted 'nuances://dev/paywall?cards=12&pron=8'",
+    "paywall:exit-reset": "xcrun simctl openurl booted 'nuances://dev/paywall-exit-reset'",
     "sync:app-version-policy": "node scripts/sync-app-version-policy.js",
     "sync:app-version-policy:dry": "node scripts/sync-app-version-policy.js --dry-run",
     "sync:app-version-policy:android": "node scripts/sync-app-version-policy.js --platform android",

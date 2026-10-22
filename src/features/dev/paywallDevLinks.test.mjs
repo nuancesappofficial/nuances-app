@@ -48,6 +48,12 @@ test('a malformed percent-encoded word still opens the 21st-card link with the r
   );
 });
 
+test('the reset link lets the exit screen show again', () => {
+  assert.deepEqual(parsePaywallDevLink('nuances://dev/paywall-exit-reset'), {
+    kind: 'exit-reset',
+  });
+});
+
 test('links that are not dev paywall links are ignored', () => {
   assert.equal(parsePaywallDevLink('nuances://dev/reset-onboarding'), null);
   assert.equal(parsePaywallDevLink('nuances://dev/paywall-2'), null);

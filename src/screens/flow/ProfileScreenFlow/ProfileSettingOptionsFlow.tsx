@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Alert,
   Animated,
+  DeviceEventEmitter,
   Easing,
   Image,
   InteractionManager,
@@ -29,6 +30,16 @@ import * as Haptics from 'expo-haptics';
 import StickerFontPreview from '../../../components/UI/ProfileScreenUI/StickerFontPreview';
 import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter';
 import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
+import PaywallExitUI from '../../../components/UI/ProfileScreenUI/PaywallExitUI';
+import {
+  buildPaywallExitRows,
+  shouldShowPaywallExit,
+} from '../../../features/subscription/paywallExit';
+import {
+  hasSeenPaywallExitLocally,
+  markPaywallExitSeenLocally,
+} from '../../../features/subscription/paywallExitSeen';
+import { START_TODAY_REVIEW_EVENT } from '../../../features/deck/startReviewEvent';
 import { analytics } from '@services/analytics';
 import AnimatedSplashV2 from '../../../components/UI/shared/AnimatedSplashV2';
 import { formatMembershipPriceLabel } from '../../../features/subscription/membershipPriceLabel';
@@ -706,6 +717,23 @@ export default function ProfileSettingOptionsFlow({
   const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
     null
   );
+  const paywallHero = React.useMemo(
+    () =>
+      membershipStatusResolved
+        ? resolvePaywallHero({
+            planType: membershipStatus,
+            starterUsage,
+            pendingCard,
+          })
+        : null,
+    [membershipStatus, membershipStatusResolved, pendingCard, starterUsage]
+  );
+  // null：還沒從本機讀到；讀到前當作已看過，避免誤開退出畫面。
+  const [paywallExitSeen, setPaywallExitSeen] = React.useState<boolean | null>(
+    null
+  );
+  const [paywallExitVisible, setPaywallExitVisible] = React.useState(false);
+  const membershipUserIdRef = React.useRef<string | null>(null);
   const [activeSubscriptionPeriod, setActiveSubscriptionPeriod] =
     React.useState<'weekly' | 'monthly' | 'yearly' | null>(null);
   const [premiumTransitionVisible, setPremiumTransitionVisible] =
@@ -787,7 +815,13 @@ export default function ProfileSettingOptionsFlow({
               setMembershipStatus(snapshot.planType);
               setMembershipStatusResolved(true);
             }
+            membershipUserIdRef.current = userId;
             if (snapshot.planType === 'free' && pendingCard) {
+              void hasSeenPaywallExitLocally(userId)
+                .then((seen) => {
+                  if (!cancelled) setPaywallExitSeen(seen);
+                })
+                .catch(() => undefined);
               void database
                 .get<Card>('cards')
                 .query(Q.where('user_id', userId), Q.where('deleted_at', null))
@@ -1301,6 +1335,46 @@ export default function ProfileSettingOptionsFlow({
       );
     },
     [litePackages, proPackages]
+  );
+
+  // ✕ 與「先去複習」:第 21 張卡的 paywall 第一次被拒絕時到退出畫面，其他情況直接關掉。
+  const handleDeclinePaywall = React.useCallback(
+    (via: 'close' | 'review_link') => {
+      Keyboard.dismiss();
+      if (
+        !shouldShowPaywallExit({
+          heroKind: paywallHero?.kind ?? null,
+          alreadySeen: paywallExitSeen !== false,
+        })
+      ) {
+        navigation.goBack();
+        return;
+      }
+      setPaywallExitSeen(true);
+      setPaywallExitVisible(true);
+      void markPaywallExitSeenLocally(membershipUserIdRef.current).catch(
+        (error) => {
+          console.warn('[ProfileSettingOptions] mark exit seen failed:', error);
+        }
+      );
+      analytics.track('paywall_declined', { via });
+    },
+    [navigation, paywallExitSeen, paywallHero?.kind]
+  );
+
+  const leavePaywallTo = React.useCallback(
+    (action: 'review' | 'cache' | 'start_review') => {
+      analytics.track('paywall_exit_action', { action });
+      navigation.goBack();
+      if (action === 'cache') {
+        tabSwipeContext?.routeToTabRoot('cache');
+        return;
+      }
+      tabSwipeContext?.routeToTabRoot('deck', () => {
+        DeviceEventEmitter.emit(START_TODAY_REVIEW_EVENT);
+      });
+    },
+    [navigation, tabSwipeContext]
   );
 
   const handleManageSubscription = React.useCallback(async () => {
@@ -2122,13 +2196,6 @@ export default function ProfileSettingOptionsFlow({
         membershipStatus === 'lite') &&
       activeSubscriptionPeriod != null &&
       selectedPlanPeriod === activeSubscriptionPeriod;
-    const paywallHero = membershipStatusResolved
-      ? resolvePaywallHero({
-          planType: membershipStatus,
-          starterUsage,
-          pendingCard,
-        })
-      : null;
     const tierLabel = membershipTier === 'lite' ? 'LITE' : 'PRO';
     const periodRank = (
       period: 'weekly' | 'monthly' | 'yearly' | null
@@ -2208,6 +2275,31 @@ export default function ProfileSettingOptionsFlow({
       },
     ];
 
+    if (paywallExitVisible && paywallHero?.kind === 'next') {
+      return (
+        <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
+          <SafeAreaView style={styles.safeArea} edges={['top']}>
+            <PaywallExitUI
+              word={paywallHero.word}
+              sourceLabel={paywallHero.sourceLabel}
+              rows={buildPaywallExitRows({
+                savedCardCount,
+                pronunciationUsed: starterUsage?.pronunciationUsed ?? null,
+              })}
+              uiLanguage={settings.uiLanguage}
+              bottomInset={insets.bottom}
+              onReview={() => leavePaywallTo('review')}
+              onCache={() => leavePaywallTo('cache')}
+              onStartReview={() => leavePaywallTo('start_review')}
+              onReason={(reason) =>
+                analytics.track('paywall_decline_reason', { reason })
+              }
+            />
+          </SafeAreaView>
+        </View>
+      );
+    }
+
     return (
       <View style={[styles.root, { backgroundColor: MEMBERSHIP_SCREEN_BG }]}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -2220,10 +2312,7 @@ export default function ProfileSettingOptionsFlow({
                 styles.membershipCloseButton,
                 pressed ? styles.backButtonPressed : null,
               ]}
-              onPress={() => {
-                Keyboard.dismiss();
-                navigation.goBack();
-              }}
+              onPress={() => handleDeclinePaywall('close')}
             >
               <Ionicons name="close" size={18} color={MEMBERSHIP_HEADER_TEXT} />
             </Pressable>
@@ -2414,11 +2503,7 @@ export default function ProfileSettingOptionsFlow({
                     styles.membershipReviewLink,
                     pressed ? styles.pressed : null,
                   ]}
-                  // S3 之前跟 ✕ 一樣只關掉 paywall；S3 會改成導到退出畫面。
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    navigation.goBack();
-                  }}
+                  onPress={() => handleDeclinePaywall('review_link')}
                 >
                   <Text
                     style={styles.membershipReviewLinkText}

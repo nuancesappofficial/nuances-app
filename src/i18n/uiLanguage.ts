@@ -303,6 +303,19 @@ export type UIStringKey =
   | 'settings.membership.next21.signature'
   | 'settings.membership.continueWith'
   | 'settings.membership.reviewMyCards'
+  | 'settings.membership.exit.title'
+  | 'settings.membership.exit.review'
+  | 'settings.membership.exit.reviewMeta'
+  | 'settings.membership.exit.cache'
+  | 'settings.membership.exit.cacheMeta'
+  | 'settings.membership.exit.pronunciation'
+  | 'settings.membership.exit.pronunciationMeta'
+  | 'settings.membership.exit.reasonQuestion'
+  | 'settings.membership.exit.reason.tooExpensive'
+  | 'settings.membership.exit.reason.tryingFirst'
+  | 'settings.membership.exit.reason.notEnoughUse'
+  | 'settings.membership.exit.thanks'
+  | 'settings.membership.exit.startReview'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -798,6 +811,19 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.next21.signature': '— Thank you, from Nuances',
     'settings.membership.continueWith': 'Keep collecting with {tier}',
     'settings.membership.reviewMyCards': 'Review my {count} cards first',
+    'settings.membership.exit.title': '{word} will wait for you in Cache',
+    'settings.membership.exit.review': 'Review your {count} cards',
+    'settings.membership.exit.reviewMeta': 'As often as you like',
+    'settings.membership.exit.cache': 'Keep saving new words to Cache',
+    'settings.membership.exit.cacheMeta': 'Turn them into cards later',
+    'settings.membership.exit.pronunciation': 'Pronunciation scoring',
+    'settings.membership.exit.pronunciationMeta': '{count} left',
+    'settings.membership.exit.reasonQuestion': 'Not subscribing this time because… (optional)',
+    'settings.membership.exit.reason.tooExpensive': 'Too expensive',
+    'settings.membership.exit.reason.tryingFirst': 'Trying it out first',
+    'settings.membership.exit.reason.notEnoughUse': "Won't use that much",
+    'settings.membership.exit.thanks': 'Got it — thanks for telling us.',
+    'settings.membership.exit.startReview': 'Start reviewing',
     'settings.membership.updating': 'Updating...',
     'settings.membership.active': 'Premium active',
     'settings.membership.currentPlan': 'Current plan',
@@ -1291,6 +1317,19 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.next21.signature': '— Nuances 謝謝你',
     'settings.membership.continueWith': '用 {tier} 繼續收集',
     'settings.membership.reviewMyCards': '先去複習我的 {count} 張卡',
+    'settings.membership.exit.title': '{word} 會留在 Cache 等你',
+    'settings.membership.exit.review': '複習你的 {count} 張卡',
+    'settings.membership.exit.reviewMeta': '不限次數',
+    'settings.membership.exit.cache': '繼續把生字收進 Cache',
+    'settings.membership.exit.cacheMeta': '之後再一起建卡',
+    'settings.membership.exit.pronunciation': '發音評分',
+    'settings.membership.exit.pronunciationMeta': '還剩 {count} 次',
+    'settings.membership.exit.reasonQuestion': '這次先不訂，是因為…（可略過）',
+    'settings.membership.exit.reason.tooExpensive': '太貴了',
+    'settings.membership.exit.reason.tryingFirst': '先用用看',
+    'settings.membership.exit.reason.notEnoughUse': '用不到那麼多',
+    'settings.membership.exit.thanks': '收到了，謝謝你告訴我們。',
+    'settings.membership.exit.startReview': '開始複習',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '進階版已啟用',
     'settings.membership.currentPlan': '目前使用中方案',
@@ -1768,6 +1807,19 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.next21.signature': '— Nuances 谢谢你',
     'settings.membership.continueWith': '用 {tier} 继续收集',
     'settings.membership.reviewMyCards': '先去复习我的 {count} 张卡',
+    'settings.membership.exit.title': '{word} 会留在 Cache 等你',
+    'settings.membership.exit.review': '复习你的 {count} 张卡',
+    'settings.membership.exit.reviewMeta': '不限次数',
+    'settings.membership.exit.cache': '继续把生词收进 Cache',
+    'settings.membership.exit.cacheMeta': '之后再一起建卡',
+    'settings.membership.exit.pronunciation': '发音评分',
+    'settings.membership.exit.pronunciationMeta': '还剩 {count} 次',
+    'settings.membership.exit.reasonQuestion': '这次先不订，是因为…（可略过）',
+    'settings.membership.exit.reason.tooExpensive': '太贵了',
+    'settings.membership.exit.reason.tryingFirst': '先用用看',
+    'settings.membership.exit.reason.notEnoughUse': '用不到那么多',
+    'settings.membership.exit.thanks': '收到了，谢谢你告诉我们。',
+    'settings.membership.exit.startReview': '开始复习',
     'settings.membership.updating': '更新中...',
     'settings.membership.active': '进阶版已启用',
     'settings.membership.currentPlan': '当前使用中方案',

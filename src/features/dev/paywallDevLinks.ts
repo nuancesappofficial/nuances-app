@@ -10,9 +10,11 @@ export type PaywallDevLink =
       kind: 'settings';
       cardsUsed: number;
       pronunciationUsed: number;
-    };
+    }
+  | { kind: 'exit-reset' };
 
-const DEV_PAYWALL_ROUTE = /:\/\/dev\/(paywall-21|paywall)\/?(?=$|[?#])/;
+const DEV_PAYWALL_ROUTE =
+  /:\/\/dev\/(paywall-exit-reset|paywall-21|paywall)\/?(?=$|[?#])/;
 
 function parseQuery(url: string): Map<string, string> {
   const query = new Map<string, string>();
@@ -54,6 +56,7 @@ function parseUsedCount(value: string | undefined, fallback: number): number {
 export function parsePaywallDevLink(url: string): PaywallDevLink | null {
   const route = DEV_PAYWALL_ROUTE.exec(url)?.[1];
   if (!route) return null;
+  if (route === 'paywall-exit-reset') return { kind: 'exit-reset' };
   const query = parseQuery(url);
   if (route === 'paywall') {
     return {

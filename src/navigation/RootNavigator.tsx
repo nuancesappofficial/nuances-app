@@ -56,6 +56,7 @@ import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay
 import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
 import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
+import { clearPaywallExitSeenLocally } from '../features/subscription/paywallExitSeen';
 import {
   FREE_STARTER_LIMIT,
   type PendingPaywallCard,
@@ -834,6 +835,15 @@ export default function RootNavigator({
       if (!devLink) return;
       // kind（截圖卡）與 pron（發音段）保留給之後的切片。
       console.log('[Membership] Dev paywall link:', devLink);
+      if (devLink.kind === 'exit-reset') {
+        void getCurrentSessionUserId()
+          .then((userId) => clearPaywallExitSeenLocally(userId))
+          .then(() => console.log('[Membership] Paywall exit screen reset.'))
+          .catch((error) =>
+            console.warn('[Membership] Paywall exit reset failed:', error)
+          );
+        return;
+      }
       if (devLink.kind === 'paywall-21') {
         openMembershipPaywall({
           returnTo: 'create-card',
@@ -879,7 +889,7 @@ export default function RootNavigator({
     cacheNavigationRef.dispatch(StackActions.popToTop());
   }, [cacheNavigationRef]);
 
-  const routeToCacheRoot = React.useCallback(() => {
+  const routeToCacheRoot = React.useCallback((onArrived?: () => void) => {
     setTabBarForcedHidden(false);
     switchTabImmediately(1);
 
@@ -892,12 +902,13 @@ export default function RootNavigator({
         return;
       }
       resetCacheStackToRoot();
+      onArrived?.();
     };
 
     setTimeout(popCacheRootWhenReady, 280);
   }, [cacheNavigationRef, resetCacheStackToRoot, switchTabImmediately]);
 
-  const routeToDeckRoot = React.useCallback(() => {
+  const routeToDeckRoot = React.useCallback((onArrived?: () => void) => {
     setTabBarForcedHidden(false);
     switchTabImmediately(0);
 
@@ -912,6 +923,7 @@ export default function RootNavigator({
       if (cardsNavigationRef.canGoBack()) {
         cardsNavigationRef.dispatch(StackActions.popToTop());
       }
+      onArrived?.();
     };
 
     setTimeout(popDeckRootWhenReady, 280);
@@ -1117,6 +1129,8 @@ export default function RootNavigator({
       },
       goToTab: (index: number, options?: { animation?: 'fade' | 'slide'; durationMs?: number }) => switchTabImmediately(index, options?.durationMs),
       openMembershipPaywall,
+      routeToTabRoot: (tab: 'deck' | 'cache', onArrived?: () => void) =>
+        tab === 'deck' ? routeToDeckRoot(onArrived) : routeToCacheRoot(onArrived),
       setCacheAddActionHandler: (handler: (() => void) | null) => {
         cacheAddActionHandlerRef.current = handler;
       },
@@ -1125,7 +1139,14 @@ export default function RootNavigator({
       fallbackTranslateY,
       isCacheTabActive: isCacheSettledActive,
     }),
-    [fallbackTranslateY, isCacheSettledActive, openMembershipPaywall, switchTabImmediately]
+    [
+      fallbackTranslateY,
+      isCacheSettledActive,
+      openMembershipPaywall,
+      routeToCacheRoot,
+      routeToDeckRoot,
+      switchTabImmediately,
+    ]
   );
 
   return (

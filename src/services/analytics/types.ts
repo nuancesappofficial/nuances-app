@@ -58,6 +58,13 @@ export type AnalyticsEventProperties = {
       | 'user_initiated';
     entry: 'settings' | 'limit';
   };
+  // 第 21 張卡 paywall 被拒絕、出現退出畫面時。
+  paywall_declined: { via: 'close' | 'review_link' };
+  // 退出畫面的一鍵原因（可略過，所以和 paywall_declined 分開送）。
+  paywall_decline_reason: {
+    reason: 'too_expensive' | 'trying_first' | 'not_enough_use';
+  };
+  paywall_exit_action: { action: 'review' | 'cache' | 'start_review' };
   freemium_quota_updated: WithGrowthAttribution<{
     quota_limit: number;
     quota_used: number;
