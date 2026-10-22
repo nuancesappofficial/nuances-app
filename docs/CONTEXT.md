@@ -108,8 +108,8 @@ Users get a monthly allowance set by their plan.
 
 **Pronunciation Record**:
 A learner's per-card account of pronunciation assessments from both Pronunciation
-Coach and Quiz: the first score, the latest score, and how many times the card
-has been assessed.
+Coach and Quiz: the first score, the latest score, the best score, and how many
+times the card has been assessed. Only scored, non-demo assessments count.
 _Avoid_: Pronunciation history, score log
 
 **Ghost Preview Page**:
