@@ -37,25 +37,77 @@ const STEP = CARD_WIDTH + CARD_GAP;
 
 type RowState = 'idle' | 'active' | 'done';
 
-function useCountUp() {
+// 輪播目前停在第幾張（1 起算）。數字只在這個小元件裡更新，不讓整個畫面跟著重畫。
+function useFoundCount(position: Animated.Value, lastIndex: number) {
+  const [found, setFound] = React.useState(1);
+  React.useEffect(() => {
+    let last = 1;
+    const id = position.addListener(({ value }) => {
+      const next = Math.max(0, Math.min(lastIndex, Math.round(value))) + 1;
+      if (next !== last) {
+        last = next;
+        setFound(next);
+      }
+    });
+    return () => position.removeListener(id);
+  }, [lastIndex, position]);
+  return found;
+}
+
+function FoundValue({
+  position,
+  lastIndex,
+  done,
+}: {
+  position: Animated.Value;
+  lastIndex: number;
+  done: boolean;
+}) {
+  const found = useFoundCount(position, lastIndex);
+  return <>{done ? lastIndex + 1 : found}</>;
+}
+
+function FoundCounter({
+  position,
+  lastIndex,
+  done,
+  uiLanguage,
+}: {
+  position: Animated.Value;
+  lastIndex: number;
+  done: boolean;
+  uiLanguage: UILanguage;
+}) {
+  const found = useFoundCount(position, lastIndex);
+  return (
+    <Text style={styles.counter} maxFontSizeMultiplier={1.2}>
+      {tUI(
+        uiLanguage,
+        done
+          ? 'settings.membership.intro.foundDone'
+          : 'settings.membership.intro.found'
+      ).replace('{count}', String(done ? lastIndex + 1 : found))}
+    </Text>
+  );
+}
+
+// 從 0 數到 to（先快後慢）。只有這個數字會重畫。
+function CountUpValue({ to, durationMs }: { to: number; durationMs: number }) {
   const [value, setValue] = React.useState(0);
-  const frameRef = React.useRef<number | null>(null);
-  const start = React.useCallback((to: number, durationMs: number) => {
+  React.useEffect(() => {
     const startedAt = Date.now();
+    let frame: number | null = null;
     const step = () => {
       const k = Math.min(1, (Date.now() - startedAt) / durationMs);
       setValue(Math.round(to * (1 - Math.pow(1 - k, 3))));
-      if (k < 1) frameRef.current = requestAnimationFrame(step);
+      if (k < 1) frame = requestAnimationFrame(step);
     };
-    frameRef.current = requestAnimationFrame(step);
-  }, []);
-  React.useEffect(
-    () => () => {
-      if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
-    },
-    []
-  );
-  return [value, start] as const;
+    frame = requestAnimationFrame(step);
+    return () => {
+      if (frame != null) cancelAnimationFrame(frame);
+    };
+  }, [durationMs, to]);
+  return <>{value}</>;
 }
 
 function RowIcon({ state }: { state: RowState }) {
@@ -111,7 +163,7 @@ function IntroRow({
 }: {
   state: RowState;
   label: string;
-  value: number;
+  value: React.ReactNode;
   unit: string;
 }) {
   return (
@@ -139,6 +191,124 @@ function IntroRow({
   );
 }
 
+// 輪播軌道：插值只建一次，整條在原生端跑；父元件重畫時這裡不會跟著重畫。
+const CarouselTrack = React.memo(function CarouselTrack({
+  cards,
+  nextWord,
+  position,
+  trackOpacity,
+  width,
+}: {
+  cards: ResultsIntroCard[];
+  nextWord: string;
+  position: Animated.Value;
+  trackOpacity: Animated.Value;
+  width: number;
+}) {
+  const lastIndex = cards.length - 1;
+  const animated = React.useMemo(() => {
+    const itemStyle = (index: number, isNextCard: boolean) => {
+      const near = resolveCarouselItemStyle(0, isNextCard);
+      const far = resolveCarouselItemStyle(1, isNextCard);
+      const range = {
+        inputRange: [index - 1, index, index + 1],
+        extrapolate: 'clamp' as const,
+      };
+      return {
+        opacity: position.interpolate({
+          ...range,
+          outputRange: [far.opacity, near.opacity, far.opacity],
+        }),
+        transform: [
+          {
+            translateY: position.interpolate({
+              ...range,
+              outputRange: [far.translateY, near.translateY, far.translateY],
+            }),
+          },
+          {
+            scale: position.interpolate({
+              ...range,
+              outputRange: [far.scale, near.scale, far.scale],
+            }),
+          },
+        ],
+      };
+    };
+    const firstX = width / 2 - CARD_WIDTH / 2;
+    return {
+      track: {
+        opacity: trackOpacity,
+        transform: [
+          {
+            translateX: position.interpolate({
+              inputRange: [0, 1],
+              outputRange: [firstX, firstX - STEP],
+              extrapolate: 'extend' as const,
+            }),
+          },
+        ],
+      },
+      cards: cards.map((_, index) => itemStyle(index, false)),
+      nextCard: itemStyle(cards.length, true),
+      // 虛線第 21 張到中間時，外框換成藍色（用疊一層藍框的透明度做，才能在原生端跑）。
+      nextCardHighlight: {
+        opacity: position.interpolate({
+          inputRange: [lastIndex + 0.5, lastIndex + 1],
+          outputRange: [0, 1],
+          extrapolate: 'clamp' as const,
+        }),
+      },
+    };
+  }, [cards, lastIndex, position, trackOpacity, width]);
+
+  return (
+    <Animated.View style={[styles.track, animated.track]}>
+      {cards.map((card, index) => (
+        <Animated.View
+          key={`${card.createdAt}-${index}`}
+          style={[styles.card, animated.cards[index]]}
+        >
+          <View style={styles.sourcePill}>
+            <Text style={styles.sourcePillText} numberOfLines={1}>
+              {card.sourceLabel}
+            </Text>
+          </View>
+          <View style={styles.cardWordBox}>
+            <Text
+              style={styles.cardWord}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.45}
+              maxFontSizeMultiplier={1}
+            >
+              {card.word}
+            </Text>
+          </View>
+          <View style={styles.cardLine} />
+          <View style={[styles.cardLine, styles.cardLineShort]} />
+        </Animated.View>
+      ))}
+      <Animated.View style={[styles.nextCard, animated.nextCard]}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.nextCardHighlight, animated.nextCardHighlight]}
+        />
+        <Text
+          style={styles.nextWord}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.45}
+          maxFontSizeMultiplier={1}
+        >
+          {nextWord}
+        </Text>
+        <Text style={styles.nextNumber}>#21</Text>
+      </Animated.View>
+    </Animated.View>
+  );
+});
+
 export default function ResultsIntroUI({
   cards,
   nextWord,
@@ -158,14 +328,11 @@ export default function ResultsIntroUI({
     'settings.membership.intro.title'
   );
   const [hintKey, setHintKey] = React.useState<UIStringKey | null>(null);
-  const [foundCount, setFoundCount] = React.useState(0);
   const [collectDone, setCollectDone] = React.useState(false);
   const [rowStates, setRowStates] = React.useState<[RowState, RowState]>([
     'idle',
     'idle',
   ]);
-  const [switchCount, startSwitchCount] = useCountUp();
-  const [nextCentered, setNextCentered] = React.useState(false);
 
   const finish = React.useCallback(
     (fromNextCard: boolean) => {
@@ -175,26 +342,6 @@ export default function ResultsIntroUI({
     },
     [onFinish]
   );
-
-  React.useEffect(() => {
-    // 「已找到 N 張卡」跟著輪播目前停在哪一張跳動；值有變才更新。
-    let lastFound = 0;
-    let lastCentered = false;
-    const id = position.addListener(({ value }) => {
-      const found =
-        Math.max(0, Math.min(lastIndex, Math.round(value))) + 1;
-      const centered = value > lastIndex + 0.5;
-      if (found !== lastFound) {
-        lastFound = found;
-        setFoundCount(found);
-      }
-      if (centered !== lastCentered) {
-        lastCentered = centered;
-        setNextCentered(centered);
-      }
-    });
-    return () => position.removeListener(id);
-  }, [lastIndex, position]);
 
   React.useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -219,7 +366,7 @@ export default function ResultsIntroUI({
       Animated.timing(trackOpacity, {
         toValue: 1,
         duration: timeline.carouselFadeIn,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
       // 輪盤：一開始最快，一路減速，自然停在最近建的那張。
       Animated.timing(position, {
@@ -227,7 +374,7 @@ export default function ResultsIntroUI({
         duration: timeline.carouselSpin,
         delay: timeline.carouselSpinDelay,
         easing: Easing.bezier(0.18, 0.45, 0.1, 1),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
     });
     at(timeline.collectDone, () => {
@@ -237,7 +384,6 @@ export default function ResultsIntroUI({
     at(timeline.switchStart, () => {
       setRow(1, 'active');
       setHintKey('settings.membership.intro.hintSwitch');
-      startSwitchCount(createdCount, timeline.switchDuration);
     });
     at(timeline.switchDone, () => setRow(1, 'done'));
     at(timeline.wrapUp, () => {
@@ -250,7 +396,7 @@ export default function ResultsIntroUI({
         toValue: lastIndex + 1,
         duration: timeline.slideToNextDuration,
         easing: Easing.bezier(0.25, 0.6, 0.2, 1),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
     });
     at(timeline.finish, () => finish(true));
@@ -259,51 +405,7 @@ export default function ResultsIntroUI({
       timers.forEach(clearTimeout);
       position.stopAnimation();
     };
-  }, [
-    createdCount,
-    finish,
-    lastIndex,
-    position,
-    startSwitchCount,
-    timeline,
-    titleOpacity,
-    trackOpacity,
-  ]);
-
-  const translateX = position.interpolate({
-    inputRange: [0, 1],
-    outputRange: [width / 2 - CARD_WIDTH / 2, width / 2 - CARD_WIDTH / 2 - STEP],
-    extrapolate: 'extend',
-  });
-
-  const itemStyle = (index: number, isNextCard: boolean) => {
-    const near = resolveCarouselItemStyle(0, isNextCard);
-    const far = resolveCarouselItemStyle(1, isNextCard);
-    const range = {
-      inputRange: [index - 1, index, index + 1],
-      extrapolate: 'clamp' as const,
-    };
-    return {
-      opacity: position.interpolate({
-        ...range,
-        outputRange: [far.opacity, near.opacity, far.opacity],
-      }),
-      transform: [
-        {
-          translateY: position.interpolate({
-            ...range,
-            outputRange: [far.translateY, near.translateY, far.translateY],
-          }),
-        },
-        {
-          scale: position.interpolate({
-            ...range,
-            outputRange: [far.scale, near.scale, far.scale],
-          }),
-        },
-      ],
-    };
-  };
+  }, [finish, lastIndex, position, timeline, titleOpacity, trackOpacity]);
 
   return (
     <Pressable
@@ -329,68 +431,25 @@ export default function ResultsIntroUI({
       </Text>
 
       <View style={styles.stage}>
-        <Animated.View
-          style={[
-            styles.track,
-            { opacity: trackOpacity, transform: [{ translateX }] },
-          ]}
-        >
-          {cards.map((card, index) => (
-            <Animated.View
-              key={`${card.createdAt}-${index}`}
-              style={[styles.card, itemStyle(index, false)]}
-            >
-              <View style={styles.sourcePill}>
-                <Text style={styles.sourcePillText} numberOfLines={1}>
-                  {card.sourceLabel}
-                </Text>
-              </View>
-              <View style={styles.cardWordBox}>
-                <Text
-                  style={styles.cardWord}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.45}
-                  maxFontSizeMultiplier={1}
-                >
-                  {card.word}
-                </Text>
-              </View>
-              <View style={styles.cardLine} />
-              <View style={[styles.cardLine, styles.cardLineShort]} />
-            </Animated.View>
-          ))}
-          <Animated.View
-            style={[
-              styles.nextCard,
-              nextCentered ? styles.nextCardCentered : null,
-              itemStyle(cards.length, true),
-            ]}
-          >
-            <Text
-              style={styles.nextWord}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.45}
-              maxFontSizeMultiplier={1}
-            >
-              {nextWord}
-            </Text>
-            <Text style={styles.nextNumber}>#21</Text>
-          </Animated.View>
-        </Animated.View>
+        <CarouselTrack
+          cards={cards}
+          nextWord={nextWord}
+          position={position}
+          trackOpacity={trackOpacity}
+          width={width}
+        />
       </View>
 
-      <Text style={styles.counter} maxFontSizeMultiplier={1.2}>
-        {rowStates[0] === 'idle'
-          ? ''
-          : tUI(
-              uiLanguage,
-              collectDone
-                ? 'settings.membership.intro.foundDone'
-                : 'settings.membership.intro.found'
-            ).replace('{count}', String(collectDone ? cards.length : foundCount))}
-      </Text>
+      {rowStates[0] === 'idle' ? (
+        <Text style={styles.counter} />
+      ) : (
+        <FoundCounter
+          position={position}
+          lastIndex={lastIndex}
+          done={collectDone}
+          uiLanguage={uiLanguage}
+        />
+      )}
 
       <View style={styles.rows}>
         <IntroRow
@@ -403,7 +462,13 @@ export default function ResultsIntroUI({
                 ? 'settings.membership.intro.collectDoing'
                 : 'settings.membership.intro.collectIdle'
           )}
-          value={collectDone ? cards.length : foundCount}
+          value={
+            <FoundValue
+              position={position}
+              lastIndex={lastIndex}
+              done={collectDone}
+            />
+          }
           unit={tUI(uiLanguage, 'settings.membership.intro.unitWords')}
         />
         <IntroRow
@@ -416,7 +481,12 @@ export default function ResultsIntroUI({
                 ? 'settings.membership.intro.switchDoing'
                 : 'settings.membership.intro.switchIdle'
           )}
-          value={switchCount}
+          value={
+            <CountUpValue
+              to={createdCount}
+              durationMs={timeline.switchDuration}
+            />
+          }
           unit={tUI(uiLanguage, 'settings.membership.intro.unitTimes')}
         />
       </View>
@@ -525,7 +595,15 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 8,
   },
-  nextCardCentered: {
+  nextCardHighlight: {
+    position: 'absolute',
+    top: -1.5,
+    left: -1.5,
+    right: -1.5,
+    bottom: -1.5,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
     borderColor: 'rgba(78,175,244,0.7)',
   },
   nextWord: {
