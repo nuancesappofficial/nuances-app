@@ -767,9 +767,9 @@ export default function App() {
       clearTimeout(signInCurtainWatchdogTimerRef.current);
     }
     signInCurtainWatchdogTimerRef.current = setTimeout(() => {
-      console.warn('[SignInCurtain] watchdog triggered after 10s: releasing curtain safely');
+      console.warn('[SignInCurtain] watchdog triggered after 10s: aborting curtain safely');
       inFlightAuthUserIdRef.current = null;
-      dispatchSignInCurtain('session-ready');
+      dispatchSignInCurtain('sign-in-aborted');
       setOnboardingChecked(true);
       setVideoTourChecked(true);
       setIsReady(true);
@@ -1242,6 +1242,11 @@ export default function App() {
       const isAccountSwitch = Boolean(
         activeUserIdRef.current && activeUserIdRef.current !== incomingUserId
       );
+      const isSigningIn = !activeUserIdRef.current && Boolean(incomingUserId);
+      if (isSigningIn || isAccountSwitch) {
+        dispatchSignInCurtain('sign-in-started');
+        armSignInCurtainWatchdog();
+      }
       if (isAccountSwitch) {
         // Unmount account A before any asynchronous cleanup/bootstrap for B.
         activeUserIdRef.current = null;
@@ -1568,8 +1573,6 @@ export default function App() {
 
   const handleGoogleSignIn = React.useCallback(async () => {
     traceFirstRun('auth', 'sign_in_started', { provider: 'google' });
-    dispatchSignInCurtain('sign-in-started');
-    armSignInCurtainWatchdog();
     setAuthLoading(true);
     try {
       const { data, error, cancelled } = await signInWithGoogle();
@@ -1613,12 +1616,10 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  }, [abortSignInCurtain, armSignInCurtainWatchdog]);
+  }, [abortSignInCurtain]);
 
   const handleAppleSignIn = React.useCallback(async () => {
     traceFirstRun('auth', 'sign_in_started', { provider: 'apple' });
-    dispatchSignInCurtain('sign-in-started');
-    armSignInCurtainWatchdog();
     setAuthLoading(true);
     try {
       const { data, error } = await signInWithApple();
@@ -1654,7 +1655,7 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  }, [abortSignInCurtain, armSignInCurtainWatchdog]);
+  }, [abortSignInCurtain]);
 
   const handleTestAccountSignIn = React.useCallback(async () => {
     if (!__DEV__ && !INTERNAL_TESTER_TOOLS_ENABLED) {
@@ -1857,7 +1858,7 @@ export default function App() {
                       }}
                     />
                     <FirstTourVideoPreloader
-                      enabled={VIDEO_TOUR_ENABLED}
+                      enabled={VIDEO_TOUR_ENABLED && !signInCurtain.visible}
                       onPlayerReady={handleFirstTourPlayerReady}
                     />
                   </>
