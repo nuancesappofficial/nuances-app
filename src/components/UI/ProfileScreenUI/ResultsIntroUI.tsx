@@ -33,6 +33,9 @@ const STEP = CARD_WIDTH + CARD_GAP;
 // paywall 第 21 張卡的外框尺寸（PaywallHeroUI 的 nextCardStage）。
 const HERO_WIDTH = 136;
 const HERO_HEIGHT = 174;
+// 第 21 張卡上方的標題區塊佔多高：above 離卡片 18 + 標題 26 + 間距 6 + 提示 18。
+// 捲動區會裁切時，卡片上方至少要留這麼多空間，標題才看得到。
+export const INTRO_ABOVE_HERO_HEIGHT = 18 + 26 + 6 + 18;
 
 type RowState = 'idle' | 'active' | 'done';
 // 清單三列：單字收集、少切換 App、發音（S5，有發音紀錄才出現）。

@@ -32,6 +32,7 @@ import PaywallFooter from '../../../components/UI/ProfileScreenUI/PaywallFooter'
 import PaywallHeroUI from '../../../components/UI/ProfileScreenUI/PaywallHeroUI';
 import PaywallExitUI from '../../../components/UI/ProfileScreenUI/PaywallExitUI';
 import {
+  INTRO_ABOVE_HERO_HEIGHT,
   IntroBackdrop,
   IntroSkipLayer,
   useResultsIntro,
@@ -2522,14 +2523,19 @@ export default function ProfileSettingOptionsFlow({
           </Animated.View>
 
           <ScrollView
-            // 不裁切：成果動畫的標題排在第 21 張卡上方，可能超出捲動區頂端。
-            style={[styles.mainScroll, styles.membershipScrollOverflow]}
+            // 大螢幕不裁切：成果動畫的標題排在第 21 張卡上方，可能超出捲動區頂端。
+            // 小螢幕不能用 overflow: visible：內容容器會被鎖在可視高度，放不下的部分
+            // 從上面溢出，卡片和標題一起被推到狀態列（Android 360×640 上約 65dp）。
+            style={[
+              styles.mainScroll,
+              isCompact ? null : styles.membershipScrollOverflow,
+            ]}
             contentContainerStyle={[
               styles.membershipScrollContent,
               {
-                // 小螢幕：整個內容往下移，成果動畫在第 21 張卡上方的標題才不會壓到狀態列。
+                // 小螢幕會裁切，所以卡片上方留出整個標題區塊，標題才看得到。
                 // 動畫和 paywall 共用這個位置，交接時卡片不會移動。
-                paddingTop: isCompact ? 44 : undefined,
+                paddingTop: isCompact ? INTRO_ABOVE_HERO_HEIGHT + 8 : undefined,
                 paddingBottom: isCompact
                   ? Math.max(insets.bottom + 48, 64)
                   : Math.max(insets.bottom + 132, 156),
