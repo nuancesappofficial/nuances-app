@@ -466,43 +466,6 @@ Deno.serve(async (req: Request) => {
       ? { planType: 'premium' as const }
       : await resolveServerEntitlement({ supabase, userId, user: authUser });
   const isComplimentaryDemo = isComplimentaryDemoTtsRequest(payload);
-  let hasStarterAccess = false;
-  if (entitlement.planType === 'free' && !isComplimentaryDemo) {
-    const { data, error } = await supabase.rpc(
-      'get_free_starter_card_allowance',
-      {
-        p_user_id: userId,
-        p_limit: 20,
-        p_email: typeof authUser?.email === 'string' ? authUser.email : null,
-      }
-    );
-    const row = Array.isArray(data) ? data[0] : data;
-    if (error || !row) {
-      return jsonResponse(
-        {
-          error: 'Starter allowance is temporarily unavailable',
-          reason: 'starter_allowance_unavailable',
-        },
-        503
-      );
-    }
-    hasStarterAccess = row.exhausted !== true;
-  }
-  if (
-    entitlement.planType === 'free' &&
-    !isComplimentaryDemo &&
-    !hasStarterAccess
-  ) {
-    return jsonResponse(
-      {
-        error: 'Premium or active trial required',
-        reason: 'premium_required',
-        planType: 'free',
-        paywallType: 'tts',
-      },
-      403
-    );
-  }
 
   const rawText = (payload.text || '').trim();
   if (!rawText) {
@@ -562,6 +525,46 @@ Deno.serve(async (req: Request) => {
         voice: resolvedVoice,
       });
       return jsonResponse({ audioUrl: cacheHit.audio_url, cached: true });
+    }
+
+    // Cache hits above play for every signed-in user. Only new Azure generation
+    // is gated for free users whose starter allowance is exhausted.
+    let hasStarterAccess = false;
+    if (entitlement.planType === 'free' && !isComplimentaryDemo) {
+      const { data, error } = await supabase.rpc(
+        'get_free_starter_card_allowance',
+        {
+          p_user_id: userId,
+          p_limit: 20,
+          p_email: typeof authUser?.email === 'string' ? authUser.email : null,
+        }
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) {
+        return jsonResponse(
+          {
+            error: 'Starter allowance is temporarily unavailable',
+            reason: 'starter_allowance_unavailable',
+          },
+          503
+        );
+      }
+      hasStarterAccess = row.exhausted !== true;
+    }
+    if (
+      entitlement.planType === 'free' &&
+      !isComplimentaryDemo &&
+      !hasStarterAccess
+    ) {
+      return jsonResponse(
+        {
+          error: 'Premium or active trial required',
+          reason: 'premium_required',
+          planType: 'free',
+          paywallType: 'tts',
+        },
+        403
+      );
     }
 
     if (!isComplimentaryDemo) {

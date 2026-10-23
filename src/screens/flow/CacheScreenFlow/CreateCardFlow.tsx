@@ -2705,7 +2705,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       });
 
       cardsToPersist.forEach((cardDraft) => {
-        const textToPrefetch = (cardDraft.displayWord || cardDraft.word || '').trim();
+        // 與卡片詳情的發音主體一致：targetPhrase 不同於單字時播的是片語。
+        const word = (cardDraft.displayWord || cardDraft.word || '').trim();
+        const phrase = (cardDraft.targetPhrase || '').trim();
+        const textToPrefetch =
+          phrase && phrase.toLowerCase() !== word.toLowerCase() ? phrase : word;
         if (textToPrefetch) {
           void prefetchEnglishNaturally(textToPrefetch);
         }
