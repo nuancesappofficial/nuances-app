@@ -557,7 +557,10 @@ const LiquidTabBar = React.memo(function LiquidTabBar({
   navCapsuleBorder,
 }: any) {
   const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, 8);
+  // iOS 的外框往下推了 15pt 來貼近 Home 條；沒有 Home 條的手機（iPhone SE，底部安全區域是 0）
+  // 要補回這 15pt，否則 nav bar 會有一截掉到螢幕外。
+  const bottomInset =
+    insets.bottom > 0 ? insets.bottom : Platform.OS === 'ios' ? 8 + 15 : 8;
   const [tabBarWidth, setTabBarWidth] = React.useState(0);
   const [optimisticSelectedIndex, setOptimisticSelectedIndex] = React.useState(selectedTabIndex);
   const activeTranslateX = React.useRef(new Animated.Value(TAB_BAR_SIDE_PADDING + TAB_CAPSULE_INSET)).current;
