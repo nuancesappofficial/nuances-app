@@ -1942,6 +1942,8 @@ async function enforceBillableActionLimits(params: {
         {
           error: `${period.bucketLabel} quota exceeded`,
           reason,
+          // Lets the app tell a LITE user (upsell PRO) from a PRO user (wait for reset).
+          planType,
           limit: period.limit,
           bucket: period.bucket,
           message: `You've used this subscription period's ${featureCopy} fair-use limit. You can still use other study features; ${featureCopy} resets ${period.resetCopy}.`,

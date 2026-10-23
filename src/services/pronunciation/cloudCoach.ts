@@ -1,6 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { callAIAction } from '../ai/edgeAiClient';
 import { supabase } from '@services/supabase/client';
+import { createRecordingError } from '@services/errors/errorTranslation';
+import { attachEdgeErrorInfo } from '@services/errors/edgeErrorInfo';
 import type { PronunciationFeedback } from '../../types/database.types';
 
 export type WordFeedbackLevel = 'red' | 'yellow' | 'green';
@@ -286,17 +288,17 @@ export async function assessPronunciationCloud(params: {
     encoding: FileSystem.EncodingType.Base64,
   });
   if (!audioBase64 || !audioBase64.trim()) {
-    throw new Error('錄音內容為空，請重新錄音');
+    throw createRecordingError('錄音內容為空，請重新錄音');
   }
   if (audioBase64.length < MIN_AUDIO_BASE64_CHARS) {
-    throw new Error('錄音太短或未成功錄到聲音，請按住錄音 1-2 秒後再試');
+    throw createRecordingError('錄音太短或未成功錄到聲音，請按住錄音 1-2 秒後再試');
   }
   const estimatedAudioBytes = estimateBytesFromBase64(audioBase64);
   if (estimatedAudioBytes < MIN_AUDIO_BYTES) {
-    throw new Error('錄音內容過短或近乎無聲，請靠近麥克風並清楚唸出單字後再試');
+    throw createRecordingError('錄音內容過短或近乎無聲，請靠近麥克風並清楚唸出單字後再試');
   }
   if (audioBase64.length > MAX_AUDIO_BASE64_CHARS) {
-    throw new Error('錄音過長，請控制在 8-10 秒內再試');
+    throw createRecordingError('錄音過長，請控制在 8-10 秒內再試');
   }
 
   const requestPayload = {
@@ -310,7 +312,16 @@ export async function assessPronunciationCloud(params: {
     PronunciationAssessResponse
   >('pronunciation_assess', requestPayload);
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('發音分析逾時，請稍後再試（timeout）')), CLOUD_ASSESS_TIMEOUT_MS);
+    // Client-side wait limit: covers slow network and a slow server alike.
+    setTimeout(
+      () =>
+        reject(
+          attachEdgeErrorInfo(new Error('發音分析逾時，請稍後再試（timeout）'), {
+            clientFailure: 'timeout',
+          })
+        ),
+      CLOUD_ASSESS_TIMEOUT_MS
+    );
   });
   const result = await Promise.race([requestPromise, timeoutPromise]);
 

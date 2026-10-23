@@ -55,12 +55,14 @@ import {
   detectPronunciationLocale,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
-import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import {
   getErrorCode,
   showTranslatedError,
 } from '@services/errors/showTranslatedError';
-import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
+import {
+  createRecordingError,
+  resolvePronunciationTriggerSource,
+} from '@services/errors/errorTranslation';
 import { resolveCardImageUri } from '@services/media/cardImage';
 import { resolveCardDetailImageCandidates } from '../../../features/createCard/cardImageSource';
 import { prefetchEnglishNaturally, speakEnglishNaturally } from '@services/tts/localSpeech';
@@ -1349,16 +1351,16 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
 
       if (!uri) {
-        throw new Error('錄音檔遺失，請重新錄音');
+        throw createRecordingError('錄音檔遺失，請重新錄音');
       }
       if (
         durationMillis > 0 &&
         durationMillis < MIN_PRONUNCIATION_RECORDING_MS
       ) {
-        throw new Error('錄音太短，請至少清楚唸出一個完整單字再送出');
+        throw createRecordingError('錄音太短，請至少清楚唸出一個完整單字再送出');
       }
       if (Platform.OS === 'ios' && !uri.toLowerCase().endsWith('.wav')) {
-        throw new Error(`錄音格式錯誤，預期 .wav，實際 URI: ${uri}`);
+        throw createRecordingError(`錄音格式錯誤，預期 .wav，實際 URI: ${uri}`);
       }
 
       // 【關鍵移動】：在打 API 前立刻將硬體麥克風釋放，切回播放模式，防止網路 I/O 或 503 阻斷狀態重置
@@ -1436,29 +1438,25 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       Vibration.vibrate(20);
     } catch (error) {
       console.error('[CardDetail][Pronunciation] analyze failed:', error);
-      if (isPremiumFeatureError(error)) {
-        // MODULE 3c: 依錯誤碼觸發對應漏斗事件並帶入 paywall trigger_source。
-        const errorCode = getErrorCode(error);
-        if (errorCode === 'free_starter_exhausted') {
-          analytics.track('pronunciation_free_starter_exhausted', { context: 'card_detail' });
-        } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
-          analytics.track('pronunciation_monthly_quota_exceeded', { context: 'card_detail' });
-        }
-        const triggerSource = resolvePronunciationTriggerSource(errorCode);
-        showTranslatedError(error, {
-          openPaywall: (tier) =>
-            tabSwipeContext?.openMembershipPaywall({
-              source: 'card_detail',
-              tier,
-              triggerSource,
-            }),
-        });
-      } else {
-        showTranslatedError(error);
+      // MODULE 3c: 依錯誤碼觸發對應漏斗事件並帶入 paywall trigger_source。
+      // 任何被分類成額度用完的錯誤都要能開 paywall（不只 PremiumFeatureError）。
+      const errorCode = getErrorCode(error);
+      if (errorCode === 'free_starter_exhausted') {
+        analytics.track('pronunciation_free_starter_exhausted', { context: 'card_detail' });
+      } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
+        analytics.track('pronunciation_monthly_quota_exceeded', { context: 'card_detail' });
       }
-      setPronunciationAnalysisError(
-        error instanceof Error ? error.message : '無法完成發音分析，請稍後再試。'
-      );
+      const triggerSource = resolvePronunciationTriggerSource(errorCode);
+      const translated = showTranslatedError(error, {
+        openPaywall: (tier) =>
+          tabSwipeContext?.openMembershipPaywall({
+            source: 'card_detail',
+            tier,
+            triggerSource,
+          }),
+      });
+      // Inline text shows the same honest message as the alert, never raw server text.
+      setPronunciationAnalysisError(translated.message);
       setShowFeedback(false);
       setPronunciationRevealStep(3);
     } finally {

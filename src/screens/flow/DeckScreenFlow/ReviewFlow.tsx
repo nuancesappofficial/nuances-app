@@ -69,7 +69,10 @@ import {
   getErrorCode,
   showTranslatedError,
 } from '@services/errors/showTranslatedError';
-import { resolvePronunciationTriggerSource } from '@services/errors/errorTranslation';
+import {
+  createRecordingError,
+  resolvePronunciationTriggerSource,
+} from '@services/errors/errorTranslation';
 import ReminderNotificationService from '@services/notifications/ReminderNotificationService';
 import AppReviewService from '@services/reviews/AppReviewService';
 import { analytics } from '@services/analytics';
@@ -2271,13 +2274,13 @@ export default function ReviewFlow({ navigation, route }: Props) {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
 
       if (!uri) {
-        throw new Error(tUI(uiLanguage, 'review.recordingMissing'));
+        throw createRecordingError(tUI(uiLanguage, 'review.recordingMissing'));
       }
       if (durationMillis > 0 && durationMillis < MIN_PRONUNCIATION_RECORDING_MS) {
-        throw new Error(tUI(uiLanguage, 'review.recordingTooShort'));
+        throw createRecordingError(tUI(uiLanguage, 'review.recordingTooShort'));
       }
       if (Platform.OS === 'ios' && !uri.toLowerCase().endsWith('.wav')) {
-        throw new Error(tUI(uiLanguage, 'review.recordingInvalidFormat'));
+        throw createRecordingError(tUI(uiLanguage, 'review.recordingInvalidFormat'));
       }
 
       setPronunciationAnalyzingQuestionId(question.id);
@@ -2365,7 +2368,17 @@ export default function ReviewFlow({ navigation, route }: Props) {
         return;
       }
       console.error('[ReviewFlow][Pronunciation] assess failed:', error);
-      showTranslatedError(error);
+      // A quota error that is not a PremiumFeatureError (e.g. fair-use 429) must
+      // still be able to open the paywall from its CTA.
+      const fallbackTriggerSource = resolvePronunciationTriggerSource(getErrorCode(error));
+      showTranslatedError(error, {
+        openPaywall: (tier) =>
+          tabSwipeContext?.openMembershipPaywall({
+            source: 'review',
+            tier,
+            triggerSource: fallbackTriggerSource,
+          }),
+      });
       setPronunciationErrors((prev) => ({ ...prev, [question.id]: tUI(uiLanguage, 'review.assessFailed') }));
       setPronunciationScores((prev) => {
         const next = { ...prev };
