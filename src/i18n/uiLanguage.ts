@@ -341,6 +341,9 @@ export type UIStringKey =
   | 'settings.membership.intro.unitPoints'
   | 'settings.membership.intro.unitPointsOne'
   | 'settings.membership.intro.hintPronunciation'
+  | 'settings.membership.intro.pronDoneGain'
+  | 'settings.membership.intro.pronFlash'
+  | 'settings.membership.intro.pronRevealAvg'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -868,6 +871,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.pronIdle': 'Pronunciation',
     'settings.membership.intro.pronDoing': 'Checking pronunciation records: {count}…',
     'settings.membership.intro.pronDoneLevel': 'Current average pronunciation',
+    'settings.membership.intro.pronDoneGain': 'Average pronunciation gain',
+    'settings.membership.intro.pronFlash': '{word}  {first} → {best}',
+    'settings.membership.intro.pronRevealAvg': 'Average {first} → {best}',
     'settings.membership.intro.unitPoints': 'points',
     'settings.membership.intro.unitPointsOne': 'point',
     'settings.membership.intro.hintPronunciation': 'Every time you practiced out loud, it was recorded',
@@ -1399,6 +1405,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.pronIdle': '發音',
     'settings.membership.intro.pronDoing': '正在比對 {count} 個字的發音紀錄…',
     'settings.membership.intro.pronDoneLevel': '目前的平均發音水準',
+    'settings.membership.intro.pronDoneGain': '平均發音分數進步',
+    'settings.membership.intro.pronFlash': '{word}  {first} → {best}',
+    'settings.membership.intro.pronRevealAvg': '平均 {first} → {best} 分',
     'settings.membership.intro.unitPoints': '分',
     'settings.membership.intro.unitPointsOne': '分',
     'settings.membership.intro.hintPronunciation': '每次開口練習，都留下了紀錄',
@@ -1914,6 +1923,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.pronIdle': '发音',
     'settings.membership.intro.pronDoing': '正在比对 {count} 个字的发音记录…',
     'settings.membership.intro.pronDoneLevel': '目前的平均发音水平',
+    'settings.membership.intro.pronDoneGain': '平均发音分数提升',
+    'settings.membership.intro.pronFlash': '{word}  {first} → {best}',
+    'settings.membership.intro.pronRevealAvg': '平均 {first} → {best} 分',
     'settings.membership.intro.unitPoints': '分',
     'settings.membership.intro.unitPointsOne': '分',
     'settings.membership.intro.hintPronunciation': '每次开口练习，都留下了记录',

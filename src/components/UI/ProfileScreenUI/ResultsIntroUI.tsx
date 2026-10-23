@@ -59,6 +59,8 @@ export type ResultsIntroController = {
   hintKey: UIStringKey | null;
   collectDone: boolean;
   rowStates: RowStates;
+  // 發音段正在閃過第幾個字（null＝沒有在閃）。
+  pronFlashIndex: number | null;
   timeline: ResultsIntroTimeline;
   pronunciation: IntroPronunciationSummary | null;
   skip: () => void;
@@ -102,6 +104,9 @@ export function useResultsIntro({
   );
   const [hintKey, setHintKey] = React.useState<UIStringKey | null>(null);
   const [collectDone, setCollectDone] = React.useState(false);
+  const [pronFlashIndex, setPronFlashIndex] = React.useState<number | null>(
+    null
+  );
   const [rowStates, setRowStates] = React.useState<RowStates>([
     'idle',
     'idle',
@@ -169,6 +174,7 @@ export function useResultsIntro({
     setHintKey(null);
     setCollectDone(false);
     setRowStates(['idle', 'idle', 'idle']);
+    setPronFlashIndex(null);
     const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
     const timing = (
       value: Animated.Value,
@@ -220,7 +226,14 @@ export function useResultsIntro({
         setRow(2, 'active');
         setHintKey('settings.membership.intro.hintPronunciation');
       });
-      at(pron.revealStart, () => setRow(2, 'done'));
+      const flashes = (pron.revealStart - pron.flashStart) / pron.flashEach;
+      for (let i = 0; i < flashes; i += 1) {
+        at(pron.flashStart + i * pron.flashEach, () => setPronFlashIndex(i));
+      }
+      at(pron.revealStart, () => {
+        setPronFlashIndex(null);
+        setRow(2, 'done');
+      });
     }
     at(timeline.wrapUp, () => {
       setTitleKey('settings.membership.intro.titleDone');
@@ -285,6 +298,7 @@ export function useResultsIntro({
     hintKey,
     collectDone,
     rowStates,
+    pronFlashIndex,
     timeline,
     pronunciation,
     skip,
@@ -586,10 +600,12 @@ function CountUpValue({
   to,
   durationMs,
   unit,
+  prefix = '',
 }: {
   to: number;
   durationMs: number;
   unit: UnitLabels;
+  prefix?: string;
 }) {
   const [value, setValue] = React.useState(0);
   React.useEffect(() => {
@@ -605,7 +621,12 @@ function CountUpValue({
       if (frame != null) cancelAnimationFrame(frame);
     };
   }, [durationMs, to]);
-  return <CountWithUnit count={value} unit={unit} />;
+  return (
+    <>
+      {prefix}
+      <CountWithUnit count={value} unit={unit} />
+    </>
+  );
 }
 
 function RowIcon({ state }: { state: RowState }) {
@@ -726,8 +747,30 @@ export function IntroChrome({
         pointerEvents="none"
         style={[styles.below, span, { opacity: intro.chromeOpacity }]}
       >
-        {/* 發音段開始後，「已找到 N 張卡」這一行讓給發音段。 */}
-        {rowStates[0] === 'idle' || rowStates[2] !== 'idle' ? (
+        {/* 發音段開始後，「已找到 N 張卡」這一行讓給發音段：閃過練過的字，揭曉時顯示平均。 */}
+        {rowStates[2] !== 'idle' && pronunciation ? (
+          <Text style={styles.counter} maxFontSizeMultiplier={1.2}>
+            {rowStates[2] === 'done'
+              ? pronunciation.mode === 'gain'
+                ? tUI(uiLanguage, 'settings.membership.intro.pronRevealAvg')
+                    .replace('{first}', String(pronunciation.firstAvg))
+                    .replace('{best}', String(pronunciation.bestAvg))
+                : ''
+              : intro.pronFlashIndex !== null &&
+                  pronunciation.flashes[intro.pronFlashIndex]
+                ? tUI(uiLanguage, 'settings.membership.intro.pronFlash')
+                    .replace('{word}', pronunciation.flashes[intro.pronFlashIndex].word)
+                    .replace(
+                      '{first}',
+                      String(pronunciation.flashes[intro.pronFlashIndex].first)
+                    )
+                    .replace(
+                      '{best}',
+                      String(pronunciation.flashes[intro.pronFlashIndex].best)
+                    )
+                : ''}
+          </Text>
+        ) : rowStates[0] === 'idle' ? (
           <Text style={styles.counter} />
         ) : (
           <FoundCounter intro={intro} uiLanguage={uiLanguage} />
@@ -779,7 +822,12 @@ export function IntroChrome({
               state={rowStates[2]}
               label={
                 rowStates[2] === 'done'
-                  ? tUI(uiLanguage, 'settings.membership.intro.pronDoneLevel')
+                  ? tUI(
+                      uiLanguage,
+                      pronunciation.mode === 'gain'
+                        ? 'settings.membership.intro.pronDoneGain'
+                        : 'settings.membership.intro.pronDoneLevel'
+                    )
                   : rowStates[2] === 'active'
                     ? tUI(
                         uiLanguage,
@@ -790,7 +838,12 @@ export function IntroChrome({
               value={
                 rowStates[2] === 'done' ? (
                   <CountUpValue
-                    to={pronunciation.level}
+                    to={
+                      pronunciation.mode === 'gain'
+                        ? (pronunciation.gain ?? 0)
+                        : pronunciation.level
+                    }
+                    prefix={pronunciation.mode === 'gain' ? '+' : ''}
                     durationMs={timeline.pronunciation.revealDuration}
                     unit={pointsUnit}
                   />

@@ -187,3 +187,74 @@ test('a level-only pronunciation segment sits between app switching and wrap-up'
   assert.equal(timeline.pickStart, 12265);
   assert.equal(timeline.finish, 13565);
 });
+
+test('cards with a known first score and 2+ attempts show the average gain', () => {
+  // a：60 → 最高 85；b：70 → 最高 74；c：只練過 1 次，不算進步但算目前水準。
+  // 第一次平均 (60+70)/2 = 65，最高分平均 (85+74)/2 = 79.5 → 80，進步 80 - 65 = 15。
+  // 目前水準：最近一次 (80 + 72 + 90) / 3 = 80.67 → 81。
+  const summary = summarizePronunciation(
+    {
+      a: record(60, 80, 85, 3, '2026-10-02T00:00:00.000Z'),
+      b: record(70, 72, 74, 2, '2026-10-01T00:00:00.000Z'),
+      c: record(90, 90, 90, 1),
+    },
+    CARDS
+  );
+  assert.deepEqual(summary, {
+    mode: 'gain',
+    flashes: [
+      { word: 'situationship', first: 70, best: 74 },
+      { word: 'receipt', first: 60, best: 85 },
+    ],
+    comparedCount: 3,
+    firstAvg: 65,
+    bestAvg: 80,
+    gain: 15,
+    level: 81,
+  });
+});
+
+test('a gain of exactly 5 counts as progress; 4 falls back to the current level', () => {
+  const five = summarizePronunciation({ a: record(60, 65, 65, 2) }, CARDS);
+  assert.equal(five.mode, 'gain');
+  assert.equal(five.gain, 5);
+  // 進步不到 5：改顯示目前水準，但練過的字仍然閃過。
+  const four = summarizePronunciation({ a: record(60, 64, 64, 2) }, CARDS);
+  assert.equal(four.mode, 'level');
+  assert.deepEqual(four.flashes, [{ word: 'receipt', first: 60, best: 64 }]);
+  assert.equal(four.level, 64);
+});
+
+test('more than 10 practiced words flash only the 10 biggest gains, smallest first', () => {
+  // 12 張卡，第 i 張第一次 50、最高 50 + i（進步 0…11）。
+  const cards = Array.from({ length: 12 }, (_, i) => ({ id: `k${i}`, word: `w${i}` }));
+  const records = Object.fromEntries(
+    cards.map((card, i) => [card.id, record(50, 50 + i, 50 + i, 2)])
+  );
+  const summary = summarizePronunciation(records, cards);
+  assert.deepEqual(
+    summary.flashes.map((flash) => flash.word),
+    ['w2', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9', 'w10', 'w11']
+  );
+  // 平均用全部 12 張：最高分平均 (50 + 50…61) = 55.5 → 56，進步 56 - 50 = 6。
+  assert.equal(summary.gain, 6);
+});
+
+test('equal gains flash in the order they were last practiced', () => {
+  const summary = summarizePronunciation(
+    {
+      a: record(60, 70, 70, 2, '2026-10-05T00:00:00.000Z'),
+      b: record(60, 70, 70, 2, '2026-10-03T00:00:00.000Z'),
+    },
+    CARDS
+  );
+  assert.deepEqual(summary.flashes.map((flash) => flash.word), ['situationship', 'receipt']);
+});
+
+test('each flashed word adds 280 ms before the reveal', () => {
+  // 3 個字：閃字從 9900 開始，9900 + 3 × 280 = 10740 揭曉，+1100 = 11840 結束。
+  const timeline = buildResultsIntroTimeline({ flashCount: 3 });
+  assert.equal(timeline.pronunciation.revealStart, 10740);
+  assert.equal(timeline.pronunciation.done, 11840);
+  assert.equal(timeline.finish, 13565 + 840);
+});

@@ -176,14 +176,21 @@ export function summarizePronunciation(
 ): IntroPronunciationSummary | null {
   const practiced = cards.flatMap((card) => {
     const record = records[card.id];
-    return record ? [record] : [];
+    return record ? [{ word: card.word, record }] : [];
   });
   if (practiced.length === 0) return null;
+  const average = (values: number[]) =>
+    values.reduce((sum, value) => sum + value, 0) / values.length;
   const level = Math.round(
-    practiced.reduce((sum, record) => sum + record.latestScore, 0) /
-      practiced.length
+    average(practiced.map(({ record }) => record.latestScore))
   );
-  return {
+  // 能算進步的卡：練過 ≥2 次、第一次分數已知。
+  const compared = practiced.flatMap(({ word, record }) =>
+    record.attempts >= 2 && record.firstScore !== null
+      ? [{ word, first: record.firstScore, best: record.bestScore, updatedAt: record.updatedAt }]
+      : []
+  );
+  const levelSummary: IntroPronunciationSummary = {
     mode: 'level',
     flashes: [],
     comparedCount: practiced.length,
@@ -192,4 +199,32 @@ export function summarizePronunciation(
     gain: null,
     level,
   };
+  if (compared.length === 0) return levelSummary;
+  // 進步用畫面上顯示的兩個整數相減，揭曉的數字一定跟「平均 X → Y 分」對得上。
+  const firstAvg = Math.round(average(compared.map((item) => item.first)));
+  const bestAvg = Math.round(average(compared.map((item) => item.best)));
+  const gain = bestAvg - firstAvg;
+  // 進步小的先、大的最後；同分照最近練習的時間由舊到新。
+  const flashes = [...compared]
+    .sort(
+      (a, b) =>
+        a.best - a.first - (b.best - b.first) ||
+        a.updatedAt.localeCompare(b.updatedAt)
+    )
+    // 最多 10 個：取進步最大的 10 個（排序後的最後 10 個）。
+    .slice(-PRONUNCIATION_FLASH_LIMIT)
+    .map(({ word, first, best }) => ({ word, first, best }));
+  return {
+    ...levelSummary,
+    mode: gain >= PRONUNCIATION_GAIN_MIN ? 'gain' : 'level',
+    flashes,
+    firstAvg,
+    bestAvg,
+    gain,
+  };
 }
+
+// 平均進步至少這麼多分才顯示「進步」，否則顯示目前水準。
+const PRONUNCIATION_GAIN_MIN = 5;
+// 發音段最多閃過幾個字（每個約 0.28 秒）。
+const PRONUNCIATION_FLASH_LIMIT = 10;
