@@ -9,7 +9,13 @@ type Props = {
   currentIndex: number;
   displayIndex: number;
   extraData?: unknown;
-  renderItem: ({ item, index }: { item: Card; index: number }) => React.ReactElement;
+  renderItem: ({
+    item,
+    index,
+  }: {
+    item: Card;
+    index: number;
+  }) => React.ReactElement;
   scrollHandler: any;
   onMomentumScrollEnd: (event: any) => void;
   snapInterval: number;
@@ -40,6 +46,7 @@ export default function CardDetailCarouselUI({
           keyExtractor={(item) => item.id}
           horizontal
           scrollEnabled={horizontalScrollEnabled}
+          nestedScrollEnabled
           showsHorizontalScrollIndicator={false}
           snapToInterval={snapInterval}
           snapToAlignment="start"
@@ -49,7 +56,10 @@ export default function CardDetailCarouselUI({
           alwaysBounceHorizontal={false}
           bounces={false}
           overScrollMode="never"
-          contentContainerStyle={[styles.carouselContent, { paddingHorizontal: Math.max(0, sidePadding) }]}
+          contentContainerStyle={[
+            styles.carouselContent,
+            { paddingHorizontal: Math.max(0, sidePadding) },
+          ]}
           initialNumToRender={3}
           windowSize={5}
           maxToRenderPerBatch={3}
@@ -73,8 +83,6 @@ export default function CardDetailCarouselUI({
           onMomentumScrollEnd={onMomentumScrollEnd}
         />
       </View>
-
-      
     </View>
   );
 }

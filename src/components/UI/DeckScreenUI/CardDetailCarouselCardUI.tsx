@@ -220,13 +220,7 @@ function CollapsibleBackField({
     heightAnim.value = collapsedHeight;
     arrowProgress.setValue(0);
     onExpandedChange(fieldKey, false);
-  }, [
-    arrowProgress,
-    fieldKey,
-    heightAnim,
-    onExpandedChange,
-    resetKey,
-  ]);
+  }, [arrowProgress, fieldKey, heightAnim, onExpandedChange, resetKey]);
 
   React.useEffect(() => {
     if (contentHeight <= 0) return;
@@ -499,12 +493,10 @@ function CardDetailCarouselCardUI({
   const [sourceLineCount, setSourceLineCount] = React.useState(0);
   const [translationLineCount, setTranslationLineCount] = React.useState(0);
   const [contextLineCount, setContextLineCount] = React.useState(0);
-  const [sentenceMeasuredHeight, setSentenceMeasuredHeight] =
-    React.useState(0);
+  const [sentenceMeasuredHeight, setSentenceMeasuredHeight] = React.useState(0);
   const [contextMeasuredHeight, setContextMeasuredHeight] = React.useState(0);
   const [meaningMeasuredHeight, setMeaningMeasuredHeight] = React.useState(0);
-  const [examplesMeasuredHeight, setExamplesMeasuredHeight] =
-    React.useState(0);
+  const [examplesMeasuredHeight, setExamplesMeasuredHeight] = React.useState(0);
   const [backBodyViewportHeight, setBackBodyViewportHeight] = React.useState(0);
   const [backBodyContentHeight, setBackBodyContentHeight] = React.useState(0);
   const [backMeasuredHeights, setBackMeasuredHeights] = React.useState<
@@ -687,7 +679,10 @@ function CardDetailCarouselCardUI({
     [rawCulturalBackgroundText]
   );
   const structuredInsight = React.useMemo(
-    () => splitInsiderInsight(parsedInsight?.insider_insight || rawCulturalBackgroundText),
+    () =>
+      splitInsiderInsight(
+        parsedInsight?.insider_insight || rawCulturalBackgroundText
+      ),
     [parsedInsight?.insider_insight, rawCulturalBackgroundText]
   );
   const supplementarySenses = React.useMemo(
@@ -747,10 +742,7 @@ function CardDetailCarouselCardUI({
       .filter(Boolean)
       .map(splitCollocationText)
       .filter((entry) => !isSameCardUsage(entry.phrase, itemWord));
-  }, [
-    item.frequentCollocations,
-    itemWord,
-  ]);
+  }, [item.frequentCollocations, itemWord]);
   const semanticRelations = React.useMemo(() => {
     const parsed = parseSemanticRelations(item.semanticRelations);
     return {
@@ -889,9 +881,9 @@ function CardDetailCarouselCardUI({
     : rawCulturalBackgroundText;
   const isCulturalBackgroundCompacted =
     Boolean(insightDisplayText) &&
-    (structuredInsight.detailBullets.length > 0 || frontDynamicLayout.shouldOfferFullContext);
-  const shouldOfferFullSentence =
-    frontDynamicLayout.shouldOfferFullSentence;
+    (structuredInsight.detailBullets.length > 0 ||
+      frontDynamicLayout.shouldOfferFullContext);
+  const shouldOfferFullSentence = frontDynamicLayout.shouldOfferFullSentence;
   const isFrontBodyScrollable =
     frontBodyViewportHeight > 0 &&
     frontBodyContentHeight - frontBodyViewportHeight >
@@ -1075,17 +1067,14 @@ function CardDetailCarouselCardUI({
     rawDefinitionText,
   ]);
 
-  const handleMeaningLayout = React.useCallback(
-    (event: LayoutChangeEvent) => {
-      const nextHeight = event.nativeEvent.layout.height;
-      if (nextHeight > 0) {
-        setMeaningMeasuredHeight((current) =>
-          Math.abs(current - nextHeight) > 1 ? nextHeight : current
-        );
-      }
-    },
-    []
-  );
+  const handleMeaningLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = event.nativeEvent.layout.height;
+    if (nextHeight > 0) {
+      setMeaningMeasuredHeight((current) =>
+        Math.abs(current - nextHeight) > 1 ? nextHeight : current
+      );
+    }
+  }, []);
 
   const handleBackSectionMeasuredHeight = React.useCallback(
     (fieldKey: string, height: number) => {
@@ -1226,7 +1215,7 @@ function CardDetailCarouselCardUI({
         ? 34
         : weightedWordLength > 12
           ? 40
-      : 52) * cardDetailFontScale;
+          : 52) * cardDetailFontScale;
   const referenceWordLineHeight = Math.round(referenceWordFontSize * 1.08);
   const renderExampleRows = (isMeasurement = false) => (
     <View>
@@ -1351,7 +1340,13 @@ function CardDetailCarouselCardUI({
     } else {
       audioProgress.value = withTiming(0, { duration: 160 });
     }
-  }, [isActiveCard, isPlaying, isPhraseCard, playbackDurationMillis, audioProgress]);
+  }, [
+    isActiveCard,
+    isPlaying,
+    isPhraseCard,
+    playbackDurationMillis,
+    audioProgress,
+  ]);
 
   const activeSpeakerProgressStyle = useAnimatedStyle(() => ({
     width: interpolate(
@@ -1529,11 +1524,7 @@ function CardDetailCarouselCardUI({
     if (shareSelection.back) {
       await captureAndShareFace('back');
     }
-  }, [
-    captureAndShareFace,
-    shareSelection.back,
-    shareSelection.front,
-  ]);
+  }, [captureAndShareFace, shareSelection.back, shareSelection.front]);
   const handleSharePress = React.useCallback(() => {
     void openSharePicker();
   }, [openSharePicker]);
@@ -1588,11 +1579,7 @@ function CardDetailCarouselCardUI({
         active={tourStep === 'STEP_8_FLICK_CARD' && isActiveCard}
         onSpotlightPress={handleTourFlipPress}
       >
-        <Pressable
-          style={styles.detailCardShell}
-          onPress={toggleFlip}
-          accessible={false}
-        >
+        <View style={styles.detailCardShell} accessible={false}>
           <View
             style={[
               styles.detailCardScroll,
@@ -1645,41 +1632,52 @@ function CardDetailCarouselCardUI({
                   ]}
                 >
                   {/* 1. 單字本體 */}
-                  <View
-                    style={[styles.referenceRowTop, { position: 'relative' }]}
+                  <Pressable
+                    onPress={toggleFlip}
+                    accessibilityRole="button"
+                    accessibilityLabel="Flip card"
                   >
                     <View
-                      style={[
-                        styles.referenceWordLeft,
-                        { minWidth: 0, flexShrink: 1 },
-                      ]}
+                      style={[styles.referenceRowTop, { position: 'relative' }]}
                     >
-                      <Text
+                      <View
                         style={[
-                          styles.referenceWord,
-                          {
-                            color: ui.primaryText,
-                            fontSize: referenceWordFontSize,
-                            lineHeight: referenceWordLineHeight,
-                          },
+                          styles.referenceWordLeft,
+                          { minWidth: 0, flexShrink: 1 },
                         ]}
                       >
-                        {itemWord}
-                      </Text>
+                        <Text
+                          style={[
+                            styles.referenceWord,
+                            {
+                              color: ui.primaryText,
+                              fontSize: referenceWordFontSize,
+                              lineHeight: referenceWordLineHeight,
+                            },
+                          ]}
+                        >
+                          {itemWord}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
+                  </Pressable>
 
                   {/* 1b. 音標 + 喇叭 */}
                   <View style={localStyles.ipaRow}>
                     {ipaText ? (
                       <Text
-                        style={[localStyles.ipaText, { color: ui.secondaryText }]}
+                        style={[
+                          localStyles.ipaText,
+                          { color: ui.secondaryText },
+                        ]}
                         numberOfLines={1}
                       >
                         {ipaText}
                       </Text>
                     ) : null}
-                    <Animated.View style={{ transform: [{ scale: playBtnScale }] }}>
+                    <Animated.View
+                      style={{ transform: [{ scale: playBtnScale }] }}
+                    >
                       <TouchableOpacity
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         activeOpacity={0.9}
@@ -1704,7 +1702,11 @@ function CardDetailCarouselCardUI({
                         }
                       >
                         {isActiveCard && isTtsDownloading ? (
-                          <DynamicArcSpinner size={SPEAKER_ICON_SIZE} color={activeSpeakerColor} strokeWidth={2.4} />
+                          <DynamicArcSpinner
+                            size={SPEAKER_ICON_SIZE}
+                            color={activeSpeakerColor}
+                            strokeWidth={2.4}
+                          />
                         ) : (
                           <View style={localStyles.speakerIconWrap}>
                             <Ionicons
@@ -1753,407 +1755,431 @@ function CardDetailCarouselCardUI({
                     onLayout={handleFrontBodyLayout}
                     onContentSizeChange={handleFrontBodyContentSizeChange}
                   >
-                    <View
-                      style={styles.referenceMeaningRow}
-                      onLayout={handleMeaningLayout}
+                    <Pressable
+                      onPress={toggleFlip}
+                      style={localStyles.scrollBodyPressable}
                     >
                       <View
-                        style={[
-                          styles.referencePosBadge,
-                          { backgroundColor: ui.posBg },
-                        ]}
+                        style={styles.referenceMeaningRow}
+                        onLayout={handleMeaningLayout}
                       >
-                        <Text
+                        <View
                           style={[
-                            styles.referencePosText,
-                            { color: ui.posText },
+                            styles.referencePosBadge,
+                            { backgroundColor: ui.posBg },
                           ]}
                         >
-                          {itemCaption}
+                          <Text
+                            style={[
+                              styles.referencePosText,
+                              { color: ui.posText },
+                            ]}
+                          >
+                            {itemCaption}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.referenceMeaning,
+                            {
+                              color: ui.primaryText,
+                              fontSize: Math.round(20 * frontContentScale),
+                              lineHeight: Math.round(28 * frontContentScale),
+                              paddingRight: frontTextWrapGuard,
+                            },
+                          ]}
+                        >
+                          {definitionText}
                         </Text>
                       </View>
-                      <Text
+
+                      <View
                         style={[
-                          styles.referenceMeaning,
-                          {
-                            color: ui.primaryText,
-                            fontSize: Math.round(20 * frontContentScale),
-                            lineHeight: Math.round(28 * frontContentScale),
-                            paddingRight: frontTextWrapGuard,
-                          },
+                          styles.referenceDivider,
+                          { backgroundColor: ui.divider },
                         ]}
-                      >
-                        {definitionText}
-                      </Text>
-                    </View>
+                      />
 
-                    <View
-                      style={[
-                        styles.referenceDivider,
-                        { backgroundColor: ui.divider },
-                      ]}
-                    />
-
-                    <Reanimated.View style={localStyles.dualSentenceBlock}>
-                      {sentenceMeasuredHeight === 0 ? (
-                        <View
-                          accessible={false}
-                          aria-hidden
-                          accessibilityElementsHidden
-                          importantForAccessibility="no-hide-descendants"
-                          style={localStyles.textMeasurementPass}
-                          onLayout={handleSentenceMeasurementLayout}
-                        >
-                          <Text
+                      <Reanimated.View style={localStyles.dualSentenceBlock}>
+                        {sentenceMeasuredHeight === 0 ? (
+                          <View
                             accessible={false}
                             aria-hidden
                             accessibilityElementsHidden
                             importantForAccessibility="no-hide-descendants"
-                            style={[
-                              localStyles.dualSentenceText,
-                              {
-                                color: 'transparent',
-                                fontSize: frontSentenceFontSize,
-                                lineHeight: frontSentenceLineHeight,
-                                paddingRight: frontTextWrapGuard,
-                              },
-                            ]}
+                            style={localStyles.textMeasurementPass}
+                            onLayout={handleSentenceMeasurementLayout}
                           >
-                            {fullSentenceDisplayText}
-                          </Text>
-                        </View>
-                      ) : null}
-                      <Reanimated.View
-                        style={
-                          shouldOfferFullSentence ? sentenceBodyStyle : undefined
-                        }
-                      >
-                        {!contextSections.isStructured ? (
+                            <Text
+                              accessible={false}
+                              aria-hidden
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              style={[
+                                localStyles.dualSentenceText,
+                                {
+                                  color: 'transparent',
+                                  fontSize: frontSentenceFontSize,
+                                  lineHeight: frontSentenceLineHeight,
+                                  paddingRight: frontTextWrapGuard,
+                                },
+                              ]}
+                            >
+                              {fullSentenceDisplayText}
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Reanimated.View
+                          style={
+                            shouldOfferFullSentence
+                              ? sentenceBodyStyle
+                              : undefined
+                          }
+                        >
+                          {!contextSections.isStructured ? (
+                            <Text
+                              style={[
+                                localStyles.dualSentenceText,
+                                {
+                                  color: ui.primaryText,
+                                  fontSize: frontSentenceFontSize,
+                                  lineHeight: frontSentenceLineHeight,
+                                  paddingRight: frontTextWrapGuard,
+                                },
+                              ]}
+                              numberOfLines={
+                                shouldOfferFullSentence &&
+                                !isFullSentenceExpanded
+                                  ? frontDynamicLayout.sentenceBudgetLines
+                                  : undefined
+                              }
+                              onTextLayout={handleSourceTextLayout}
+                            >
+                              {renderSentenceWithBoldTarget(
+                                sourceSentenceText,
+                                itemWord,
+                                targetWordHighlight
+                              )}
+                            </Text>
+                          ) : null}
                           <Text
                             style={[
                               localStyles.dualSentenceText,
                               {
                                 color: ui.primaryText,
+                                marginTop: contextSections.isStructured
+                                  ? 0
+                                  : 12,
                                 fontSize: frontSentenceFontSize,
                                 lineHeight: frontSentenceLineHeight,
                                 paddingRight: frontTextWrapGuard,
                               },
                             ]}
                             numberOfLines={
-                              shouldOfferFullSentence &&
-                              !isFullSentenceExpanded
+                              shouldOfferFullSentence && !isFullSentenceExpanded
                                 ? frontDynamicLayout.sentenceBudgetLines
                                 : undefined
                             }
-                            onTextLayout={handleSourceTextLayout}
+                            onTextLayout={handleTranslationTextLayout}
                           >
                             {renderSentenceWithBoldTarget(
-                              sourceSentenceText,
+                              translationDisplayText,
                               itemWord,
                               targetWordHighlight
                             )}
                           </Text>
-                        ) : null}
-                        <Text
-                          style={[
-                            localStyles.dualSentenceText,
-                            {
-                              color: ui.primaryText,
-                              marginTop: contextSections.isStructured ? 0 : 12,
-                              fontSize: frontSentenceFontSize,
-                              lineHeight: frontSentenceLineHeight,
-                              paddingRight: frontTextWrapGuard,
-                            },
-                          ]}
-                          numberOfLines={
-                            shouldOfferFullSentence &&
-                            !isFullSentenceExpanded
-                              ? frontDynamicLayout.sentenceBudgetLines
-                              : undefined
-                          }
-                          onTextLayout={handleTranslationTextLayout}
-                        >
-                          {renderSentenceWithBoldTarget(
-                            translationDisplayText,
-                            itemWord,
-                            targetWordHighlight
-                          )}
-                        </Text>
-                      </Reanimated.View>
-                      {shouldOfferFullContent ? (
-                        <Pressable
-                          style={({ pressed }) => [
-                            localStyles.showFullSentenceRow,
-                            pressed
-                              ? localStyles.showFullSentenceRowPressed
-                              : null,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel={tUI(
-                            uiLanguage,
-                            sentenceToggleLabelKey
-                          )}
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            setIsFullSentenceExpanded((current) => {
-                              if (current) {
-                                resetFrontBodyScroll(false);
-                              }
-                              return !current;
-                            });
-                          }}
-                        >
-                          <Text
-                            style={[
-                              localStyles.showFullSentenceText,
-                              { color: ui.secondaryText },
+                        </Reanimated.View>
+                        {shouldOfferFullContent ? (
+                          <Pressable
+                            style={({ pressed }) => [
+                              localStyles.showFullSentenceRow,
+                              pressed
+                                ? localStyles.showFullSentenceRowPressed
+                                : null,
                             ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={tUI(
+                              uiLanguage,
+                              sentenceToggleLabelKey
+                            )}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              setIsFullSentenceExpanded((current) => {
+                                if (current) {
+                                  resetFrontBodyScroll(false);
+                                }
+                                return !current;
+                              });
+                            }}
                           >
-                            {tUI(uiLanguage, sentenceToggleLabelKey)}
-                          </Text>
-                          <View style={localStyles.expandArrowSlot}>
-                            <Animated.View
+                            <Text
                               style={[
-                                localStyles.expandArrowLayer,
-                                {
-                                  opacity: expandArrowDownOpacity,
-                                  transform: [
-                                    { rotate: expandArrowDownRotate },
-                                  ],
-                                },
+                                localStyles.showFullSentenceText,
+                                { color: ui.secondaryText },
                               ]}
                             >
-                              <Ionicons
-                                name="chevron-down"
-                                size={14}
-                                color={ui.secondaryText}
-                              />
-                            </Animated.View>
-                            <Animated.View
-                              style={[
-                                localStyles.expandArrowLayer,
-                                {
-                                  opacity: expandArrowUpOpacity,
-                                  transform: [{ rotate: expandArrowUpRotate }],
-                                },
-                              ]}
-                            >
-                              <Ionicons
-                                name="chevron-up"
-                                size={14}
-                                color={ui.secondaryText}
-                              />
-                            </Animated.View>
-                          </View>
-                        </Pressable>
-                      ) : null}
-                    </Reanimated.View>
-
-                    <View
-                      style={[
-                        styles.referenceDivider,
-                        {
-                          backgroundColor: ui.divider,
-                          marginTop: 10,
-                          marginBottom: 8,
-                        },
-                      ]}
-                    />
-
-                    <Reanimated.View
-                      style={[
-                        styles.referenceSubSection,
-                        localStyles.frontContextSection,
-                        { marginTop: 0 },
-                      ]}
-                    >
-                      {parsedInsight ? (
-                        <>
-                          <NuanceMetricsLeverUI
-                            formality={parsedInsight.metrics.formality}
-                            intensity={parsedInsight.metrics.intensity}
-                            ui={ui}
-                            fontScale={frontContentScale}
-                          />
-                          {contextMeasuredHeight === 0 ? (
-                            <View
-                              accessible={false}
-                              aria-hidden
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                              style={localStyles.textMeasurementPass}
-                              onLayout={handleContextMeasurementLayout}
-                            >
-                              <StructuredInsiderInsightUI
-                                insight={structuredInsight}
-                                isExpanded={true}
-                                textColor="transparent"
-                                secondaryTextColor="transparent"
-                                uiLanguage={uiLanguage}
-                                isLight={isLightMode}
-                                contentScale={frontContentScale}
-                              />
+                              {tUI(uiLanguage, sentenceToggleLabelKey)}
+                            </Text>
+                            <View style={localStyles.expandArrowSlot}>
+                              <Animated.View
+                                style={[
+                                  localStyles.expandArrowLayer,
+                                  {
+                                    opacity: expandArrowDownOpacity,
+                                    transform: [
+                                      { rotate: expandArrowDownRotate },
+                                    ],
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="chevron-down"
+                                  size={14}
+                                  color={ui.secondaryText}
+                                />
+                              </Animated.View>
+                              <Animated.View
+                                style={[
+                                  localStyles.expandArrowLayer,
+                                  {
+                                    opacity: expandArrowUpOpacity,
+                                    transform: [
+                                      { rotate: expandArrowUpRotate },
+                                    ],
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="chevron-up"
+                                  size={14}
+                                  color={ui.secondaryText}
+                                />
+                              </Animated.View>
                             </View>
-                          ) : null}
-                          <Reanimated.View
-                            style={
-                              isCulturalBackgroundCompacted
-                                ? contextBodyStyle
-                                : undefined
-                            }
-                          >
-                            <StructuredInsiderInsightUI
-                              insight={structuredInsight}
-                              isExpanded={isContextExpanded}
-                              showToggle={false}
-                              textColor={ui.noteText}
-                              secondaryTextColor={ui.secondaryText}
-                              emphasisTextColor={ui.primaryText}
-                              uiLanguage={uiLanguage}
-                              isLight={isLightMode}
-                              contentScale={frontContentScale}
-                              collapsedLines={frontDynamicLayout.contextBudgetLines}
+                          </Pressable>
+                        ) : null}
+                      </Reanimated.View>
+
+                      <View
+                        style={[
+                          styles.referenceDivider,
+                          {
+                            backgroundColor: ui.divider,
+                            marginTop: 10,
+                            marginBottom: 8,
+                          },
+                        ]}
+                      />
+
+                      <Reanimated.View
+                        style={[
+                          styles.referenceSubSection,
+                          localStyles.frontContextSection,
+                          { marginTop: 0 },
+                        ]}
+                      >
+                        {parsedInsight ? (
+                          <>
+                            <NuanceMetricsLeverUI
+                              formality={parsedInsight.metrics.formality}
+                              intensity={parsedInsight.metrics.intensity}
+                              ui={ui}
+                              fontScale={frontContentScale}
                             />
-                          </Reanimated.View>
-                        </>
-                      ) : (
-                        <>
-                          {contextMeasuredHeight === 0 ? (
-                            <View
-                              accessible={false}
-                              aria-hidden
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                              style={localStyles.textMeasurementPass}
-                              onLayout={handleContextMeasurementLayout}
-                            >
-                              <Text
+                            {contextMeasuredHeight === 0 ? (
+                              <View
                                 accessible={false}
                                 aria-hidden
                                 accessibilityElementsHidden
                                 importantForAccessibility="no-hide-descendants"
+                                style={localStyles.textMeasurementPass}
+                                onLayout={handleContextMeasurementLayout}
+                              >
+                                <StructuredInsiderInsightUI
+                                  insight={structuredInsight}
+                                  isExpanded={true}
+                                  textColor="transparent"
+                                  secondaryTextColor="transparent"
+                                  uiLanguage={uiLanguage}
+                                  isLight={isLightMode}
+                                  contentScale={frontContentScale}
+                                />
+                              </View>
+                            ) : null}
+                            <Reanimated.View
+                              style={
+                                isCulturalBackgroundCompacted
+                                  ? contextBodyStyle
+                                  : undefined
+                              }
+                            >
+                              <StructuredInsiderInsightUI
+                                insight={structuredInsight}
+                                isExpanded={isContextExpanded}
+                                showToggle={false}
+                                textColor={ui.noteText}
+                                secondaryTextColor={ui.secondaryText}
+                                emphasisTextColor={ui.primaryText}
+                                uiLanguage={uiLanguage}
+                                isLight={isLightMode}
+                                contentScale={frontContentScale}
+                                collapsedLines={
+                                  frontDynamicLayout.contextBudgetLines
+                                }
+                              />
+                            </Reanimated.View>
+                          </>
+                        ) : (
+                          <>
+                            {contextMeasuredHeight === 0 ? (
+                              <View
+                                accessible={false}
+                                aria-hidden
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                style={localStyles.textMeasurementPass}
+                                onLayout={handleContextMeasurementLayout}
+                              >
+                                <Text
+                                  accessible={false}
+                                  aria-hidden
+                                  accessibilityElementsHidden
+                                  importantForAccessibility="no-hide-descendants"
+                                  style={[
+                                    styles.referenceSubText,
+                                    {
+                                      color: 'transparent',
+                                      fontSize: Math.round(
+                                        18 * frontContentScale
+                                      ),
+                                      lineHeight: contextLineHeight,
+                                      paddingRight: frontTextWrapGuard,
+                                    },
+                                  ]}
+                                >
+                                  {culturalBackgroundText ||
+                                    tUI(uiLanguage, 'cardDetail.noContext')}
+                                </Text>
+                              </View>
+                            ) : null}
+                            <Reanimated.View
+                              style={
+                                isCulturalBackgroundCompacted
+                                  ? contextBodyStyle
+                                  : undefined
+                              }
+                            >
+                              <Text
                                 style={[
                                   styles.referenceSubText,
                                   {
-                                    color: 'transparent',
-                                    fontSize: Math.round(18 * frontContentScale),
+                                    color: ui.noteText,
+                                    fontSize: Math.round(
+                                      18 * frontContentScale
+                                    ),
                                     lineHeight: contextLineHeight,
                                     paddingRight: frontTextWrapGuard,
                                   },
                                 ]}
+                                numberOfLines={
+                                  isCulturalBackgroundCompacted &&
+                                  !isContextExpanded
+                                    ? frontDynamicLayout.contextBudgetLines
+                                    : undefined
+                                }
+                                onTextLayout={handleContextTextLayout}
                               >
                                 {culturalBackgroundText ||
                                   tUI(uiLanguage, 'cardDetail.noContext')}
                               </Text>
-                            </View>
-                          ) : null}
-                          <Reanimated.View
-                            style={
-                              isCulturalBackgroundCompacted
-                                ? contextBodyStyle
-                                : undefined
-                            }
+                            </Reanimated.View>
+                          </>
+                        )}
+                        {isCulturalBackgroundCompacted ? (
+                          <Pressable
+                            style={({ pressed }) => [
+                              localStyles.showFullSentenceRow,
+                              pressed
+                                ? localStyles.showFullSentenceRowPressed
+                                : null,
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={tUI(
+                              uiLanguage,
+                              isContextExpanded
+                                ? 'cardDetail.hideFullContent'
+                                : 'cardDetail.showFullContent'
+                            )}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              setIsContextExpanded((current) => {
+                                if (current) {
+                                  resetFrontBodyScroll(false);
+                                }
+                                return !current;
+                              });
+                            }}
                           >
                             <Text
                               style={[
-                                styles.referenceSubText,
-                                {
-                                  color: ui.noteText,
-                                  fontSize: Math.round(18 * frontContentScale),
-                                  lineHeight: contextLineHeight,
-                                  paddingRight: frontTextWrapGuard,
-                                },
+                                localStyles.showFullSentenceText,
+                                { color: ui.secondaryText },
                               ]}
-                              numberOfLines={
-                                isCulturalBackgroundCompacted &&
-                                !isContextExpanded
-                                  ? frontDynamicLayout.contextBudgetLines
-                                  : undefined
-                              }
-                              onTextLayout={handleContextTextLayout}
                             >
-                              {culturalBackgroundText ||
-                                tUI(uiLanguage, 'cardDetail.noContext')}
+                              {isContextExpanded
+                                ? tUI(uiLanguage, 'cardDetail.hideFullContent')
+                                : structuredInsight.detailBullets.length > 0
+                                  ? uiLanguage.startsWith('zh')
+                                    ? '展開背景與辨析'
+                                    : tUI(
+                                        uiLanguage,
+                                        'cardDetail.showFullContent'
+                                      )
+                                  : tUI(
+                                      uiLanguage,
+                                      'cardDetail.showFullContent'
+                                    )}
                             </Text>
-                          </Reanimated.View>
-                        </>
-                      )}
-                      {isCulturalBackgroundCompacted ? (
-                        <Pressable
-                          style={({ pressed }) => [
-                            localStyles.showFullSentenceRow,
-                            pressed
-                              ? localStyles.showFullSentenceRowPressed
-                              : null,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel={tUI(
-                            uiLanguage,
-                            isContextExpanded
-                              ? 'cardDetail.hideFullContent'
-                              : 'cardDetail.showFullContent'
-                          )}
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            setIsContextExpanded((current) => {
-                              if (current) {
-                                resetFrontBodyScroll(false);
-                              }
-                              return !current;
-                            });
-                          }}
-                        >
-                          <Text
-                            style={[
-                              localStyles.showFullSentenceText,
-                              { color: ui.secondaryText },
-                            ]}
-                          >
-                            {isContextExpanded
-                              ? tUI(uiLanguage, 'cardDetail.hideFullContent')
-                              : structuredInsight.detailBullets.length > 0
-                              ? (uiLanguage.startsWith('zh')
-                                  ? '展開背景與辨析'
-                                  : tUI(uiLanguage, 'cardDetail.showFullContent'))
-                              : tUI(uiLanguage, 'cardDetail.showFullContent')}
-                          </Text>
-                          <View style={localStyles.expandArrowSlot}>
-                            <Animated.View
-                              style={[
-                                localStyles.expandArrowLayer,
-                                {
-                                  opacity: contextArrowDownOpacity,
-                                  transform: [
-                                    { rotate: contextArrowDownRotate },
-                                  ],
-                                },
-                              ]}
-                            >
-                              <Ionicons
-                                name="chevron-down"
-                                size={14}
-                                color={ui.secondaryText}
-                              />
-                            </Animated.View>
-                            <Animated.View
-                              style={[
-                                localStyles.expandArrowLayer,
-                                {
-                                  opacity: contextArrowUpOpacity,
-                                  transform: [{ rotate: contextArrowUpRotate }],
-                                },
-                              ]}
-                            >
-                              <Ionicons
-                                name="chevron-up"
-                                size={14}
-                                color={ui.secondaryText}
-                              />
-                            </Animated.View>
-                          </View>
-                        </Pressable>
-                      ) : null}
-                    </Reanimated.View>
+                            <View style={localStyles.expandArrowSlot}>
+                              <Animated.View
+                                style={[
+                                  localStyles.expandArrowLayer,
+                                  {
+                                    opacity: contextArrowDownOpacity,
+                                    transform: [
+                                      { rotate: contextArrowDownRotate },
+                                    ],
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="chevron-down"
+                                  size={14}
+                                  color={ui.secondaryText}
+                                />
+                              </Animated.View>
+                              <Animated.View
+                                style={[
+                                  localStyles.expandArrowLayer,
+                                  {
+                                    opacity: contextArrowUpOpacity,
+                                    transform: [
+                                      { rotate: contextArrowUpRotate },
+                                    ],
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="chevron-up"
+                                  size={14}
+                                  color={ui.secondaryText}
+                                />
+                              </Animated.View>
+                            </View>
+                          </Pressable>
+                        ) : null}
+                      </Reanimated.View>
+                    </Pressable>
                   </ScrollView>
 
                   {/* ----- 第一頁底部操作列 ----- */}
@@ -2161,7 +2187,10 @@ function CardDetailCarouselCardUI({
                       neutral and only take colour when active. */}
                   <View
                     pointerEvents="box-none"
-                    style={[localStyles.cardActionRow, localStyles.cardActionRowSplit]}
+                    style={[
+                      localStyles.cardActionRow,
+                      localStyles.cardActionRowSplit,
+                    ]}
                   >
                     <TutorialSpotlight
                       active={
@@ -2172,7 +2201,10 @@ function CardDetailCarouselCardUI({
                     >
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={tUI(uiLanguage, 'cardDetail.practicePronunciation')}
+                        accessibilityLabel={tUI(
+                          uiLanguage,
+                          'cardDetail.practicePronunciation'
+                        )}
                         style={({ pressed }) => [
                           localStyles.practiceButton,
                           { backgroundColor: feedbackColors.mic },
@@ -2181,7 +2213,10 @@ function CardDetailCarouselCardUI({
                         onPress={onOpenPronunciationModal}
                       >
                         <Ionicons name="mic" size={18} color="#FFFFFF" />
-                        <Text style={localStyles.practiceButtonText} numberOfLines={1}>
+                        <Text
+                          style={localStyles.practiceButtonText}
+                          numberOfLines={1}
+                        >
                           {tUI(uiLanguage, 'cardDetail.practicePronunciation')}
                         </Text>
                       </Pressable>
@@ -2197,7 +2232,11 @@ function CardDetailCarouselCardUI({
                         ]}
                         onPress={handleSharePress}
                       >
-                        <Ionicons name="share-outline" size={24} color={ui.icon} />
+                        <Ionicons
+                          name="share-outline"
+                          size={24}
+                          color={ui.icon}
+                        />
                       </Pressable>
                       <Pressable
                         accessibilityRole="button"
@@ -2219,7 +2258,9 @@ function CardDetailCarouselCardUI({
                         accessibilityState={{ selected: isBookmarked }}
                         style={({ pressed }) => [
                           localStyles.secondaryActionBtn,
-                          pressed ? localStyles.rigidActionIconBtnPressed : null,
+                          pressed
+                            ? localStyles.rigidActionIconBtnPressed
+                            : null,
                         ]}
                         onPress={onOpenAlbumSheet}
                       >
@@ -2277,322 +2318,329 @@ function CardDetailCarouselCardUI({
                       onLayout={handleBackBodyLayout}
                       onContentSizeChange={handleBackBodyContentSizeChange}
                     >
-                      {collocationItems.length > 0 ? (
-                        <View style={styles.referenceCollocationSection}>
-                          <Text
-                            style={[
-                              localStyles.sectionLabel,
-                              { color: ui.secondaryText },
-                            ]}
-                          >
-                            {tUI(
-                              uiLanguage,
-                              isPhraseCard
-                                ? 'cardDetail.commonUsage'
-                                : 'cardDetail.collocation'
-                            )}
-                          </Text>
-                          {collocationItems.map((collocation) => (
-                            <View
-                              key={`${collocation.phrase}-${collocation.translation || ''}`}
-                              style={localStyles.collocationLineBlock}
-                            >
-                              <Text
-                                style={[
-                                  styles.referenceCollocationItem,
-                                  {
-                                    color: ui.primaryText,
-                                    fontSize: backTextFontSize,
-                                    lineHeight: backTextLineHeight,
-                                  },
-                                ]}
-                              >
-                                {`• ${collocation.phrase}`}
-                              </Text>
-                              {collocation.translation ? (
-                                <Text
-                                  style={[
-                                    localStyles.collocationTranslationText,
-                                    {
-                                      color: ui.secondaryText,
-                                      fontSize: Math.max(
-                                        12,
-                                        backTextFontSize - 4
-                                      ),
-                                      lineHeight: Math.max(
-                                        16,
-                                        backTextLineHeight - 4
-                                      ),
-                                    },
-                                  ]}
-                                >
-                                  {collocation.translation}
-                                </Text>
-                              ) : null}
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-
-                      {semanticRelationItems.length > 0 ? (
-                        <>
-                          {collocationItems.length > 0 ? (
-                            <View
-                              style={[
-                                localStyles.backSectionDivider,
-                                { backgroundColor: ui.divider },
-                              ]}
-                            />
-                          ) : null}
-                          <View
-                            style={[
-                              styles.referenceSubSection,
-                              { marginTop: 0 },
-                            ]}
-                          >
+                      <Pressable
+                        onPress={toggleFlip}
+                        style={localStyles.scrollBodyPressable}
+                      >
+                        {collocationItems.length > 0 ? (
+                          <View style={styles.referenceCollocationSection}>
                             <Text
                               style={[
                                 localStyles.sectionLabel,
                                 { color: ui.secondaryText },
                               ]}
                             >
-                              {tUI(uiLanguage, 'cardDetail.semanticRelations')}
+                              {tUI(
+                                uiLanguage,
+                                isPhraseCard
+                                  ? 'cardDetail.commonUsage'
+                                  : 'cardDetail.collocation'
+                              )}
                             </Text>
-                            <View style={localStyles.semanticChipWrap}>
-                              {semanticRelationItems.map((relation) => (
-                                <View
-                                  key={`${relation.kind}-${relation.term}`}
+                            {collocationItems.map((collocation) => (
+                              <View
+                                key={`${collocation.phrase}-${collocation.translation || ''}`}
+                                style={localStyles.collocationLineBlock}
+                              >
+                                <Text
                                   style={[
-                                    localStyles.semanticChip,
+                                    styles.referenceCollocationItem,
                                     {
-                                      backgroundColor: isLightMode
-                                        ? 'rgba(78,175,244,0.09)'
-                                        : 'rgba(78,175,244,0.12)',
-                                      borderColor: isLightMode
-                                        ? 'rgba(46,126,194,0.24)'
-                                        : 'rgba(101,185,247,0.28)',
+                                      color: ui.primaryText,
+                                      fontSize: backTextFontSize,
+                                      lineHeight: backTextLineHeight,
                                     },
                                   ]}
                                 >
+                                  {`• ${collocation.phrase}`}
+                                </Text>
+                                {collocation.translation ? (
                                   <Text
                                     style={[
-                                      localStyles.semanticChipSymbol,
+                                      localStyles.collocationTranslationText,
                                       {
-                                        color:
-                                          relation.kind === 'synonym'
-                                            ? '#2E7EC2'
-                                            : ui.secondaryText,
+                                        color: ui.secondaryText,
+                                        fontSize: Math.max(
+                                          12,
+                                          backTextFontSize - 4
+                                        ),
+                                        lineHeight: Math.max(
+                                          16,
+                                          backTextLineHeight - 4
+                                        ),
                                       },
                                     ]}
                                   >
-                                    {relation.kind === 'synonym' ? '≈' : '≠'}
+                                    {collocation.translation}
                                   </Text>
+                                ) : null}
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+
+                        {semanticRelationItems.length > 0 ? (
+                          <>
+                            {collocationItems.length > 0 ? (
+                              <View
+                                style={[
+                                  localStyles.backSectionDivider,
+                                  { backgroundColor: ui.divider },
+                                ]}
+                              />
+                            ) : null}
+                            <View
+                              style={[
+                                styles.referenceSubSection,
+                                { marginTop: 0 },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  localStyles.sectionLabel,
+                                  { color: ui.secondaryText },
+                                ]}
+                              >
+                                {tUI(
+                                  uiLanguage,
+                                  'cardDetail.semanticRelations'
+                                )}
+                              </Text>
+                              <View style={localStyles.semanticChipWrap}>
+                                {semanticRelationItems.map((relation) => (
                                   <View
-                                    style={localStyles.semanticChipTextBlock}
+                                    key={`${relation.kind}-${relation.term}`}
+                                    style={[
+                                      localStyles.semanticChip,
+                                      {
+                                        backgroundColor: isLightMode
+                                          ? 'rgba(78,175,244,0.09)'
+                                          : 'rgba(78,175,244,0.12)',
+                                        borderColor: isLightMode
+                                          ? 'rgba(46,126,194,0.24)'
+                                          : 'rgba(101,185,247,0.28)',
+                                      },
+                                    ]}
                                   >
                                     <Text
                                       style={[
-                                        localStyles.semanticChipTerm,
-                                        { color: ui.primaryText },
+                                        localStyles.semanticChipSymbol,
+                                        {
+                                          color:
+                                            relation.kind === 'synonym'
+                                              ? '#2E7EC2'
+                                              : ui.secondaryText,
+                                        },
                                       ]}
                                     >
-                                      {relation.term}
+                                      {relation.kind === 'synonym' ? '≈' : '≠'}
                                     </Text>
-                                    {relation.translation ? (
+                                    <View
+                                      style={localStyles.semanticChipTextBlock}
+                                    >
                                       <Text
                                         style={[
-                                          localStyles.semanticChipTranslation,
-                                          { color: ui.secondaryText },
+                                          localStyles.semanticChipTerm,
+                                          { color: ui.primaryText },
                                         ]}
                                       >
-                                        {relation.translation}
+                                        {relation.term}
                                       </Text>
-                                    ) : null}
+                                      {relation.translation ? (
+                                        <Text
+                                          style={[
+                                            localStyles.semanticChipTranslation,
+                                            { color: ui.secondaryText },
+                                          ]}
+                                        >
+                                          {relation.translation}
+                                        </Text>
+                                      ) : null}
+                                    </View>
                                   </View>
-                                </View>
-                              ))}
+                                ))}
+                              </View>
                             </View>
-                          </View>
-                        </>
-                      ) : null}
+                          </>
+                        ) : null}
 
-                      {apiExampleSentences.length > 0 ? (
-                        <>
-                          {collocationItems.length > 0 ||
-                          semanticRelationItems.length > 0 ? (
+                        {apiExampleSentences.length > 0 ? (
+                          <>
+                            {collocationItems.length > 0 ||
+                            semanticRelationItems.length > 0 ? (
+                              <View
+                                style={[
+                                  localStyles.backSectionDivider,
+                                  { backgroundColor: ui.divider },
+                                ]}
+                              />
+                            ) : null}
                             <View
                               style={[
-                                localStyles.backSectionDivider,
-                                { backgroundColor: ui.divider },
-                              ]}
-                            />
-                          ) : null}
-                          <View
-                            style={[
-                              styles.referenceSubSection,
-                              { marginTop: 0 },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                localStyles.sectionLabel,
-                                { color: ui.secondaryText },
+                                styles.referenceSubSection,
+                                { marginTop: 0 },
                               ]}
                             >
-                              {tUI(uiLanguage, 'cardDetail.exampleSentence')}
-                            </Text>
-                            <View>
-                              {renderExampleRows(false)}
+                              <Text
+                                style={[
+                                  localStyles.sectionLabel,
+                                  { color: ui.secondaryText },
+                                ]}
+                              >
+                                {tUI(uiLanguage, 'cardDetail.exampleSentence')}
+                              </Text>
+                              <View>{renderExampleRows(false)}</View>
                             </View>
-                          </View>
-                        </>
-                      ) : null}
-
-                      {collocationItems.length > 0 ||
-                      semanticRelationItems.length > 0 ||
-                      apiExampleSentences.length > 0 ? (
-                        <View
-                          style={[
-                            localStyles.backSectionDivider,
-                            { backgroundColor: ui.divider },
-                          ]}
-                        />
-                      ) : null}
-                      <View
-                        style={[styles.referenceSubSection, { marginTop: 0 }]}
-                      >
-                        <Text
-                          style={[
-                            localStyles.sectionLabel,
-                            { color: ui.secondaryText },
-                          ]}
-                        >
-                          {tUI(uiLanguage, 'cardDetail.personalNotes')}
-                        </Text>
-                        {hasStickyNote ? (
-                          <Text
-                            style={[
-                              localStyles.dualSentenceText,
-                              {
-                                color: ui.primaryText,
-                                fontSize: backTextFontSize,
-                                lineHeight: backTextLineHeight,
-                                fontWeight: '500',
-                              },
-                            ]}
-                          >
-                            {stickyNoteText?.trim()}
-                          </Text>
+                          </>
                         ) : null}
-                        <Pressable
-                          style={({ pressed }) => [
-                            localStyles.noteActionBtn,
-                            {
-                              backgroundColor: ui.noteActionBg,
-                              borderColor: ui.noteActionBorder,
-                            },
-                            pressed
-                              ? localStyles.actionIconBtnPressed
-                              : null,
-                          ]}
-                          accessibilityRole="button"
-                          onPress={onOpenStickyNote}
-                        >
-                          <Ionicons
-                            name={hasStickyNote ? 'create-outline' : 'add'}
-                            size={16}
-                            color={ui.icon}
-                          />
-                          <Text
-                            style={[
-                              localStyles.noteActionText,
-                              { color: ui.icon },
-                            ]}
-                          >
-                            {hasStickyNote
-                              ? tUI(uiLanguage, 'cardDetail.editNote')
-                              : tUI(uiLanguage, 'cardDetail.addNote')}
-                          </Text>
-                        </Pressable>
-                      </View>
 
-                      {supplementarySenses.length > 0 ? (
-                        <>
+                        {collocationItems.length > 0 ||
+                        semanticRelationItems.length > 0 ||
+                        apiExampleSentences.length > 0 ? (
                           <View
                             style={[
                               localStyles.backSectionDivider,
                               { backgroundColor: ui.divider },
                             ]}
                           />
-                          <View
+                        ) : null}
+                        <View
+                          style={[styles.referenceSubSection, { marginTop: 0 }]}
+                        >
+                          <Text
                             style={[
-                              styles.referenceSubSection,
-                              { marginTop: 0 },
+                              localStyles.sectionLabel,
+                              { color: ui.secondaryText },
                             ]}
                           >
+                            {tUI(uiLanguage, 'cardDetail.personalNotes')}
+                          </Text>
+                          {hasStickyNote ? (
                             <Text
                               style={[
-                                localStyles.sectionLabel,
-                                { color: ui.secondaryText },
+                                localStyles.dualSentenceText,
+                                {
+                                  color: ui.primaryText,
+                                  fontSize: backTextFontSize,
+                                  lineHeight: backTextLineHeight,
+                                  fontWeight: '500',
+                                },
                               ]}
                             >
-                              {tUI(uiLanguage, 'cardDetail.otherMeanings')}
+                              {stickyNoteText?.trim()}
                             </Text>
-                            <View style={localStyles.supplementarySensesList}>
-                              {supplementarySenses.map((sense, sIdx) => (
-                                <View
-                                  key={`supp-sense-${sIdx}`}
-                                  style={localStyles.supplementarySenseRow}
-                                >
-                                  {sense.pos ? (
-                                    <View
-                                      style={[
-                                        localStyles.posBadgeSmall,
-                                        { backgroundColor: ui.posBg },
-                                      ]}
-                                    >
-                                      <Text
+                          ) : null}
+                          <Pressable
+                            style={({ pressed }) => [
+                              localStyles.noteActionBtn,
+                              {
+                                backgroundColor: ui.noteActionBg,
+                                borderColor: ui.noteActionBorder,
+                              },
+                              pressed ? localStyles.actionIconBtnPressed : null,
+                            ]}
+                            accessibilityRole="button"
+                            onPress={onOpenStickyNote}
+                          >
+                            <Ionicons
+                              name={hasStickyNote ? 'create-outline' : 'add'}
+                              size={16}
+                              color={ui.icon}
+                            />
+                            <Text
+                              style={[
+                                localStyles.noteActionText,
+                                { color: ui.icon },
+                              ]}
+                            >
+                              {hasStickyNote
+                                ? tUI(uiLanguage, 'cardDetail.editNote')
+                                : tUI(uiLanguage, 'cardDetail.addNote')}
+                            </Text>
+                          </Pressable>
+                        </View>
+
+                        {supplementarySenses.length > 0 ? (
+                          <>
+                            <View
+                              style={[
+                                localStyles.backSectionDivider,
+                                { backgroundColor: ui.divider },
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.referenceSubSection,
+                                { marginTop: 0 },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  localStyles.sectionLabel,
+                                  { color: ui.secondaryText },
+                                ]}
+                              >
+                                {tUI(uiLanguage, 'cardDetail.otherMeanings')}
+                              </Text>
+                              <View style={localStyles.supplementarySensesList}>
+                                {supplementarySenses.map((sense, sIdx) => (
+                                  <View
+                                    key={`supp-sense-${sIdx}`}
+                                    style={localStyles.supplementarySenseRow}
+                                  >
+                                    {sense.pos ? (
+                                      <View
                                         style={[
-                                          localStyles.posTextSmall,
-                                          { color: ui.posText },
+                                          localStyles.posBadgeSmall,
+                                          { backgroundColor: ui.posBg },
                                         ]}
                                       >
-                                        {sense.pos}
-                                      </Text>
-                                    </View>
-                                  ) : null}
-                                  <Text
-                                    style={[
-                                      localStyles.supplementaryDefinitionText,
-                                      {
-                                        color: ui.primaryText,
-                                        fontSize: backTextFontSize,
-                                        lineHeight: backTextLineHeight,
-                                      },
-                                    ]}
-                                  >
-                                    {sense.definition}
-                                  </Text>
-                                </View>
-                              ))}
+                                        <Text
+                                          style={[
+                                            localStyles.posTextSmall,
+                                            { color: ui.posText },
+                                          ]}
+                                        >
+                                          {sense.pos}
+                                        </Text>
+                                      </View>
+                                    ) : null}
+                                    <Text
+                                      style={[
+                                        localStyles.supplementaryDefinitionText,
+                                        {
+                                          color: ui.primaryText,
+                                          fontSize: backTextFontSize,
+                                          lineHeight: backTextLineHeight,
+                                        },
+                                      ]}
+                                    >
+                                      {sense.definition}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
                             </View>
-                          </View>
-                        </>
-                      ) : null}
+                          </>
+                        ) : null}
+                      </Pressable>
                     </ScrollView>
                   </View>
 
                   {/* 底部 Footer */}
-                  <View style={localStyles.backFooterPinned}>
+                  <Pressable
+                    onPress={toggleFlip}
+                    style={localStyles.backFooterPinned}
+                  >
                     <Text style={styles.referenceFooterText}>
                       {itemDisplayDate || tUI(uiLanguage, 'cardDetail.basics')}
                     </Text>
-                  </View>
+                  </Pressable>
                 </View>
               </Reanimated.View>
             </View>
           </View>
-        </Pressable>
+        </View>
       </TutorialSpotlight>
       <Modal
         visible={isSharePickerVisible}
@@ -2836,6 +2884,9 @@ function CardDetailCarouselCardUI({
 }
 
 const localStyles = StyleSheet.create({
+  scrollBodyPressable: {
+    width: '100%',
+  },
   frontBodyScroll: {
     flex: 1,
     minHeight: 120,
