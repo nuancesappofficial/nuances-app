@@ -987,6 +987,31 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       targetWord: card?.targetWord,
       originalSentence: card?.originalSentence,
     });
+  const nextCard =
+    currentIndex === null ? null : (scopedCards[currentIndex + 1] ?? null);
+  const nextPronunciationText =
+    nextCard &&
+    resolvePronunciationAudioSource({
+      targetWord: nextCard.targetWord,
+      sourceApp: nextCard.sourceApp,
+      originalSentence: nextCard.originalSentence,
+    }) !== 'bundled-default-experience'
+      ? resolveCardPronunciationSubject(nextCard)
+      : '';
+
+  // 建卡時的背景 prefetch 可能失敗（例如當時被擋、或 OS 清掉 cache），
+  // 打開卡片時再補抓一次，讓按下喇叭時直接播本機檔，不用轉圈圈。
+  // 本機已有檔案時 prefetchAudio 會直接 return，不會打網路。
+  React.useEffect(() => {
+    if (pronunciationText && !usesDefaultExperiencePronunciation) {
+      void prefetchEnglishNaturally(pronunciationText);
+    }
+  }, [pronunciationText, usesDefaultExperiencePronunciation]);
+  React.useEffect(() => {
+    if (nextPronunciationText) {
+      void prefetchEnglishNaturally(nextPronunciationText);
+    }
+  }, [nextPronunciationText]);
 
   const stopUserRecordingPreview = React.useCallback(async () => {
     const sound = userRecordingSoundRef.current;
@@ -2072,11 +2097,6 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         return;
       }
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      const nextCard = scopedCards[index + 1];
-      const nextWord = (nextCard?.targetWord || '').trim();
-      if (nextWord) {
-        void prefetchEnglishNaturally(nextWord);
-      }
       const onPlaybackStart = (duration: number) => {
         setPlaybackDurationMillis(duration > 0 ? duration : 1100);
         setIsPlaying(true);

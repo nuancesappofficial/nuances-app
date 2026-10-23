@@ -23,6 +23,9 @@ export function transitionSignInCurtain(
 ): SignInCurtainState {
   switch (event) {
     case 'sign-in-started':
+      if (state.visible && state.ready) {
+        return state;
+      }
       return {
         visible: true,
         ready: false,

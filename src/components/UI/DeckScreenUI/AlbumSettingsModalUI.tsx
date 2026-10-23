@@ -80,7 +80,8 @@ export default function AlbumSettingsModalUI({
   children,
 }: Props) {
   const colorScheme = useColorScheme();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isCompact = screenHeight < 760 || screenWidth < 380;
   const palette = React.useMemo(() => resolveThemeColors(colorScheme), [colorScheme]);
   const isDarkMode = colorScheme === 'dark';
   const isLight = !isDarkMode;
@@ -291,7 +292,10 @@ export default function AlbumSettingsModalUI({
               />
 
               <View
-                style={styles.tabContentViewport}
+                style={[
+                  styles.tabContentViewport,
+                  isCompact && styles.tabContentViewportCompact,
+                ]}
                 onLayout={(event) => {
                   const nextWidth = event.nativeEvent.layout.width;
                   setTabContentWidth((prev) => (prev === nextWidth ? prev : nextWidth));
@@ -384,10 +388,18 @@ export default function AlbumSettingsModalUI({
                     </View>
                   </View>
 
-                  <View style={[styles.tabPanel, styles.imagePanel, { width: panelWidth }]}>
+                  <View
+                    style={[
+                      styles.tabPanel,
+                      styles.imagePanel,
+                      isCompact && styles.imagePanelCompact,
+                      { width: panelWidth },
+                    ]}
+                  >
                     <Pressable
                       style={({ pressed }) => [
                         styles.coverUploadTile,
+                        isCompact && styles.coverUploadTileCompact,
                         {
                           backgroundColor: optionSurface,
                           borderColor: optionBorder,
@@ -544,6 +556,9 @@ const styles = StyleSheet.create({
     height: 250,
     overflow: 'hidden',
   },
+  tabContentViewportCompact: {
+    height: 185,
+  },
   tabContentSlider: {
     height: '100%',
     flexDirection: 'row',
@@ -556,6 +571,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  imagePanelCompact: {
+    paddingVertical: 4,
   },
   optionRow: {
     flexDirection: 'row',
@@ -614,6 +632,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  coverUploadTileCompact: {
+    width: 136,
   },
   coverUploadTilePressed: {
     opacity: 0.96,

@@ -14,28 +14,34 @@ See a word you don’t know? Snap or share it — Nuances turns it into a flashc
 
 ## Description
 
-Nuances helps English learners capture useful language from daily life and turn it into practical flashcards for review.
+No more “I’ll look it up later.”
 
-Create cards from typed text, images, documents, or shared content. Organize cards into albums, review them with lightweight study tools, and use pronunciation support when you want focused speaking practice.
+See an English word you don’t know? Snap it or share it into Nuances from any app — no need to stop reading. Nuances uses AI to turn it into a flashcard with real context, subtle nuance, pronunciation scoring and quick quizzes, so no word slips by.
 
-Premium features unlock AI-assisted card generation, cloud text-to-speech voices, pronunciation scoring, and expanded learning workflows. Purchases and restore purchases are handled through Apple in-app purchase.
+Skip the memorized word lists and learn from the English you actually meet. You can even save content without opening the app, then come back to review when you have time.
 
 Key features:
-- Create flashcards from text, images, and shared content
-- Organize learning material with albums and favorites
-- Review cards with examples, pronunciation, and saved context
-- Generate AI-assisted cards through secure backend functions
-- Practice pronunciation with microphone-based scoring
-- Use cloud text-to-speech for natural playback
-- Import content from other apps using the iOS share extension
 
-Nuances is designed for learners who want to build a personal English memory bank from the words, phrases, and examples they actually encounter.
+- Save as you go, stay in flow
+When you find English in real life, share it directly from other apps into Nuances without stopping to look things up or organize notes immediately.
+
+- Text and images, handled in one place
+Supports typed text, image uploads, and iOS sharing, so you can collect English from articles, messages, study materials, social posts, screenshots, and everyday moments.
+
+- Words and phrases from real context
+Learn beyond direct translation. Understand how a word is used in a sentence, including meaning, tone, usage, and subtle nuance.
+
+- Pronunciation checks and quick quizzes
+Turn saved content into active practice with pronunciation scoring, listening practice, multiple-choice questions, and quick quizzes.
+
+Nuances is great for learners preparing for TOEFL, IELTS, TOEIC, the SAT or GRE, or anyone who wants to build a personal English memory bank from the language they actually encounter.
+
+New users can create up to 20 AI-generated cards at no charge. This free allowance does not start a subscription or automatically renew.
+
+Premium unlocks AI card generation, cloud natural voice, pronunciation scoring, and expanded learning flows. Cloud AI and voice features include generous fair-use limits that typical learners usually will not reach; these limits help maintain service quality and prevent abuse.
 
 Terms of Use (EULA):
 https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
-
-Privacy Policy:
-https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=copy_link
 
 ## Keywords
 

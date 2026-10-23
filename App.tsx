@@ -45,6 +45,7 @@ import AnimatedSplashV2 from './src/components/UI/shared/AnimatedSplashV2';
 import { useShareExtension } from './src/hooks/useShareExtension';
 import { ShareExtensionProvider } from './src/contexts/ShareExtensionContext';
 import { AppTourProvider } from './src/contexts/AppTourContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getCurrentSession,
   signIn,
@@ -171,48 +172,108 @@ const STARTUP_LOCAL_SCOPE_TIMEOUT_MS = 10000;
 const NATIVE_BRIDGE_TIMEOUT_MS = 3000;
 const STARTUP_WATCHDOG_TIMEOUT_MS = 15000;
 
-async function checkOnboardingStatus(nextUserId: string): Promise<boolean> {
-  const { data, error } = await withTimeout(
-    Promise.resolve(
-      supabase
-        .from('profiles')
-        .select('onboarding_completed')
-        .eq('id', nextUserId)
-        .maybeSingle()
-    ),
-    STARTUP_REMOTE_GATE_TIMEOUT_MS,
-    'checkOnboardingStatus'
-  );
+const ONBOARDING_COMPLETED_STORAGE_PREFIX = 'nuances:onboarding_completed:';
 
-  if (error) {
-    console.warn('[Onboarding] status lookup failed:', error.message);
+function buildOnboardingCompletedKey(userId: string): string {
+  return `${ONBOARDING_COMPLETED_STORAGE_PREFIX}${userId}`;
+}
+
+async function hasCompletedOnboardingLocally(userId: string | null | undefined): Promise<boolean> {
+  if (!userId) return false;
+  try {
+    const value = await AsyncStorage.getItem(buildOnboardingCompletedKey(userId));
+    return value === 'true';
+  } catch {
     return false;
   }
+}
 
-  return data?.onboarding_completed === true;
+async function markOnboardingCompletedLocally(userId: string | null | undefined): Promise<void> {
+  if (!userId) return;
+  try {
+    await AsyncStorage.setItem(buildOnboardingCompletedKey(userId), 'true');
+  } catch {
+    // Non-blocking
+  }
+}
+
+async function checkOnboardingStatus(
+  nextUserId: string,
+  userMetadata?: { createdAt?: string; lastSignInAt?: string }
+): Promise<boolean> {
+  // 1. Fast local path: if previously marked completed locally, return true immediately
+  if (await hasCompletedOnboardingLocally(nextUserId)) {
+    return true;
+  }
+
+  // 2. Query Supabase profiles table
+  try {
+    const { data, error } = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('profiles')
+          .select('onboarding_completed')
+          .eq('id', nextUserId)
+          .maybeSingle()
+      ),
+      STARTUP_REMOTE_GATE_TIMEOUT_MS,
+      'checkOnboardingStatus'
+    );
+
+    if (error) {
+      console.warn('[Onboarding] status lookup failed:', error.message);
+      if (userMetadata?.createdAt) {
+        const isNewAccount =
+          Date.now() - new Date(userMetadata.createdAt).getTime() < 1000 * 60 * 60 * 24;
+        if (isNewAccount) return false;
+      }
+      return false;
+    }
+
+    if (data?.onboarding_completed === true) {
+      void markOnboardingCompletedLocally(nextUserId);
+      return true;
+    }
+
+    return false;
+  } catch (timeoutOrNetworkError) {
+    console.warn('[Onboarding] status lookup timed out or failed gracefully:', timeoutOrNetworkError);
+    // If remote check times out and user account was created recently, it's definitely a new user
+    if (userMetadata?.createdAt) {
+      const isNewAccount =
+        Date.now() - new Date(userMetadata.createdAt).getTime() < 1000 * 60 * 60 * 24;
+      if (isNewAccount) return false;
+    }
+    return false;
+  }
 }
 
 async function shouldShowVideoTour(nextUserId: string): Promise<boolean> {
   if (!VIDEO_TOUR_ENABLED) return false;
   if (await hasSeenTourLocally(nextUserId)) return false;
-  const { data, error } = await withTimeout(
-    Promise.resolve(
-      supabase
-        .from('profiles')
-        .select('has_seen_tour')
-        .eq('id', nextUserId)
-        .maybeSingle()
-    ),
-    STARTUP_REMOTE_GATE_TIMEOUT_MS,
-    'shouldShowVideoTour'
-  );
+  try {
+    const { data, error } = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('profiles')
+          .select('has_seen_tour')
+          .eq('id', nextUserId)
+          .maybeSingle()
+      ),
+      STARTUP_REMOTE_GATE_TIMEOUT_MS,
+      'shouldShowVideoTour'
+    );
 
-  if (error) {
-    console.warn('[VideoTour] status lookup failed:', error.message);
+    if (error) {
+      console.warn('[VideoTour] status lookup failed:', error.message);
+      return false;
+    }
+
+    return data?.has_seen_tour !== true;
+  } catch (timeoutOrNetworkError) {
+    console.warn('[VideoTour] status lookup timed out or failed gracefully:', timeoutOrNetworkError);
     return false;
   }
-
-  return data?.has_seen_tour !== true;
 }
 
 async function syncProfileSettingsToLocal(nextUserId: string): Promise<void> {
@@ -681,6 +742,39 @@ export default function App() {
   const isPromptingAlertRef = React.useRef(false);
   const authTransitionIdRef = React.useRef(0);
   const activeUserIdRef = React.useRef<string | null>(null);
+  const inFlightAuthUserIdRef = React.useRef<string | null>(null);
+  const signInCurtainWatchdogTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const releaseSignInCurtain = React.useCallback(() => {
+    if (signInCurtainWatchdogTimerRef.current) {
+      clearTimeout(signInCurtainWatchdogTimerRef.current);
+      signInCurtainWatchdogTimerRef.current = null;
+    }
+    dispatchSignInCurtain('session-ready');
+  }, []);
+
+  const abortSignInCurtain = React.useCallback(() => {
+    if (signInCurtainWatchdogTimerRef.current) {
+      clearTimeout(signInCurtainWatchdogTimerRef.current);
+      signInCurtainWatchdogTimerRef.current = null;
+    }
+    inFlightAuthUserIdRef.current = null;
+    dispatchSignInCurtain('sign-in-aborted');
+  }, []);
+
+  const armSignInCurtainWatchdog = React.useCallback(() => {
+    if (signInCurtainWatchdogTimerRef.current) {
+      clearTimeout(signInCurtainWatchdogTimerRef.current);
+    }
+    signInCurtainWatchdogTimerRef.current = setTimeout(() => {
+      console.warn('[SignInCurtain] watchdog triggered after 10s: aborting curtain safely');
+      inFlightAuthUserIdRef.current = null;
+      dispatchSignInCurtain('sign-in-aborted');
+      setOnboardingChecked(true);
+      setVideoTourChecked(true);
+      setIsReady(true);
+    }, 10000);
+  }, []);
   const analyticsAppOpenedRef = React.useRef(false);
   const startupGateStateRef = React.useRef({
     isReady: false,
@@ -842,36 +936,75 @@ export default function App() {
           setVideoTourChecked(false);
           setIsReady(true);
 
-          void triggerBackgroundCardSync('startup').then((synced) =>
-            synced ? processPendingCardImageUploads(user.id) : undefined
-          );
-          triggerBackgroundAccountRefresh(user.id, 'startup');
           void registerPushTokenForUser(user.id);
           void inAppMessageService.init(user.id);
+
+          const coldStartSafetyTimer = setTimeout(() => {
+            if (activeUserIdRef.current === user.id) {
+              console.warn('[App] cold start gate safety release triggered');
+              setVideoTourChecked(true);
+              setOnboardingChecked(true);
+            }
+          }, 6000);
+
+          const userMetadata = user
+            ? { createdAt: user.created_at, lastSignInAt: user.last_sign_in_at }
+            : undefined;
+
           void Promise.allSettled([
             fetchUserHasCacheItems(user.id),
-            checkOnboardingStatus(user.id),
+            checkOnboardingStatus(user.id, userMetadata),
           ]).then(async ([cacheRes, onboardingRes]) => {
+            clearTimeout(coldStartSafetyTimer);
             if (activeUserIdRef.current !== user.id) return;
             const hasCache = cacheRes.status === 'fulfilled' ? cacheRes.value : false;
             if (hasCache) {
               setInitialTabIndex(1);
             }
-            const completed = onboardingRes.status === 'fulfilled' ? onboardingRes.value : true;
+            let completed = true;
+            if (onboardingRes.status === 'fulfilled') {
+              completed = onboardingRes.value;
+            } else {
+              const isBrandNew = user.created_at
+                ? Date.now() - new Date(user.created_at).getTime() < 1000 * 60 * 60 * 24
+                : false;
+              completed = !isBrandNew;
+            }
             setNeedsOnboarding(!completed);
-            void shouldShowVideoTour(user.id)
-              .then((showVideoTour) => {
-                if (activeUserIdRef.current !== user.id) return;
-                setNeedsVideoTour(showVideoTour);
-                setVideoTourChecked(true);
-              })
-              .catch((error) => {
-                console.warn('[VideoTour] background status check failed:', error);
-                if (activeUserIdRef.current !== user.id) return;
-                setNeedsVideoTour(false);
-                setVideoTourChecked(true);
-              });
+            setOnboardingChecked(true);
+            if (completed) {
+              void shouldShowVideoTour(user.id)
+                .then((showVideoTour) => {
+                  if (activeUserIdRef.current !== user.id) return;
+                  setNeedsVideoTour(showVideoTour);
+                  setVideoTourChecked(true);
+                  // Defer background sync until UI routing is settled
+                  void triggerBackgroundCardSync('startup').then((synced) =>
+                    synced ? processPendingCardImageUploads(user.id) : undefined
+                  );
+                  triggerBackgroundAccountRefresh(user.id, 'startup');
+                })
+                .catch((error) => {
+                  console.warn('[VideoTour] background status check failed:', error);
+                  if (activeUserIdRef.current !== user.id) return;
+                  setNeedsVideoTour(false);
+                  setVideoTourChecked(true);
+                  void triggerBackgroundCardSync('startup').then((synced) =>
+                    synced ? processPendingCardImageUploads(user.id) : undefined
+                  );
+                  triggerBackgroundAccountRefresh(user.id, 'startup');
+                });
+            } else {
+              // User needs onboarding -> immediately release video tour gate
+              setNeedsVideoTour(false);
+              setVideoTourChecked(true);
+              void triggerBackgroundCardSync('startup').then((synced) =>
+                synced ? processPendingCardImageUploads(user.id) : undefined
+              );
+              triggerBackgroundAccountRefresh(user.id, 'startup');
+            }
           }).catch((error) => {
+            clearTimeout(coldStartSafetyTimer);
             console.warn('[App] background onboarding check failed:', error);
             if (activeUserIdRef.current === user.id) {
               setNeedsVideoTour(false);
@@ -1054,6 +1187,8 @@ export default function App() {
       });
       if (!session?.access_token) {
         authTransitionIdRef.current += 1;
+        inFlightAuthUserIdRef.current = null;
+        abortSignInCurtain();
         // Hide the previous account immediately. Cleanup may touch many local
         // rows/files and must not leave the old navigator interactive.
         setAllowOfflineAccess(false);
@@ -1067,7 +1202,6 @@ export default function App() {
         setOnboardingChecked(true);
         setNeedsVideoTour(false);
         setVideoTourChecked(true);
-        dispatchSignInCurtain('sign-in-aborted');
         setIsReady(true);
         void (async () => {
           try {
@@ -1096,17 +1230,23 @@ export default function App() {
       }
       const incomingUserId = session.user.id;
       if (
-        activeUserIdRef.current === incomingUserId &&
-        (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')
+        (activeUserIdRef.current === incomingUserId || inFlightAuthUserIdRef.current === incomingUserId) &&
+        (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'SIGNED_IN')
       ) {
         return;
       }
+      inFlightAuthUserIdRef.current = incomingUserId;
       const transitionId = authTransitionIdRef.current + 1;
       authTransitionIdRef.current = transitionId;
       const isStaleTransition = () => authTransitionIdRef.current !== transitionId;
       const isAccountSwitch = Boolean(
         activeUserIdRef.current && activeUserIdRef.current !== incomingUserId
       );
+      const isSigningIn = !activeUserIdRef.current && Boolean(incomingUserId);
+      if (isSigningIn || isAccountSwitch) {
+        dispatchSignInCurtain('sign-in-started');
+        armSignInCurtainWatchdog();
+      }
       if (isAccountSwitch) {
         // Unmount account A before any asynchronous cleanup/bootstrap for B.
         activeUserIdRef.current = null;
@@ -1120,14 +1260,20 @@ export default function App() {
           const nextUserId = incomingUserId;
           if (nextUserId) {
             await waitForFreshTestAccountReset();
-            if (isStaleTransition()) return;
+            if (isStaleTransition()) {
+              inFlightAuthUserIdRef.current = null;
+              return;
+            }
             if (isAccountSwitch) {
               await withTimeout(
                 setAppGroupActiveUserId(null),
                 NATIVE_BRIDGE_TIMEOUT_MS,
                 'setAppGroupActiveUserId(account-switch-clear)'
               );
-              if (isStaleTransition()) return;
+              if (isStaleTransition()) {
+                inFlightAuthUserIdRef.current = null;
+                return;
+              }
               await Promise.allSettled([
                 withTimeout(
                   ReminderNotificationService.cancelAll(),
@@ -1140,20 +1286,29 @@ export default function App() {
                   'cancelTipNotifications(account-switch)'
                 ),
               ]);
-              if (isStaleTransition()) return;
+              if (isStaleTransition()) {
+                inFlightAuthUserIdRef.current = null;
+                return;
+              }
             }
             await withTimeout(
               enforceLocalDataScopeForUser(nextUserId),
               STARTUP_LOCAL_SCOPE_TIMEOUT_MS,
               'enforceLocalDataScopeForUser(auth-transition)'
             );
-            if (isStaleTransition()) return;
+            if (isStaleTransition()) {
+              inFlightAuthUserIdRef.current = null;
+              return;
+            }
             await withTimeout(
               setAppGroupActiveUserId(nextUserId),
               NATIVE_BRIDGE_TIMEOUT_MS,
               'setAppGroupActiveUserId(auth-transition)'
             );
-            if (isStaleTransition()) return;
+            if (isStaleTransition()) {
+              inFlightAuthUserIdRef.current = null;
+              return;
+            }
             // The authenticated navigator can now be selected safely. Do not
             // let subscription/profile bootstrap expose the AuthGate.
             activeUserIdRef.current = nextUserId;
@@ -1161,11 +1316,6 @@ export default function App() {
             void registerPushTokenForUser(nextUserId);
             inAppMessageService.updateUserId(nextUserId);
             traceFirstRun('auth', 'local_identity_ready');
-            // Keep card backup independent from subscription service failures.
-            void triggerBackgroundCardSync('auth').then((synced) =>
-              synced ? processPendingCardImageUploads(nextUserId) : undefined
-            );
-            triggerBackgroundAccountRefresh(nextUserId, 'auth');
           }
           setAllowOfflineAccess(false);
           if (nextUserId) {
@@ -1173,23 +1323,42 @@ export default function App() {
             setOnboardingChecked(false);
             setNeedsVideoTour(false);
             setVideoTourChecked(false);
+            const userMetadata = session?.user
+              ? { createdAt: session.user.created_at, lastSignInAt: session.user.last_sign_in_at }
+              : undefined;
             const [completed, hasCache] = await Promise.all([
-              checkOnboardingStatus(nextUserId),
+              checkOnboardingStatus(nextUserId, userMetadata),
               fetchUserHasCacheItems(nextUserId),
             ]);
-            if (isStaleTransition()) return;
+            if (isStaleTransition()) {
+              inFlightAuthUserIdRef.current = null;
+              return;
+            }
             setInitialTabIndex(hasCache ? 1 : 0);
             traceFirstRun('auth', 'onboarding_status_resolved', { completed });
             setNeedsOnboarding(!completed);
             setOnboardingChecked(true);
             if (completed) {
               const showVideoTour = await shouldShowVideoTour(nextUserId);
-              if (isStaleTransition()) return;
+              if (isStaleTransition()) {
+                inFlightAuthUserIdRef.current = null;
+                return;
+              }
               setNeedsVideoTour(showVideoTour);
+              setVideoTourChecked(true);
+            } else {
+              setNeedsVideoTour(false);
+              setVideoTourChecked(true);
             }
-            setVideoTourChecked(true);
-            dispatchSignInCurtain('session-ready');
+            inFlightAuthUserIdRef.current = null;
+            releaseSignInCurtain();
             setIsReady(true);
+
+            // Defer background card sync and account refresh after UI gating is complete
+            void triggerBackgroundCardSync('auth').then((synced) =>
+              synced ? processPendingCardImageUploads(nextUserId) : undefined
+            );
+            triggerBackgroundAccountRefresh(nextUserId, 'auth');
             return;
           } else {
             setNeedsOnboarding(false);
@@ -1199,9 +1368,11 @@ export default function App() {
           activeUserIdRef.current = nextUserId;
           setUserId(nextUserId);
           setOnboardingChecked(true);
-          dispatchSignInCurtain('session-ready');
+          inFlightAuthUserIdRef.current = null;
+          releaseSignInCurtain();
           setIsReady(true);
         } catch (error) {
+          inFlightAuthUserIdRef.current = null;
           void logDiagnosticEvent({
             severity: 'error',
             category: 'auth',
@@ -1211,11 +1382,17 @@ export default function App() {
           });
           console.error('[App] auth state entitlement bootstrap failed:', error);
           if (!isStaleTransition()) {
+            const isBrandNew = session?.user?.created_at
+              ? Date.now() - new Date(session.user.created_at).getTime() < 1000 * 60 * 60 * 24
+              : false;
+            setNeedsOnboarding(isBrandNew);
             setOnboardingChecked(true);
             setNeedsVideoTour(false);
             setVideoTourChecked(true);
-            dispatchSignInCurtain('session-ready');
+            releaseSignInCurtain();
             setIsReady(true);
+          } else {
+            releaseSignInCurtain();
           }
         }
       })();
@@ -1396,13 +1573,12 @@ export default function App() {
 
   const handleGoogleSignIn = React.useCallback(async () => {
     traceFirstRun('auth', 'sign_in_started', { provider: 'google' });
-    dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
       const { data, error, cancelled } = await signInWithGoogle();
       if (cancelled) {
         traceFirstRun('auth', 'sign_in_cancelled', { provider: 'google' });
-        dispatchSignInCurtain('sign-in-aborted');
+        abortSignInCurtain();
         return;
       }
       if (error) {
@@ -1410,7 +1586,7 @@ export default function App() {
           provider: 'google',
           error,
         });
-        dispatchSignInCurtain('sign-in-aborted');
+        abortSignInCurtain();
         const isDeveloperError =
           error.message.includes('10') ||
           error.message.toLowerCase().includes('developer_error');
@@ -1421,7 +1597,7 @@ export default function App() {
         return;
       }
       if (!data?.session?.access_token) {
-        dispatchSignInCurtain('sign-in-aborted');
+        abortSignInCurtain();
         Alert.alert('登入失敗', 'Google 登入完成，但沒有建立 app session。');
         return;
       }
@@ -1434,17 +1610,16 @@ export default function App() {
         provider: 'google',
         error,
       });
-      dispatchSignInCurtain('sign-in-aborted');
+      abortSignInCurtain();
       const message = error instanceof Error ? error.message : '未知錯誤';
       Alert.alert('登入失敗', message);
     } finally {
       setAuthLoading(false);
     }
-  }, []);
+  }, [abortSignInCurtain]);
 
   const handleAppleSignIn = React.useCallback(async () => {
     traceFirstRun('auth', 'sign_in_started', { provider: 'apple' });
-    dispatchSignInCurtain('sign-in-started');
     setAuthLoading(true);
     try {
       const { data, error } = await signInWithApple();
@@ -1453,7 +1628,7 @@ export default function App() {
           provider: 'apple',
           error,
         });
-        dispatchSignInCurtain('sign-in-aborted');
+        abortSignInCurtain();
         Alert.alert(
           '登入失敗',
           `Apple 登入問題：${error.message}\n\n請檢查原生 Apple Sign In capability 與 Supabase Apple provider 設定。`
@@ -1461,7 +1636,7 @@ export default function App() {
         return;
       }
       if (!data?.session?.access_token) {
-        dispatchSignInCurtain('sign-in-aborted');
+        abortSignInCurtain();
         Alert.alert('登入失敗', 'Apple 登入完成，但沒有建立 app session。');
         return;
       }
@@ -1474,13 +1649,13 @@ export default function App() {
         provider: 'apple',
         error,
       });
-      dispatchSignInCurtain('sign-in-aborted');
+      abortSignInCurtain();
       const message = error instanceof Error ? error.message : '未知錯誤';
       Alert.alert('登入失敗', message);
     } finally {
       setAuthLoading(false);
     }
-  }, []);
+  }, [abortSignInCurtain]);
 
   const handleTestAccountSignIn = React.useCallback(async () => {
     if (!__DEV__ && !INTERNAL_TESTER_TOOLS_ENABLED) {
@@ -1493,6 +1668,7 @@ export default function App() {
     });
     beginFreshTestAccountReset();
     dispatchSignInCurtain('sign-in-started');
+    armSignInCurtainWatchdog();
     setAuthLoading(true);
     try {
       // Dev-only: simulate a brand-new user locally without real credentials.
@@ -1657,6 +1833,7 @@ export default function App() {
                       userId={userId}
                       onComplete={() => {
                         traceFirstRun('onboarding', 'completed_and_routed');
+                        void markOnboardingCompletedLocally(userId);
                         const nextJourney = advanceFirstRunJourney(
                           createFirstRunJourney(),
                           'onboarding-completed'
@@ -1681,7 +1858,7 @@ export default function App() {
                       }}
                     />
                     <FirstTourVideoPreloader
-                      enabled={VIDEO_TOUR_ENABLED}
+                      enabled={VIDEO_TOUR_ENABLED && !signInCurtain.visible}
                       onPlayerReady={handleFirstTourPlayerReady}
                     />
                   </>

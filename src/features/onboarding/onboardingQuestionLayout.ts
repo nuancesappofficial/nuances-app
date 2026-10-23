@@ -37,3 +37,39 @@ export function balanceOnboardingQuestion(question: string): string {
 
   return `${words.slice(0, bestSplit).join(' ')}\n${words.slice(bestSplit).join(' ')}`;
 }
+
+export type OnboardingLayoutMetrics = {
+  isCompact: boolean;
+  isCompactWidth: boolean;
+  isCompactHeight: boolean;
+  stickerWidth: number;
+  stickerHeight: number;
+  stickerSvgWidth: number;
+  stickerSvgHeight: number;
+  titleFontSize: number;
+  titleLineHeight: number;
+  titleNumberOfLines: number;
+};
+
+export function getOnboardingLayoutMetrics(
+  screenWidth: number,
+  screenHeight: number
+): OnboardingLayoutMetrics {
+  const isCompactWidth = screenWidth < 380;
+  const isCompactHeight = screenHeight < 760;
+  const isCompact = isCompactWidth || isCompactHeight;
+
+  return {
+    isCompact,
+    isCompactWidth,
+    isCompactHeight,
+    stickerWidth: isCompact ? 122 : 138,
+    stickerHeight: isCompact ? 68 : 88,
+    stickerSvgWidth: isCompact ? 116 : 136,
+    stickerSvgHeight: isCompact ? 68 : 88,
+    titleFontSize: isCompact ? 23 : 27,
+    titleLineHeight: isCompact ? 28 : 33,
+    titleNumberOfLines: isCompact ? 3 : 2,
+  };
+}
+

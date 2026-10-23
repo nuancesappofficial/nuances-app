@@ -14,28 +14,34 @@ Fini le « je chercherai plus tard ». Prenez une photo ou partagez : Nuances en
 
 ## Description
 
-Nuances est un outil personnel pour les personnes qui apprennent l’anglais. Il transforme les mots, expressions et exemples rencontrés au quotidien en cartes d’apprentissage pratiques.
+Fini le « je chercherai plus tard ».
 
-Saisissez du texte, sélectionnez des images ou des documents, ou partagez du contenu depuis d’autres apps. Classez vos cartes dans des albums et vos favoris, puis consolidez vos acquis avec des outils de révision simples.
+Vous tombez sur un mot anglais inconnu ? Prenez-le en photo ou partagez-le dans Nuances depuis n’importe quelle app, sans interrompre votre lecture. Grâce à l’IA, Nuances le transforme en carte avec le contexte réel, les nuances, une évaluation de la prononciation et des quiz rapides : plus aucun mot ne vous échappe.
 
-Les fonctionnalités premium comprennent la création de cartes assistée par IA, des voix naturelles dans le cloud, l’évaluation de la prononciation et des parcours d’apprentissage étendus. Les achats et leur restauration sont traités par le système d’achat intégré d’Apple.
+Oubliez les listes de vocabulaire apprises par cœur : apprenez à partir de l’anglais que vous rencontrez vraiment. Vous pouvez même enregistrer du contenu sans ouvrir l’app, puis y revenir pour réviser quand vous avez le temps.
 
 Fonctionnalités principales :
-- Créer des cartes d’anglais à partir de texte, d’images et de contenu partagé
-- Organiser son apprentissage avec des albums et des favoris
-- Consulter le sens, les exemples, le contexte et la prononciation
-- Générer des cartes avec l’aide de l’IA via des services backend sécurisés
-- Travailler sa prononciation anglaise avec une évaluation par microphone
-- Écouter une prononciation naturelle grâce à la synthèse vocale dans le cloud
-- Importer du contenu depuis d’autres apps avec le partage iOS
 
-Nuances s’adresse aux personnes qui souhaitent mémoriser l’anglais rencontré dans des situations réelles et créer leur propre collection de mots, d’expressions et d’exemples.
+- Enregistrez au fil de l’eau, sans perdre le fil
+Quand vous croisez de l’anglais au quotidien, partagez-le directement depuis d’autres apps vers Nuances, sans vous arrêter pour chercher ou trier.
+
+- Texte et images, au même endroit
+Saisie de texte, import d’images et partage iOS : rassemblez l’anglais d’articles, de messages, de supports de cours, de réseaux sociaux, de captures d’écran et de la vie de tous les jours.
+
+- Mots et expressions en contexte réel
+Allez au-delà de la simple traduction. Comprenez comment un mot s’emploie dans une phrase : sens, ton, usage et nuances.
+
+- Prononciation et quiz rapides
+Passez de la simple collection à la pratique active grâce à l’évaluation de la prononciation, l’écoute, les QCM et les quiz rapides.
+
+Nuances est idéal pour préparer le TOEIC, le TOEFL, l’IELTS, les examens Cambridge ou l’anglais du bac, ou pour construire votre propre mémoire d’anglais à partir de la langue que vous rencontrez vraiment.
+
+Les nouveaux utilisateurs peuvent créer jusqu’à 20 cartes IA gratuitement. Cette offre gratuite ne déclenche aucun abonnement et ne se renouvelle pas automatiquement.
+
+Premium débloque la génération de cartes par IA, les voix naturelles dans le cloud, l’évaluation de la prononciation et davantage de parcours d’apprentissage. Les fonctions d’IA et de voix dans le cloud comportent des limites d’usage raisonnable généreuses, rarement atteintes par un apprenant ; elles servent à maintenir la qualité du service et à prévenir les abus.
 
 Conditions d’utilisation (EULA) :
 https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
-
-Politique de confidentialité :
-https://app.notion.com/p/Privacy-Policy-ff2aafe8e4e949af95f284e6ebae0378?source=copy_link
 
 ## Keywords
 
