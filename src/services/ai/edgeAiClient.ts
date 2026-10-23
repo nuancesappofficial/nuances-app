@@ -1,6 +1,11 @@
 import { supabase } from '@services/supabase/client';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import type { PlanType } from '@services/settings/userSettings';
+import {
+  attachEdgeErrorInfo,
+  readEdgeErrorBody,
+  type EdgeErrorInfo,
+} from '@services/errors/edgeErrorInfo';
 
 type AIProvider = 'openai' | 'gemini';
 type AIFeatureAction =
@@ -326,7 +331,10 @@ function normalizePayload(payload: unknown): unknown {
 async function invokeAIEndpoint(
   body: unknown,
   authHeaders: { Authorization: string }
-): Promise<{ data: unknown; error: null } | { data: null; error: string }> {
+): Promise<
+  | { data: unknown; error: null; info?: undefined }
+  | { data: null; error: string; info?: Partial<EdgeErrorInfo> }
+> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return {
       data: null,
@@ -376,6 +384,7 @@ async function invokeAIEndpoint(
       return {
         data: null,
         error: formatEdgeFunctionError(response.status, parsedBody),
+        info: readEdgeErrorBody(response.status, parsedBody),
       };
     }
 
@@ -386,11 +395,12 @@ async function invokeAIEndpoint(
         timeoutMs: AI_EDGE_TIMEOUT_MS,
         latencyMs: Date.now() - startedAt,
       });
-    return {
-      data: null,
+      return {
+        data: null,
         error: `AI request timed out after ${Math.round(AI_EDGE_TIMEOUT_MS / 1000)} seconds`,
-    };
-  }
+        info: { clientFailure: 'timeout' },
+      };
+    }
     logAIClientDiagnostic('edge_request_failed', {
       latencyMs: Date.now() - startedAt,
       error:
@@ -398,12 +408,14 @@ async function invokeAIEndpoint(
           ? error.message
           : String(error || 'network error'),
     });
+    // fetch itself threw: the device never got an answer from the server.
     return {
       data: null,
       error:
         error instanceof Error
           ? error.message
           : String(error || 'network error'),
+      info: { clientFailure: 'network' },
     };
   } finally {
     clearTimeout(timeout);
@@ -462,7 +474,7 @@ export async function callAIProxy(request: AIRequest): Promise<string> {
   let authHeaders = await getAuthHeader();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { data, error } = await invokeAIEndpoint(request, authHeaders);
+    const { data, error, info } = await invokeAIEndpoint(request, authHeaders);
 
     if (!error) {
       const text = extractText(data);
@@ -488,9 +500,12 @@ export async function callAIProxy(request: AIRequest): Promise<string> {
       throw new AIAuthError('Authentication required: please sign in again');
     }
     if (isPremiumFeatureError(detail)) {
-      throw new PremiumFeatureError('Premium or active trial required');
+      throw attachEdgeErrorInfo(
+        new PremiumFeatureError('Premium or active trial required'),
+        info
+      );
     }
-    throw new Error(`AI proxy error: ${detail}`);
+    throw attachEdgeErrorInfo(new Error(`AI proxy error: ${detail}`), info);
   }
 
   throw new AIAuthError('Authentication required: please sign in again');
@@ -524,7 +539,7 @@ export async function callAIAction<TPayload, TResult>(
       asyncThresholdChars;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { data, error } = await invokeAIEndpoint(
+    const { data, error, info } = await invokeAIEndpoint(
       {
         action,
         payload: normalizedPayload,
@@ -599,14 +614,19 @@ export async function callAIAction<TPayload, TResult>(
     if (isInvalidJwtError(detail)) {
       throw new AIAuthError('Authentication required: please sign in again');
     }
+    // Keep the server's status / reason / paywallType on the thrown error so the
+    // UI can tell "quota used up" from "server failed" from "no network".
     if (isPremiumFeatureError(detail)) {
-      throw new PremiumFeatureError('Premium or active trial required');
+      throw attachEdgeErrorInfo(
+        new PremiumFeatureError('Premium or active trial required'),
+        info
+      );
     }
     const quotaError = userFacingQuotaError(detail);
     if (quotaError) {
-      throw new Error(quotaError);
+      throw attachEdgeErrorInfo(new Error(quotaError), info);
     }
-    throw new Error(`AI action error: ${detail}`);
+    throw attachEdgeErrorInfo(new Error(`AI action error: ${detail}`), info);
   }
 
   throw new AIAuthError('Authentication required: please sign in again');
@@ -755,27 +775,34 @@ export async function streamAIAction<TPayload>(
           });
         };
 
-        xhr.onerror = () => reject(new Error('Network request failed'));
+        xhr.onerror = () =>
+          reject(
+            attachEdgeErrorInfo(new Error('Network request failed'), {
+              clientFailure: 'network',
+            })
+          );
         xhr.ontimeout = () =>
           reject(
-            new Error(
-              `AI request timed out after ${Math.round(AI_EDGE_TIMEOUT_MS / 1000)} seconds`
+            attachEdgeErrorInfo(
+              new Error(
+                `AI request timed out after ${Math.round(AI_EDGE_TIMEOUT_MS / 1000)} seconds`
+              ),
+              { clientFailure: 'timeout' }
             )
           );
         xhr.send(JSON.stringify({ action, payload: normalizedPayload }));
       });
 
       if (status !== 200) {
-        const detail = formatEdgeFunctionError(
-          status,
-          (() => {
-            try {
-              return JSON.parse(text) as unknown;
-            } catch {
-              return text;
-            }
-          })()
-        );
+        const parsedErrorBody = (() => {
+          try {
+            return JSON.parse(text) as unknown;
+          } catch {
+            return text;
+          }
+        })();
+        const detail = formatEdgeFunctionError(status, parsedErrorBody);
+        const info = readEdgeErrorBody(status, parsedErrorBody);
 
         if (isInvalidJwtError(detail) && attempt === 0) {
           const refreshedHeaders = await refreshAuthHeader();
@@ -788,13 +815,19 @@ export async function streamAIAction<TPayload>(
           );
         }
         if (isPremiumFeatureError(detail)) {
-          throw new PremiumFeatureError('Premium or active trial required');
+          throw attachEdgeErrorInfo(
+            new PremiumFeatureError('Premium or active trial required'),
+            info
+          );
         }
         const quotaError = userFacingQuotaError(detail);
         if (quotaError) {
-          throw new Error(quotaError);
+          throw attachEdgeErrorInfo(new Error(quotaError), info);
         }
-        throw new Error(`AI stream action error: ${detail}`);
+        throw attachEdgeErrorInfo(
+          new Error(`AI stream action error: ${detail}`),
+          info
+        );
       }
 
       const resultRawContent =
