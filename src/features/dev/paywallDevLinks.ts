@@ -103,11 +103,67 @@ const DEV_SAMPLE_INTRO_CARDS: Array<[word: string, sourceLabel: string]> = [
 
 export function buildDevSampleIntroCards(
   now: number
-): Array<{ word: string; sourceLabel: string; createdAt: number }> {
+): Array<{ id: string; word: string; sourceLabel: string; createdAt: number }> {
   const dayMs = 24 * 60 * 60 * 1000;
   return DEV_SAMPLE_INTRO_CARDS.map(([word, sourceLabel], index) => ({
+    id: `dev-sample-${index}`,
     word,
     sourceLabel,
     createdAt: now - (DEV_SAMPLE_INTRO_CARDS.length - index) * dayMs,
   }));
+}
+
+// 只給 __DEV__ 的 paywall-21 連結用：示範卡的發音紀錄（pron=improved|flat|none）。
+// improved／flat 都是 8 張練過 ≥2 次的卡，分數來自 v13 原型；另外 2 張只練過 1 次。
+const DEV_SAMPLE_PRONUNCIATION: Record<
+  'improved' | 'flat',
+  { first: number[]; best: number[] }
+> = {
+  improved: {
+    first: [58, 62, 55, 66, 60, 70, 64, 52],
+    best: [84, 80, 79, 88, 81, 90, 85, 77],
+  },
+  flat: {
+    first: [80, 78, 81, 77, 80, 79, 79, 78],
+    best: [83, 79, 84, 78, 82, 80, 81, 81],
+  },
+};
+
+export function buildDevSamplePronunciationRecords(
+  mode: 'improved' | 'flat' | 'none',
+  cards: readonly { id: string; createdAt: number }[]
+): Record<
+  string,
+  {
+    firstScore: number | null;
+    latestScore: number;
+    bestScore: number;
+    attempts: number;
+    updatedAt: string;
+  }
+> {
+  if (mode === 'none') return {};
+  const { first, best } = DEV_SAMPLE_PRONUNCIATION[mode];
+  const records: ReturnType<typeof buildDevSamplePronunciationRecords> = {};
+  cards.slice(0, first.length + 2).forEach((card, index) => {
+    const updatedAt = new Date(card.createdAt).toISOString();
+    if (index < first.length) {
+      records[card.id] = {
+        firstScore: first[index],
+        latestScore: best[index],
+        bestScore: best[index],
+        attempts: 2 + (index % 3),
+        updatedAt,
+      };
+      return;
+    }
+    records[card.id] = {
+      firstScore: 74,
+      latestScore: 74,
+      bestScore: 74,
+      attempts: 1,
+      updatedAt,
+    };
+  });
+  return records;
 }

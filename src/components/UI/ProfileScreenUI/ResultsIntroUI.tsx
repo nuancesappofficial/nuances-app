@@ -15,7 +15,9 @@ import type { UILanguage } from '@services/settings/userSettings';
 import {
   buildResultsIntroTimeline,
   resolveCarouselItemStyle,
+  type IntroPronunciationSummary,
   type ResultsIntroCard,
+  type ResultsIntroTimeline,
 } from '../../../features/subscription/resultsIntro';
 
 // 成果動畫的第 21 張就是 paywall 上那張卡本身（同一個元件）：它是輪播的最後一格，
@@ -33,6 +35,8 @@ const HERO_WIDTH = 136;
 const HERO_HEIGHT = 174;
 
 type RowState = 'idle' | 'active' | 'done';
+// 清單三列：單字收集、少切換 App、發音（S5，有發音紀錄才出現）。
+type RowStates = [RowState, RowState, RowState];
 
 export type ResultsIntroController = {
   active: boolean;
@@ -54,7 +58,9 @@ export type ResultsIntroController = {
   titleKey: UIStringKey;
   hintKey: UIStringKey | null;
   collectDone: boolean;
-  rowStates: [RowState, RowState];
+  rowStates: RowStates;
+  timeline: ResultsIntroTimeline;
+  pronunciation: IntroPronunciationSummary | null;
   skip: () => void;
 };
 
@@ -62,13 +68,20 @@ export type ResultsIntroController = {
 export function useResultsIntro({
   active,
   cardCount,
+  pronunciation,
   onFinish,
 }: {
   active: boolean;
   cardCount: number;
+  pronunciation: IntroPronunciationSummary | null;
   onFinish: () => void;
 }): ResultsIntroController {
-  const timeline = React.useMemo(() => buildResultsIntroTimeline(), []);
+  const flashCount = pronunciation?.flashes.length ?? null;
+  const timeline = React.useMemo(
+    () =>
+      buildResultsIntroTimeline(flashCount === null ? null : { flashCount }),
+    [flashCount]
+  );
   const position = React.useRef(new Animated.Value(0)).current;
   const trackOpacity = React.useRef(new Animated.Value(0)).current;
   const titleOpacity = React.useRef(new Animated.Value(0)).current;
@@ -89,7 +102,8 @@ export function useResultsIntro({
   );
   const [hintKey, setHintKey] = React.useState<UIStringKey | null>(null);
   const [collectDone, setCollectDone] = React.useState(false);
-  const [rowStates, setRowStates] = React.useState<[RowState, RowState]>([
+  const [rowStates, setRowStates] = React.useState<RowStates>([
+    'idle',
     'idle',
     'idle',
   ]);
@@ -154,7 +168,7 @@ export function useResultsIntro({
     setTitleKey('settings.membership.intro.title');
     setHintKey(null);
     setCollectDone(false);
-    setRowStates(['idle', 'idle']);
+    setRowStates(['idle', 'idle', 'idle']);
     const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
     const timing = (
       value: Animated.Value,
@@ -168,9 +182,9 @@ export function useResultsIntro({
         easing,
         useNativeDriver: true,
       });
-    const setRow = (index: 0 | 1, state: RowState) =>
+    const setRow = (index: 0 | 1 | 2, state: RowState) =>
       setRowStates((prev) => {
-        const next: [RowState, RowState] = [prev[0], prev[1]];
+        const next: RowStates = [prev[0], prev[1], prev[2]];
         next[index] = state;
         return next;
       });
@@ -199,6 +213,15 @@ export function useResultsIntro({
       setHintKey('settings.membership.intro.hintSwitch');
     });
     at(timeline.switchDone, () => setRow(1, 'done'));
+    // 發音段：比對發音紀錄 → 揭曉。
+    const pron = timeline.pronunciation;
+    if (pron) {
+      at(pron.start, () => {
+        setRow(2, 'active');
+        setHintKey('settings.membership.intro.hintPronunciation');
+      });
+      at(pron.revealStart, () => setRow(2, 'done'));
+    }
     at(timeline.wrapUp, () => {
       setTitleKey('settings.membership.intro.titleDone');
       setHintKey('settings.membership.intro.hintDone');
@@ -262,6 +285,8 @@ export function useResultsIntro({
     hintKey,
     collectDone,
     rowStates,
+    timeline,
+    pronunciation,
     skip,
   };
 }
@@ -674,10 +699,13 @@ export function IntroChrome({
   uiLanguage: UILanguage;
 }) {
   const { width } = useWindowDimensions();
-  const timeline = React.useMemo(() => buildResultsIntroTimeline(), []);
   // 文字區塊跟螢幕一樣寬，置中在卡片上。
   const span = { left: -(width - HERO_WIDTH) / 2, width };
-  const { rowStates } = intro;
+  const { rowStates, timeline, pronunciation } = intro;
+  const pointsUnit = {
+    one: tUI(uiLanguage, 'settings.membership.intro.unitPointsOne'),
+    other: tUI(uiLanguage, 'settings.membership.intro.unitPoints'),
+  };
   return (
     <>
       <Animated.View
@@ -698,7 +726,8 @@ export function IntroChrome({
         pointerEvents="none"
         style={[styles.below, span, { opacity: intro.chromeOpacity }]}
       >
-        {rowStates[0] === 'idle' ? (
+        {/* 發音段開始後，「已找到 N 張卡」這一行讓給發音段。 */}
+        {rowStates[0] === 'idle' || rowStates[2] !== 'idle' ? (
           <Text style={styles.counter} />
         ) : (
           <FoundCounter intro={intro} uiLanguage={uiLanguage} />
@@ -745,6 +774,30 @@ export function IntroChrome({
               />
             }
           />
+          {pronunciation && timeline.pronunciation ? (
+            <IntroRow
+              state={rowStates[2]}
+              label={
+                rowStates[2] === 'done'
+                  ? tUI(uiLanguage, 'settings.membership.intro.pronDoneLevel')
+                  : rowStates[2] === 'active'
+                    ? tUI(
+                        uiLanguage,
+                        'settings.membership.intro.pronDoing'
+                      ).replace('{count}', String(pronunciation.comparedCount))
+                    : tUI(uiLanguage, 'settings.membership.intro.pronIdle')
+              }
+              value={
+                rowStates[2] === 'done' ? (
+                  <CountUpValue
+                    to={pronunciation.level}
+                    durationMs={timeline.pronunciation.revealDuration}
+                    unit={pointsUnit}
+                  />
+                ) : null
+              }
+            />
+          ) : null}
         </View>
       </Animated.View>
     </>

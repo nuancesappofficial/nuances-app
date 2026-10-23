@@ -36,12 +36,17 @@ import {
   IntroSkipLayer,
   useResultsIntro,
 } from '../../../components/UI/ProfileScreenUI/ResultsIntroUI';
-import { buildDevSampleIntroCards } from '../../../features/dev/paywallDevLinks';
+import {
+  buildDevSampleIntroCards,
+  buildDevSamplePronunciationRecords,
+} from '../../../features/dev/paywallDevLinks';
+import { loadPronunciationRecords } from '../../../features/deck/pronunciationHistory';
 import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
 import {
-  RESULTS_INTRO_CARD_LIMIT,
   pickResultsIntroCards,
   shouldPlayResultsIntro,
+  summarizePronunciation,
+  type IntroPronunciationSummary,
   type ResultsIntroCard,
 } from '../../../features/subscription/resultsIntro';
 import {
@@ -160,6 +165,7 @@ type Props = {
       triggerSource?: MembershipPaywallTriggerSource;
       devStarterUsage?: Partial<StarterUsage>;
       devSampleIntroCards?: boolean;
+      devSamplePronunciation?: 'improved' | 'flat' | 'none';
       pendingCard?: PendingPaywallCard;
     };
   };
@@ -733,6 +739,8 @@ export default function ProfileSettingOptionsFlow({
   const devStarterUsage = route.params?.devStarterUsage;
   const devSampleIntroCards =
     __DEV__ && route.params?.devSampleIntroCards === true;
+  const devSamplePronunciation =
+    route.params?.devSamplePronunciation ?? 'none';
   const pendingCard = route.params?.pendingCard;
   const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
     null
@@ -757,6 +765,10 @@ export default function ProfileSettingOptionsFlow({
   const [introCards, setIntroCards] = React.useState<ResultsIntroCard[] | null>(
     null
   );
+  // 發音段：undefined＝還沒讀到；null＝沒有發音紀錄，整段跳過。
+  const [introPronunciation, setIntroPronunciation] = React.useState<
+    IntroPronunciationSummary | null | undefined
+  >(undefined);
   const [introSeen, setIntroSeen] = React.useState<boolean | null>(null);
   const [reduceMotion, setReduceMotion] = React.useState<boolean | null>(null);
   const [introPhase, setIntroPhase] = React.useState<
@@ -768,6 +780,7 @@ export default function ProfileSettingOptionsFlow({
       paywallHero?.kind === 'next' &&
       introCards != null,
     cardCount: introCards?.length ?? 0,
+    pronunciation: introPronunciation ?? null,
     onFinish: () => setIntroPhase('done'),
   });
   const membershipUserIdRef = React.useRef<string | null>(null);
@@ -843,6 +856,7 @@ export default function ProfileSettingOptionsFlow({
     setIntroSeen(true);
     setReduceMotion(true);
     setIntroCards([]);
+    setIntroPronunciation(null);
   }, []);
 
   React.useEffect(() => {
@@ -871,39 +885,47 @@ export default function ProfileSettingOptionsFlow({
                 .then((enabled) => {
                   if (!cancelled) setReduceMotion(enabled);
                 });
-              void database
-                .get<Card>('cards')
-                .query(
-                  Q.where('user_id', userId),
-                  Q.where('deleted_at', null),
-                  Q.sortBy('created_at', Q.desc),
-                  Q.take(RESULTS_INTRO_CARD_LIMIT)
-                )
-                .fetch()
-                .then((cards) =>
-                  cards.map((card) => ({
-                    word: card.targetWord,
-                    sourceLabel: toSourceLabel(card.sourceApp),
-                    createdAt: card.createdAt.getTime(),
-                  }))
-                )
-                .catch((error) => {
-                  console.warn(
-                    '[ProfileSettingOptions] load intro cards failed:',
-                    error
-                  );
-                  return [];
-                })
-                .then((cards) => {
-                  if (cancelled) return;
-                  setIntroCards(
-                    pickResultsIntroCards(
-                      cards.length === 0 && devSampleIntroCards
-                        ? buildDevSampleIntroCards(Date.now())
-                        : cards
-                    )
-                  );
-                });
+              // 輪播用最新 20 張；發音段用所有還在的卡和它們的 Pronunciation Record。
+              void Promise.all([
+                database
+                  .get<Card>('cards')
+                  .query(Q.where('user_id', userId), Q.where('deleted_at', null))
+                  .fetch()
+                  .then((cards) =>
+                    cards.map((card) => ({
+                      id: card.id,
+                      word: card.targetWord,
+                      sourceLabel: toSourceLabel(card.sourceApp),
+                      createdAt: card.createdAt.getTime(),
+                    }))
+                  )
+                  .catch((error) => {
+                    console.warn(
+                      '[ProfileSettingOptions] load intro cards failed:',
+                      error
+                    );
+                    return [];
+                  }),
+                loadPronunciationRecords(),
+              ]).then(([cards, records]) => {
+                if (cancelled) return;
+                const useSamples = cards.length === 0 && devSampleIntroCards;
+                const liveCards = useSamples
+                  ? buildDevSampleIntroCards(Date.now())
+                  : cards;
+                setIntroCards(pickResultsIntroCards(liveCards));
+                setIntroPronunciation(
+                  summarizePronunciation(
+                    useSamples
+                      ? buildDevSamplePronunciationRecords(
+                          devSamplePronunciation,
+                          liveCards
+                        )
+                      : records,
+                    liveCards
+                  )
+                );
+              });
               void hasSeenPaywallExitLocally(userId)
                 .then((seen) => {
                   if (!cancelled) setPaywallExitSeen(seen);
@@ -975,6 +997,7 @@ export default function ProfileSettingOptionsFlow({
     };
   }, [
     devSampleIntroCards,
+    devSamplePronunciation,
     devStarterUsage,
     kind,
     pendingCard,
@@ -1448,7 +1471,14 @@ export default function ProfileSettingOptionsFlow({
       setIntroPhase('done');
       return;
     }
-    if (introSeen == null || reduceMotion == null || introCards == null) return;
+    if (
+      introSeen == null ||
+      reduceMotion == null ||
+      introCards == null ||
+      introPronunciation === undefined
+    ) {
+      return;
+    }
     const play = shouldPlayResultsIntro({
       heroKind: paywallHero.kind,
       alreadySeen: introSeen,
@@ -1466,6 +1496,7 @@ export default function ProfileSettingOptionsFlow({
   }, [
     introCards,
     introPhase,
+    introPronunciation,
     introSeen,
     membershipStatusResolved,
     paywallHero?.kind,

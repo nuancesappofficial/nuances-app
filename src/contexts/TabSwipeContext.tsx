@@ -38,6 +38,8 @@ export type TabSwipeContextValue = {
         devStarterUsage?: Partial<StarterUsage>;
         // 只給 __DEV__ deep link 用：帳號沒有卡時，成果動畫改用示範卡。
         devSampleIntroCards?: boolean;
+        // 只給 __DEV__ deep link 用：示範卡的發音紀錄情境。
+        devSamplePronunciation?: 'improved' | 'flat' | 'none';
         // 入門額度用完時正要建的那張卡（第 21 張）。
         pendingCard?: PendingPaywallCard;
       }

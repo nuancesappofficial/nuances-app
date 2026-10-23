@@ -335,6 +335,12 @@ export type UIStringKey =
   | 'settings.membership.intro.found'
   | 'settings.membership.intro.foundDone'
   | 'settings.membership.intro.skip'
+  | 'settings.membership.intro.pronIdle'
+  | 'settings.membership.intro.pronDoing'
+  | 'settings.membership.intro.pronDoneLevel'
+  | 'settings.membership.intro.unitPoints'
+  | 'settings.membership.intro.unitPointsOne'
+  | 'settings.membership.intro.hintPronunciation'
   | 'settings.membership.updating'
   | 'settings.membership.active'
   | 'settings.membership.currentPlan'
@@ -859,6 +865,12 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.unitTimes': 'times',
     'settings.membership.intro.unitWordsOne': 'word',
     'settings.membership.intro.unitTimesOne': 'time',
+    'settings.membership.intro.pronIdle': 'Pronunciation',
+    'settings.membership.intro.pronDoing': 'Checking pronunciation records: {count}…',
+    'settings.membership.intro.pronDoneLevel': 'Current average pronunciation',
+    'settings.membership.intro.unitPoints': 'points',
+    'settings.membership.intro.unitPointsOne': 'point',
+    'settings.membership.intro.hintPronunciation': 'Every time you practiced out loud, it was recorded',
     'settings.membership.intro.found': 'Cards found: {count}',
     'settings.membership.intro.foundDone': 'Cards: {count} ✓',
     'settings.membership.intro.skip': 'Tap to skip',
@@ -1384,6 +1396,12 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.unitTimes': '次',
     'settings.membership.intro.unitWordsOne': '個字',
     'settings.membership.intro.unitTimesOne': '次',
+    'settings.membership.intro.pronIdle': '發音',
+    'settings.membership.intro.pronDoing': '正在比對 {count} 個字的發音紀錄…',
+    'settings.membership.intro.pronDoneLevel': '目前的平均發音水準',
+    'settings.membership.intro.unitPoints': '分',
+    'settings.membership.intro.unitPointsOne': '分',
+    'settings.membership.intro.hintPronunciation': '每次開口練習，都留下了紀錄',
     'settings.membership.intro.found': '已找到 {count} 張卡',
     'settings.membership.intro.foundDone': '{count} 張卡 ✓',
     'settings.membership.intro.skip': '點一下略過',
@@ -1893,6 +1911,12 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'settings.membership.intro.unitTimes': '次',
     'settings.membership.intro.unitWordsOne': '个字',
     'settings.membership.intro.unitTimesOne': '次',
+    'settings.membership.intro.pronIdle': '发音',
+    'settings.membership.intro.pronDoing': '正在比对 {count} 个字的发音记录…',
+    'settings.membership.intro.pronDoneLevel': '目前的平均发音水平',
+    'settings.membership.intro.unitPoints': '分',
+    'settings.membership.intro.unitPointsOne': '分',
+    'settings.membership.intro.hintPronunciation': '每次开口练习，都留下了记录',
     'settings.membership.intro.found': '已找到 {count} 张卡',
     'settings.membership.intro.foundDone': '{count} 张卡 ✓',
     'settings.membership.intro.skip': '点一下跳过',

@@ -48,6 +48,19 @@ const BASE = {
   crossfade: 600,
   settle21: 300,
   afterSettle: 100,
+  // 發音段（S5，v13 原型）：開始後先停一下再閃字，每個字 0.28 秒，最後揭曉。
+  pronFlashLead: 500,
+  pronFlashEach: 280,
+  pronReveal: 1100,
+};
+
+export type ResultsIntroPronunciationTimeline = {
+  start: number;
+  flashStart: number;
+  flashEach: number;
+  revealStart: number;
+  revealDuration: number;
+  done: number;
 };
 
 export type ResultsIntroTimeline = {
@@ -68,16 +81,35 @@ export type ResultsIntroTimeline = {
   settleStart: number;
   settleDuration: number;
   finish: number;
+  // null＝沒有發音段。
+  pronunciation: ResultsIntroPronunciationTimeline | null;
 };
 
-// 各段開始時間（從動畫開始算）。發音段之後由 S5 插在 switchDone 和 wrapUp 之間。
-export function buildResultsIntroTimeline(): ResultsIntroTimeline {
+// 各段開始時間（從動畫開始算）。有發音段時插在 switchDone 和 wrapUp 之間，之後各段往後延。
+export function buildResultsIntroTimeline(
+  pronunciation: { flashCount: number } | null = null
+): ResultsIntroTimeline {
   const carouselSpinDelay = BASE.fadeIn * 0.4;
   const collectDone =
     BASE.collectStart + carouselSpinDelay + BASE.spin + BASE.settle;
   const switchStart = collectDone + BASE.gap;
   const switchDone = switchStart + BASE.switchWork;
-  const pickStart = switchDone + Math.round(BASE.hold * 0.55);
+  let pron: ResultsIntroPronunciationTimeline | null = null;
+  if (pronunciation) {
+    const start = switchDone + BASE.gap;
+    const flashStart = start + BASE.pronFlashLead;
+    const revealStart = flashStart + pronunciation.flashCount * BASE.pronFlashEach;
+    pron = {
+      start,
+      flashStart,
+      flashEach: BASE.pronFlashEach,
+      revealStart,
+      revealDuration: BASE.pronReveal,
+      done: revealStart + BASE.pronReveal,
+    };
+  }
+  const beforeWrapUp = pron ? pron.done : switchDone;
+  const pickStart = beforeWrapUp + Math.round(BASE.hold * 0.55);
   const crossfadeStart = pickStart + BASE.crossfadeDelay;
   const settleStart = crossfadeStart + BASE.crossfade;
   return {
@@ -90,7 +122,7 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     switchStart,
     switchDuration: BASE.switchWork,
     switchDone,
-    wrapUp: switchDone + 200,
+    wrapUp: beforeWrapUp + 200,
     pickStart,
     pickDuration: BASE.pick,
     crossfadeStart,
@@ -98,6 +130,7 @@ export function buildResultsIntroTimeline(): ResultsIntroTimeline {
     settleStart,
     settleDuration: BASE.settle21,
     finish: settleStart + BASE.settle21 + BASE.afterSettle,
+    pronunciation: pron,
   };
 }
 
@@ -114,4 +147,49 @@ export function shouldPlayResultsIntro(params: {
     !params.reduceMotion &&
     params.cardCount > 0
   );
+}
+
+// 發音段（S5）用到的 Pronunciation Record 欄位。
+export type IntroPronunciationRecord = {
+  firstScore: number | null;
+  latestScore: number;
+  bestScore: number;
+  attempts: number;
+  updatedAt: string;
+};
+
+export type IntroPronunciationSummary = {
+  mode: 'gain' | 'level';
+  flashes: { word: string; first: number; best: number }[];
+  // 有紀錄、還在的卡片數（「正在比對 N 個字」）。
+  comparedCount: number;
+  firstAvg: number | null;
+  bestAvg: number | null;
+  gain: number | null;
+  level: number;
+};
+
+// 整理發音紀錄：決定要不要播發音段，以及播什麼。null＝整段跳過。
+export function summarizePronunciation(
+  records: Readonly<Record<string, IntroPronunciationRecord>>,
+  cards: readonly { id: string; word: string }[]
+): IntroPronunciationSummary | null {
+  const practiced = cards.flatMap((card) => {
+    const record = records[card.id];
+    return record ? [record] : [];
+  });
+  if (practiced.length === 0) return null;
+  const level = Math.round(
+    practiced.reduce((sum, record) => sum + record.latestScore, 0) /
+      practiced.length
+  );
+  return {
+    mode: 'level',
+    flashes: [],
+    comparedCount: practiced.length,
+    firstAvg: null,
+    bestAvg: null,
+    gain: null,
+    level,
+  };
 }

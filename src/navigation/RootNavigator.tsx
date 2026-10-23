@@ -777,6 +777,7 @@ export default function RootNavigator({
         triggerSource?: MembershipPaywallTriggerSource;
         devStarterUsage?: Partial<StarterUsage>;
         devSampleIntroCards?: boolean;
+        devSamplePronunciation?: 'improved' | 'flat' | 'none';
         pendingCard?: PendingPaywallCard;
       }
     | 'lite'
@@ -819,6 +820,7 @@ export default function RootNavigator({
         triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
         devStarterUsage: normalizedOptions?.devStarterUsage,
         devSampleIntroCards: normalizedOptions?.devSampleIntroCards,
+        devSamplePronunciation: normalizedOptions?.devSamplePronunciation,
         pendingCard: normalizedOptions?.pendingCard,
       });
       traceFirstRun('paywall', 'screen_navigated', {
@@ -835,7 +837,7 @@ export default function RootNavigator({
     const openPaywallFromDevLink = (url: string) => {
       const devLink = parsePaywallDevLink(url);
       if (!devLink) return;
-      // kind（截圖卡）與 pron（發音段）保留給之後的切片。
+      // kind（截圖卡）保留給之後的切片。
       console.log('[Membership] Dev paywall link:', devLink);
       if (devLink.kind === 'reset') {
         void getCurrentSessionUserId()
@@ -855,6 +857,7 @@ export default function RootNavigator({
           triggerSource: 'lite_card_cap',
           devStarterUsage: { cardsUsed: FREE_STARTER_LIMIT },
           devSampleIntroCards: true,
+          devSamplePronunciation: devLink.pronunciation,
           pendingCard: { word: devLink.word, sourceLabel: devLink.sourceLabel },
         });
         return;

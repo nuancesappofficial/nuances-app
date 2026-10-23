@@ -6,6 +6,7 @@ import {
   buildResultsIntroTimeline,
   pickResultsIntroCards,
   shouldPlayResultsIntro,
+  summarizePronunciation,
 } from './resultsIntro.ts';
 
 // 預期值來自 v13 原型：scale 1-.16d、translateY -4(1-d)、opacity 1-.6d；
@@ -61,6 +62,7 @@ test('the intro timeline follows the v13 prototype pacing', () => {
     settleStart: 10965,
     settleDuration: 300,
     finish: 11365,
+    pronunciation: null,
   });
 });
 
@@ -117,4 +119,71 @@ test('paywalls opened from settings or by paying learners never play the intro',
   const base = { alreadySeen: false, reduceMotion: false, cardCount: 20 };
   assert.equal(shouldPlayResultsIntro({ ...base, heroKind: 'covered' }), false);
   assert.equal(shouldPlayResultsIntro({ ...base, heroKind: 'plan' }), false);
+});
+
+// 發音段（S5）：每張卡的 Pronunciation Record 只取分數相關欄位。
+const record = (firstScore, latestScore, bestScore, attempts, updatedAt = '2026-10-01T00:00:00.000Z') => ({
+  firstScore,
+  latestScore,
+  bestScore,
+  attempts,
+  updatedAt,
+});
+const CARDS = [
+  { id: 'a', word: 'receipt' },
+  { id: 'b', word: 'situationship' },
+  { id: 'c', word: 'nuance' },
+];
+
+test('no pronunciation records means no pronunciation segment', () => {
+  assert.equal(summarizePronunciation({}, CARDS), null);
+});
+
+test('cards practiced once or legacy-only show the current level without flashes', () => {
+  // a：只練過 1 次（80）；b：舊資料，第一次不明，最近一次 70。目前水準 = (80+70)/2 = 75。
+  const summary = summarizePronunciation(
+    { a: record(80, 80, 80, 1), b: record(null, 70, 70, 3) },
+    CARDS
+  );
+  assert.deepEqual(summary, {
+    mode: 'level',
+    flashes: [],
+    comparedCount: 2,
+    firstAvg: null,
+    bestAvg: null,
+    gain: null,
+    level: 75,
+  });
+});
+
+test('deleted cards are left out and the level is rounded', () => {
+  // z 已刪除（10 分）不算；(81 + 70) / 2 = 75.5 → 76。
+  const summary = summarizePronunciation(
+    { a: record(81, 81, 81, 1), b: record(null, 70, 70, 1), z: record(10, 10, 10, 1) },
+    CARDS
+  );
+  assert.equal(summary.comparedCount, 2);
+  assert.equal(summary.level, 76);
+});
+
+test('records only on deleted cards mean no pronunciation segment', () => {
+  assert.equal(summarizePronunciation({ z: record(60, 90, 90, 4) }, CARDS), null);
+});
+
+test('a level-only pronunciation segment sits between app switching and wrap-up', () => {
+  // v13 原型：switchDone 8800 + gap 600 = 9400 開始；+500 開始閃字（0 個）；揭曉 1100 → 11000。
+  // 之後每段都比 S4 晚 11000 - 8800 = 2200。
+  const timeline = buildResultsIntroTimeline({ flashCount: 0 });
+  assert.deepEqual(timeline.pronunciation, {
+    start: 9400,
+    flashStart: 9900,
+    flashEach: 280,
+    revealStart: 9900,
+    revealDuration: 1100,
+    done: 11000,
+  });
+  assert.equal(timeline.switchDone, 8800);
+  assert.equal(timeline.wrapUp, 11200);
+  assert.equal(timeline.pickStart, 12265);
+  assert.equal(timeline.finish, 13565);
 });
