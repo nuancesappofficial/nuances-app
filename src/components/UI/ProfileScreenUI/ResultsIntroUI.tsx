@@ -226,8 +226,7 @@ export function useResultsIntro({
         setRow(2, 'active');
         setHintKey('settings.membership.intro.hintPronunciation');
       });
-      const flashes = (pron.revealStart - pron.flashStart) / pron.flashEach;
-      for (let i = 0; i < flashes; i += 1) {
+      for (let i = 0; i < pron.flashCount; i += 1) {
         at(pron.flashStart + i * pron.flashEach, () => setPronFlashIndex(i));
       }
       at(pron.revealStart, () => {

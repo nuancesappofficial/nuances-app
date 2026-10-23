@@ -57,6 +57,7 @@ const BASE = {
 export type ResultsIntroPronunciationTimeline = {
   start: number;
   flashStart: number;
+  flashCount: number;
   flashEach: number;
   revealStart: number;
   revealDuration: number;
@@ -102,6 +103,7 @@ export function buildResultsIntroTimeline(
     pron = {
       start,
       flashStart,
+      flashCount: pronunciation.flashCount,
       flashEach: BASE.pronFlashEach,
       revealStart,
       revealDuration: BASE.pronReveal,
@@ -149,6 +151,11 @@ export function shouldPlayResultsIntro(params: {
   );
 }
 
+// 平均進步至少這麼多分才顯示「進步」，否則顯示目前水準。
+const PRONUNCIATION_GAIN_MIN = 5;
+// 發音段最多閃過幾個字（每個約 0.28 秒）。
+const PRONUNCIATION_FLASH_LIMIT = 10;
+
 // 發音段（S5）用到的 Pronunciation Record 欄位。
 export type IntroPronunciationRecord = {
   firstScore: number | null;
@@ -163,6 +170,7 @@ export type IntroPronunciationSummary = {
   flashes: { word: string; first: number; best: number }[];
   // 有紀錄、還在的卡片數（「正在比對 N 個字」）。
   comparedCount: number;
+  // 有能算進步的卡時才有（進步不到 5 分時仍是 level 模式，畫面不顯示這三個值）。
   firstAvg: number | null;
   bestAvg: number | null;
   gain: number | null;
@@ -224,7 +232,3 @@ export function summarizePronunciation(
   };
 }
 
-// 平均進步至少這麼多分才顯示「進步」，否則顯示目前水準。
-const PRONUNCIATION_GAIN_MIN = 5;
-// 發音段最多閃過幾個字（每個約 0.28 秒）。
-const PRONUNCIATION_FLASH_LIMIT = 10;

@@ -55,7 +55,10 @@ import { useAppTour, TOUR_COMPLETION_GREETING_EVENT } from '../contexts/AppTourC
 import TutorialHeaderOverlay from '../components/UI/shared/TutorialHeaderOverlay';
 import TutorialOverlayMask from '../components/UI/shared/TutorialOverlayMask';
 import { getFirstRunTutorialStartTab } from '../features/tour/firstRunJourney';
-import { parsePaywallDevLink } from '../features/dev/paywallDevLinks';
+import {
+  parsePaywallDevLink,
+  type DevSamplePronunciation,
+} from '../features/dev/paywallDevLinks';
 import { clearPaywallSeenFlagsLocally } from '../features/subscription/paywallSeenFlags';
 import {
   FREE_STARTER_LIMIT,
@@ -777,7 +780,7 @@ export default function RootNavigator({
         triggerSource?: MembershipPaywallTriggerSource;
         devStarterUsage?: Partial<StarterUsage>;
         devSampleIntroCards?: boolean;
-        devSamplePronunciation?: 'improved' | 'flat' | 'none';
+        devSamplePronunciation?: DevSamplePronunciation;
         pendingCard?: PendingPaywallCard;
       }
     | 'lite'

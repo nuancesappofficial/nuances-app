@@ -39,6 +39,7 @@ import {
 import {
   buildDevSampleIntroCards,
   buildDevSamplePronunciationRecords,
+  type DevSamplePronunciation,
 } from '../../../features/dev/paywallDevLinks';
 import { loadPronunciationRecords } from '../../../features/deck/pronunciationHistory';
 import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
@@ -165,7 +166,7 @@ type Props = {
       triggerSource?: MembershipPaywallTriggerSource;
       devStarterUsage?: Partial<StarterUsage>;
       devSampleIntroCards?: boolean;
-      devSamplePronunciation?: 'improved' | 'flat' | 'none';
+      devSamplePronunciation?: DevSamplePronunciation;
       pendingCard?: PendingPaywallCard;
     };
   };
@@ -748,8 +749,8 @@ export default function ProfileSettingOptionsFlow({
   const devStarterUsage = route.params?.devStarterUsage;
   const devSampleIntroCards =
     __DEV__ && route.params?.devSampleIntroCards === true;
-  const devSamplePronunciation =
-    route.params?.devSamplePronunciation ?? 'none';
+  const devSamplePronunciation: DevSamplePronunciation =
+    (__DEV__ && route.params?.devSamplePronunciation) || 'none';
   const pendingCard = route.params?.pendingCard;
   const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
     null

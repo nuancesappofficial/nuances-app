@@ -177,6 +177,7 @@ test('a level-only pronunciation segment sits between app switching and wrap-up'
   assert.deepEqual(timeline.pronunciation, {
     start: 9400,
     flashStart: 9900,
+    flashCount: 0,
     flashEach: 280,
     revealStart: 9900,
     revealDuration: 1100,

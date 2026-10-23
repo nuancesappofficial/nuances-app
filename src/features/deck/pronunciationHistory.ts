@@ -17,19 +17,26 @@ async function getPronunciationHistoryKey(): Promise<string> {
   return `${PRONUNCIATION_HISTORY_KEY}:${userId ?? 'guest'}`;
 }
 
+// 讀不到或存檔壞掉時丟出錯誤（不是回傳空的），寫入時才不會把其他卡的紀錄蓋掉。
+async function readRecordsOrThrow(): Promise<Record<string, PronunciationRecord>> {
+  const raw = await AsyncStorage.getItem(await getPronunciationHistoryKey());
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Pronunciation history is not an object');
+  }
+  const entries = Object.entries(parsed).flatMap(([cardId, value]) => {
+    const record = readStoredRecord(value);
+    return record ? ([[cardId, record]] as const) : [];
+  });
+  return Object.fromEntries(entries);
+}
+
 export async function loadPronunciationRecords(): Promise<
   Record<string, PronunciationRecord>
 > {
   try {
-    const raw = await AsyncStorage.getItem(await getPronunciationHistoryKey());
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const entries = Object.entries(parsed).flatMap(([cardId, value]) => {
-      const record = readStoredRecord(value);
-      return record ? ([[cardId, record]] as const) : [];
-    });
-    return Object.fromEntries(entries);
+    return await readRecordsOrThrow();
   } catch (error) {
     console.warn('[PronunciationHistory] load failed:', error);
     return {};
@@ -54,7 +61,7 @@ export function recordPronunciationAssessment(
   assessment: PronunciationAssessment
 ): Promise<PronunciationRecord | null> {
   const run = writeQueue.then(async () => {
-    const current = await loadPronunciationRecords();
+    const current = await readRecordsOrThrow();
     const next = recordAssessment(current[cardId] ?? null, assessment);
     if (!next || next === current[cardId]) return next;
     await AsyncStorage.setItem(

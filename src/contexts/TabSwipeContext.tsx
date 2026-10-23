@@ -3,6 +3,7 @@ import type {
   PendingPaywallCard,
   StarterUsage,
 } from '../features/subscription/paywallHero';
+import type { DevSamplePronunciation } from '../features/dev/paywallDevLinks';
 
 export type SwipeExclusionRange = {
   top: number;
@@ -39,7 +40,7 @@ export type TabSwipeContextValue = {
         // 只給 __DEV__ deep link 用：帳號沒有卡時，成果動畫改用示範卡。
         devSampleIntroCards?: boolean;
         // 只給 __DEV__ deep link 用：示範卡的發音紀錄情境。
-        devSamplePronunciation?: 'improved' | 'flat' | 'none';
+        devSamplePronunciation?: DevSamplePronunciation;
         // 入門額度用完時正要建的那張卡（第 21 張）。
         pendingCard?: PendingPaywallCard;
       }

@@ -1,10 +1,13 @@
+// paywall-21 連結的 pron 參數：示範卡的發音紀錄情境。
+export type DevSamplePronunciation = 'improved' | 'flat' | 'none';
+
 export type PaywallDevLink =
   | {
       kind: 'paywall-21';
       word: string;
       sourceLabel: string;
       cardKind: 'word' | 'shot';
-      pronunciation: 'improved' | 'flat' | 'none';
+      pronunciation: DevSamplePronunciation;
     }
   | {
       kind: 'settings';
@@ -130,7 +133,7 @@ const DEV_SAMPLE_PRONUNCIATION: Record<
 };
 
 export function buildDevSamplePronunciationRecords(
-  mode: 'improved' | 'flat' | 'none',
+  mode: DevSamplePronunciation,
   cards: readonly { id: string; createdAt: number }[]
 ): Record<
   string,
