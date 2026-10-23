@@ -665,7 +665,11 @@ export default function ProfileSettingOptionsFlow({
   const tabSwipeContext = React.useContext(TabSwipeContext);
   const isLight = colorScheme === 'light';
   const isCompact = windowHeight < 760 || windowWidth < 380;
-  const membershipStageMinHeight = isCompact ? 0 : Math.max(728, windowHeight - 92);
+  // 小螢幕也要撐滿可視高度：上半部的第 21 張卡和成果動畫靠「填滿剩下的空間」排版，
+  // 高度是 0 時卡片會被擠到最上面、和方案疊在一起。
+  const membershipStageMinHeight = isCompact
+    ? Math.max(0, windowHeight - insets.top - insets.bottom - 110)
+    : Math.max(728, windowHeight - 92);
   const [settings, setSettings] = React.useState<UserAppSettings>(
     getInitialUserSettings
   );
@@ -2523,6 +2527,9 @@ export default function ProfileSettingOptionsFlow({
             contentContainerStyle={[
               styles.membershipScrollContent,
               {
+                // 小螢幕：整個內容往下移，成果動畫在第 21 張卡上方的標題才不會壓到狀態列。
+                // 動畫和 paywall 共用這個位置，交接時卡片不會移動。
+                paddingTop: isCompact ? 44 : undefined,
                 paddingBottom: isCompact
                   ? Math.max(insets.bottom + 48, 64)
                   : Math.max(insets.bottom + 132, 156),
@@ -2535,9 +2542,8 @@ export default function ProfileSettingOptionsFlow({
             <View
               style={[
                 styles.membershipPremiumStage,
-                isCompact
-                  ? styles.membershipPremiumStageCompact
-                  : { minHeight: membershipStageMinHeight },
+                isCompact ? styles.membershipPremiumStageCompact : null,
+                { minHeight: membershipStageMinHeight },
               ]}
             >
               <PaywallHeroUI
@@ -3993,7 +3999,6 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   membershipPremiumStageCompact: {
-    minHeight: 0,
     paddingBottom: 24,
     paddingHorizontal: 12,
   },

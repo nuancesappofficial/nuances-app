@@ -416,7 +416,8 @@ export default function PaywallHeroUI({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // flexGrow（不是 flex: 1）：高度至少是自己的內容，小螢幕上卡片才不會被壓扁。
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
