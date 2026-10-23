@@ -1495,6 +1495,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
     }
     setShowPronunciationModal(false);
+    pronunciationModalAnim.setValue(0);
     if (isTourCoachOpenRef.current) {
       isTourCoachOpenRef.current = false;
       setTimeout(() => {
@@ -1504,7 +1505,7 @@ export default function CardDetailScreen({ navigation, route }: Props) {
         }, 420);
       }, 420);
     }
-  }, [appTour, navigation]);
+  }, [appTour, navigation, pronunciationModalAnim]);
 
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -1726,7 +1727,9 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       useNativeDriver: true,
     }).start();
   }, [showStickyNoteModal, stickyModalAnim]);
-  React.useEffect(() => {
+  // useLayoutEffect：在第一格畫面出現前就歸零。用 useEffect 的話，第二次以後打開會先用
+  // 上次結束時的「完全顯示」畫一格，再歸零淡入，看起來像閃一下。
+  React.useLayoutEffect(() => {
     if (!showPronunciationModal) return;
     pronunciationModalAnim.setValue(0);
     Animated.spring(pronunciationModalAnim, {
