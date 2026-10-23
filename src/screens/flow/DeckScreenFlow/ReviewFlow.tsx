@@ -33,6 +33,7 @@ import {
   detectPronunciationLocale,
   type CloudPhonemeFeedback,
 } from '@services/pronunciation/cloudCoach';
+import { recordPronunciationAssessment } from '../../../features/deck/pronunciationHistory';
 import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import {
   formatIpaPhoneme,
@@ -2309,6 +2310,14 @@ export default function ReviewFlow({ navigation, route }: Props) {
       });
       const score = Math.round(result.score);
       const passed = score >= PRONUNCIATION_PASS_SCORE;
+      // 寫進這張卡的 Pronunciation Record；示範評分不算一次練習。
+      void recordPronunciationAssessment(question.cardId, {
+        score,
+        demo: usesDemoPronunciationBackend,
+        at: new Date().toISOString(),
+      }).catch((storageError) => {
+        console.warn('[Review][Pronunciation] save record failed:', storageError);
+      });
       setPronunciationScores((prev) => ({ ...prev, [question.id]: score }));
       setPronunciationPhonemes((prev) => ({ ...prev, [question.id]: result.phonemeFeedback || [] }));
       setRecoveredPronunciationIpa((prev) => {
