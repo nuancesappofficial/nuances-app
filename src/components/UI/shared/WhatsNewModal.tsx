@@ -14,6 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { whatsNewService } from '../../../services/whatsNew/whatsNewService';
 import type { WhatsNewRelease } from '../../../config/whatsNew';
+import { loadUserSettings, type UILanguage } from '../../../services/settings/userSettings';
+import { tUI } from '../../../i18n/uiLanguage';
 import {
   resolveThemeColors,
   MODAL_CTA_COLOR,
@@ -23,6 +25,7 @@ const BOTTOM_SHEET_INITIAL_Y = 500;
 
 export default function WhatsNewModal() {
   const [release, setRelease] = React.useState<WhatsNewRelease | null>(null);
+  const [uiLanguage, setUiLanguage] = React.useState<UILanguage>('en');
   const colorScheme = useColorScheme();
   const palette = resolveThemeColors(colorScheme);
   const isDark = colorScheme !== 'light';
@@ -35,9 +38,15 @@ export default function WhatsNewModal() {
     let isMounted = true;
 
     async function checkRelease() {
-      const data = await whatsNewService.checkShouldShow();
+      const [data, settings] = await Promise.all([
+        whatsNewService.checkShouldShow(),
+        loadUserSettings().catch(() => null),
+      ]);
       if (!isMounted || !data) return;
 
+      if (settings?.uiLanguage) {
+        setUiLanguage(settings.uiLanguage);
+      }
       setRelease(data);
       fadeAnim.setValue(0);
       translateYAnim.setValue(BOTTOM_SHEET_INITIAL_Y);
@@ -88,6 +97,11 @@ export default function WhatsNewModal() {
 
   if (!release) return null;
 
+  const localizedConfig = release.localized?.[uiLanguage];
+  const displayTitle = localizedConfig?.title || release.title || 'What’s New';
+  const displayItems = localizedConfig?.items || release.items || [];
+  const continueText = tUI(uiLanguage, 'common.done') || 'Continue';
+
   return (
     <Modal
       transparent
@@ -121,7 +135,7 @@ export default function WhatsNewModal() {
                 { color: isDark ? '#FFFFFF' : '#0F172A' },
               ]}
             >
-              {release.title || '更新功能'}
+              {displayTitle}
             </Text>
           </View>
 
@@ -131,7 +145,7 @@ export default function WhatsNewModal() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
           >
-            {release.items.map((item) => (
+            {displayItems.map((item) => (
               <View key={item.number} style={styles.itemRow}>
                 <Text style={styles.itemNumber}>{item.number}</Text>
                 <View style={styles.itemTextContainer}>
@@ -173,7 +187,7 @@ export default function WhatsNewModal() {
                   { color: isDark ? '#02213D' : '#FFFFFF' },
                 ]}
               >
-                Continue
+                {continueText}
               </Text>
             </Pressable>
           </View>

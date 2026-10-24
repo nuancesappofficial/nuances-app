@@ -10,6 +10,7 @@ export type WhatsNewRelease = {
   badge?: string;
   subtitle?: string;
   items: WhatsNewItem[];
+  localized?: Partial<Record<string, { title?: string; items: WhatsNewItem[] }>>;
 };
 
 export const LAST_SEEN_WHATS_NEW_KEY = 'nuances_last_seen_whats_new_version';
