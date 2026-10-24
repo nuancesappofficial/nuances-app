@@ -101,6 +101,17 @@ test('a freemium learner blocked on a new card sees that word as the 21st card',
   );
 });
 
+test('a freemium learner blocked on pronunciation quota sees that word as next with isPronunciationCap flag', () => {
+  assert.deepEqual(
+    resolvePaywallHero({
+      planType: 'free',
+      starterUsage: null,
+      pendingCard: { word: 'ephemeral', sourceLabel: 'Manual Entry', isPronunciationCap: true },
+    }),
+    { kind: 'next', word: 'ephemeral', sourceLabel: 'Manual Entry', isPronunciationCap: true }
+  );
+});
+
 test('paying learners see their plan instead of the starter allowance', () => {
   const usage = { cardsUsed: 20, pronunciationUsed: 20 };
   assert.deepEqual(resolvePaywallHero({ planType: 'lite', starterUsage: usage }), {

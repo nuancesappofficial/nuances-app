@@ -374,9 +374,11 @@ export function useIntroPickedStyle(intro: ResultsIntroController) {
 export function IntroCardUnderlay({
   intro,
   word,
+  isPronunciationCap = false,
 }: {
   intro: ResultsIntroController;
   word: string;
+  isPronunciationCap?: boolean;
 }) {
   const lastIndex = intro.cardCount - 1;
   const animated = React.useMemo(
@@ -428,7 +430,7 @@ export function IntroCardUnderlay({
         >
           {word}
         </Text>
-        <Text style={styles.silhouetteNumber}>#21</Text>
+        <Text style={styles.silhouetteNumber}>{isPronunciationCap ? '🎙️' : '#21'}</Text>
       </View>
     </>
   );

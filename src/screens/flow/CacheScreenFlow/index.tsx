@@ -775,6 +775,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     handleUploadCropDismiss,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
+    queueCreateCardAfterAddDismiss,
     openCropperForSwipeImage,
     forceCloseUploadCropper,
   } = useCacheQuickAddFlow({
@@ -1192,6 +1193,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       }
       const contentText = trimmed.slice(0, 2000);
       let duplicateFound = false;
+      let createdItem: CachedItem | null = null;
       await database.write(async () => {
         const duplicate = await collection
           .query(
@@ -1206,7 +1208,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
           duplicateFound = true;
           return;
         }
-        await collection.create((item) => {
+        createdItem = await collection.create((item) => {
           item.userId = userId;
           item.type = 'text';
           item.contentType = 'text';
@@ -1228,7 +1230,11 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       }
       setManualText('');
       setDidPasteIntoTextBox(false);
-      setShowAddModal(false);
+      if (createdItem) {
+        queueCreateCardAfterAddDismiss(createdItem);
+      } else {
+        setShowAddModal(false);
+      }
     } catch (error) {
       console.error('[CacheList] quick add text failed:', error);
       Alert.alert('新增失敗', '無法新增文字快取，請稍後再試。');

@@ -125,6 +125,13 @@ const IOS_CARD_SCREEN_OPTIONS: StackNavigationOptions = {
   cardOverlayEnabled: false,
 };
 
+const MEMBERSHIP_PAYWALL_CROSS_FADE_OPTIONS: StackNavigationOptions = {
+  presentation: 'card',
+  headerShown: false,
+  gestureEnabled: true,
+  cardStyleInterpolator: CardStyleInterpolators.forFadeFromCenter,
+};
+
 const forStationaryRoot: StackCardStyleInterpolator = () => ({
   cardStyle: {
     transform: [{ translateX: 0 }],
@@ -283,6 +290,11 @@ const CacheStack = React.memo(function CacheStack({
               gestureEnabled: Platform.OS === 'ios',
             }}
           />
+          <CacheStackNav.Screen
+            name="MembershipPaywall"
+            component={SyncProfileSettingOptionsFlow}
+            options={MEMBERSHIP_PAYWALL_CROSS_FADE_OPTIONS}
+          />
         </CacheStackNav.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>
@@ -419,6 +431,11 @@ const CardsStack = React.memo(function CardsStack({
               ...IOS_CARD_SCREEN_OPTIONS,
               gestureEnabled: Platform.OS === 'ios',
             }}
+          />
+          <CardsStackNav.Screen
+            name="MembershipPaywall"
+            component={SyncProfileSettingOptionsFlow}
+            options={MEMBERSHIP_PAYWALL_CROSS_FADE_OPTIONS}
           />
         </CardsStackNav.Navigator>
       </NavigationContainer>
@@ -803,6 +820,64 @@ export default function RootNavigator({
       returnTo: normalizedOptions?.returnTo ?? 'settings',
     });
 
+    const source = normalizedOptions?.source;
+    const isFromCache =
+      source === 'create_card' ||
+      (!source && selectedTabIndexRef.current === 1) ||
+      (source === 'unknown' && selectedTabIndexRef.current === 1);
+    const isFromCards =
+      source === 'card_detail' ||
+      source === 'review' ||
+      (!source && selectedTabIndexRef.current === 0) ||
+      (source === 'unknown' && selectedTabIndexRef.current === 0);
+
+    const navParams = {
+      kind: 'membership' as const,
+      returnTo:
+        normalizedOptions?.returnTo ??
+        (isFromCache ? 'create-card' : 'settings'),
+      source: normalizedOptions?.source ?? 'unknown',
+      tier: normalizedOptions?.tier,
+      initialTab: normalizedOptions?.tier,
+      triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
+      devStarterUsage: normalizedOptions?.devStarterUsage,
+      devSampleIntroCards: normalizedOptions?.devSampleIntroCards,
+      devSamplePronunciation: normalizedOptions?.devSamplePronunciation,
+      pendingCard: normalizedOptions?.pendingCard,
+    };
+
+    if (isFromCache) {
+      let attempts = 0;
+      const navigateInCache = () => {
+        if (!cacheNavigationRef.isReady()) {
+          attempts += 1;
+          if (attempts > 20) return;
+          requestAnimationFrame(navigateInCache);
+          return;
+        }
+        cacheNavigationRef.navigate('MembershipPaywall', navParams);
+        traceFirstRun('paywall', 'screen_navigated', { source: navParams.source });
+      };
+      navigateInCache();
+      return;
+    }
+
+    if (isFromCards) {
+      let attempts = 0;
+      const navigateInCards = () => {
+        if (!cardsNavigationRef.isReady()) {
+          attempts += 1;
+          if (attempts > 20) return;
+          requestAnimationFrame(navigateInCards);
+          return;
+        }
+        cardsNavigationRef.navigate('MembershipPaywall', navParams);
+        traceFirstRun('paywall', 'screen_navigated', { source: navParams.source });
+      };
+      navigateInCards();
+      return;
+    }
+
     setTabBarForcedHidden(false);
     switchTabImmediately(2);
 
@@ -817,25 +892,14 @@ export default function RootNavigator({
         requestAnimationFrame(navigateToMembership);
         return;
       }
-      profileNavigationRef.navigate('ProfileSettingOptions', {
-        kind: 'membership',
-        returnTo: normalizedOptions?.returnTo ?? 'settings',
-        source: normalizedOptions?.source ?? 'unknown',
-        tier: normalizedOptions?.tier,
-        initialTab: normalizedOptions?.tier,
-        triggerSource: normalizedOptions?.triggerSource ?? 'user_initiated',
-        devStarterUsage: normalizedOptions?.devStarterUsage,
-        devSampleIntroCards: normalizedOptions?.devSampleIntroCards,
-        devSamplePronunciation: normalizedOptions?.devSamplePronunciation,
-        pendingCard: normalizedOptions?.pendingCard,
-      });
+      profileNavigationRef.navigate('ProfileSettingOptions', navParams);
       traceFirstRun('paywall', 'screen_navigated', {
         source: normalizedOptions?.source ?? 'unknown',
       });
     };
 
     setTimeout(navigateToMembership, 280);
-  }, [profileNavigationRef, switchTabImmediately]);
+  }, [cacheNavigationRef, cardsNavigationRef, profileNavigationRef, switchTabImmediately]);
 
   React.useEffect(() => {
     if (!__DEV__) return undefined;

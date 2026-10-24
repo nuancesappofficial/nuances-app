@@ -160,11 +160,13 @@ function TwentyFirstCardFace({
   word,
   sourceLabel,
   signature,
+  isPronunciationCap = false,
   children,
 }: {
   word: string;
   sourceLabel: string;
   signature: string;
+  isPronunciationCap?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -182,7 +184,7 @@ function TwentyFirstCardFace({
               {sourceLabel}
             </Text>
           </View>
-          <Text style={styles.nextCardNumber}>#21</Text>
+          <Text style={styles.nextCardNumber}>{isPronunciationCap ? '🎙️' : '#21'}</Text>
         </View>
         <View style={styles.nextCardWordBox}>
           {/* 長字整體縮小，不在字中間斷行 */}
@@ -214,6 +216,7 @@ function NextCard({
   word,
   sourceLabel,
   signature,
+  isPronunciationCap = false,
   uiLanguage,
   intro,
   introController,
@@ -221,6 +224,7 @@ function NextCard({
   word: string;
   sourceLabel: string;
   signature: string;
+  isPronunciationCap?: boolean;
   uiLanguage: UILanguage;
   intro: PaywallHeroIntro | null;
   introController: ResultsIntroController;
@@ -256,7 +260,7 @@ function NextCard({
           style={[styles.nextCardFill, playing ? pickedStyle : STATIC_TILT]}
         >
           {playing ? (
-            <IntroCardUnderlay intro={controller} word={word} />
+            <IntroCardUnderlay intro={controller} word={word} isPronunciationCap={isPronunciationCap} />
           ) : null}
           <Animated.View
             style={[
@@ -268,6 +272,7 @@ function NextCard({
               word={word}
               sourceLabel={sourceLabel}
               signature={signature}
+              isPronunciationCap={isPronunciationCap}
             >
               <Animated.View
                 pointerEvents="none"
@@ -320,6 +325,7 @@ export default function PaywallHeroUI({
           word={hero.word}
           sourceLabel={hero.sourceLabel}
           signature={tUI(uiLanguage, 'settings.membership.next21.signature')}
+          isPronunciationCap={hero.isPronunciationCap}
           uiLanguage={uiLanguage}
           intro={intro}
           introController={introController}

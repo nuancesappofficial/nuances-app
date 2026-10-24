@@ -57,6 +57,8 @@ export type EntitlementSnapshot = {
   remainingVoiceUses: number;
   lastVoiceResetDate: string;
   cacheCardLimit: number | null;
+  freeStarterCardClaimed?: number;
+  freeStarterPronunciationClaimed?: number;
   devBypass: boolean;
   serverSynced?: boolean;
 };
@@ -110,8 +112,19 @@ function buildSnapshot(params: {
   devBypass: boolean;
   trialEndsAt: string | null;
   subscriptionExpiresAt: string | null;
+  freeStarterCardClaimed?: number;
+  freeStarterPronunciationClaimed?: number;
 }): EntitlementSnapshot {
-  const { planType, dailyVoiceUses, lastVoiceResetDate, devBypass, trialEndsAt, subscriptionExpiresAt } = params;
+  const {
+    planType,
+    dailyVoiceUses,
+    lastVoiceResetDate,
+    devBypass,
+    trialEndsAt,
+    subscriptionExpiresAt,
+    freeStarterCardClaimed,
+    freeStarterPronunciationClaimed,
+  } = params;
   const canUseCloudFeatures = planType !== 'free';
   return {
     planType,
@@ -128,6 +141,8 @@ function buildSnapshot(params: {
     remainingVoiceUses: calcRemaining(dailyVoiceUses, planType),
     lastVoiceResetDate,
     cacheCardLimit: null,
+    freeStarterCardClaimed,
+    freeStarterPronunciationClaimed,
     devBypass,
   };
 }
@@ -313,6 +328,14 @@ async function applyServerSnapshotToSettings(snapshot: RemoteEntitlementPayload)
         ? snapshot.subscriptionExpiresAt
         : settings.subscriptionExpiresAt,
     lastEntitlementSyncAt: new Date().toISOString(),
+    freeStarterCardClaimed:
+      typeof snapshot.freeStarterCardClaimed === 'number'
+        ? snapshot.freeStarterCardClaimed
+        : settings.freeStarterCardClaimed,
+    freeStarterPronunciationClaimed:
+      typeof snapshot.freeStarterPronunciationClaimed === 'number'
+        ? snapshot.freeStarterPronunciationClaimed
+        : settings.freeStarterPronunciationClaimed,
   });
 }
 
@@ -446,6 +469,8 @@ export const SubscriptionService = {
       devBypass: false,
       trialEndsAt,
       subscriptionExpiresAt,
+      freeStarterCardClaimed: settings.freeStarterCardClaimed,
+      freeStarterPronunciationClaimed: settings.freeStarterPronunciationClaimed,
     });
   },
 

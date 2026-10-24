@@ -96,6 +96,8 @@ export type UserAppSettings = {
   trialEndsAt: string | null;
   subscriptionExpiresAt: string | null;
   lastEntitlementSyncAt: string | null;
+  freeStarterCardClaimed?: number;
+  freeStarterPronunciationClaimed?: number;
   uiLanguage: UILanguage;
   aiReplyLanguage: AIReplyLanguage;
   learningLanguages: LearningLanguage[];
@@ -382,6 +384,8 @@ export const DEFAULT_USER_SETTINGS: UserAppSettings = {
   trialEndsAt: null,
   subscriptionExpiresAt: null,
   lastEntitlementSyncAt: null,
+  freeStarterCardClaimed: 0,
+  freeStarterPronunciationClaimed: 0,
   uiLanguage: DEVICE_DEFAULT_LANGUAGES.uiLanguage,
   aiReplyLanguage: DEVICE_DEFAULT_LANGUAGES.aiReplyLanguage,
   learningLanguages: ['en'],

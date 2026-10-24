@@ -760,16 +760,24 @@ export default function ProfileSettingOptionsFlow({
   const [savedCardCount, setSavedCardCount] = React.useState<number | null>(
     null
   );
+  const effectivePendingCard = React.useMemo(() => {
+    if (!pendingCard) return undefined;
+    if (membershipTriggerSource === 'free_pronunciation_cap') {
+      return { ...pendingCard, isPronunciationCap: true };
+    }
+    return pendingCard;
+  }, [membershipTriggerSource, pendingCard]);
+
   const paywallHero = React.useMemo(
     () =>
       membershipStatusResolved
         ? resolvePaywallHero({
             planType: membershipStatus,
             starterUsage,
-            pendingCard,
+            pendingCard: effectivePendingCard,
           })
         : null,
-    [membershipStatus, membershipStatusResolved, pendingCard, starterUsage]
+    [effectivePendingCard, membershipStatus, membershipStatusResolved, starterUsage]
   );
   // null：還沒從本機讀到；讀到前當作已看過，避免誤開退出畫面。
   const [paywallExitSeen, setPaywallExitSeen] = React.useState<boolean | null>(
@@ -2449,6 +2457,9 @@ export default function ProfileSettingOptionsFlow({
     }
 
     // 成果動畫：第 21 張就是 paywall 上那張卡，輪播和文字圍著它排；其他部分先隱藏，結尾淡入。
+    const isPronunciationCap =
+      membershipTriggerSource === 'free_pronunciation_cap' ||
+      (paywallHero?.kind === 'next' && Boolean(paywallHero.isPronunciationCap));
     const introPlaying =
       introPhase === 'playing' && paywallHero?.kind === 'next' && introCards != null;
     const heroIntro =
@@ -2456,7 +2467,7 @@ export default function ProfileSettingOptionsFlow({
         ? {
             controller: resultsIntro,
             cards: introCards,
-            createdCount: FREE_STARTER_LIMIT,
+            createdCount: isPronunciationCap ? introCards.length : FREE_STARTER_LIMIT,
           }
         : null;
     const revealStyle = { opacity: resultsIntro.reveal };

@@ -9,6 +9,7 @@ import { isDefaultExperienceCard } from '../../../../features/cache/defaultExper
 import { useAppTour } from '../../../../contexts/AppTourContext';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { getRemainingCacheCapacity } from '@services/cache/cacheLimitService';
+import { buildStaggeredCreationDates } from '../../../../features/cache/cacheStaggerOrdering';
 
 export type CropperFlowTarget = 'quick-add' | 'swipe-image';
 
@@ -57,19 +58,21 @@ export function useCacheQuickAddFlow({
   }, []);
 
   const createQuickImageCachedItems = React.useCallback(
-    async (imageUris: string[]): Promise<string[]> => {
+    async (
+      imageUris: string[]
+    ): Promise<{ createdItems: CachedItem[]; topItem: CachedItem | null }> => {
       const userId = await getCurrentSessionUserId();
       if (!userId) {
         onBatchQuickAddCreated?.([]);
         Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
-        return [];
+        return { createdItems: [], topItem: null };
       }
 
       const remainingCapacity = await getRemainingCacheCapacity(userId);
       if (remainingCapacity <= 0) {
         onBatchQuickAddCreated?.([]);
         Alert.alert('暫存區已滿', '請先處理或刪除部分暫存卡片後再新增。');
-        return [];
+        return { createdItems: [], topItem: null };
       }
       const validUris = Array.from(new Set(imageUris.filter(Boolean))).slice(
         0,
@@ -77,7 +80,7 @@ export function useCacheQuickAddFlow({
       );
       if (validUris.length === 0) {
         onBatchQuickAddCreated?.([]);
-        return [];
+        return { createdItems: [], topItem: null };
       }
 
       const collection = database.get<CachedItem>('cached_items');
@@ -98,10 +101,11 @@ export function useCacheQuickAddFlow({
       if (newUris.length === 0) {
         onBatchQuickAddCreated?.([]);
         Alert.alert('已在暫存區', '所選取的圖片均已存在於暫存區中。');
-        return [];
+        return { createdItems: [], topItem: null };
       }
 
-      const preparedItems = newUris.map((uri) =>
+      const creationDates = buildStaggeredCreationDates(newUris.length);
+      const preparedItems = newUris.map((uri, index) =>
         collection.prepareCreate((item) => {
           item.userId = userId;
           item.contentType = 'image';
@@ -116,7 +120,10 @@ export function useCacheQuickAddFlow({
           item.convertedToCard = false;
           item.imageAnnotations = undefined;
 
-          const expiresAt = new Date();
+          // 1st selected image (index 0) gets the highest createdAt, so it will be the top card
+          const createdAt = creationDates[index] || new Date();
+          item.createdAt = createdAt;
+          const expiresAt = new Date(createdAt);
           expiresAt.setMinutes(expiresAt.getMinutes() + 10);
           item.expiresAt = expiresAt;
         })
@@ -128,7 +135,10 @@ export function useCacheQuickAddFlow({
         await database.batch(...preparedItems);
       });
 
-      return createdIds;
+      return {
+        createdItems: preparedItems,
+        topItem: preparedItems[0] || null,
+      };
     },
     [onBatchQuickAddCreated]
   );
@@ -194,9 +204,19 @@ export function useCacheQuickAddFlow({
       setShowAddModal(false);
 
       try {
-        await createQuickImageCachedItems(
+        const { topItem } = await createQuickImageCachedItems(
           pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
         );
+        if (topItem) {
+          const imageUri = topItem.imageStoragePath || topItem.mediaUri || null;
+          if (imageUri) {
+            setCropperFlowTarget('swipe-image');
+            setPendingSwipeImageItem(topItem);
+            setPendingOriginalImageUri(imageUri);
+            setPendingOriginalImageSize(null);
+            setPendingOpenCropperAfterAddDismiss(true);
+          }
+        }
       } catch (error) {
         onBatchQuickAddCreated?.([]);
         console.error('[CacheList] batch image create failed:', error);
@@ -439,7 +459,34 @@ export function useCacheQuickAddFlow({
     ]
   );
 
+  const pendingCreateCardItemAfterDismissRef = React.useRef<CachedItem | null>(null);
+
+  const queueCreateCardAfterAddDismiss = React.useCallback(
+    (item: CachedItem) => {
+      pendingCreateCardItemAfterDismissRef.current = item;
+      setSuppressAddModalAnimation(true);
+      setShowAddModal(false);
+      if (Platform.OS === 'android') {
+        setTimeout(() => {
+          if (pendingCreateCardItemAfterDismissRef.current) {
+            const toOpen = pendingCreateCardItemAfterDismissRef.current;
+            pendingCreateCardItemAfterDismissRef.current = null;
+            navigation.navigate('CreateCard', { cachedItem: toOpen });
+          }
+        }, 180);
+      }
+    },
+    [navigation, setShowAddModal]
+  );
+
   const handleInputModalDismiss = React.useCallback(() => {
+    if (pendingCreateCardItemAfterDismissRef.current) {
+      const toOpen = pendingCreateCardItemAfterDismissRef.current;
+      pendingCreateCardItemAfterDismissRef.current = null;
+      requestAnimationFrame(() => {
+        navigation.navigate('CreateCard', { cachedItem: toOpen });
+      });
+    }
     if (pendingOpenCropperAfterAddDismiss && pendingOriginalImageUri) {
       setShowUploadCropper(true);
       setPendingOpenCropperAfterAddDismiss(false);
@@ -452,6 +499,7 @@ export function useCacheQuickAddFlow({
       setSuppressAddModalAnimation(false);
     }
   }, [
+    navigation,
     pendingOpenCameraAfterAddDismiss,
     pendingOpenCropperAfterAddDismiss,
     pendingOriginalImageUri,
@@ -491,6 +539,7 @@ export function useCacheQuickAddFlow({
     handleUploadCropDismiss,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
+    queueCreateCardAfterAddDismiss,
     openCropperForSwipeImage,
     forceCloseUploadCropper,
   };

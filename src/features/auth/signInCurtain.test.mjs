@@ -43,3 +43,18 @@ test('cancelled or failed sign-in removes the curtain', () => {
     ready: false,
   });
 });
+
+test('sign-in-started does not revert an already ready curtain back to ready: false', () => {
+  let curtain = createHiddenSignInCurtain();
+
+  curtain = transitionSignInCurtain(curtain, 'sign-in-started');
+  curtain = transitionSignInCurtain(curtain, 'session-ready');
+  assert.equal(curtain.ready, true);
+
+  // Companion/subsequent event tries to start again while ready
+  curtain = transitionSignInCurtain(curtain, 'sign-in-started');
+  assert.deepEqual(curtain, {
+    visible: true,
+    ready: true,
+  });
+});

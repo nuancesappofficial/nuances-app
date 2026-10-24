@@ -78,6 +78,7 @@ import ReminderNotificationService from '@services/notifications/ReminderNotific
 import AppReviewService from '@services/reviews/AppReviewService';
 import { analytics } from '@services/analytics';
 import { traceFirstRun } from '../../../services/logging/firstRunTraceRuntime';
+import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
 import SubscriptionService from '@services/subscription/SubscriptionService';
 import {
   getInitialUserSettings,
@@ -2362,7 +2363,21 @@ export default function ReviewFlow({ navigation, route }: Props) {
         const errorCode = getErrorCode(error);
         if (errorCode === 'free_starter_exhausted') {
           analytics.track('pronunciation_free_starter_exhausted', { context: 'review' });
-        } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
+          const sourceCard = allCards.find((c) => c.id === question.cardId);
+          const targetWord = question.correctAnswer || '';
+          const sourceLabel = toSourceLabel(sourceCard?.sourceApp);
+          tabSwipeContext?.openMembershipPaywall({
+            source: 'review',
+            triggerSource: 'free_pronunciation_cap',
+            pendingCard: {
+              word: targetWord,
+              sourceLabel,
+              isPronunciationCap: true,
+            },
+          });
+          return;
+        }
+        if (errorCode === 'pronunciation_monthly_quota_exceeded') {
           analytics.track('pronunciation_monthly_quota_exceeded', { context: 'review' });
         }
         const triggerSource = resolvePronunciationTriggerSource(errorCode);

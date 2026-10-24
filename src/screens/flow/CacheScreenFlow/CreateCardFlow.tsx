@@ -150,7 +150,10 @@ import {
 } from '../../../features/createCard/revealSequence';
 import TutorialSpotlight from '../../../components/UI/shared/TutorialSpotlight';
 import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
-import type { PendingPaywallCard } from '../../../features/subscription/paywallHero';
+import {
+  FREE_STARTER_LIMIT,
+  type PendingPaywallCard,
+} from '../../../features/subscription/paywallHero';
 import MovingTutorialArrow from '../../../components/UI/shared/MovingTutorialArrow';
 import {
   DEFAULT_EXPERIENCE_TARGET_WORD,
@@ -1866,6 +1869,24 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         }) ||
         sourceText ||
         word;
+
+      // 21st card pre-emption: If the user has exhausted their free starter allowance,
+      // skip the 1500ms ghost loading beat and jump directly into the paywall transition.
+      const isStarterAllowanceExhausted =
+        entitlementSnapshot?.planType === 'free' &&
+        (entitlementSnapshot.freeStarterCardClaimed ?? 0) >= FREE_STARTER_LIMIT;
+      if (isStarterAllowanceExhausted) {
+        traceFirstRun('starter_allowance', 'card_generation_paywalled_preempted', {
+          isTutorial: isDefaultExperienceTutorial,
+          claimed: entitlementSnapshot?.freeStarterCardClaimed,
+        });
+        openMembershipPaywall(undefined, {
+          word,
+          sourceLabel: toSourceLabel(cachedItem.sourceApp),
+        });
+        return { status: 'blocked' as const };
+      }
+
       try {
         traceFirstRun('starter_allowance', 'card_generation_started', {
           isTutorial: isDefaultExperienceTutorial,

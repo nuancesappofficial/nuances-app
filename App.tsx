@@ -744,6 +744,24 @@ export default function App() {
   const activeUserIdRef = React.useRef<string | null>(null);
   const inFlightAuthUserIdRef = React.useRef<string | null>(null);
   const signInCurtainWatchdogTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coldStartSafetyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (signInCurtainWatchdogTimerRef.current) {
+        clearTimeout(signInCurtainWatchdogTimerRef.current);
+        signInCurtainWatchdogTimerRef.current = null;
+      }
+      if (coldStartSafetyTimerRef.current) {
+        clearTimeout(coldStartSafetyTimerRef.current);
+        coldStartSafetyTimerRef.current = null;
+      }
+      if (preloadedFirstPlayerRef.current) {
+        preloadedFirstPlayerRef.current.release();
+        preloadedFirstPlayerRef.current = null;
+      }
+    };
+  }, []);
 
   const releaseSignInCurtain = React.useCallback(() => {
     if (signInCurtainWatchdogTimerRef.current) {
@@ -939,7 +957,10 @@ export default function App() {
           void registerPushTokenForUser(user.id);
           void inAppMessageService.init(user.id);
 
-          const coldStartSafetyTimer = setTimeout(() => {
+          if (coldStartSafetyTimerRef.current) {
+            clearTimeout(coldStartSafetyTimerRef.current);
+          }
+          coldStartSafetyTimerRef.current = setTimeout(() => {
             if (activeUserIdRef.current === user.id) {
               console.warn('[App] cold start gate safety release triggered');
               setVideoTourChecked(true);
@@ -955,7 +976,10 @@ export default function App() {
             fetchUserHasCacheItems(user.id),
             checkOnboardingStatus(user.id, userMetadata),
           ]).then(async ([cacheRes, onboardingRes]) => {
-            clearTimeout(coldStartSafetyTimer);
+            if (coldStartSafetyTimerRef.current) {
+              clearTimeout(coldStartSafetyTimerRef.current);
+              coldStartSafetyTimerRef.current = null;
+            }
             if (activeUserIdRef.current !== user.id) return;
             const hasCache = cacheRes.status === 'fulfilled' ? cacheRes.value : false;
             if (hasCache) {
@@ -1004,7 +1028,10 @@ export default function App() {
               triggerBackgroundAccountRefresh(user.id, 'startup');
             }
           }).catch((error) => {
-            clearTimeout(coldStartSafetyTimer);
+            if (coldStartSafetyTimerRef.current) {
+              clearTimeout(coldStartSafetyTimerRef.current);
+              coldStartSafetyTimerRef.current = null;
+            }
             console.warn('[App] background onboarding check failed:', error);
             if (activeUserIdRef.current === user.id) {
               setNeedsVideoTour(false);
@@ -1188,6 +1215,10 @@ export default function App() {
       if (!session?.access_token) {
         authTransitionIdRef.current += 1;
         inFlightAuthUserIdRef.current = null;
+        if (preloadedFirstPlayerRef.current) {
+          preloadedFirstPlayerRef.current.release();
+          preloadedFirstPlayerRef.current = null;
+        }
         abortSignInCurtain();
         // Hide the previous account immediately. Cleanup may touch many local
         // rows/files and must not leave the old navigator interactive.
@@ -1249,6 +1280,10 @@ export default function App() {
       }
       if (isAccountSwitch) {
         // Unmount account A before any asynchronous cleanup/bootstrap for B.
+        if (preloadedFirstPlayerRef.current) {
+          preloadedFirstPlayerRef.current.release();
+          preloadedFirstPlayerRef.current = null;
+        }
         activeUserIdRef.current = null;
         setUserId(null);
         setNeedsVideoTour(false);

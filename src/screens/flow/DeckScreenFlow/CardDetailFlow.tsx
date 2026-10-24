@@ -81,8 +81,10 @@ import { stopAzureTtsPlayback, cancelAllTtsPlayback } from '@services/tts/cloudS
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
 import { analytics } from '@services/analytics';
+import { isPremiumFeatureError } from '@services/ai/edgeAiClient';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
 import { useAppTour } from '../../../contexts/AppTourContext';
+import { toSourceLabel } from '../../../features/cache/cacheSourceLabel';
 import CardDetailCarouselUI from '../../../components/UI/DeckScreenUI/CardDetailCarouselUI';
 import CardDetailHeaderActionsUI from '../../../components/UI/DeckScreenUI/CardDetailHeaderActionsUI';
 import CardAlbumSheetModalUI from '../../../components/UI/DeckScreenUI/CardAlbumSheetModalUI';
@@ -1443,23 +1445,54 @@ export default function CardDetailScreen({ navigation, route }: Props) {
       }
       Vibration.vibrate(20);
     } catch (error) {
-      console.error('[CardDetail][Pronunciation] analyze failed:', error);
       // MODULE 3c: 依錯誤碼觸發對應漏斗事件並帶入 paywall trigger_source。
       // 任何被分類成額度用完的錯誤都要能開 paywall（不只 PremiumFeatureError）。
       const errorCode = getErrorCode(error);
-      if (errorCode === 'free_starter_exhausted') {
+      const isPaywallError =
+        errorCode === 'free_starter_exhausted' ||
+        errorCode === 'premium_required' ||
+        errorCode === 'pronunciation_monthly_quota_exceeded' ||
+        isPremiumFeatureError(error);
+
+      if (!isPaywallError) {
+        console.error('[CardDetail][Pronunciation] analyze failed:', error);
+      } else {
+        console.log('[CardDetail][Pronunciation] paywall gate reached:', errorCode);
+      }
+
+      if (errorCode === 'free_starter_exhausted' || isPremiumFeatureError(error)) {
         analytics.track('pronunciation_free_starter_exhausted', { context: 'card_detail' });
-      } else if (errorCode === 'pronunciation_monthly_quota_exceeded') {
+        const targetWord = card?.targetPhrase || card?.targetWord || pronunciationText || '';
+        const sourceLabel = toSourceLabel(card?.sourceApp);
+        setShowPronunciationModal(false);
+        pronunciationModalAnim.setValue(0);
+        tabSwipeContext?.openMembershipPaywall({
+          source: 'card_detail',
+          triggerSource: 'free_pronunciation_cap',
+          pendingCard: {
+            word: targetWord,
+            sourceLabel,
+            isPronunciationCap: true,
+          },
+        });
+        setShowFeedback(false);
+        setPronunciationRevealStep(3);
+        return;
+      }
+      if (errorCode === 'pronunciation_monthly_quota_exceeded') {
         analytics.track('pronunciation_monthly_quota_exceeded', { context: 'card_detail' });
       }
       const triggerSource = resolvePronunciationTriggerSource(errorCode);
       const translated = showTranslatedError(error, {
-        openPaywall: (tier) =>
+        openPaywall: (tier) => {
+          setShowPronunciationModal(false);
+          pronunciationModalAnim.setValue(0);
           tabSwipeContext?.openMembershipPaywall({
             source: 'card_detail',
             tier,
             triggerSource,
-          }),
+          });
+        },
       });
       // Inline text shows the same honest message as the alert, never raw server text.
       setPronunciationAnalysisError(translated.message);

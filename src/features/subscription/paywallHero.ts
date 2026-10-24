@@ -7,15 +7,21 @@ export type StarterUsage = {
   pronunciationUsed: number;
 };
 
-// 入門額度用完時，使用者正要建的那張卡（第 21 張）。
+// 入門額度用完時，使用者正要建的那張卡（第 21 張）或正要練習發音的卡。
 export type PendingPaywallCard = {
   word: string;
   sourceLabel: string;
+  isPronunciationCap?: boolean;
 };
 
 export type PaywallHero =
   | { kind: 'plan'; tier: 'lite' | 'pro' }
-  | { kind: 'next'; word: string; sourceLabel: string }
+  | {
+      kind: 'next';
+      word: string;
+      sourceLabel: string;
+      isPronunciationCap?: boolean;
+    }
   | {
       kind: 'covered';
       usage: {
