@@ -41,6 +41,7 @@ import {
 import {
   parseCardContextSections,
   parseCulturalBackgroundInsight,
+  removeSourceEchoLines,
   splitInsiderInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from './NuanceMetricsLeverUI';
@@ -613,19 +614,28 @@ function CardDetailCarouselCardUI({
   const translationText = React.useMemo(() => {
     const raw = (sentenceTranslationRaw || '-').trim();
     if (!raw || raw === '-') return '-';
-    if (contextSections.isStructured) {
-      return raw
-        .split('\n')
-        .map((line, idx) =>
-          idx === 0
-            ? unquoteLearningTermInText(line, itemWord)
-            : quoteLearningTermInText(line, itemWord)
-        )
-        .join('\n');
-    }
-    const replaced = unquoteLearningTermInText(raw, itemWord);
-    return replaced;
-  }, [contextSections.isStructured, sentenceTranslationRaw, itemWord]);
+    const computedText = contextSections.isStructured
+      ? raw
+          .split('\n')
+          .map((line, idx) =>
+            idx === 0
+              ? unquoteLearningTermInText(line, itemWord)
+              : quoteLearningTermInText(line, itemWord)
+          )
+          .join('\n')
+      : unquoteLearningTermInText(raw, itemWord);
+    const cleaned = removeSourceEchoLines(computedText, [
+      sourceSentence,
+      item.originalSentence,
+    ]).trim();
+    return cleaned || '-';
+  }, [
+    contextSections.isStructured,
+    item.originalSentence,
+    itemWord,
+    sentenceTranslationRaw,
+    sourceSentence,
+  ]);
   const cardAIBreakdownMode = React.useMemo(() => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     const rawModeTag = tags.find(

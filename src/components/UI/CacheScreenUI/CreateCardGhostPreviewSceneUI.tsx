@@ -29,6 +29,7 @@ import {
   parseCulturalBackgroundInsight,
   parseStreamingCulturalBackgroundInsight,
   extractCulturalBackgroundDisplayText,
+  removeSourceEchoLines,
   splitInsiderInsight,
 } from '../../../features/cards/cardContextSections';
 import { NuanceMetricsLeverUI } from '../DeckScreenUI/NuanceMetricsLeverUI';
@@ -177,21 +178,8 @@ export function buildSentenceTranslationText(card: GhostPreviewCard): string {
     sourceSentence: card.sourceSentence,
     manualMode: card.manualMode,
   }).sentenceTranslation;
-  // Compare letters only, so a line that merely restores dropped spaces
-  // ("a natural" vs. "anatural") still counts as the source sentence.
-  const sourceComparable = card.sourceSentence
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '');
-  return sentenceTranslation
+  return removeSourceEchoLines(sentenceTranslation, [card.sourceSentence])
     .split('\n')
-    .filter((line) => {
-      const lineComparable = line
-        .normalize('NFKC')
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, '');
-      return !sourceComparable || lineComparable !== sourceComparable;
-    })
     .map((line) => quoteLearningTermInText(line, card.displayWord))
     .join('\n');
 }
@@ -451,6 +439,80 @@ function ProgressiveText({
   );
 }
 
+function TypedItemLines({
+  lines,
+  active,
+  animate,
+  isStreamComplete,
+  onComplete,
+  primaryStyle,
+  secondaryStyle,
+}: {
+  lines: { text: string; secondary?: boolean }[];
+  active: boolean;
+  animate: boolean;
+  isStreamComplete: boolean;
+  onComplete?: () => void;
+  primaryStyle: any;
+  secondaryStyle: any;
+}) {
+  const [revealIndex, setRevealIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!active) {
+      setRevealIndex(0);
+    }
+  }, [active]);
+
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const linesLengthRef = React.useRef(lines.length);
+  linesLengthRef.current = lines.length;
+
+  const itemGroups = React.useMemo(() => {
+    const groups: Array<Array<{ line: { text: string; secondary?: boolean }; index: number }>> = [];
+    let currentGroup: Array<{ line: { text: string; secondary?: boolean }; index: number }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.secondary && currentGroup.length > 0) {
+        groups.push(currentGroup);
+        currentGroup = [];
+      }
+      currentGroup.push({ line, index: i });
+    }
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+    }
+    return groups;
+  }, [lines]);
+
+  return (
+    <>
+      {itemGroups.map((group, groupIndex) => (
+        <View key={`typed-item-group-${groupIndex}`} style={styles.previewCollocationLineBlock}>
+          {group.map(({ line, index: i }) => (
+            <ProgressiveText
+              key={`typed-line-${i}`}
+              text={line.text}
+              active={active && i <= revealIndex}
+              animate={animate}
+              isStreamComplete={i < lines.length - 1 ? true : isStreamComplete}
+              onComplete={() => {
+                setRevealIndex((p) => Math.max(p, i + 1));
+                if (i === linesLengthRef.current - 1) {
+                  onCompleteRef.current?.();
+                }
+              }}
+              style={line.secondary ? secondaryStyle : primaryStyle}
+            />
+          ))}
+        </View>
+      ))}
+    </>
+  );
+}
+
 export function CreateCardGhostPreviewScene({
   processingWord,
   card,
@@ -583,6 +645,26 @@ export function CreateCardGhostPreviewScene({
     : card
       ? ''
       : statusText;
+  const previewCollocationLines = React.useMemo(() => {
+    const lines: { text: string; secondary?: boolean }[] = [];
+    for (const colloc of previewCollocationItems) {
+      lines.push({ text: `• ${colloc.phrase}`, secondary: false });
+      if (colloc.translation) {
+        lines.push({ text: colloc.translation, secondary: true });
+      }
+    }
+    return lines;
+  }, [previewCollocationItems]);
+  const previewExampleLines = React.useMemo(() => {
+    const lines: { text: string; secondary?: boolean }[] = [];
+    for (const example of previewExampleItems) {
+      lines.push({ text: example.sentence, secondary: false });
+      if (example.translation) {
+        lines.push({ text: example.translation, secondary: true });
+      }
+    }
+    return lines;
+  }, [previewExampleItems]);
   const previewCultural = card
     ? streamingText && !previewContextSections?.culturalBackground
       ? ''
@@ -689,14 +771,9 @@ export function CreateCardGhostPreviewScene({
     }
 
     if (streamStage === 'colloc') {
-      if (previewCollocationItems.length > 0) {
-        const timer = setTimeout(() => {
-          setStreamStage((current) => (current === 'colloc' ? 'semantic' : current));
-        }, 260);
-        return () => clearTimeout(timer);
-      }
       if (
         isCollocStreamComplete &&
+        previewCollocationItems.length === 0 &&
         (!previewCollocation.trim() || previewCollocation === statusText)
       ) {
         setStreamStage('semantic');
@@ -718,20 +795,9 @@ export function CreateCardGhostPreviewScene({
     }
 
     if (streamStage === 'example') {
-      if (previewExampleItems.length > 0) {
-        const timer = setTimeout(() => {
-          setStreamStage((current) => {
-            if (current === 'example') {
-              onSequentialRevealComplete?.();
-              return 'complete';
-            }
-            return current;
-          });
-        }, 320);
-        return () => clearTimeout(timer);
-      }
       if (
         isExampleStreamComplete &&
+        previewExampleItems.length === 0 &&
         (!previewExample.trim() || previewExample === statusText)
       ) {
         setStreamStage('complete');
@@ -750,8 +816,10 @@ export function CreateCardGhostPreviewScene({
     isTransStreamComplete,
     onSequentialRevealComplete,
     previewCollocation,
+    previewCollocationItems.length,
     previewDefinition,
     previewExample,
+    previewExampleItems.length,
     previewSemanticRelationItems.length,
     previewTranslation,
     statusText,
@@ -1240,22 +1308,19 @@ export function CreateCardGhostPreviewScene({
       >
         <View style={styles.previewBody}>
           {previewCollocationItems.length > 0 ? (
-            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackCollocation ? 1 : 0 }]}>
+            <View style={styles.previewSectionBlock}>
               <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
                 {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
               </FixedText>
-              {previewCollocationItems.map((colloc, idx) => (
-                <View key={`colloc-${idx}`} style={styles.previewCollocationLineBlock}>
-                  <Text style={[styles.previewCollocationItem, { color: palette.textOnContainer }]}>
-                    {`• ${colloc.phrase}`}
-                  </Text>
-                  {colloc.translation ? (
-                    <Text style={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}>
-                      {colloc.translation}
-                    </Text>
-                  ) : null}
-                </View>
-              ))}
+              <TypedItemLines
+                lines={previewCollocationLines}
+                active={effectiveRevealState.showBackCollocation}
+                animate={shouldAnimateText}
+                isStreamComplete={isCollocStreamComplete}
+                onComplete={handleCollocComplete}
+                primaryStyle={[styles.previewCollocationItem, { color: palette.textOnContainer }]}
+                secondaryStyle={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}
+              />
             </View>
           ) : previewCollocation ? (
             <View style={styles.previewSectionBlock}>
@@ -1315,22 +1380,19 @@ export function CreateCardGhostPreviewScene({
           ) : null}
 
           {previewExampleItems.length > 0 ? (
-            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackExample ? 1 : 0 }]}>
+            <View style={styles.previewSectionBlock}>
               <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
                 {tUI(uiLanguage, 'cardDetail.exampleSentence')}
               </FixedText>
-              {previewExampleItems.map((example, idx) => (
-                <View key={`example-${idx}`} style={styles.previewCollocationLineBlock}>
-                  <Text style={[styles.previewCollocationItem, { color: palette.textOnContainer }]}>
-                    {example.sentence}
-                  </Text>
-                  {example.translation ? (
-                    <Text style={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}>
-                      {example.translation}
-                    </Text>
-                  ) : null}
-                </View>
-              ))}
+              <TypedItemLines
+                lines={previewExampleLines}
+                active={effectiveRevealState.showBackExample}
+                animate={shouldAnimateText}
+                isStreamComplete={isExampleStreamComplete}
+                onComplete={handleExampleComplete}
+                primaryStyle={[styles.previewCollocationItem, { color: palette.textOnContainer }]}
+                secondaryStyle={[styles.previewCollocationTranslation, { color: palette.secondaryText }]}
+              />
             </View>
           ) : previewExample ? (
             <View style={styles.previewSectionBlock}>

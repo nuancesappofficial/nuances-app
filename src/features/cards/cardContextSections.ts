@@ -21,6 +21,44 @@ export {
   splitInsiderInsight,
 } from './culturalBackgroundInsight';
 
+export function removeSourceEchoLines(
+  translation: string,
+  sources: Array<string | null | undefined>
+): string {
+  if (!translation) return '';
+  const normalizeForEchoCompare = (text: string) =>
+    text
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '');
+
+  const normalizedSources = sources
+    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    .map(normalizeForEchoCompare)
+    .filter(Boolean);
+
+  if (normalizedSources.length === 0) return translation;
+
+  return translation
+    .split('\n')
+    .filter((line) => {
+      const normalizedLine = normalizeForEchoCompare(line);
+      if (!normalizedLine) return true;
+      const isEcho = normalizedSources.some((normalizedSource) => {
+        if (normalizedLine === normalizedSource) return true;
+        if (
+          (line.length >= 8 || normalizedLine.length >= 8) &&
+          normalizedSource.includes(normalizedLine)
+        ) {
+          return true;
+        }
+        return false;
+      });
+      return !isEcho;
+    })
+    .join('\n');
+}
+
 function cleanText(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   if (value && typeof value === 'object') {

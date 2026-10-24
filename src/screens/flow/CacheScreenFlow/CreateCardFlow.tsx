@@ -1199,6 +1199,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const autoScrolledPreviewKeyRef = React.useRef<string | null>(null);
   const isUserDraggingScrollRef = React.useRef(false);
   const didAutoScrollDefaultExperienceCompletionRef = React.useRef(false);
+  const completionScrollRetryTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const pendingPremiumRetryRef = React.useRef(false);
   const [activePreviewCard, setActivePreviewCard] =
     React.useState<CompletedCard | null>(null);
@@ -1428,9 +1431,23 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     []
   );
 
+  React.useEffect(() => {
+    return () => {
+      if (completionScrollRetryTimeoutRef.current) {
+        clearTimeout(completionScrollRetryTimeoutRef.current);
+        completionScrollRetryTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (hasStarted) {
+      didAutoScrollDefaultExperienceCompletionRef.current = false;
+    }
+  }, [hasStarted]);
+
   const handleCompletedActionsLayout = React.useCallback(() => {
     if (
-      !isDefaultExperienceTutorial ||
       hasStarted ||
       completedCards.length === 0 ||
       didAutoScrollDefaultExperienceCompletionRef.current
@@ -1446,13 +1463,24 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             viewportHeight: scrollViewportHeight,
           })
         );
+        if (completionScrollRetryTimeoutRef.current) {
+          clearTimeout(completionScrollRetryTimeoutRef.current);
+        }
+        completionScrollRetryTimeoutRef.current = setTimeout(() => {
+          const retryTarget = resolveBottomAlignedScrollTarget({
+            contentHeight: scrollContentHeightRef.current,
+            viewportHeight: scrollViewportHeight,
+          });
+          if (retryTarget > currentScrollYRef.current + 4) {
+            animatePreviewScrollTo(retryTarget);
+          }
+        }, 350);
       });
     });
   }, [
     animatePreviewScrollTo,
     completedCards.length,
     hasStarted,
-    isDefaultExperienceTutorial,
     scrollViewportHeight,
   ]);
 
