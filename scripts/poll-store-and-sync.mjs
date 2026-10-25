@@ -48,6 +48,69 @@ function compareSemver(v1, v2) {
   return 0;
 }
 
+function extractAndroidBuildSettings() {
+  const gradlePath = path.join(PROJECT_ROOT, 'android', 'app', 'build.gradle');
+  if (fs.existsSync(gradlePath)) {
+    const gradle = fs.readFileSync(gradlePath, 'utf8');
+    const versionName = gradle.match(/versionName\s+["']([^"']+)["']/)?.[1]?.trim();
+    const versionCode = gradle.match(/versionCode\s+(\d+)/)?.[1]?.trim();
+    if (versionName && versionCode) {
+      return { marketingVersion: versionName, buildNumber: Number.parseInt(versionCode, 10) };
+    }
+  }
+
+  const appJsonPath = path.join(PROJECT_ROOT, 'app.json');
+  if (fs.existsSync(appJsonPath)) {
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    const marketingVersion = appJson.expo?.version?.trim();
+    const buildNumber = appJson.expo?.android?.versionCode;
+    if (marketingVersion && typeof buildNumber === 'number') {
+      return { marketingVersion, buildNumber };
+    }
+  }
+
+  return null;
+}
+
+function extractIosBuildSettings() {
+  const pbxprojPath = path.join(PROJECT_ROOT, 'ios', 'Nuances.xcodeproj', 'project.pbxproj');
+  if (fs.existsSync(pbxprojPath)) {
+    const pbxproj = fs.readFileSync(pbxprojPath, 'utf8');
+    const appBundleMarker = 'PRODUCT_BUNDLE_IDENTIFIER = com.jeffenglishlearning.nuances;';
+    const markerIndex = pbxproj.indexOf(appBundleMarker);
+    if (markerIndex >= 0) {
+      const buildSettingsStart = pbxproj.lastIndexOf('buildSettings = {', markerIndex);
+      const buildSettingsEnd = pbxproj.indexOf('};', markerIndex);
+      if (buildSettingsStart >= 0 && buildSettingsEnd >= 0) {
+        const block = pbxproj.slice(buildSettingsStart, buildSettingsEnd);
+        const marketingVersion = block.match(/MARKETING_VERSION = ([^;]+);/)?.[1]?.trim();
+        const buildNumber = block.match(/CURRENT_PROJECT_VERSION = ([^;]+);/)?.[1]?.trim();
+        if (marketingVersion && buildNumber) {
+          const numericBuild = Number.parseInt(buildNumber, 10);
+          if (Number.isFinite(numericBuild)) {
+            return { marketingVersion, buildNumber: numericBuild };
+          }
+        }
+      }
+    }
+  }
+
+  const appJsonPath = path.join(PROJECT_ROOT, 'app.json');
+  if (fs.existsSync(appJsonPath)) {
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    const marketingVersion = appJson.expo?.version?.trim();
+    const buildNumber = appJson.expo?.ios?.buildNumber;
+    if (marketingVersion && buildNumber) {
+      const numericBuild = Number.parseInt(buildNumber, 10);
+      if (Number.isFinite(numericBuild)) {
+        return { marketingVersion, buildNumber: numericBuild };
+      }
+    }
+  }
+
+  return null;
+}
+
 async function getLiveAppStoreVersion() {
   try {
     const url = `https://itunes.apple.com/lookup?bundleId=${BUNDLE_ID}`;
@@ -102,13 +165,13 @@ async function getSupabaseCurrentPolicies(supabaseUrl, anonKey) {
   return await res.json();
 }
 
-async function syncPolicyToSupabase(supabaseUrl, syncToken, platform, newVersion, dryRun = false) {
+async function syncPolicyToSupabase(supabaseUrl, syncToken, platform, newVersion, buildNumber = 1, dryRun = false) {
   const payload = {
     platform,
     latestVersion: newVersion,
     minimumSupportedVersion: newVersion,
-    latestBuildNumber: 1,
-    minimumSupportedBuildNumber: 1,
+    latestBuildNumber: buildNumber,
+    minimumSupportedBuildNumber: buildNumber,
     required: true,
     source: 'github-action-auto-poll',
   };
@@ -131,7 +194,7 @@ async function syncPolicyToSupabase(supabaseUrl, syncToken, platform, newVersion
   if (!res.ok) {
     throw new Error(`sync-app-version-policy failed (${res.status}): ${await res.text()}`);
   }
-  console.log(`[AutoSync] Successfully synced ${platform} version ${newVersion} to Supabase!`);
+  console.log(`[AutoSync] Successfully synced ${platform} version ${newVersion} (build ${buildNumber}) to Supabase!`);
 }
 
 async function main() {
@@ -150,20 +213,27 @@ async function main() {
   const iosPolicy = policies.find((p) => p.platform === 'ios');
   const androidPolicy = policies.find((p) => p.platform === 'android');
 
-  console.log(`[AutoSync] Current Supabase Policy: iOS = ${iosPolicy?.latest_version || 'none'}, Android = ${androidPolicy?.latest_version || 'none'}`);
+  console.log(`[AutoSync] Current Supabase Policy: iOS = ${iosPolicy?.latest_version || 'none'} (build ${iosPolicy?.latest_build_number || 'none'}), Android = ${androidPolicy?.latest_version || 'none'} (build ${androidPolicy?.latest_build_number || 'none'})`);
 
   // 1. Check iOS App Store
   const liveIosVersion = await getLiveAppStoreVersion();
   console.log(`[AutoSync] Live Apple App Store version: ${liveIosVersion || 'not found'}`);
 
   if (liveIosVersion) {
+    const iosSettings = extractIosBuildSettings();
+    const targetBuildNumber = iosSettings?.buildNumber ?? 1;
     const cmp = compareSemver(liveIosVersion, iosPolicy?.latest_version);
-    if (cmp > 0) {
-      console.log(`[AutoSync] >> DETECTED iOS UPGRADE: App Store (${liveIosVersion}) > Supabase (${iosPolicy?.latest_version})!`);
+    const isNewerBuild =
+      cmp === 0 &&
+      typeof iosPolicy?.latest_build_number === 'number' &&
+      targetBuildNumber > iosPolicy.latest_build_number;
+
+    if (cmp > 0 || isNewerBuild) {
+      console.log(`[AutoSync] >> DETECTED iOS UPGRADE: App Store (${liveIosVersion}, build ${targetBuildNumber}) > Supabase (${iosPolicy?.latest_version || 'none'}, build ${iosPolicy?.latest_build_number || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
       } else {
-        await syncPolicyToSupabase(supabaseUrl, syncToken, 'ios', liveIosVersion, dryRun);
+        await syncPolicyToSupabase(supabaseUrl, syncToken, 'ios', liveIosVersion, targetBuildNumber, dryRun);
       }
     } else {
       console.log(`[AutoSync] iOS policy is already up-to-date with App Store (${liveIosVersion}).`);
@@ -172,17 +242,45 @@ async function main() {
 
   // 2. Check Android Google Play
   const liveAndroid = await getLiveGooglePlayVersion();
+  const androidSettings = extractAndroidBuildSettings();
+
   if (liveAndroid.status === 'not_public') {
-    console.log('[AutoSync] Google Play Store: App is in internal/closed testing (not publicly indexed yet). Skipping Android auto-sync.');
+    console.log('[AutoSync] Google Play Store: App is in internal/closed testing (not publicly indexed yet). Checking local build settings for closed/internal policy...');
+    if (androidSettings) {
+      const cmp = compareSemver(androidSettings.marketingVersion, androidPolicy?.latest_version);
+      const isNewerBuild =
+        cmp === 0 &&
+        typeof androidPolicy?.latest_build_number === 'number' &&
+        androidSettings.buildNumber > androidPolicy.latest_build_number;
+
+      if (cmp > 0 || isNewerBuild) {
+        console.log(`[AutoSync] >> DETECTED Android internal/closed testing upgrade: ${androidSettings.marketingVersion} (build ${androidSettings.buildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
+        if (!syncToken && !dryRun) {
+          console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
+        } else {
+          await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', androidSettings.marketingVersion, androidSettings.buildNumber, dryRun);
+        }
+      } else {
+        console.log(`[AutoSync] Android policy is already up-to-date with internal/closed testing (${androidSettings.marketingVersion}, build ${androidSettings.buildNumber}).`);
+      }
+    } else {
+      console.warn('[AutoSync] Could not read local Android settings for closed testing fallback.');
+    }
   } else if (liveAndroid.version) {
     console.log(`[AutoSync] Live Google Play version: ${liveAndroid.version}`);
+    const targetBuildNumber = androidSettings?.buildNumber ?? 1;
     const cmp = compareSemver(liveAndroid.version, androidPolicy?.latest_version);
-    if (cmp > 0) {
-      console.log(`[AutoSync] >> DETECTED Android UPGRADE: Google Play (${liveAndroid.version}) > Supabase (${androidPolicy?.latest_version})!`);
+    const isNewerBuild =
+      cmp === 0 &&
+      typeof androidPolicy?.latest_build_number === 'number' &&
+      targetBuildNumber > androidPolicy.latest_build_number;
+
+    if (cmp > 0 || isNewerBuild) {
+      console.log(`[AutoSync] >> DETECTED Android UPGRADE: Google Play (${liveAndroid.version}, build ${targetBuildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
       } else {
-        await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', liveAndroid.version, dryRun);
+        await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', liveAndroid.version, targetBuildNumber, dryRun);
       }
     } else {
       console.log(`[AutoSync] Android policy is already up-to-date with Google Play.`);

@@ -223,7 +223,9 @@ export default function CacheInputModalUI({
       backdropOpacity.setValue(0);
       keyboardLift.setValue(0);
       setShouldRender(false);
-      onDismiss();
+      requestAnimationFrame(() => {
+        onDismiss();
+      });
       return;
     }
     let isSettled = false;
@@ -234,7 +236,9 @@ export default function CacheInputModalUI({
       backdropOpacity.setValue(0);
       keyboardLift.setValue(0);
       setShouldRender(false);
-      onDismiss();
+      requestAnimationFrame(() => {
+        onDismiss();
+      });
     };
 
     const exitAnimation = Animated.parallel([

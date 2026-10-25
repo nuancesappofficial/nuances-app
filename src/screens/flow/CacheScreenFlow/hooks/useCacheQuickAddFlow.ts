@@ -45,6 +45,12 @@ export function useCacheQuickAddFlow({
   const pickerRequestActiveRef = React.useRef(false);
   const cameraCaptureActiveRef = React.useRef(false);
   const cropConfirmActiveRef = React.useRef(false);
+  const pendingCropperParamsRef = React.useRef<{
+    target: CropperFlowTarget;
+    item: CachedItem | null;
+    imageUri: string;
+    imageSize: { width: number; height: number } | null;
+  } | null>(null);
   const [quickCameraPermission, requestQuickCameraPermission] = useCameraPermissions();
 
   React.useEffect(() => {
@@ -121,8 +127,10 @@ export function useCacheQuickAddFlow({
           item.imageAnnotations = undefined;
 
           // 1st selected image (index 0) gets the highest createdAt, so it will be the top card
+          // Note: item.createdAt is @readonly on CachedItem model, so assign to _raw directly
           const createdAt = creationDates[index] || new Date();
-          item.createdAt = createdAt;
+          (item._raw as any).created_at = createdAt.getTime();
+          (item._raw as any).updated_at = createdAt.getTime();
           const expiresAt = new Date(createdAt);
           expiresAt.setMinutes(expiresAt.getMinutes() + 10);
           item.expiresAt = expiresAt;
@@ -145,6 +153,13 @@ export function useCacheQuickAddFlow({
 
   const queueQuickAddCropperAfterModalDismiss = React.useCallback(
     (params: { imageUri: string; imageSize?: { width: number; height: number } | null }) => {
+      const cropperParams = {
+        target: 'quick-add' as const,
+        item: null,
+        imageUri: params.imageUri,
+        imageSize: params.imageSize ?? null,
+      };
+      pendingCropperParamsRef.current = cropperParams;
       setCropperFlowTarget('quick-add');
       setPendingSwipeImageItem(null);
       setPendingOriginalImageUri(params.imageUri);
@@ -152,6 +167,19 @@ export function useCacheQuickAddFlow({
       setPendingOpenCropperAfterAddDismiss(true);
       setSuppressAddModalAnimation(true);
       setShowAddModal(false);
+
+      setTimeout(() => {
+        if (pendingCropperParamsRef.current) {
+          const pending = pendingCropperParamsRef.current;
+          pendingCropperParamsRef.current = null;
+          setCropperFlowTarget(pending.target);
+          setPendingSwipeImageItem(pending.item);
+          setPendingOriginalImageUri(pending.imageUri);
+          setPendingOriginalImageSize(pending.imageSize);
+          setPendingOpenCropperAfterAddDismiss(false);
+          setShowUploadCropper(true);
+        }
+      }, 300);
     },
     [setShowAddModal]
   );
@@ -198,25 +226,49 @@ export function useCacheQuickAddFlow({
         return;
       }
 
-      // Set creating indicator right when closing modal so the button lock is active during processing
+      // Set creating indicator so the button lock is active during processing
       setCreatingImage(true);
-      setSuppressAddModalAnimation(true);
-      setShowAddModal(false);
 
       try {
+        const isSingleUpload = pickedAssets.length === 1;
         const { topItem } = await createQuickImageCachedItems(
           pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
         );
-        if (topItem) {
+        if (isSingleUpload && topItem) {
           const imageUri = topItem.imageStoragePath || topItem.mediaUri || null;
           if (imageUri) {
+            const cropperParams = {
+              target: 'swipe-image' as const,
+              item: topItem,
+              imageUri,
+              imageSize: null,
+            };
+            pendingCropperParamsRef.current = cropperParams;
             setCropperFlowTarget('swipe-image');
             setPendingSwipeImageItem(topItem);
             setPendingOriginalImageUri(imageUri);
             setPendingOriginalImageSize(null);
             setPendingOpenCropperAfterAddDismiss(true);
+            setSuppressAddModalAnimation(true);
+            setShowAddModal(false);
+
+            setTimeout(() => {
+              if (pendingCropperParamsRef.current) {
+                const pending = pendingCropperParamsRef.current;
+                pendingCropperParamsRef.current = null;
+                setCropperFlowTarget(pending.target);
+                setPendingSwipeImageItem(pending.item);
+                setPendingOriginalImageUri(pending.imageUri);
+                setPendingOriginalImageSize(pending.imageSize);
+                setPendingOpenCropperAfterAddDismiss(false);
+                setShowUploadCropper(true);
+              }
+            }, 300);
+            return;
           }
         }
+        setSuppressAddModalAnimation(true);
+        setShowAddModal(false);
       } catch (error) {
         onBatchQuickAddCreated?.([]);
         console.error('[CacheList] batch image create failed:', error);
@@ -354,6 +406,7 @@ export function useCacheQuickAddFlow({
     const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
     const cancelledSwipeItemId =
       cropperFlowTarget === 'swipe-image' ? pendingSwipeImageItem?.id ?? null : null;
+    pendingCropperParamsRef.current = null;
     pendingCroppedNavigationRef.current = null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
@@ -487,7 +540,24 @@ export function useCacheQuickAddFlow({
         navigation.navigate('CreateCard', { cachedItem: toOpen });
       });
     }
-    if (pendingOpenCropperAfterAddDismiss && pendingOriginalImageUri) {
+    if (pendingCropperParamsRef.current) {
+      const cropperParams = pendingCropperParamsRef.current;
+      pendingCropperParamsRef.current = null;
+      setCropperFlowTarget(cropperParams.target);
+      setPendingSwipeImageItem(cropperParams.item);
+      setPendingOriginalImageUri(cropperParams.imageUri);
+      setPendingOriginalImageSize(cropperParams.imageSize);
+      setPendingOpenCropperAfterAddDismiss(false);
+      requestAnimationFrame(() => {
+        if (Platform.OS === 'ios') {
+          setTimeout(() => {
+            setShowUploadCropper(true);
+          }, 80);
+        } else {
+          setShowUploadCropper(true);
+        }
+      });
+    } else if (pendingOpenCropperAfterAddDismiss && pendingOriginalImageUri) {
       setShowUploadCropper(true);
       setPendingOpenCropperAfterAddDismiss(false);
     }
@@ -512,6 +582,7 @@ export function useCacheQuickAddFlow({
     isDefaultExperienceCard(pendingSwipeImageItem);
 
   const forceCloseUploadCropper = React.useCallback(() => {
+    pendingCropperParamsRef.current = null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);

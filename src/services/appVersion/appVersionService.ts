@@ -60,12 +60,17 @@ function getCurrentAppVersion(): string {
 }
 
 function getCurrentBuildNumber(): number | null {
+  if (Platform.OS === 'android') {
+    return normalizeBuildNumber(
+      Application.nativeBuildVersion ||
+      (Constants.expoConfig?.android?.versionCode != null
+        ? String(Constants.expoConfig.android.versionCode)
+        : null)
+    );
+  }
   return normalizeBuildNumber(
     Application.nativeBuildVersion ||
-    Constants.expoConfig?.ios?.buildNumber ||
-    (Constants.expoConfig?.android?.versionCode != null
-      ? String(Constants.expoConfig.android.versionCode)
-      : null)
+    Constants.expoConfig?.ios?.buildNumber
   );
 }
 

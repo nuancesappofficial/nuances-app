@@ -107,15 +107,11 @@ function parseArgs(argv) {
   return options;
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
-  const env = loadEnv();
-  const supabaseUrl = (env.EXPO_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || '').replace(/\/+$/, '');
-  const syncToken = env.APP_VERSION_POLICY_SYNC_TOKEN || env.SUPABASE_APP_VERSION_POLICY_SYNC_TOKEN || '';
-  const { marketingVersion, buildNumber } = extractBuildSettings(options.platform);
+async function syncPlatform(platform, options, supabaseUrl, syncToken) {
+  const { marketingVersion, buildNumber } = extractBuildSettings(platform);
 
   const payload = {
-    platform: options.platform,
+    platform,
     latestVersion: marketingVersion,
     minimumSupportedVersion: marketingVersion,
     latestBuildNumber: buildNumber,
@@ -125,15 +121,8 @@ async function main() {
   };
 
   if (options.dryRun) {
-    console.log('[sync-app-version-policy] dry run payload:', JSON.stringify(payload, null, 2));
+    console.log(`[sync-app-version-policy] dry run payload (${platform}):`, JSON.stringify(payload, null, 2));
     return;
-  }
-
-  if (!supabaseUrl) {
-    throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or SUPABASE_URL in .env.local.');
-  }
-  if (!syncToken) {
-    throw new Error('Missing APP_VERSION_POLICY_SYNC_TOKEN in .env.local. Set the same value as the Supabase secret.');
   }
 
   const endpoint = `${supabaseUrl}/functions/v1/sync-app-version-policy`;
@@ -148,10 +137,31 @@ async function main() {
 
   const responseText = await response.text();
   if (!response.ok) {
-    throw new Error(`sync-app-version-policy failed (${response.status}): ${responseText || '<empty>'}`);
+    throw new Error(`sync-app-version-policy for ${platform} failed (${response.status}): ${responseText || '<empty>'}`);
   }
 
-  console.log('[sync-app-version-policy] updated remote policy:', responseText);
+  console.log(`[sync-app-version-policy] updated remote policy (${platform}):`, responseText);
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const env = loadEnv();
+  const supabaseUrl = (env.EXPO_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const syncToken = env.APP_VERSION_POLICY_SYNC_TOKEN || env.SUPABASE_APP_VERSION_POLICY_SYNC_TOKEN || '';
+
+  if (!options.dryRun) {
+    if (!supabaseUrl) {
+      throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or SUPABASE_URL in .env.local.');
+    }
+    if (!syncToken) {
+      throw new Error('Missing APP_VERSION_POLICY_SYNC_TOKEN in .env.local. Set the same value as the Supabase secret.');
+    }
+  }
+
+  const platforms = options.platform === 'all' ? ['ios', 'android'] : [options.platform];
+  for (const plat of platforms) {
+    await syncPlatform(plat, options, supabaseUrl, syncToken);
+  }
 }
 
 main().catch((error) => {
