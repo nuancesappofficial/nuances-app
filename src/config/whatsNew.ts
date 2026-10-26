@@ -3,6 +3,71 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.6': {
+    version: '1.3.6',
+    title: 'What’s New',
+    items: [
+      {
+        number: '1',
+        title: 'Direct cropping for single photos',
+      },
+      {
+        number: '2',
+        title: 'Smoother photo picker & cropper',
+      },
+    ],
+    localized: {
+      'zh-TW': {
+        title: '更新功能',
+        items: [
+          { number: '1', title: '單張圖片直接進入裁切製卡' },
+          { number: '2', title: '圖片選取與裁切更流暢穩定' },
+        ],
+      },
+      'zh-CN': {
+        title: '更新功能',
+        items: [
+          { number: '1', title: '单张图片直接进入裁剪制卡' },
+          { number: '2', title: '图片选取与裁剪更流畅稳定' },
+        ],
+      },
+      'en': {
+        title: 'What’s New',
+        items: [
+          { number: '1', title: 'Direct cropping for single photos' },
+          { number: '2', title: 'Smoother photo picker & cropper' },
+        ],
+      },
+      'ja': {
+        title: '新機能',
+        items: [
+          { number: '1', title: '選択画像を直接トリミング製カード' },
+          { number: '2', title: '画像選択とトリミングの安定化' },
+        ],
+      },
+      'ko': {
+        title: '새로운 기능',
+        items: [
+          { number: '1', title: '단일 사진 선택 즉시 자르기' },
+          { number: '2', title: '사진 선택 및 자르기 안정성 향상' },
+        ],
+      },
+      'es': {
+        title: 'Novedades',
+        items: [
+          { number: '1', title: 'Recorte directo para fotos únicas' },
+          { number: '2', title: 'Selector y recorte de fotos más fluido' },
+        ],
+      },
+      'fr': {
+        title: 'Nouveautés',
+        items: [
+          { number: '1', title: 'Recadrage direct d’une photo' },
+          { number: '2', title: 'Sélection et recadrage de photos fluidifiés' },
+        ],
+      },
+    },
+  },
   '1.3.5': {
     version: '1.3.5',
     title: 'What’s New',
