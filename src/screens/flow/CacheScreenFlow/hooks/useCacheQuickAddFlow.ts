@@ -229,7 +229,7 @@ export function useCacheQuickAddFlow({
 
     try {
       if (closedSheetBeforePicker) {
-        setSuppressAddModalAnimation(true);
+        // Keep the slide-down animation; the wait below covers its duration.
         setShowAddModal(false);
         await new Promise((resolve) => setTimeout(resolve, 450));
       }
@@ -282,8 +282,12 @@ export function useCacheQuickAddFlow({
 
         // Dismiss the input modal immediately without animation BEFORE any async work,
         // so the upload modal never lingers on screen on iOS or re-rises on Android
-        setSuppressAddModalAnimation(true);
-        setShowAddModal(false);
+        // (Skipped when the sheet was already closed before the picker: no dismiss event would fire
+        // to clear the flag, so the next sheet open would lose its slide-up animation.)
+        if (!closedSheetBeforePicker) {
+          setSuppressAddModalAnimation(true);
+          setShowAddModal(false);
+        }
 
         const userId = await getCurrentSessionUserId();
         if (!userId) {
@@ -421,8 +425,10 @@ export function useCacheQuickAddFlow({
         await createQuickImageCachedItems(
           pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
         );
-        setSuppressAddModalAnimation(true);
-        setShowAddModal(false);
+        if (!closedSheetBeforePicker) {
+          setSuppressAddModalAnimation(true);
+          setShowAddModal(false);
+        }
       } catch (error) {
         onBatchQuickAddCreated?.([]);
         console.error('[CacheList] batch image create failed:', error);
