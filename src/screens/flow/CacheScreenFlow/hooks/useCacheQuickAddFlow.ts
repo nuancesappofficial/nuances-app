@@ -1,6 +1,7 @@
 import React from 'react';
-import { Alert, AppState, Platform } from 'react-native';
+import { Alert, AppState, Image, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, type CameraType, useCameraPermissions } from 'expo-camera';
 import { Q } from '@nozbe/watermelondb';
 import { database } from '@database/index';
@@ -40,6 +41,11 @@ export function useCacheQuickAddFlow({
   const [pendingOpenCropperAfterAddDismiss, setPendingOpenCropperAfterAddDismiss] = React.useState(false);
   const [pendingOpenCameraAfterAddDismiss, setPendingOpenCameraAfterAddDismiss] = React.useState(false);
   const [suppressAddModalAnimation, setSuppressAddModalAnimation] = React.useState(false);
+  const [isPendingImageNormalized, setIsPendingImageNormalized] = React.useState(false);
+  const pendingOriginalPickedUriRef = React.useRef<string | null>(null);
+  const cropperWatchdogTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const pendingCropperOpenTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const cropperShownRef = React.useRef(false);
 
   const quickCameraRef = React.useRef<CameraView | null>(null);
   const pickerRequestActiveRef = React.useRef(false);
@@ -60,7 +66,17 @@ export function useCacheQuickAddFlow({
       setShowQuickCamera(false);
       setPendingOpenCameraAfterAddDismiss(false);
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      if (cropperWatchdogTimerRef.current) {
+        clearTimeout(cropperWatchdogTimerRef.current);
+        cropperWatchdogTimerRef.current = null;
+      }
+      if (pendingCropperOpenTimerRef.current) {
+        clearTimeout(pendingCropperOpenTimerRef.current);
+        pendingCropperOpenTimerRef.current = null;
+      }
+    };
   }, []);
 
   const createQuickImageCachedItems = React.useCallback(
@@ -205,7 +221,18 @@ export function useCacheQuickAddFlow({
       pickerRequestActiveRef.current = false;
     }, 1500);
 
+    // On iOS, tearing down the add sheet together with the picker takes ~0.5-0.7s, and UIKit drops
+    // any modal presented in that window. Close the sheet first so nothing is left to close when the
+    // picker returns and the cropper can present right away. Reopened below if nothing gets picked.
+    const closedSheetBeforePicker = Platform.OS === 'ios';
+    let pickerHandedOff = false;
+
     try {
+      if (closedSheetBeforePicker) {
+        setSuppressAddModalAnimation(true);
+        setShowAddModal(false);
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
       // iOS PHPicker grants access only to the photos the user chooses.
       // Use quality: 1.0 to eliminate expensive native software JPEG transcoding
       // so multiple high-res photos resolve into JS in zero delay.
@@ -226,53 +253,182 @@ export function useCacheQuickAddFlow({
         return;
       }
 
+      pickerHandedOff = true;
+
+      const isSingleUpload = pickedAssets.length === 1;
+      const singleAsset = pickedAssets[0];
+      const singleImageSize =
+        isSingleUpload && singleAsset?.width && singleAsset?.height
+          ? { width: singleAsset.width, height: singleAsset.height }
+          : null;
+
       // Set creating indicator so the button lock is active during processing
       setCreatingImage(true);
 
+      if (isSingleUpload) {
+        // Clear any pending timers and ensure cropper is reset
+        if (pendingCropperOpenTimerRef.current) {
+          clearTimeout(pendingCropperOpenTimerRef.current);
+          pendingCropperOpenTimerRef.current = null;
+        }
+        if (cropperWatchdogTimerRef.current) {
+          clearTimeout(cropperWatchdogTimerRef.current);
+          cropperWatchdogTimerRef.current = null;
+        }
+        setShowUploadCropper(false);
+
+        // Record time when native picker returned to ensure iOS modal dismissal finishes before presenting cropper
+        const pickerDismissStartTime = Date.now();
+
+        // Dismiss the input modal immediately without animation BEFORE any async work,
+        // so the upload modal never lingers on screen on iOS or re-rises on Android
+        setSuppressAddModalAnimation(true);
+        setShowAddModal(false);
+
+        const userId = await getCurrentSessionUserId();
+        if (!userId) {
+          Alert.alert('需要登入', '請先登入後再建立圖片卡片。');
+          return;
+        }
+
+        const collection = database.get<CachedItem>('cached_items');
+        const [remainingCapacity, existingItems] = await Promise.all([
+          getRemainingCacheCapacity(userId),
+          collection
+            .query(
+              Q.where('user_id', userId),
+              Q.where('deleted_at', null),
+              Q.or(
+                Q.where('image_storage_path', singleAsset.uri),
+                Q.where('media_uri', singleAsset.uri)
+              ),
+              Q.take(1)
+            )
+            .fetch(),
+        ]);
+
+        if (remainingCapacity <= 0) {
+          Alert.alert('暫存區已滿', '請先處理或刪除部分暫存卡片後再新增。');
+          return;
+        }
+
+        if (existingItems.length > 0) {
+          Alert.alert('已在暫存區', '所選取的圖片已存在於暫存區中。');
+          return;
+        }
+
+        let finalUri = singleAsset.uri;
+        let finalSize = singleImageSize;
+        let isNormalized = false;
+
+        if (Platform.OS === 'android') {
+          try {
+            const normalized = await ImageManipulator.manipulateAsync(singleAsset.uri, [], {
+              compress: 1,
+              format: ImageManipulator.SaveFormat.JPEG,
+            });
+            if (normalized.uri && normalized.width > 0 && normalized.height > 0) {
+              finalUri = normalized.uri;
+              finalSize = { width: normalized.width, height: normalized.height };
+              isNormalized = true;
+            }
+          } catch (err) {
+            console.warn('[CacheList] pre-cropper manipulateAsync failed, using raw asset:', err);
+          }
+        } else {
+          // iOS PHPicker output requires no EXIF rotation workaround; pass raw asset directly
+          isNormalized = Boolean(singleImageSize && singleImageSize.width > 0 && singleImageSize.height > 0);
+        }
+
+        void Image.prefetch(finalUri);
+
+        pendingOriginalPickedUriRef.current = singleAsset.uri;
+        setIsPendingImageNormalized(isNormalized);
+        setCropperFlowTarget('quick-add');
+        setPendingSwipeImageItem(null);
+        setPendingOriginalImageUri(finalUri);
+        setPendingOriginalImageSize(finalSize);
+        setPendingOpenCropperAfterAddDismiss(false);
+        pendingCropperParamsRef.current = null;
+
+        // UIKit silently drops a Modal present while the native picker is still animating out,
+        // and no onShow ever fires. Instead of trusting one fixed delay, re-present until onShow
+        // confirms it; only after every attempt fails fall back to creating the card directly.
+        const MAX_PRESENT_ATTEMPTS = 3;
+        const PRESENT_CONFIRM_TIMEOUT_MS = 1800;
+        cropperShownRef.current = false;
+
+        const fallbackCreateCardDirectly = async () => {
+          console.warn('[CacheList] cropper presentation failed after retries; creating card directly');
+          setShowUploadCropper(false);
+          const originalUri = pendingOriginalPickedUriRef.current || finalUri;
+          pendingOriginalPickedUriRef.current = null;
+          setPendingOriginalImageUri(null);
+          setPendingOriginalImageSize(null);
+          setIsPendingImageNormalized(false);
+          setCropperFlowTarget('quick-add');
+          if (originalUri) {
+            try {
+              await createQuickImageCachedItem(originalUri, originalUri);
+            } catch (e) {
+              console.error('[CacheList] fallback direct card create failed:', e);
+            }
+          }
+        };
+
+        const scheduleCropperPresentation = (attempt: number) => {
+          setShowUploadCropper(true);
+
+          if (cropperWatchdogTimerRef.current) {
+            clearTimeout(cropperWatchdogTimerRef.current);
+          }
+          cropperWatchdogTimerRef.current = setTimeout(() => {
+            cropperWatchdogTimerRef.current = null;
+            if (cropperShownRef.current) return;
+            if (attempt >= MAX_PRESENT_ATTEMPTS) {
+              void fallbackCreateCardDirectly();
+              return;
+            }
+            // Toggle visibility off then on so RN issues a fresh native present.
+            setShowUploadCropper(false);
+            pendingCropperOpenTimerRef.current = setTimeout(() => {
+              pendingCropperOpenTimerRef.current = null;
+              scheduleCropperPresentation(attempt + 1);
+            }, 150);
+          }, PRESENT_CONFIRM_TIMEOUT_MS);
+        };
+
+        if (Platform.OS === 'ios') {
+          // The add sheet was already closed before the picker opened, so only the picker's own
+          // teardown is left. Without that early close (700ms), UIKit drops a present made while
+          // the sheet and picker are still tearing down together.
+          const elapsed = Date.now() - pickerDismissStartTime;
+          const iosDelay = Math.max(50, (closedSheetBeforePicker ? 150 : 700) - elapsed);
+          pendingCropperOpenTimerRef.current = setTimeout(() => {
+            pendingCropperOpenTimerRef.current = null;
+            scheduleCropperPresentation(1);
+          }, iosDelay);
+        } else {
+          requestAnimationFrame(() => {
+            scheduleCropperPresentation(1);
+          });
+        }
+        return;
+      }
+
+      // Multi-image upload: batch create items immediately and dismiss add modal
       try {
-        const isSingleUpload = pickedAssets.length === 1;
-        const { topItem } = await createQuickImageCachedItems(
+        await createQuickImageCachedItems(
           pickedAssets.map((asset) => asset.uri).filter(Boolean) as string[]
         );
-        if (isSingleUpload && topItem) {
-          const imageUri = topItem.imageStoragePath || topItem.mediaUri || null;
-          if (imageUri) {
-            const cropperParams = {
-              target: 'swipe-image' as const,
-              item: topItem,
-              imageUri,
-              imageSize: null,
-            };
-            pendingCropperParamsRef.current = cropperParams;
-            setCropperFlowTarget('swipe-image');
-            setPendingSwipeImageItem(topItem);
-            setPendingOriginalImageUri(imageUri);
-            setPendingOriginalImageSize(null);
-            setPendingOpenCropperAfterAddDismiss(true);
-            setSuppressAddModalAnimation(true);
-            setShowAddModal(false);
-
-            setTimeout(() => {
-              if (pendingCropperParamsRef.current) {
-                const pending = pendingCropperParamsRef.current;
-                pendingCropperParamsRef.current = null;
-                setCropperFlowTarget(pending.target);
-                setPendingSwipeImageItem(pending.item);
-                setPendingOriginalImageUri(pending.imageUri);
-                setPendingOriginalImageSize(pending.imageSize);
-                setPendingOpenCropperAfterAddDismiss(false);
-                setShowUploadCropper(true);
-              }
-            }, 300);
-            return;
-          }
-        }
         setSuppressAddModalAnimation(true);
         setShowAddModal(false);
       } catch (error) {
         onBatchQuickAddCreated?.([]);
         console.error('[CacheList] batch image create failed:', error);
         Alert.alert('新增失敗', '批次新增圖片快取失敗，請稍後再試。');
+        setSuppressAddModalAnimation(false);
+        setShowAddModal(true);
       }
     } catch (error) {
       console.error('[CacheList] upload picker failed:', error);
@@ -281,6 +437,10 @@ export function useCacheQuickAddFlow({
       clearTimeout(requestGuard);
       pickerRequestActiveRef.current = false;
       setCreatingImage(false);
+      if (closedSheetBeforePicker && !pickerHandedOff) {
+        setSuppressAddModalAnimation(false);
+        setShowAddModal(true);
+      }
     }
   }, [
     createQuickImageCachedItems,
@@ -328,6 +488,8 @@ export function useCacheQuickAddFlow({
       setCropperFlowTarget('quick-add');
       setPendingSwipeImageItem(null);
       setPendingOpenCameraAfterAddDismiss(false);
+      pendingOriginalPickedUriRef.current = photo.uri;
+      setIsPendingImageNormalized(false);
       setPendingOriginalImageUri(photo.uri);
       setPendingOriginalImageSize(
         typeof photo.width === 'number' && typeof photo.height === 'number'
@@ -394,7 +556,15 @@ export function useCacheQuickAddFlow({
     []
   );
 
-  const handleUploadCropCancel = React.useCallback(() => {
+  const handleUploadCropCancel = React.useCallback(async () => {
+    if (cropperWatchdogTimerRef.current) {
+      clearTimeout(cropperWatchdogTimerRef.current);
+      cropperWatchdogTimerRef.current = null;
+    }
+    if (pendingCropperOpenTimerRef.current) {
+      clearTimeout(pendingCropperOpenTimerRef.current);
+      pendingCropperOpenTimerRef.current = null;
+    }
     if (
       appTour.isActive &&
       cropperFlowTarget === 'swipe-image' &&
@@ -403,24 +573,39 @@ export function useCacheQuickAddFlow({
     ) {
       return;
     }
-    const shouldReopenAddModal = cropperFlowTarget === 'quick-add';
+    const isDeferredQuickAdd = cropperFlowTarget === 'quick-add';
+    const originalPickedUri = pendingOriginalPickedUriRef.current || pendingOriginalImageUri;
     const cancelledSwipeItemId =
       cropperFlowTarget === 'swipe-image' ? pendingSwipeImageItem?.id ?? null : null;
     pendingCropperParamsRef.current = null;
     pendingCroppedNavigationRef.current = null;
+    pendingOriginalPickedUriRef.current = null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);
+    setIsPendingImageNormalized(false);
     setPendingSwipeImageItem(null);
     setCropperFlowTarget('quick-add');
     setAddTab('image');
     if (cancelledSwipeItemId) {
       onSwipeImageCropCancel?.(cancelledSwipeItemId);
     }
-    if (shouldReopenAddModal) {
-      setShowAddModal(true);
+    if (isDeferredQuickAdd && originalPickedUri) {
+      try {
+        await createQuickImageCachedItem(originalPickedUri, originalPickedUri);
+      } catch (err) {
+        console.error('[CacheList] create card on cancel failed:', err);
+      }
     }
-  }, [cropperFlowTarget, onSwipeImageCropCancel, pendingSwipeImageItem, setAddTab, setShowAddModal]);
+  }, [
+    appTour.isActive,
+    createQuickImageCachedItem,
+    cropperFlowTarget,
+    onSwipeImageCropCancel,
+    pendingOriginalImageUri,
+    pendingSwipeImageItem,
+    setAddTab,
+  ]);
 
   const pendingCroppedNavigationRef = React.useRef<(() => void) | null>(null);
 
@@ -441,12 +626,18 @@ export function useCacheQuickAddFlow({
 
   const handleUploadCropConfirm = React.useCallback(
     async (croppedUri: string) => {
+      if (cropperWatchdogTimerRef.current) {
+        clearTimeout(cropperWatchdogTimerRef.current);
+        cropperWatchdogTimerRef.current = null;
+      }
+      if (pendingCropperOpenTimerRef.current) {
+        clearTimeout(pendingCropperOpenTimerRef.current);
+        pendingCropperOpenTimerRef.current = null;
+      }
       if (cropConfirmActiveRef.current) return;
       cropConfirmActiveRef.current = true;
-      const originalUri = pendingOriginalImageUri;
-      setPendingOriginalImageUri(null);
-      setPendingOriginalImageSize(null);
-      setPendingOpenCropperAfterAddDismiss(false);
+      const originalPickedUri = pendingOriginalPickedUriRef.current || pendingOriginalImageUri;
+      const originalUri = originalPickedUri;
       try {
         if (cropperFlowTarget === 'swipe-image' && pendingSwipeImageItem) {
           const swipeItem = pendingSwipeImageItem;
@@ -468,7 +659,17 @@ export function useCacheQuickAddFlow({
           };
         } else {
           const quickItem = await createQuickImageCachedItem(croppedUri, originalUri);
-          if (!quickItem) return;
+          if (!quickItem) {
+            setShowUploadCropper(false);
+            setPendingOriginalImageUri(null);
+            setPendingOriginalImageSize(null);
+            setIsPendingImageNormalized(false);
+            setPendingOpenCropperAfterAddDismiss(false);
+            setPendingSwipeImageItem(null);
+            pendingOriginalPickedUriRef.current = null;
+            pendingCropperParamsRef.current = null;
+            return;
+          }
           pendingCroppedNavigationRef.current = () => {
             navigation.navigate('CreateCard', {
               cachedItem: quickItem,
@@ -478,6 +679,11 @@ export function useCacheQuickAddFlow({
             });
           };
         }
+        pendingOriginalPickedUriRef.current = null;
+        setPendingOriginalImageUri(null);
+        setPendingOriginalImageSize(null);
+        setIsPendingImageNormalized(false);
+        setPendingOpenCropperAfterAddDismiss(false);
         setPendingSwipeImageItem(null);
         setCropperFlowTarget('quick-add');
         setShowUploadCropper(false);
@@ -496,6 +702,14 @@ export function useCacheQuickAddFlow({
         }
       } catch (error) {
         console.error('[CacheList] create quick image item failed:', error);
+        setShowUploadCropper(false);
+        setPendingOriginalImageUri(null);
+        setPendingOriginalImageSize(null);
+        setIsPendingImageNormalized(false);
+        setPendingOpenCropperAfterAddDismiss(false);
+        setPendingSwipeImageItem(null);
+        pendingOriginalPickedUriRef.current = null;
+        pendingCropperParamsRef.current = null;
         Alert.alert('建立失敗', '無法建立圖片卡片，請稍後再試。');
       } finally {
         cropConfirmActiveRef.current = false;
@@ -552,7 +766,7 @@ export function useCacheQuickAddFlow({
         if (Platform.OS === 'ios') {
           setTimeout(() => {
             setShowUploadCropper(true);
-          }, 80);
+          }, 500);
         } else {
           setShowUploadCropper(true);
         }
@@ -581,11 +795,29 @@ export function useCacheQuickAddFlow({
     pendingSwipeImageItem !== null &&
     isDefaultExperienceCard(pendingSwipeImageItem);
 
+  const handleUploadCropShow = React.useCallback(() => {
+    cropperShownRef.current = true;
+    if (cropperWatchdogTimerRef.current) {
+      clearTimeout(cropperWatchdogTimerRef.current);
+      cropperWatchdogTimerRef.current = null;
+    }
+  }, []);
+
   const forceCloseUploadCropper = React.useCallback(() => {
+    if (cropperWatchdogTimerRef.current) {
+      clearTimeout(cropperWatchdogTimerRef.current);
+      cropperWatchdogTimerRef.current = null;
+    }
+    if (pendingCropperOpenTimerRef.current) {
+      clearTimeout(pendingCropperOpenTimerRef.current);
+      pendingCropperOpenTimerRef.current = null;
+    }
     pendingCropperParamsRef.current = null;
+    pendingOriginalPickedUriRef.current = null;
     setShowUploadCropper(false);
     setPendingOriginalImageUri(null);
     setPendingOriginalImageSize(null);
+    setIsPendingImageNormalized(false);
     setPendingOpenCropperAfterAddDismiss(false);
   }, []);
 
@@ -596,6 +828,7 @@ export function useCacheQuickAddFlow({
     showUploadCropper,
     pendingOriginalImageUri,
     pendingOriginalImageSize,
+    isPendingImageNormalized,
     showConfirmTutorialArrow,
     suppressAddModalAnimation,
     quickCameraRef,
@@ -608,6 +841,7 @@ export function useCacheQuickAddFlow({
     handleUploadCropCancel,
     handleUploadCropConfirm,
     handleUploadCropDismiss,
+    handleUploadCropShow,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     queueCreateCardAfterAddDismiss,

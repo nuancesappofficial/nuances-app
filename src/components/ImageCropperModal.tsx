@@ -8,6 +8,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -49,6 +50,7 @@ type Props = {
   visible: boolean;
   imageUri: string | null;
   initialImageSize?: Size | null;
+  isNormalized?: boolean;
   cropShape?: 'rect' | 'circle' | 'album';
   fixedCropSize?: number;
   modalAnimationType?: 'none' | 'slide' | 'fade';
@@ -57,6 +59,7 @@ type Props = {
   onCancel: () => void;
   onConfirm: (croppedUri: string) => void;
   onDismiss?: () => void;
+  onShow?: () => void;
 };
 
 const MIN_EDGE = 60;
@@ -115,10 +118,60 @@ async function resolveCropSourceUri(imageUri: string): Promise<string> {
   return imageUri;
 }
 
+function calculateInitialCropRect(
+  metrics: { width: number; height: number; left: number; top: number },
+  container: Size,
+  isFixed: boolean,
+  fixedSize: number | undefined,
+  reservedTop: number
+): Rect {
+  if (isFixed) {
+    const preferredSize = fixedSize ?? 200;
+    const maxHeightWithoutHeader = Math.max(
+      MIN_EDGE,
+      container.height - reservedTop - 28
+    );
+    const size = Math.max(
+      MIN_EDGE,
+      Math.min(
+        preferredSize,
+        metrics.width,
+        metrics.height,
+        maxHeightWithoutHeader
+      )
+    );
+    const left = (container.width - size) / 2;
+    const centeredTop = (container.height - size) / 2;
+    const maxTop = Math.max(reservedTop, container.height - size - 28);
+    const top = Math.min(
+      Math.max(Math.max(centeredTop, reservedTop), reservedTop),
+      maxTop
+    );
+    return { x: left, y: top, width: size, height: size };
+  }
+
+  const marginX = Math.max(16, metrics.width * 0.1);
+  const marginY = Math.max(16, metrics.height * 0.1);
+  const preferredY = metrics.top + marginY;
+  const topBound = Math.max(metrics.top, metrics.top + metrics.height - MIN_EDGE);
+  const y = Math.min(
+    Math.max(Math.max(preferredY, reservedTop), metrics.top),
+    topBound
+  );
+  const availableBottom = metrics.top + metrics.height;
+  return {
+    x: metrics.left + marginX,
+    y,
+    width: Math.max(MIN_EDGE, metrics.width - marginX * 2),
+    height: Math.max(MIN_EDGE, availableBottom - y - marginY),
+  };
+}
+
 export default function ImageCropperModal({
   visible,
   imageUri,
   initialImageSize,
+  isNormalized = false,
   cropShape = 'rect',
   fixedCropSize,
   modalAnimationType = 'slide',
@@ -127,16 +180,38 @@ export default function ImageCropperModal({
   onCancel,
   onConfirm,
   onDismiss,
+  onShow,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isFixedCropShape = cropShape === 'circle' || cropShape === 'album';
-  const [imageSize, setImageSize] = React.useState<Size | null>(null);
+
+  const [customImageSize, setCustomImageSize] = React.useState<Size | null>(() =>
+    initialImageSize && initialImageSize.width > 0 && initialImageSize.height > 0
+      ? initialImageSize
+      : null
+  );
+  const imageSize =
+    customImageSize ||
+    (initialImageSize && initialImageSize.width > 0 && initialImageSize.height > 0
+      ? initialImageSize
+      : null);
+  const setImageSize = setCustomImageSize;
+
   const [normalizedImageUri, setNormalizedImageUri] = React.useState<string | null>(null);
-  const [containerSize, setContainerSize] = React.useState<Size>({
-    width: 0,
-    height: 0,
-  });
-  const [cropRect, setCropRect] = React.useState<Rect | null>(null);
+  const [measuredContainerSize, setMeasuredContainerSize] = React.useState<Size>(() => ({
+    width: windowWidth,
+    height: windowHeight,
+  }));
+  const containerSize = React.useMemo(() => {
+    if (measuredContainerSize.width > 0 && measuredContainerSize.height > 0) {
+      return measuredContainerSize;
+    }
+    return { width: windowWidth, height: windowHeight };
+  }, [measuredContainerSize, windowHeight, windowWidth]);
+  const setContainerSize = setMeasuredContainerSize;
+
+  const [userCropRect, setUserCropRect] = React.useState<Rect | null>(null);
   const [processing, setProcessing] = React.useState(false);
   const [imageTransform, setImageTransform] = React.useState<ImageTransform>({
     scale: 1,
@@ -191,6 +266,12 @@ export default function ImageCropperModal({
     }
 
     const prepareImage = async () => {
+      // If the caller indicated the image is already normalized,
+      // skip re-running manipulateAsync so normalizedImageUri does not change after first frame and source does not flicker
+      if (isNormalized) {
+        return;
+      }
+
       try {
         const resolvedUri = await resolveCropSourceUri(imageUri);
         if (!isMounted) return;
@@ -275,75 +356,30 @@ export default function ImageCropperModal({
     return Math.min(Math.max(value, min), max);
   }, []);
 
-  React.useEffect(() => {
-    if (!displayMetrics) return;
-
-    if (isFixedCropShape) {
-      const preferredSize = fixedCropSize ?? 200;
-      const maxHeightWithoutHeader = Math.max(
-        MIN_EDGE,
-        containerSize.height - reservedTopInset - 28
-      );
-      const size = Math.max(
-        MIN_EDGE,
-        Math.min(
-          preferredSize,
-          displayMetrics.width,
-          displayMetrics.height,
-          maxHeightWithoutHeader
-        )
-      );
-      const left = (containerSize.width - size) / 2;
-      const centeredTop = (containerSize.height - size) / 2;
-      const maxTop = Math.max(
-        reservedTopInset,
-        containerSize.height - size - 28
-      );
-      const top = clamp(
-        Math.max(centeredTop, reservedTopInset),
-        reservedTopInset,
-        maxTop
-      );
-      setCropRect({ x: left, y: top, width: size, height: size });
-      return;
-    }
-
-    setCropRect((prev) => {
-      if (prev) return prev;
-      const marginX = Math.max(16, displayMetrics.width * 0.1);
-      const marginY = Math.max(16, displayMetrics.height * 0.1);
-      const preferredY = displayMetrics.top + marginY;
-      const y = clamp(
-        Math.max(preferredY, reservedTopInset),
-        displayMetrics.top,
-        Math.max(
-          displayMetrics.top,
-          displayMetrics.top + displayMetrics.height - MIN_EDGE
-        )
-      );
-      const availableBottom = displayMetrics.top + displayMetrics.height;
-      return {
-        x: displayMetrics.left + marginX,
-        y,
-        width: Math.max(MIN_EDGE, displayMetrics.width - marginX * 2),
-        height: Math.max(MIN_EDGE, availableBottom - y - marginY),
-      };
-    });
+  const cropRect = React.useMemo(() => {
+    if (userCropRect) return userCropRect;
+    if (!displayMetrics) return null;
+    return calculateInitialCropRect(
+      displayMetrics,
+      containerSize,
+      isFixedCropShape,
+      fixedCropSize,
+      reservedTopInset
+    );
   }, [
-    clamp,
-    containerSize.height,
-    containerSize.width,
-    cropShape,
+    userCropRect,
     displayMetrics,
-    fixedCropSize,
+    containerSize,
     isFixedCropShape,
+    fixedCropSize,
     reservedTopInset,
   ]);
+  const setCropRect = setUserCropRect;
 
   React.useEffect(() => {
     if (!visible) {
-      setCropRect(null);
-      setImageSize(null);
+      setUserCropRect(null);
+      setCustomImageSize(null);
       setNormalizedImageUri(null);
       setProcessing(false);
       setImageTransform({
@@ -839,8 +875,10 @@ export default function ImageCropperModal({
       visible={visible}
       animationType={modalAnimationType}
       presentationStyle="overFullScreen"
+      statusBarTranslucent
       onRequestClose={onCancel}
       onDismiss={onDismiss}
+      onShow={onShow}
     >
       <View style={styles.container}>
         <View

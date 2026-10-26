@@ -746,7 +746,22 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     setVisibleCacheIds((prev) => prev.filter((id) => id !== itemId));
   }, []);
 
+  const hideCacheCardImmediately = React.useCallback((itemId: string) => {
+    hideCacheCardFromStack(itemId);
+    setOptimisticallyHiddenCacheIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+  }, [hideCacheCardFromStack]);
+
   const restoreCacheCardToStack = React.useCallback((itemId: string) => {
+    setOptimisticallyHiddenCacheIds((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
     setVisibleCacheIds((prev) => {
       if (prev.includes(itemId)) return prev;
       return [...prev, itemId];
@@ -761,6 +776,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     showUploadCropper,
     pendingOriginalImageUri,
     pendingOriginalImageSize,
+    isPendingImageNormalized,
     showConfirmTutorialArrow,
     suppressAddModalAnimation,
     quickCameraRef,
@@ -773,6 +789,7 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     handleUploadCropCancel,
     handleUploadCropConfirm,
     handleUploadCropDismiss,
+    handleUploadCropShow,
     handleInputModalDismiss,
     queueQuickAddCropperAfterModalDismiss,
     queueCreateCardAfterAddDismiss,
@@ -998,6 +1015,10 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
       setIsCacheFocused((prev) => (prev ? prev : true));
 
       if (isReturningFromBlurRef.current) {
+        // Returning from CardDetail / CreateCard: clear optimistically hidden set so abandoned cards reappear
+        setOptimisticallyHiddenCacheIds(new Set());
+        setRestoreSeed((prev) => prev + 1);
+
         // Returning from CardDetail / CreateCard: wait strictly for transitionEnd + 2 RAFs, with 500ms safety fallback
         if (postFocusTimerRef.current) {
           clearTimeout(postFocusTimerRef.current);
@@ -1336,15 +1357,6 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
     void refreshPasteEnabled();
   }, [refreshPasteEnabled, showAddModal]);
 
-  const hideCacheCardImmediately = React.useCallback((itemId: string) => {
-    hideCacheCardFromStack(itemId);
-    setOptimisticallyHiddenCacheIds((prev) => {
-      const next = new Set(prev);
-      next.add(itemId);
-      return next;
-    });
-  }, [hideCacheCardFromStack]);
-
   const { handleCardImageError, handleCardSwipeStart, handleCardSwipe } = useCacheSwipeActions({
     cards,
     navigation,
@@ -1482,12 +1494,14 @@ export default function CacheScreenFlow({ navigation, onRequestClose }: Props) {
         visible={showUploadCropper}
         imageUri={pendingOriginalImageUri}
         initialImageSize={pendingOriginalImageSize}
+        isNormalized={isPendingImageNormalized}
         modalAnimationType="slide"
         uiLanguage={uiLanguage}
         showConfirmTutorialArrow={showConfirmTutorialArrow}
-        onCancel={handleUploadCropCancel}
+        onCancel={() => void handleUploadCropCancel()}
         onConfirm={handleUploadCropConfirm}
         onDismiss={handleUploadCropDismiss}
+        onShow={handleUploadCropShow}
       />
 
       <CameraModalUI
