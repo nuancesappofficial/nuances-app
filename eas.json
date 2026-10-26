@@ -12,7 +12,8 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -41,7 +42,8 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "env": {
@@ -73,7 +75,8 @@
         "buildType": "app-bundle",
         "credentialsSource": "remote",
         "autoIncrement": true
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
