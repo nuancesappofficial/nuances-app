@@ -1,13 +1,13 @@
 ---
 name: clip-to-nuance
-description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 雙語字幕、目標單字高亮；台詞講到目標單字時影片不暫停，Ghost 單字卡從底部升起把影片往上推、停留後落回；最後接冷啟動 Splash 與固定 CTA 結尾（含 promo 1 音效）。
+description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 雙語字幕、目標單字高亮；台詞講到目標單字時影片不暫停，Ghost 單字卡從底部升起把影片往上推、停留後落回；最後接冷啟動 Splash 與固定 CTA 結尾（含 promo 1 音效）；影片做完接著呼叫 clip-to-slides 做 IG 輪播圖。
 ---
 
 # Clip to Nuance
 
 把影視熱門片段做成 Nuances App 推廣短片。成片結構：**原片（含 Ghost 卡上推）→ 冷啟動 Splash → CTA**。不需要任何 App 實機錄影。
 
-## 管線流程（6 步驟）
+## 管線流程（7 步驟）
 
 1. **取得來源、秒數、主題**
    - 影片網址、時間區間（例如 `00:20 ~ 00:47`）、主題名稱 `<topic>`。
@@ -64,6 +64,10 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    - CTA 固定用 `promo-vids/CTA-screens/CTA-nuances.mp4`（5.27 秒，不輪替）。
    - 音效照搬 promo 1（`scripts/sfx.py`，合成音、不用外部音檔）：Splash 前 0.15 秒 whoosh、Splash +0.1 pop、+0.6 swipe（擦除）、+1.6 shine（CTA icon 掃光）。音效峰值壓在 -8 dBFS。
    - 同時輸出 `<topic>-final.mp4` 與同名 `.mov`。
+
+7. **接著做輪播圖（呼叫 `/clip-to-slides`）**
+   - 影片交付後，直接用 Skill 工具呼叫 `clip-to-slides`，沿用同一個工作資料夾的 `<topic>.mp4` 與 `cards.json`，不用重新下載或選字。
+   - 從 clip-to-slides 的第 2 步（寫封面 hook）開始，照它的流程走完；hook 一樣要停下來等使用者選定。
 
 ## 版面規格（1080x1920、30fps、48kHz stereo）
 - 背景：原片放大填滿 + 高斯模糊。

@@ -12,6 +12,7 @@ description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗�
 1. **找到工作資料夾**
    - `promo-vids/<YYYY-MM-DD>/<topic>/`，裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
    - 還沒有就先跑 `/clip-to-nuance` 第 1–4 步（下載、修剪、選字、寫 `cards.json`），做完再回來。
+   - 從 clip-to-nuance 第 7 步自動進來時，資料夾就是剛做完影片的那個，直接跳到第 2 步。
    - 單字頁數 = `cards.json` 的張數，要 3–5 個。
 
 2. **寫封面 hook（強制互動）**
