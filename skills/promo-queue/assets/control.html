@@ -48,7 +48,7 @@ aside{position:sticky;top:110px}
 .day.past{opacity:.5}.day.today{border-color:var(--blue)}.day.drop{background:var(--panel2);border-color:var(--blue)}
 .day .n{font-size:12px;color:var(--mute)}.day.today .n{color:var(--blue);font-weight:700}
 .ev{display:flex;gap:6px;align-items:center;background:var(--panel2);border-radius:6px;padding:3px;cursor:pointer;font-size:12px;border-left:3px solid var(--blue)}
-.ev img{width:24px;height:30px;object-fit:cover;border-radius:4px;flex:none}.ev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev img{width:24px;height:30px;object-fit:cover;border-radius:4px;flex:none}.ev>span:not(.th){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev.posted{border-color:var(--ok)}.ev.failed{border-color:var(--bad)}.ev.manual{border-color:var(--warn)}
 .ev[draggable=true]{cursor:grab}
 .slot{border:1px dashed var(--dim);border-radius:6px;padding:3px 6px;font-size:12px;color:var(--dim)}
@@ -97,6 +97,13 @@ pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px
   background:var(--c);color:#0E0F12;font-size:9px;font-weight:800;line-height:13px;text-align:center;border:2px solid var(--panel)}
 .pf.big{width:auto;border-radius:99px;padding:0 10px 0 8px;gap:6px;font-size:12px;color:var(--c)}
 .legend{display:inline-flex;gap:12px;margin-left:12px;font-weight:400;font-size:12px}.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+/* 影片 / 輪播：縮圖左下角只放圖示（紫＝影片、綠＝輪播） */
+.th{position:relative;display:inline-block;flex:none;line-height:0}
+.kd{position:absolute;left:4px;bottom:4px;display:inline-flex;align-items:center;gap:3px;padding:4px;border-radius:6px;
+  font-size:11px;font-weight:700;line-height:1.3;color:#0E0F12;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.kd svg{width:12px;height:12px}.kd.reel{background:#B79CFF}.kd.carousel{background:#4ADE80}.kd span{display:none}
+.kd.mini{left:2px;bottom:2px;padding:2px}.kd.mini svg{width:10px;height:10px}
+.kt{display:inline-flex;align-items:center;gap:3px;font-weight:700}.kt svg{width:11px;height:11px}.kt.reel{color:#B79CFF}.kt.carousel{color:#4ADE80}
 /* 動畫 */
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -117,7 +124,7 @@ button:active{transform:scale(.96)}
 button.ghost{background:transparent;border-color:transparent;color:var(--dim)}button.ghost:hover{color:var(--mute)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(max-width:900px){.sched{grid-template-columns:1fr}aside{position:static}}
-@media(max-width:700px){nav{margin-left:0;order:3;width:100%}.day{min-height:64px}.ev span{display:none}.legend,#mode{display:none}
+@media(max-width:700px){nav{margin-left:0;order:3;width:100%}.day{min-height:64px}.ev>span:not(.th){display:none}.legend,#mode{display:none}
   .slot{font-size:0;height:14px;padding:0}
   .next img{width:84px;height:105px}}
 </style></head><body>
@@ -177,6 +184,15 @@ function go(t){ tab = t; localStorage.setItem('tab2', t); render(); }
 // simple-icons 的平台標誌（用 mask 套狀態色）；沒有標誌的用字母
 const LOGO = {instagram:'instagram', threads:'threads', facebook:'facebook', tiktok:'tiktok', youtube:'youtube', xiaohongshu:'xiaohongshu',
   douyin:'tiktok', bilibili:'bilibili', line_voom:'line', naver_blog:'naver', x:'x'};
+const KSVG = {reel:'<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>',
+  carousel:'<svg viewBox="0 0 16 16"><rect x="5.5" y=".5" width="9.5" height="11" rx="1.5" fill="currentColor" opacity=".45"/><rect x="3.5" y="2.5" width="9.5" height="11" rx="1.5" fill="currentColor" opacity=".7"/><rect x="1.5" y="4.5" width="9.5" height="11" rx="1.5" fill="currentColor"/></svg>'};
+const KNAME = {reel:'影片', carousel:'輪播'};
+// 縮圖 + 左下角類型標記；mini 是小縮圖（只放圖示）
+function th(src, kind, mini){
+  return `<span class="th"><img src="${esc(src)}" loading="lazy"><span class="kd ${kind} ${mini?'mini':''}" title="${KNAME[kind]}">${KSVG[kind]}<span>${KNAME[kind]}</span></span></span>`;
+}
+// 文字裡的類型（圖示 + 字，同色）
+const kt = (kind, extra='') => `<span class="kt ${kind}">${KSVG[kind]}${KNAME[kind]}${extra}</span>`;
 const BADGE = {posted:'✓', failed:'!', manual:'✎', skipped:'–', queued:''};
 function pf(p, big){
   const logo = LOGO[p.name] ? `<i style="--ic:url(https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/${LOGO[p.name]}.svg)"></i>` : `<b>${esc(p.label[0])}</b>`;
@@ -200,10 +216,10 @@ function dayWord(iso){
 // ---------- 排程分頁：待辦 + 日曆 + 還沒排 ----------
 function scheduleView(){
   const q = queuedList(), nx = q[0];
-  const next = nx ? `<div class="next" onclick="openModal('item','${nx.id}')"><img src="${esc(nx.thumb)}">
+  const next = nx ? `<div class="next" onclick="openModal('item','${nx.id}')">${th(nx.thumb, nx.kind)}
       <div><div class="when">${esc(dayWord(nx.when_iso))}<span class="count">· ${countdown(nx.when_abs)}</span></div>
         <div class="title">${esc(nx.topic)}</div>
-        <div class="sub">${esc(nx.kind==='carousel'?'輪播 '+nx.count+' 張':'影片')}${nx.tags.hook?' · '+esc(nx.tags.hook):''}</div>
+        <div class="sub">${kt(nx.kind, nx.kind==='carousel'?' '+nx.count+' 張':'')}${nx.tags.hook?' · '+esc(nx.tags.hook):''}</div>
         ${chips(nx)}</div></div>`
     : `<div class="empty">排程是空的</div>`;
   const todos = manualList().map(i => `<div class="todo manual" onclick="openModal('item','${i.id}')">⚠ <span><b>${esc(i.topic)}</b> · 手動發 ${i.platforms.filter(p=>p.status==='manual').map(p=>esc(p.label)).join('、')}</span><span class="go">›</span></div>`)
@@ -217,8 +233,8 @@ function scheduleView(){
 function storeView(){
   const rows = S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => `<div class="store" draggable="true"
       ondragstart="event.dataTransfer.setData('text','inbox:${fi}:${ki}')" onclick="openModal('inbox',${fi},${ki})">
-      <img src="${esc(k.poster)}" loading="lazy"><div class="t"><div class="name">${esc(f.topic)}</div>
-      <div class="sub">${esc(k.kind_zh)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">●</span>'}</div></div></div>`));
+      ${th(k.poster, k.kind, true)}<div class="t"><div class="name">${esc(f.topic)}</div>
+      <div class="sub">${kt(k.kind)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">●</span>'}</div></div></div>`));
   return `<h2>還沒排 ${rows.length}</h2>
     ${rows.length ? rows.join('') : `<div class="empty">沒有新的成品</div>`}
     <div class="row"><button class="small ghost" onclick="api('unignore',{})">還原被移除的</button></div>`;
@@ -242,7 +258,7 @@ function calView(){
       const st = i.platforms.some(p=>p.status==='manual') ? 'manual' : i.platforms.some(p=>p.status==='failed') ? 'failed' : i.state==='posted' ? 'posted' : i.state;
       const drag = i.state === 'queued';
       return `<div class="ev ${st}" ${drag?`draggable="true" ondragstart="event.dataTransfer.setData('text','item:${i.id}')"`:''} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
-        <img src="${esc(i.thumb)}" loading="lazy"><span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
+        ${th(i.thumb, i.kind, true)}<span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
     const slots = (free[key]||[]).map(s => `<div class="slot" title="空的時段：把成品拖到這裡" ondragover="event.preventDefault();this.classList.add('drop')"
         ondragleave="this.classList.remove('drop')" ondrop="event.stopPropagation();dropOn(event,'${s}')">${s.slice(11)}</div>`).join('');
     cells += `<div class="day ${d<today?'past':''} ${+d===+today?'today':''}"
@@ -270,11 +286,11 @@ function inboxModal(fi, ki, at){
   return `<div class="cols"><div class="media">
       ${k.video ? `<video src="${k.preview}" poster="${k.poster}" controls preload="none"></video>` : `<div class="strip">${k.slides.map(s=>`<img src="${s}">`).join('')}</div>`}
     </div><div class="info">
-      <div class="title">${esc(f.topic)}</div><div class="sub">${esc(k.kind_zh)} · ${esc(f.format)}</div>
+      <div class="title">${esc(f.topic)}</div><div class="sub">${kt(k.kind, k.kind==='carousel'?' '+k.slides.length+' 張':'')} · ${esc(f.format)}</div>
       <div class="sub" style="margin-top:14px">發文時間</div>
       <div class="chips">${S.free.slice(0,4).map(s=>`<span class="chip pick ${s===when?'on':''}" onclick="pickWhen('${s}')">${esc(dayWord(s))}</span>`).join('')}</div>
       <div class="row"><input type="datetime-local" id="mt" value="${esc(when)}" oninput="pickWhen(this.value)"></div>
-      <div class="row"><span class="sub">Hook</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
+      <div class="row"><span class="sub" title="只是標籤，不會改文案；成效分頁用它比較哪種開頭比較好">開頭類型（比成效用）</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
         <span class="sub">劇名</span><input type="text" id="ms" value="${esc(f.show)}" placeholder="選填" style="width:140px"></div>
       <div class="sub" style="margin-top:12px">文案</div>
       <textarea id="mc" placeholder="第一行 hook、單字清單、CTA、hashtag">${esc(k.caption)}</textarea>
@@ -303,8 +319,8 @@ function statsView(){
   const l = doneList();
   const rows = l.map(i => {
     const perf = i.platforms.filter(p => p.scores.keep != null).map(p => `${esc(p.label)} 收藏分享 ${p.scores.keep}‰${p.ratio!=null?'（'+p.ratio.toFixed(1)+'×）':''}`).join(' · ');
-    return `<div class="prow" onclick="openModal('item','${i.id}')"><img src="${esc(i.thumb)}" loading="lazy"><div style="min-width:0">
-      <div><b>${esc(i.topic)}</b> <span class="sub">${esc(i.when)}</span> ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
+    return `<div class="prow" onclick="openModal('item','${i.id}')">${th(i.thumb, i.kind)}<div style="min-width:0">
+      <div><b>${esc(i.topic)}</b> <span class="sub">${esc(i.when)}</span> ${kt(i.kind)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
       ${chips(i)}${perf?`<div class="perf">${perf}</div>`:''}</div></div>`; }).join('');
   return `<h2>哪種比較好 <span class="dim" title="收藏分享率跟中位數比，1× = 一般">ⓘ</span></h2>${cmp}
     <h2>發過的 ${LEGEND}</h2>${rows || '<div class="empty">還沒有發布的貼文。</div>'}`;
@@ -322,12 +338,12 @@ function itemModal(id){
   const perf = i.platforms.filter(p=>Object.keys(p.scores).length).map(p=>`<div class="perf"><b>${esc(p.label)}</b> ${Object.entries(p.scores).map(([k,v])=>`${LBL[k]} ${k==='hook'?Math.round(v*100)+'%':v+'‰'}`).join(' · ')}
       <span class="dim">（${{d7:'第 7 天',d3:'第 3 天',latest:'即時'}[p.snapshot]}${p.ratio!=null?'，中位數的 '+p.ratio.toFixed(1)+' 倍':''}）</span></div>`).join('');
   const retry = i.platforms.filter(p=>['failed','skipped'].includes(p.status)).map(p=>`<button class="small" onclick="api('retry',{id:'${i.id}',platform:'${p.name}'})">重發 ${esc(p.label)}</button>`).join('');
-  return `<div class="cols"><div class="media"><img src="${esc(i.thumb)}" style="width:260px;border-radius:10px"></div><div class="info">
+  return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span></div><div class="info">
     <div class="title">${esc(i.topic)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
-    <div class="sub">${esc(i.kind==='carousel'?'輪播 '+i.count+' 張':'影片')} · ${esc(i.tags.format||'')} · ${esc(i.tags.hook||'')}</div>
+    <div class="sub">${kt(i.kind, i.kind==='carousel'?' '+i.count+' 張':'')} · ${esc(i.tags.format||'')} · ${esc(i.tags.hook||'')}</div>
     <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">
         <button class="small" ${n===0?'disabled':''} onclick="api('move',{id:'${i.id}',dir:-1})">往前一篇</button>
-        <button class="small" ${n===q.length-1?'disabled':''} onclick="api('move',{id:'${i.id}',dir:1})">往後一篇</button>` : `<span class="sub">${esc(i.when)}</span>`}</div>
+        <button class="small" ${n===q.length-1?'disabled':''} onclick="api('move',{id:'${i.id}',dir:1})">往後一篇</button>` : `<span class="sub">${esc(i.when)}</span> ${kt(i.kind)}`}</div>
     <div class="row">${chipsHtml}</div>
     ${i.platforms.filter(p=>p.error).map(p=>`<div class="err">${esc(p.label)}：${esc(p.error)}</div>`).join('')}
     ${i.platforms.filter(p=>p.note).map(p=>`<div class="note">${esc(p.label)}：${esc(p.note)}</div>`).join('')}
