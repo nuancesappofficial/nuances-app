@@ -79,7 +79,7 @@ CLOUD = cloud_creds()
 
 def cloud_get(path):
     r = requests.get(f"{CLOUD['url']}/storage/v1/object/{PRIVATE}/{path}", timeout=60,
-                     headers={"Authorization": f"Bearer {CLOUD['service_key']}"})
+                     headers=P.sb_headers(CLOUD["service_key"]))
     if r.status_code in (400, 404):
         return None
     P._check(r) if r.status_code >= 400 else None
@@ -88,13 +88,13 @@ def cloud_get(path):
 
 def cloud_put(path, body, ctype="application/json", bucket=PRIVATE):
     r = requests.post(f"{CLOUD['url']}/storage/v1/object/{bucket}/{path}", data=body, timeout=120,
-                      headers={"Authorization": f"Bearer {CLOUD['service_key']}", "Content-Type": ctype,
+                      headers={**P.sb_headers(CLOUD["service_key"]), "Content-Type": ctype,
                                "x-upsert": "true", "Cache-Control": "no-cache"})
     P._check(r)
 
 
 def ensure_private_bucket():
-    r = requests.post(f"{CLOUD['url']}/storage/v1/bucket", timeout=30, headers={"Authorization": f"Bearer {CLOUD['service_key']}"},
+    r = requests.post(f"{CLOUD['url']}/storage/v1/bucket", timeout=30, headers=P.sb_headers(CLOUD["service_key"]),
                       json={"id": PRIVATE, "name": PRIVATE, "public": False})
     if r.status_code >= 400 and r.status_code != 409 and "exist" not in r.text.lower():
         P._check(r)

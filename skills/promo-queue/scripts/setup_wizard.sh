@@ -227,6 +227,19 @@ q = u.parse_qs(u.urlparse(os.environ["URL"].strip()).query)
 print(q.get("code", [""])[0].removesuffix("#_"))')"
 }
 
+# ask_secret_checked VAR "提示" [不能等於的值]：隱藏輸入，空的或跟別的值一樣就重問，並顯示收到幾個字
+ask_secret_checked() {
+  local var="$1" prompt="$2" not="${3:-}" val
+  while true; do
+    ask_secret "$var" "$prompt"
+    val="${!var}"
+    if [[ -z "$val" ]]; then warn "沒收到內容（輸入時畫面不會顯示字，貼上後按一次 Enter），再貼一次"; continue; fi
+    if [[ -n "$not" && "$val" == "$not" ]]; then warn "這是 Client key，不是 secret；按「顯示」後複製 secret 那一行"; printf -v "$var" '%s' ""; continue; fi
+    note "已收到 ${#val} 個字"
+    break
+  done
+}
+
 banner "Nuances 自動發文設定"
 
 # ── 1 ────────────────────────────────────────────────────────────────────
@@ -260,19 +273,19 @@ SUPABASE_URL=$(grep -E '^EXPO_PUBLIC_SUPABASE_URL=' "$REPO/.env" 2>/dev/null | t
 [[ -z "$SUPABASE_URL" ]] && ask SUPABASE_URL "Supabase 專案網址（https://xxx.supabase.co）："
 note "專案：$SUPABASE_URL"
 open_url "https://supabase.com/dashboard/project/$(printf '%s' "$SUPABASE_URL" | sed -E 's#https://([^.]+)\..*#\1#')/settings/api-keys"
-step "在 API Keys 頁面找到 service_role（或 Secret keys 底下的 secret key），按 Reveal 後複製"
-warn "這把鑰匙權限很大，只會存在你這台 Mac 的 $CONF_DIR，不會進 git"
+step "在 API Keys 頁面的「Secret keys」那一區，複製 secret key（sb_secret_ 開頭；不是上面的 publishable key）"
+warn "這把鑰匙權限很大，只會存在你這台 Mac 的 ${CONF_DIR}，不會進 git"
 # 設過別的國家時，Supabase 金鑰已經在 secrets.json，直接帶入（Enter 沿用）
 if [[ -z "$(_existing SUPABASE_SERVICE_KEY || true)" ]]; then
   PREV=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.config/nuances-promo/secrets.json"))).get("supabase",{}).get("service_key",""))' 2>/dev/null || true)
   [[ -n "$PREV" ]] && printf 'SUPABASE_SERVICE_KEY=%s\n' "$PREV" >> "$ENV_FILE"
 fi
-ask_secret SUPABASE_SERVICE_KEY "貼上 service key："
+ask_secret SUPABASE_SERVICE_KEY "貼上 secret key："
 write_env SUPABASE_SERVICE_KEY "$SUPABASE_SERVICE_KEY"
-say "建立公開 bucket「$BUCKET」，並放一個授權用的回呼頁…"
+say "建立公開 bucket「${BUCKET}」，並放一個授權用的回呼頁…"
 KEY="$SUPABASE_SERVICE_KEY" URL="$SUPABASE_URL" B="$BUCKET" py '
 import os, requests
-h = {"Authorization": "Bearer " + os.environ["KEY"], "apikey": os.environ["KEY"]}
+h = {"apikey": os.environ["KEY"], **({"Authorization": "Bearer " + os.environ["KEY"]} if os.environ["KEY"].startswith("eyJ") else {})}
 u, b = os.environ["URL"].rstrip("/"), os.environ["B"]
 r = requests.post(f"{u}/storage/v1/bucket", headers=h, json={"id": b, "name": b, "public": True}, timeout=30)
 if r.status_code >= 400 and "already exists" not in r.text.lower() and r.status_code != 409:
@@ -311,30 +324,13 @@ else
 fi
 
 # ── 4 ────────────────────────────────────────────────────────────────────
-stage "Instagram：產生發文 token"
+stage "Instagram：連結到 Facebook 粉專"
 if [[ "$DO_META" == 1 ]]; then
-  step "在 App 後台左邊選「使用案例」→ Instagram 那一項按「自訂」"
-  step "選「使用 Instagram 登入的 API 設定」(API setup with Instagram login)"
-  step "權限要有 instagram_business_basic、instagram_business_content_publish、instagram_business_manage_insights（沒有就按新增）"
-  step "第 2 段「產生存取權杖」→「新增帳號」→ 登入 $CHANNEL 這個國家的 Nuances IG 帳號"
-  note "    如果要你接受測試者邀請：IG App → 設定 → 應用程式和網站 → 測試者邀請 → 接受"
-  step "帳號出現後按「產生權杖」，勾同意後複製那串 token"
-  ask_secret IG_TOKEN "貼上 Instagram token："
-  IG_JSON=$(TOK="$IG_TOKEN" py '
-import os, json, time, requests
-r = requests.get("https://graph.instagram.com/v21.0/me", params={"fields": "user_id,username", "access_token": os.environ["TOK"]}, timeout=30)
-if r.status_code >= 400: raise SystemExit(f"token 驗證失敗：{r.text}")
-j = r.json()
-print(json.dumps({"user_id": str(j.get("user_id") or j["id"]), "username": j.get("username", ""),
-                  "token": os.environ["TOK"], "token_expires": int(time.time()) + 59 * 86400}))') || { warn "Instagram token 無效，這次先跳過"; IG_JSON=""; }
-  if [[ -n "$IG_JSON" ]]; then
-    write_env IG_TOKEN "$IG_TOKEN"
-    save_section instagram "$IG_JSON"
-    note "帳號：@$(printf '%s' "$IG_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["username"])')"
-  else
-    SKIPPED+=("Instagram token")
-  fi
-  pause
+  say "IG 走「Facebook 登入」：IG 要先連到同一個國家的 FB 粉專，授權會在後面 Facebook 那一步一起做。"
+  step "IG 一定要是專業帳號（IG → 設定 → 帳號類型和工具 → 切換為專業帳號）"
+  step "FB 粉專 → 設定 →「已連結的帳號」→ Instagram → 連結帳號 → 登入 ${CHANNEL} 這個國家的 Nuances IG"
+  note "    也可以從 IG App → 設定 → 帳號管理中心，把 IG 和 FB 粉專加到同一個帳號管理中心。"
+  pause "IG 連好粉專就按 Enter"
 else
   note "跳過"; pause
 fi
@@ -376,26 +372,37 @@ else
 fi
 
 # ── 5b ───────────────────────────────────────────────────────────────────
-stage "Facebook 粉專：授權"
-if [[ "$DO_META" == 1 ]] && confirm "要設定 Facebook 粉專嗎？"; then
-  step "App 後台 →「使用案例」→「管理粉絲專頁上的所有內容」按「自訂」，權限加上："
-  note "    pages_show_list、pages_read_engagement、pages_manage_posts、read_insights"
-  step "左邊「應用程式設定」→「基本資料」，複製「應用程式編號」和「應用程式密鑰」（顯示後複製）"
+stage "Facebook 粉專 + Instagram：授權"
+if [[ "$DO_META" == 1 ]] && confirm "要設定 Facebook 粉專和 Instagram 嗎？"; then
+  step "App 後台 →「使用案例」，下面兩項都按「自訂」→「權限和功能」，把列出的權限都按「新增」："
+  note "    Instagram API：instagram_basic、instagram_content_publish、instagram_manage_insights、business_management"
+  note "    管理粉絲專頁：pages_show_list、pages_read_engagement、pages_manage_posts、read_insights"
+  note "    （找不到「管理粉絲專頁」這個使用案例就按「新增使用案例」加進來）"
+  step "左邊「應用程式設定」→「基本資料」，複製「應用程式編號」和「應用程式密鑰」（顯示後複製；不是「進階」頁的用戶端權杖）"
   ask FB_APP_ID "應用程式編號："
   ask_secret FB_APP_SECRET "應用程式密鑰："
   write_env FB_APP_ID "$FB_APP_ID"; write_env FB_APP_SECRET "$FB_APP_SECRET"
   open_url "https://developers.facebook.com/tools/explorer/"
-  step "右邊「Meta App」選 Nuances Poster；「使用者或粉專」選「取得用戶存取權杖」"
-  step "「權限」加入上面那 4 個 → 按「Generate Access Token」→ 勾選 $CHANNEL 這個國家的 Nuances 粉專 → 完成"
+  step "右邊「Meta 應用程式」選 Nuances Poster → 切到「Configurations」分頁選 nuances-poster（商家類型 App 要先在「商家專用 Facebook 登入 → 設定」建這個設定組，含上面 8 個權限）"
+  step "按「Generate Access Token」→ 勾選 ${CHANNEL} 這個國家的 Nuances 粉專和 IG 帳號 → 完成"
   step "複製上方的「存取權杖」"
-  ask_secret FB_USER_TOKEN "貼上存取權杖："
+  open_url "https://developers.facebook.com/tools/debug/accesstoken/"
+  step "在「存取權杖偵錯工具」貼上剛複製的權杖 → 按「偵錯」→ 拉到最下面按「延長存取權杖」→ 複製新出現的那串（長效權杖）"
+  note "    延長過的權杖換出來的粉專權杖不會過期；沒延長的 1 小時後就失效。"
+  ask_secret FB_USER_TOKEN "貼上延長後的存取權杖："
   PAGES=$(ID="$FB_APP_ID" SEC="$FB_APP_SECRET" TOK="$FB_USER_TOKEN" py '
 import os, json, requests
 e, api = os.environ, "https://graph.facebook.com/v23.0"
 r = requests.get(f"{api}/oauth/access_token", timeout=30, params={"grant_type": "fb_exchange_token", "client_id": e["ID"],
                  "client_secret": e["SEC"], "fb_exchange_token": e["TOK"]})
-if r.status_code >= 400: raise SystemExit(f"換長效權杖失敗：{r.text}")
-r = requests.get(f"{api}/me/accounts", params={"access_token": r.json()["access_token"], "fields": "id,name,access_token"}, timeout=30)
+if r.status_code < 400:
+    tok = r.json()["access_token"]
+else:   # 密鑰不對也沒關係：貼的若已經是長效權杖（存取權杖偵錯工具按過「延長」），一樣拿得到不會過期的粉專權杖
+    import sys
+    print("  （換長效權杖失敗，改用你貼的權杖直接讀粉專）", file=sys.stderr)
+    tok = e["TOK"]
+r = requests.get(f"{api}/me/accounts", params={"access_token": tok,
+                 "fields": "id,name,access_token,instagram_business_account{id,username}"}, timeout=30)
 if r.status_code >= 400: raise SystemExit(f"讀不到粉專：{r.text}")
 print(json.dumps(r.json().get("data", [])))') || { warn "Facebook 授權失敗，這次先跳過"; PAGES="[]"; }
   N=$(printf '%s' "$PAGES" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))')
@@ -407,6 +414,13 @@ print(json.dumps(r.json().get("data", [])))') || { warn "Facebook 授權失敗�
     if [[ "$N" != 1 ]]; then printf '  %s要用哪一個（輸入編號）：%s ' "$BOLD" "$RESET"; read -r PICK || true; fi
     FB_JSON=$(printf '%s' "$PAGES" | PICK="$PICK" python3 -c 'import json,os,sys;p=json.load(sys.stdin)[int(os.environ["PICK"])-1];print(json.dumps({"page_id":p["id"],"name":p["name"],"token":p["access_token"]}))')
     save_section facebook "$FB_JSON"
+    IG_JSON=$(printf '%s' "$PAGES" | PICK="$PICK" python3 -c 'import json,os,sys;p=json.load(sys.stdin)[int(os.environ["PICK"])-1];ig=p.get("instagram_business_account");print(json.dumps({"user_id":ig["id"],"username":ig.get("username",""),"token":p["access_token"],"via":"facebook"}) if ig else "")')
+    if [[ -n "$IG_JSON" ]]; then
+      save_section instagram "$IG_JSON"
+      note "Instagram：@$(printf '%s' "$IG_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["username"])')（用粉專權杖發文）"
+    else
+      warn "這個粉專還沒連 IG 專業帳號，所以 IG 這次沒設定。連好之後重跑精靈。"; SKIPPED+=("Instagram（粉專沒連 IG）")
+    fi
     note "粉專權杖由長效權杖換來，不會過期（除非你改密碼或移除 App 權限）。"
   fi
   pause
@@ -430,7 +444,8 @@ if confirm "要設定 TikTok 嗎？"; then
   note "App 還沒通過 TikTok 審核前，發出去的影片只有自己看得到。之後到同一頁按 Submit for review，"
   note "審核過了改用正式的 Client key / secret 重跑這兩步，影片就會公開。"
   ask TT_CLIENT_KEY "Client key："
-  ask_secret TT_CLIENT_SECRET "Client secret："
+  [[ -z "$TT_CLIENT_KEY" ]] && { warn "Client key 是空的，再貼一次"; ask TT_CLIENT_KEY "Client key："; }
+  ask_secret_checked TT_CLIENT_SECRET "Client secret（貼上後按 Enter，畫面不會顯示字）：" "$TT_CLIENT_KEY"
   write_env TT_CLIENT_KEY "$TT_CLIENT_KEY"; write_env TT_CLIENT_SECRET "$TT_CLIENT_SECRET"
   pause
 else
@@ -477,7 +492,7 @@ if confirm "要設定 YouTube Shorts 嗎？"; then
   open_url "https://console.cloud.google.com/auth/clients/create"
   step "應用程式類型選「電腦版應用程式」(Desktop app) → 建立 → 複製用戶端 ID 和密鑰"
   ask YT_CLIENT_ID "用戶端 ID："
-  ask_secret YT_CLIENT_SECRET "用戶端密鑰："
+  ask_secret_checked YT_CLIENT_SECRET "用戶端密鑰（貼上後按 Enter，畫面不會顯示字）：" "$YT_CLIENT_ID"
   write_env YT_CLIENT_ID "$YT_CLIENT_ID"; write_env YT_CLIENT_SECRET "$YT_CLIENT_SECRET"
   pause
 else
@@ -526,7 +541,7 @@ fi
 stage "上傳到雲端，開啟自動發文"
 say "金鑰和排程會存在 Supabase 的私人空間，由 GitHub Actions 每小時檢查一次，Mac 關機也會發。"
 if ! (cd "$REPO" && python3 "$SCRIPTS/postq.py" channel list | awk '{print $1}' | grep -qx "$CHANNEL"); then
-  say "新增國家 $CHANNEL："
+  say "新增國家 ${CHANNEL}："
   ask CH_NAME "顯示名稱（例如 日本）："
   ask CH_TZ "時區（例如 Asia/Tokyo、Asia/Hong_Kong、Asia/Seoul）："
   ask CH_LANG "內容語言（例如 ja、zh-Hant、zh-Hans、ko、es）："
