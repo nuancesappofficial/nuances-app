@@ -57,12 +57,16 @@
   .cta { background: var(--navy); }
   .cta .glow { position: absolute; inset: 0; background: radial-gradient(80% 50% at 50% 34%, rgba(78,175,244,.22), rgba(10,40,68,0) 70%); }
   .cta .stack { position: absolute; left: 0; right: 0; top: calc(var(--h) * .1); height: 640px; z-index: 2; }
-  .card { position: absolute; left: 50%; width: 420px; background: #FBF9F5; color: #10151C; border-radius: 34px; overflow: hidden;
+  /* 卡片照 App 卡片詳情：App 沒指定 fontFamily → iOS 系統字（SF Pro + PingFang TC） */
+  .card { position: absolute; left: 50%; width: 420px; background: #FFF; color: #111;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", sans-serif; border-radius: 34px; overflow: hidden;
     box-shadow: 0 30px 60px rgba(0,0,0,.35), 0 4px 12px rgba(0,0,0,.2); }
   .card .img { height: 230px; background-size: cover; background-position: center; }
   .card .c-body { padding: 26px 34px 34px; }
-  .card .w { font-size: 60px; line-height: 1; text-transform: uppercase; white-space: nowrap; }
-  .card .d { font-size: 28px; font-weight: 500; color: #5A6270; margin-top: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .w { font-size: 56px; line-height: 1.08; font-weight: 900; letter-spacing: -2.4px; white-space: nowrap; }
+  .card .m { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .card .pos { flex: none; padding: 5px 14px; border-radius: 999px; background: #E7E9EF; color: #6B7280; font-size: 20px; font-weight: 800; }
+  .card .d { font-size: 28px; font-weight: 700; letter-spacing: -.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card.l { transform: translate(-50%, 190px) translateX(-250px) rotate(-7deg); }
   .card.r { transform: translate(-50%, 190px) translateX(250px) rotate(7deg); }
   .card.c { transform: translate(-50%, 0) rotate(-1deg); }
@@ -121,10 +125,11 @@ if (i === 0) {
       <div class="word en">${esc(w.word)}</div><div class="ipa">${esc(w.ipa || '')}</div>
       <div class="def">${esc(w.definition)}</div></div>${grain}</div>`;
 } else {
-  // 最多疊 3 張；最後一個字放中間最上層
+  // 最多疊 3 張；最後一個字放中間最上層。卡片只放第一個意思，完整釋義在單字頁
   const c = D.cta, picks = D.words.slice(-3), pos = { 1: ['c'], 2: ['l', 'r'], 3: ['l', 'r', 'c'] }[picks.length];
   const cards = picks.map((w, k) => `<div class="card ${pos[k]}"><div class="img" style="background-image:url(${w.image});background-position:${w.focus || 'center'}"></div>
-    <div class="c-body"><div class="w en">${esc(w.word)}</div><div class="d">${esc(w.definition)}</div></div></div>`).join('');
+    <div class="c-body"><div class="w">${esc(w.word)}</div>
+      <div class="m">${w.pos ? `<span class="pos">${esc(w.pos)}</span>` : ''}<span class="d">${esc(w.definition.split(/[；;]/)[0])}</span></div></div></div>`).join('');
   html = `<div class="slide cta"><div class="glow"></div>${topBar('Nuances')}<div class="stack">${cards}</div>
     <div class="text"><h2>${rich(c.headline.replace('{n}', n))}</h2>${c.sub ? `<div class="sub">${rich(c.sub)}</div>` : ''}
       <div class="badges"><img src="badge_appstore_zh-TW.png"><img src="badge_play_zh-TW.png"></div></div>${grain}</div>`;
