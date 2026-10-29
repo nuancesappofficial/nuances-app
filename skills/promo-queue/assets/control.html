@@ -7,47 +7,66 @@
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang TC",sans-serif}
 header{position:sticky;top:0;z-index:5;background:rgba(14,15,18,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.bar{max-width:1280px;margin:auto;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-h1{font-size:18px;margin-right:auto}
+.bar{max-width:1280px;margin:auto;padding:12px 16px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h1{font-size:18px}
 select,input,textarea,button{font:inherit;color:var(--ink)}
 select,input[type=text],input[type=datetime-local],textarea{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 textarea{width:100%;min-height:140px;resize:vertical;font-size:13px;line-height:1.55}
 button{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
 button:hover{border-color:var(--mute)}button.primary{background:var(--blue);border-color:var(--blue);color:#0E0F12;font-weight:700}
 button.danger{color:var(--bad)}button.small{padding:3px 9px;font-size:13px}button:disabled{opacity:.4;cursor:default}
-nav{max-width:1280px;margin:auto;padding:0 16px;display:flex;gap:2px;overflow-x:auto}
-nav a{padding:9px 14px;color:var(--mute);border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer}
-nav a.on{color:var(--ink);border-color:var(--blue)}
+button.on{border-color:var(--blue);color:var(--blue)}
+nav{display:flex;gap:2px;margin-left:18px;margin-right:auto;align-self:stretch}
+nav a{padding:6px 14px 10px;color:var(--mute);border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer;font-size:15px}
+nav a.on{color:var(--ink);border-color:var(--blue);font-weight:600}
+.tools{display:flex;gap:8px;align-items:center;padding-bottom:10px}
 .badge{display:inline-block;min-width:18px;padding:0 6px;border-radius:99px;background:var(--blue);color:#0E0F12;font-size:11px;font-weight:700;text-align:center;margin-left:4px}
 .badge.warn{background:var(--warn)}
 main{max-width:1280px;margin:auto;padding:18px 16px 80px}
-.hint{color:var(--mute);font-size:13px;margin-bottom:14px}
-h2{font-size:13px;color:var(--mute);margin:22px 0 10px;font-weight:600;letter-spacing:.3px}
-/* grid tiles */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;position:relative;transition:border-color .15s}
-.tile:hover{border-color:var(--mute)}.tile.next{border-color:var(--blue)}.tile.manual{border-color:var(--warn)}
-.tile .img{aspect-ratio:4/5;background:#000 center/cover no-repeat}
-.tile .tag{position:absolute;top:8px;left:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(14,15,18,.8)}
-.tile .tag.r{left:auto;right:8px}
-.tile .cap{padding:8px 10px}.tile .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tile .sub{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dots{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18)}
-.dot.posted{background:var(--ok)}.dot.failed{background:var(--bad)}.dot.manual{background:var(--warn)}.dot.skipped{background:transparent;border:1px solid var(--dim)}
+.hint{color:var(--mute);font-size:13px;margin-bottom:10px}
+h2{font-size:13px;color:var(--mute);margin:22px 0 10px;font-weight:600;letter-spacing:.3px}h2:first-child{margin-top:0}
 .warn-t{color:var(--warn)}
-.empty{color:var(--mute);padding:24px;background:var(--panel);border-radius:14px;text-align:center}
-/* calendar */
-.calhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}.calhead b{font-size:17px;min-width:120px;text-align:center}
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.dow{color:var(--mute);font-size:12px;text-align:center;padding-bottom:2px}
-.day{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-height:118px;padding:6px;display:flex;flex-direction:column;gap:4px}
-.day.other{opacity:.35}.day.today{border-color:var(--blue)}.day.drop{background:var(--panel2);border-color:var(--blue)}
+.empty{color:var(--mute);padding:20px;background:var(--panel);border-radius:14px;text-align:center}
+/* 排程分頁：左邊待辦 + 日曆，右邊還沒排 */
+.sched{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:24px;align-items:start}
+aside{position:sticky;top:110px}
+.next{display:flex;gap:16px;background:var(--panel);border:1px solid var(--blue);border-radius:14px;padding:12px;cursor:pointer}
+.next img{width:112px;height:140px;object-fit:cover;border-radius:8px;flex:none;background:#000}
+.when{color:var(--blue);font-weight:700;font-size:16px}.count{color:var(--ink);font-weight:600;margin-left:6px}
+.todo{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:10px;margin-top:8px;cursor:pointer;font-size:13px}
+.todo.manual{background:rgba(255,159,10,.14);color:var(--warn)}.todo.failed{background:rgba(255,69,58,.14);color:var(--bad)}
+.todo b{color:var(--ink)}.todo .go{margin-left:auto;color:var(--mute);white-space:nowrap}
+.store{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;margin-bottom:8px;cursor:grab}
+.store:hover{border-color:var(--mute)}.store img{width:44px;height:55px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+.store .t{min-width:0}.store .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.store .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 日曆 */
+.calhead{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}.calhead b{font-size:15px;min-width:130px;text-align:center}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.dow{color:var(--mute);font-size:12px;text-align:center}
+.day{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-height:96px;padding:6px;display:flex;flex-direction:column;gap:4px}
+.day.past{opacity:.5}.day.today{border-color:var(--blue)}.day.drop{background:var(--panel2);border-color:var(--blue)}
 .day .n{font-size:12px;color:var(--mute)}.day.today .n{color:var(--blue);font-weight:700}
 .ev{display:flex;gap:6px;align-items:center;background:var(--panel2);border-radius:6px;padding:3px;cursor:pointer;font-size:12px;border-left:3px solid var(--blue)}
-.ev img{width:26px;height:32px;object-fit:cover;border-radius:4px;flex:none}.ev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ev.posted{border-color:var(--ok)}.ev.failed{border-color:var(--bad)}.ev.manual{border-color:var(--warn)}.ev.skipped{opacity:.45}
+.ev img{width:24px;height:30px;object-fit:cover;border-radius:4px;flex:none}.ev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.posted{border-color:var(--ok)}.ev.failed{border-color:var(--bad)}.ev.manual{border-color:var(--warn)}
 .ev[draggable=true]{cursor:grab}
-/* modal */
+.slot{border:1px dashed var(--dim);border-radius:6px;padding:3px 6px;font-size:12px;color:var(--dim)}
+.slot.drop{border-color:var(--blue);color:var(--blue)}
+/* 成效分頁 */
+.cmps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+.cmp{background:var(--panel);border-radius:14px;padding:12px 14px}.cmp h3{font-size:14px;margin-bottom:6px}
+.crow{display:grid;grid-template-columns:minmax(80px,140px) 1fr 50px 40px;gap:8px;align-items:center;font-size:13px;padding:2px 0}
+.cbar{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}.cbar i{display:block;height:100%;background:var(--blue)}
+.num{text-align:right;font-weight:700}
+.prow{display:flex;gap:12px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;cursor:pointer}
+.prow:hover{border-color:var(--mute)}.prow img{width:56px;height:70px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+/* 共用 */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;padding:2px 10px;border-radius:99px;text-decoration:none;color:var(--ink);background:rgba(255,255,255,.08)}
+.chip.posted{background:rgba(52,199,89,.18);color:var(--ok)}.chip.failed{background:rgba(255,69,58,.18);color:var(--bad)}
+.chip.skipped{background:transparent;border:1px solid var(--line);color:var(--dim)}.chip.manual{background:rgba(255,159,10,.18);color:var(--warn)}
+.chip.pick{cursor:pointer;border:1px solid var(--line);background:transparent}.chip.pick.on{background:var(--blue);color:#0E0F12;border-color:var(--blue);font-weight:700}
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
 #modal.on{display:flex}
 .sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:min(880px,100%);padding:20px;position:relative}
@@ -57,9 +76,6 @@ h2{font-size:13px;color:var(--mute);margin:22px 0 10px;font-weight:600;letter-sp
 .strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}.strip img{height:150px;border-radius:6px}
 .media .strip img{height:auto;width:100%}.media .strip{flex-direction:column;max-height:520px;overflow-y:auto}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-.chip{font-size:12px;padding:2px 10px;border-radius:99px;text-decoration:none;color:var(--ink);background:rgba(255,255,255,.08)}
-.chip.posted{background:rgba(52,199,89,.18);color:var(--ok)}.chip.failed{background:rgba(255,69,58,.18);color:var(--bad)}
-.chip.skipped{background:transparent;border:1px solid var(--line);color:var(--dim)}.chip.manual{background:rgba(255,159,10,.18);color:var(--warn)}
 .err{color:var(--bad);font-size:12px;margin-top:6px;word-break:break-all}.note{color:var(--dim);font-size:12px;margin-top:4px}
 .perf{font-size:13px;margin-top:6px}.dim{color:var(--dim)}.title{font-size:18px;font-weight:700}.sub{color:var(--mute);font-size:13px}
 .kind{background:var(--panel2);border-radius:10px;padding:12px;margin-top:12px}
@@ -69,28 +85,64 @@ td,th{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left}th{co
 pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px;font-size:13px;margin-top:10px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 16px;
   border-radius:10px;max-width:90vw;white-space:pre-wrap;display:none;z-index:9}
-@media(max-width:700px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}.day{min-height:70px}.ev span{display:none}}
+/* 平台圖示：圖示和底色是狀態色，右下角小徽章再標一次狀態 */
+.pfs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pf{position:relative;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;
+  background:rgba(255,255,255,.07);--c:var(--mute);text-decoration:none}
+.pf i{width:14px;height:14px;background:var(--c);-webkit-mask:var(--ic) center/contain no-repeat;mask:var(--ic) center/contain no-repeat}
+.pf b{color:var(--c);font-size:12px}
+.pf.posted{background:rgba(52,199,89,.16);--c:var(--ok)}.pf.failed{background:rgba(255,69,58,.16);--c:var(--bad)}
+.pf.manual{background:rgba(255,159,10,.16);--c:var(--warn)}.pf.skipped{opacity:.4}
+.pf[data-b]::after{content:attr(data-b);position:absolute;right:-3px;bottom:-3px;width:13px;height:13px;border-radius:50%;
+  background:var(--c);color:#0E0F12;font-size:9px;font-weight:800;line-height:13px;text-align:center;border:2px solid var(--panel)}
+.pf.big{width:auto;border-radius:99px;padding:0 10px 0 8px;gap:6px;font-size:12px;color:var(--c)}
+.legend{display:inline-flex;gap:12px;margin-left:12px;font-weight:400;font-size:12px}.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+/* 動畫 */
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes slideL{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes slideR{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+.anim>*{animation:rise .32s cubic-bezier(.2,.7,.2,1) both}
+.anim>*:nth-child(2){animation-delay:.04s}.anim>*:nth-child(3){animation-delay:.08s}
+.anim .sched>*:nth-child(2){animation:rise .32s .1s cubic-bezier(.2,.7,.2,1) both}
+.anim .store,.anim .prow,.anim .todo{animation:rise .3s cubic-bezier(.2,.7,.2,1) both}
+.cal.nextpg{animation:slideL .28s ease-out}.cal.prevpg{animation:slideR .28s ease-out}
+#modal.opening{animation:fade .18s ease-out}#modal.opening .sheet{animation:pop .24s cubic-bezier(.2,.8,.2,1)}
+#toast.show{animation:rise .22s ease-out}
+.next,.store,.prow,.ev,.todo,.slot,.day,.chip.pick,button,nav a{transition:transform .15s ease,border-color .15s ease,background-color .15s ease,color .15s ease,box-shadow .15s ease}
+.next:hover,.store:hover,.prow:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.ev:hover,.todo:hover{transform:translateX(2px)}
+button:active{transform:scale(.96)}
+button.ghost{background:transparent;border-color:transparent;color:var(--dim)}button.ghost:hover{color:var(--mute)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media(max-width:900px){.sched{grid-template-columns:1fr}aside{position:static}}
+@media(max-width:700px){nav{margin-left:0;order:3;width:100%}.day{min-height:64px}.ev span{display:none}.legend,#mode{display:none}
+  .slot{font-size:0;height:14px;padding:0}
+  .next img{width:84px;height:105px}}
 </style></head><body>
 <header>
   <div class="bar"><h1>Nuances 控制台</h1>
-    <span class="sub" id="mode"></span>
-    <select id="chan" title="國家"></select>
-    <button onclick="load()">重新整理</button>
+    <nav id="tabs"></nav>
+    <div class="tools"><span class="sub" id="mode"></span>
+      <select id="chan" title="國家"></select>
+      <button class="small" onclick="load()">重新整理</button>
+      <button class="small" id="gear" onclick="go(tab==='settings'?'schedule':'settings')" title="帳號與設定">⚙ 設定</button></div>
   </div>
-  <nav id="tabs"></nav>
 </header>
 <main id="main"><div class="empty">讀取中…</div></main>
 <div id="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" id="sheet"></div></div>
 <div id="toast"></div>
 <script>
-let S = null, tab = localStorage.getItem('tab') || 'inbox', cal = null, modalFor = null;
+let S = null, tab = localStorage.getItem('tab2') || 'schedule', cal = null, modalFor = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const HOOKS = ['劇情懸念', '打破你以為的', '數字承諾', '直接考你'];
 const ST = {posted:'已發', queued:'排隊', skipped:'略過', failed:'失敗', manual:'待手動'};
 const LBL = {hook:'開頭留人', keep:'收藏分享', follow:'轉追蹤'};
+const WD = ['日','一','二','三','四','五','六'];
 
-function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display=m?'block':'none'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 4500); }
+function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display=m?'block':'none'; t.classList.remove('show'); void t.offsetWidth; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 4500); }
 async function api(action, body){
   const r = await fetch('/api/'+action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   const j = await r.json(); toast(j.message || (j.ok ? '完成' : '失敗')); await load(); return j;
@@ -107,80 +159,162 @@ async function load(){
 $('#chan').onchange = () => load();
 const queuedList = () => S.items.filter(i => ['queued','partial'].includes(i.state));
 const manualList = () => S.items.filter(i => i.platforms.some(p => p.status === 'manual'));
+const failedList = () => S.items.filter(i => i.platforms.some(p => p.status === 'failed'));
 const doneList = () => S.items.filter(i => !['queued','partial'].includes(i.state)).reverse();
 
 function render(){
-  const tabs = [['inbox','收件匣',S.inbox.reduce((n,f)=>n+f.kinds.length,0),''],['queue','排程',queuedList().length,''],['calendar','日曆',0,''],
-                ['manual','待手動',manualList().length,'warn'],['posted','已發布',doneList().length,''],['settings','帳號與設定',0,'']];
+  const todo = manualList().length + failedList().length;
+  const tabs = [['schedule','排程',todo,'warn'],['stats','成效',0,'']];
   $('#tabs').innerHTML = tabs.map(([k,l,n,c]) => `<a class="${k===tab?'on':''}" onclick="go('${k}')">${l}${n?`<span class="badge ${c}">${n}</span>`:''}</a>`).join('');
-  $('#main').innerHTML = {inbox: inboxView, queue: queueView, calendar: calView, manual: manualView, posted: postedView, settings: settingsView}[tab]();
+  $('#gear').classList.toggle('on', tab === 'settings');
+  $('#main').innerHTML = ({schedule: scheduleView, stats: statsView, settings: settingsView}[tab] || scheduleView)();
+  $('#main').classList.toggle('anim', tab !== shown); shown = tab;
 }
-function go(t){ tab = t; localStorage.setItem('tab', t); render(); }
+let shown = null;
+function go(t){ tab = t; localStorage.setItem('tab2', t); render(); }
 
-// ---------- 方塊 ----------
-function dots(i){ return `<div class="dots">${i.platforms.map(p => `<span class="dot ${p.status}" title="${esc(p.label)}：${ST[p.status]}"></span>`).join('')}</div>`; }
-function itemTile(i, extra=''){
-  return `<div class="tile ${extra}" onclick="openModal('item','${i.id}')">
-    <div class="img" style="background-image:url('${esc(i.thumb)}')"></div>
-    <span class="tag">${esc(i.kind==='carousel'?'輪播':'影片')}</span>${i.rating?`<span class="tag r">${esc(i.rating)}</span>`:''}
-    <div class="cap"><div class="name">${esc(i.topic)}</div><div class="sub">${esc(i.when)}</div>${dots(i)}</div></div>`;
+// ---------- 共用 ----------
+// simple-icons 的平台標誌（用 mask 套狀態色）；沒有標誌的用字母
+const LOGO = {instagram:'instagram', threads:'threads', facebook:'facebook', tiktok:'tiktok', youtube:'youtube', xiaohongshu:'xiaohongshu',
+  douyin:'tiktok', bilibili:'bilibili', line_voom:'line', naver_blog:'naver', x:'x'};
+const BADGE = {posted:'✓', failed:'!', manual:'✎', skipped:'–', queued:''};
+function pf(p, big){
+  const logo = LOGO[p.name] ? `<i style="--ic:url(https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/${LOGO[p.name]}.svg)"></i>` : `<b>${esc(p.label[0])}</b>`;
+  const tag = p.url ? 'a' : 'span', href = p.url ? ` href="${esc(p.url)}" target="_blank" onclick="event.stopPropagation()"` : '';
+  return `<${tag} class="pf ${p.status} ${big?'big':''}" title="${esc(p.label)}${p.as?'（'+p.as+'）':''} · ${ST[p.status]}"${href}${BADGE[p.status]&&!big?` data-b="${BADGE[p.status]}"`:''}>${logo}${big?esc(p.label)+(p.as?'（'+p.as+'）':'')+' · '+ST[p.status]:''}</${tag}>`;
+}
+function chips(i){ return `<div class="pfs">${i.platforms.map(p => pf(p)).join('')}</div>`; }
+const LEGEND = `<span class="legend"><span><i style="background:var(--mute)"></i>排隊</span><span><i style="background:var(--ok)"></i>已發</span>
+  <span><i style="background:var(--warn)"></i>待手動</span><span><i style="background:var(--bad)"></i>失敗</span></span>`;
+function countdown(iso){
+  const d = new Date(iso) - Date.now(); if(d <= 0) return '時間到了，等雲端發';
+  const day = Math.floor(d/864e5), h = Math.floor(d%864e5/36e5), m = Math.floor(d%36e5/6e4);
+  return (day ? day+' 天 ' : '') + (h ? h+' 小時 ' : '') + (day ? '' : m+' 分') + '後';
+}
+function dayWord(iso){
+  const d = new Date(iso.slice(0,10)+'T00:00'), t = new Date(); t.setHours(0,0,0,0);
+  const n = Math.round((d - t) / 864e5), md = `${d.getMonth()+1}/${d.getDate()}（${WD[d.getDay()]}）`;
+  return (n === 0 ? '今天 ' : n === 1 ? '明天 ' : n === 2 ? '後天 ' : '') + md + ' ' + iso.slice(11,16);
 }
 
-// ---------- 收件匣 ----------
-function inboxView(){
-  const tiles = S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => `<div class="tile" onclick="openModal('inbox',${fi},${ki})">
-    <div class="img" style="background-image:url('${esc(k.poster)}')"></div>
-    <span class="tag">${esc(k.kind_zh)}</span>
-    <div class="cap"><div class="name">${esc(f.topic)}</div><div class="sub">${esc(f.day)} · ${esc(f.format)}</div>
-      <div class="sub ${k.caption?'':'warn-t'}">${k.caption?'文案 ✓':'還沒寫文案'}</div></div></div>`));
-  return `<div class="hint">promo-vids 裡做好、還沒排進「${esc(S.channels[S.channel])}」的成品，點開寫文案後排進發文。</div>` +
-    (tiles.length ? `<div class="grid">${tiles.join('')}</div>` : `<div class="empty">沒有新的成品</div>`) +
-    `<div class="row"><button class="small" onclick="api('unignore',{})">還原被移除的</button></div>`;
+// ---------- 排程分頁：待辦 + 日曆 + 還沒排 ----------
+function scheduleView(){
+  const q = queuedList(), nx = q[0];
+  const next = nx ? `<div class="next" onclick="openModal('item','${nx.id}')"><img src="${esc(nx.thumb)}">
+      <div><div class="when">${esc(dayWord(nx.when_iso))}<span class="count">· ${countdown(nx.when_abs)}</span></div>
+        <div class="title">${esc(nx.topic)}</div>
+        <div class="sub">${esc(nx.kind==='carousel'?'輪播 '+nx.count+' 張':'影片')}${nx.tags.hook?' · '+esc(nx.tags.hook):''}</div>
+        ${chips(nx)}</div></div>`
+    : `<div class="empty">排程是空的</div>`;
+  const todos = manualList().map(i => `<div class="todo manual" onclick="openModal('item','${i.id}')">⚠ <span><b>${esc(i.topic)}</b> · 手動發 ${i.platforms.filter(p=>p.status==='manual').map(p=>esc(p.label)).join('、')}</span><span class="go">›</span></div>`)
+    .concat(failedList().map(i => `<div class="todo failed" onclick="openModal('item','${i.id}')">✗ <span><b>${esc(i.topic)}</b> · 失敗 ${i.platforms.filter(p=>p.status==='failed').map(p=>esc(p.label)).join('、')}</span><span class="go">›</span></div>`)).join('');
+  return `<div class="sched"><div>
+      <h2>下一篇 ${LEGEND}</h2>${next}${todos}
+      <h2>日曆</h2>${calView()}
+    </div><aside>${storeView()}</aside></div>`;
 }
-function inboxModal(fi, ki){
-  const f = S.inbox[fi], k = f.kinds[ki];
+
+function storeView(){
+  const rows = S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => `<div class="store" draggable="true"
+      ondragstart="event.dataTransfer.setData('text','inbox:${fi}:${ki}')" onclick="openModal('inbox',${fi},${ki})">
+      <img src="${esc(k.poster)}" loading="lazy"><div class="t"><div class="name">${esc(f.topic)}</div>
+      <div class="sub">${esc(k.kind_zh)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">●</span>'}</div></div></div>`));
+  return `<h2>還沒排 ${rows.length}</h2>
+    ${rows.length ? rows.join('') : `<div class="empty">沒有新的成品</div>`}
+    <div class="row"><button class="small ghost" onclick="api('unignore',{})">還原被移除的</button></div>`;
+}
+
+const pad = n => String(n).padStart(2,'0');
+const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+function calView(){
+  // 從這週日開始連看 4 週，‹ › 一次跳 4 週
+  const today = new Date(); today.setHours(0,0,0,0);
+  if(!cal){ cal = new Date(today); cal.setDate(today.getDate() - today.getDay()); }
+  const byDay = {}, free = {};
+  for(const i of S.items){ if(i.state === 'skipped') continue; (byDay[i.when_abs.slice(0,10)] ||= []).push(i); }
+  for(const s of S.free) (free[s.slice(0,10)] ||= []).push(s);
+  const end = new Date(cal); end.setDate(cal.getDate() + 27);
+  let cells = '';
+  for(let k=0; k<28; k++){
+    const d = new Date(cal); d.setDate(cal.getDate()+k);
+    const key = keyOf(d);
+    const evs = (byDay[key]||[]).sort((a,b)=>a.when_abs.localeCompare(b.when_abs)).map(i => {
+      const st = i.platforms.some(p=>p.status==='manual') ? 'manual' : i.platforms.some(p=>p.status==='failed') ? 'failed' : i.state==='posted' ? 'posted' : i.state;
+      const drag = i.state === 'queued';
+      return `<div class="ev ${st}" ${drag?`draggable="true" ondragstart="event.dataTransfer.setData('text','item:${i.id}')"`:''} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
+        <img src="${esc(i.thumb)}" loading="lazy"><span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
+    const slots = (free[key]||[]).map(s => `<div class="slot" title="空的時段：把成品拖到這裡" ondragover="event.preventDefault();this.classList.add('drop')"
+        ondragleave="this.classList.remove('drop')" ondrop="event.stopPropagation();dropOn(event,'${s}')">${s.slice(11)}</div>`).join('');
+    cells += `<div class="day ${d<today?'past':''} ${+d===+today?'today':''}"
+      ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')" ondrop="dropOn(event,'${key}')">
+      <div class="n">${d.getDate()===1||k===0?(d.getMonth()+1)+'/':''}${d.getDate()}</div>${evs}${slots}</div>`;
+  }
+  return `<div class="calhead"><button class="small" onclick="calMove(-1)">‹</button><b>${cal.getMonth()+1}/${cal.getDate()} – ${end.getMonth()+1}/${end.getDate()}</b>
+    <button class="small" onclick="calMove(1)">›</button><button class="small" onclick="cal=null;render()">今天</button>
+</div>
+    <div class="cal">${WD.map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>`;
+}
+function calMove(n){ cal.setDate(cal.getDate() + 28*n); render(); $('.cal').classList.add(n > 0 ? 'nextpg' : 'prevpg'); }
+function dropOn(ev, at){
+  // at 是空時段（YYYY-MM-DDTHH:MM）或某一天（YYYY-MM-DD，用那天第一個空時段，沒有就用原本的時間）
+  ev.preventDefault(); document.querySelectorAll('.drop').forEach(x=>x.classList.remove('drop'));
+  const [type, a, b] = ev.dataTransfer.getData('text').split(':');
+  const slotOf = keep => at.length > 10 ? at : (S.free.find(s => s.startsWith(at)) || at + 'T' + (keep || S.chan.slots[0]));
+  if(type === 'item'){ const i = S.items.find(x=>x.id===a); if(i) api('time', {id: a, at: slotOf(i.when_abs.slice(11,16))}); }
+  if(type === 'inbox') openModal('inbox', +a, +b, slotOf());   // 先確認文案和 hook 再排
+}
+
+// ---------- 排進發文（還沒排的成品） ----------
+function inboxModal(fi, ki, at){
+  const f = S.inbox[fi], k = f.kinds[ki], when = at || S.free[0] || '';
   return `<div class="cols"><div class="media">
       ${k.video ? `<video src="${k.preview}" poster="${k.poster}" controls preload="none"></video>` : `<div class="strip">${k.slides.map(s=>`<img src="${s}">`).join('')}</div>`}
     </div><div class="info">
-      <div class="title">${esc(f.topic)}</div><div class="sub">${esc(f.day)} · ${esc(f.format)} · ${esc(k.kind_zh)}${k.extras?.length?' · 另有 '+k.extras.join('、'):''}</div>
-      ${!k.video && false ? '' : ''}
-      <div class="row"><span class="sub">Hook 句型</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
+      <div class="title">${esc(f.topic)}</div><div class="sub">${esc(k.kind_zh)} · ${esc(f.format)}</div>
+      <div class="sub" style="margin-top:14px">發文時間</div>
+      <div class="chips">${S.free.slice(0,4).map(s=>`<span class="chip pick ${s===when?'on':''}" onclick="pickWhen('${s}')">${esc(dayWord(s))}</span>`).join('')}</div>
+      <div class="row"><input type="datetime-local" id="mt" value="${esc(when)}" oninput="pickWhen(this.value)"></div>
+      <div class="row"><span class="sub">Hook</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
         <span class="sub">劇名</span><input type="text" id="ms" value="${esc(f.show)}" placeholder="選填" style="width:140px"></div>
-      <div class="sub" style="margin-top:12px">文案（存成 ${esc(k.caption_file)}）${k.caption?'':' <span class="warn-t">— 必填</span>'}</div>
+      <div class="sub" style="margin-top:12px">文案</div>
       <textarea id="mc" placeholder="第一行 hook、單字清單、CTA、hashtag">${esc(k.caption)}</textarea>
       <div class="row"><button class="primary" onclick="addInbox(${fi},${ki})">排進發文</button>
         <button class="danger small" onclick="closeModal();api('ignore',{folder:'${esc(f.folder)}'})">不要了</button></div>
-      <div class="note">排進後會接在排程最後面；上傳媒體要一點時間。</div>
     </div></div>`;
 }
+function pickWhen(v){
+  $('#mt').value = v; if(modalFor) modalFor[3] = v;
+  document.querySelectorAll('.chip.pick').forEach(c => c.classList.toggle('on', c.getAttribute('onclick') === `pickWhen('${v}')`));
+}
 function addInbox(fi, ki){
-  const f = S.inbox[fi], k = f.kinds[ki], cap = $('#mc').value.trim();
+  const f = S.inbox[fi], k = f.kinds[ki], cap = $('#mc').value.trim(), at = $('#mt').value;
   if(!cap) return toast('文案還沒寫');
-  const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: $('#ms').value};
+  if(!at) return toast('還沒選哪天發');
+  const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: $('#ms').value, at};
   b[k.kind==='reel'?'hook_reel':'hook_carousel'] = $('#mh').value;
   closeModal(); toast('上傳中…'); api('add', b);
 }
 
-// ---------- 排程 / 待手動 / 已發布 ----------
-function queueView(){
-  const l = queuedList();
-  return `<div class="hint">每天 ${esc(S.chan.slots.join('、'))}（${esc(S.chan.tz)}）發一篇，照下面的順序。點開可以改時間、文案、立刻發。到「日曆」可以拖曳改日期。</div>` +
-    (l.length ? `<div class="grid">${l.map((i,n) => itemTile(i, n===0?'next':'')).join('')}</div>` : `<div class="empty">排程是空的，到「收件匣」把成品排進來。</div>`);
-}
-function manualView(){
-  const l = manualList();
-  return `<div class="hint">小紅書這類沒有 API 的平台，時間到會出現在這裡。點開拿素材和文案，發完按「發好了」。</div>` +
-    (l.length ? `<div class="grid">${l.map(i => itemTile(i, 'manual')).join('')}</div>` : `<div class="empty">沒有要手動發的。</div>`);
-}
-function postedView(){
+// ---------- 成效分頁 ----------
+function statsView(){
+  const cmp = S.compare.length ? `<div class="cmps">${S.compare.map(g => `<div class="cmp"><h3>${esc(g.title)}</h3>${g.rows.map(r =>
+      `<div class="crow"><span>${esc(r.name)}</span><span class="cbar"><i style="width:${Math.min(r.ratio/2,1)*100}%"></i></span><span class="num">${r.ratio.toFixed(2)}×</span><span class="dim">${r.n} 篇</span></div>`).join('')}</div>`).join('')}</div>`
+    : `<div class="empty">數字還不夠，累積幾篇後才比得出來</div>`;
   const l = doneList();
-  return l.length ? `<div class="grid">${l.map(i => itemTile(i)).join('')}</div>` : `<div class="empty">還沒有發布的貼文。</div>`;
+  const rows = l.map(i => {
+    const perf = i.platforms.filter(p => p.scores.keep != null).map(p => `${esc(p.label)} 收藏分享 ${p.scores.keep}‰${p.ratio!=null?'（'+p.ratio.toFixed(1)+'×）':''}`).join(' · ');
+    return `<div class="prow" onclick="openModal('item','${i.id}')"><img src="${esc(i.thumb)}" loading="lazy"><div style="min-width:0">
+      <div><b>${esc(i.topic)}</b> <span class="sub">${esc(i.when)}</span> ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
+      ${chips(i)}${perf?`<div class="perf">${perf}</div>`:''}</div></div>`; }).join('');
+  return `<h2>哪種比較好 <span class="dim" title="收藏分享率跟中位數比，1× = 一般">ⓘ</span></h2>${cmp}
+    <h2>發過的 ${LEGEND}</h2>${rows || '<div class="empty">還沒有發布的貼文。</div>'}`;
 }
+
+// ---------- 詳細頁 ----------
 function itemModal(id){
   const i = S.items.find(x => x.id === id); if(!i) return '<div class="empty">找不到</div>';
   const q = queuedList(), n = q.findIndex(x => x.id === id), open = n >= 0;
-  const chips = i.platforms.map(p => { const lab = `${esc(p.label)}${p.as?'（'+p.as+'）':''} · ${ST[p.status]}`;
-    return p.url ? `<a class="chip ${p.status}" href="${esc(p.url)}" target="_blank">${lab}</a>` : `<span class="chip ${p.status}">${lab}</span>`; }).join('');
+  const chipsHtml = i.platforms.map(p => pf(p, true)).join('');
   const manual = i.platforms.filter(p => p.status==='manual').map((p,k) => `<div class="kind"><b>${esc(p.label)}</b>
       <div class="strip" style="margin-top:6px">${p.media.map(m => /\.mp4/.test(m) ? `<a class="chip" href="${esc(m)}" target="_blank">下載影片</a>` : `<a href="${esc(m)}" target="_blank"><img src="${esc(m)}" style="height:90px"></a>`).join('')}</div>
       <textarea readonly style="min-height:90px" onclick="this.select();navigator.clipboard?.writeText(this.value);toast('文案已複製')">${esc(p.caption)}</textarea>
@@ -194,48 +328,17 @@ function itemModal(id){
     <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">
         <button class="small" ${n===0?'disabled':''} onclick="api('move',{id:'${i.id}',dir:-1})">往前一篇</button>
         <button class="small" ${n===q.length-1?'disabled':''} onclick="api('move',{id:'${i.id}',dir:1})">往後一篇</button>` : `<span class="sub">${esc(i.when)}</span>`}</div>
-    <div class="row">${chips}</div>
+    <div class="row">${chipsHtml}</div>
     ${i.platforms.filter(p=>p.error).map(p=>`<div class="err">${esc(p.label)}：${esc(p.error)}</div>`).join('')}
     ${i.platforms.filter(p=>p.note).map(p=>`<div class="note">${esc(p.label)}：${esc(p.note)}</div>`).join('')}
     ${i.job?`<div class="note">${esc(i.job)}</div>`:''}
     ${perf}${manual}
     <div class="sub" style="margin-top:12px">文案</div><textarea id="mc">${esc(i.caption)}</textarea>
-    <div class="row"><button class="small" onclick="api('caption',{id:'${i.id}',text:$('#mc').value})">儲存文案</button>
-      ${open ? `<button class="primary small" onclick="if(confirm('現在就發到所有平台？'))api('post-now',{id:'${i.id}'})">立刻發</button>
+    <div class="row"><button class="primary small" onclick="api('caption',{id:'${i.id}',text:$('#mc').value})">儲存文案</button>
+      ${open ? `<button class="small" onclick="if(confirm('現在就發到所有平台？'))api('post-now',{id:'${i.id}'})">立刻發</button>
       <button class="small" onclick="api('skip',{id:'${i.id}'})">跳過</button>
-      <button class="danger small" onclick="if(confirm('從排程刪除？（成品會回到收件匣）')){closeModal();api('delete',{id:'${i.id}'})}">刪除</button>` : ''}${retry}</div>
+      <button class="danger small" onclick="if(confirm('從排程刪除？（成品會回到「還沒排」）')){closeModal();api('delete',{id:'${i.id}'})}">刪除</button>` : ''}${retry}</div>
   </div></div>`;
-}
-
-// ---------- 日曆 ----------
-const pad = n => String(n).padStart(2,'0');
-function calView(){
-  const now = new Date(); cal = cal || {y: now.getFullYear(), m: now.getMonth()};
-  const first = new Date(cal.y, cal.m, 1), start = new Date(first); start.setDate(1 - first.getDay());
-  const byDay = {};
-  for(const i of S.items){ if(i.state === 'skipped') continue; const d = i.when_abs.slice(0,10); (byDay[d] ||= []).push(i); }
-  const todayKey = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-  let cells = '';
-  for(let k=0; k<42; k++){
-    const d = new Date(start); d.setDate(start.getDate()+k);
-    const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    const evs = (byDay[key]||[]).sort((a,b)=>a.when_abs.localeCompare(b.when_abs)).map(i => {
-      const st = i.platforms.some(p=>p.status==='manual') ? 'manual' : i.platforms.some(p=>p.status==='failed') ? 'failed' : i.state==='posted' ? 'posted' : i.state;
-      const drag = ['queued'].includes(i.state);
-      return `<div class="ev ${st}" ${drag?`draggable="true" ondragstart="event.dataTransfer.setData('text',`+"'"+i.id+"'"+`)"`:''} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
-        <img src="${esc(i.thumb)}"><span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
-    cells += `<div class="day ${d.getMonth()!==cal.m?'other':''} ${key===todayKey?'today':''}" data-d="${key}"
-      ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')" ondrop="dropOn(event,'${key}')">
-      <div class="n">${d.getDate()}</div>${evs}</div>`;
-  }
-  return `<div class="calhead"><button class="small" onclick="calMove(-1)">‹</button><b>${cal.y} 年 ${cal.m+1} 月</b><button class="small" onclick="calMove(1)">›</button>
-    <button class="small" onclick="cal=null;render()">今天</button><span class="sub" style="margin-left:auto">藍＝排隊 · 綠＝已發 · 橘＝待手動 · 紅＝失敗　排隊中的可以拖到別天</span></div>
-    <div class="cal">${['日','一','二','三','四','五','六'].map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>`;
-}
-function calMove(d){ cal.m += d; if(cal.m<0){cal.m=11;cal.y--} if(cal.m>11){cal.m=0;cal.y++} render(); }
-function dropOn(ev, key){
-  ev.preventDefault(); const id = ev.dataTransfer.getData('text'), i = S.items.find(x=>x.id===id); if(!i) return;
-  api('time', {id, at: key + 'T' + i.when_abs.slice(11,16)});   // 換日期、保留原本的時段
 }
 
 // ---------- 設定 ----------
@@ -266,11 +369,12 @@ async function savePlatforms(){
 async function check(){ toast('檢查中…'); const r = await fetch('/api/check',{method:'POST',body:JSON.stringify({channel:S.channel})}); const j = await r.json();
   const o = $('#checkout'); o.style.display='block'; o.textContent = j.message; }
 
-// ---------- 詳細頁 ----------
-function openModal(type, a, b){
-  modalFor = [type, a, b];
-  $('#sheet').innerHTML = `<button class="small x" onclick="closeModal()">✕</button>` + (type==='inbox' ? (S.inbox[a]?.kinds[b] ? inboxModal(a,b) : '<div class="empty">已排進發文</div>') : itemModal(a));
-  $('#modal').classList.add('on');
+// ---------- 詳細頁開關 ----------
+function openModal(type, a, b, at){
+  modalFor = [type, a, b, at];
+  $('#sheet').innerHTML = `<button class="small x" onclick="closeModal()">✕</button>` + (type==='inbox' ? (S.inbox[a]?.kinds[b] ? inboxModal(a,b,at) : '<div class="empty">已排進發文</div>') : itemModal(a));
+  const m = $('#modal');   // 只有從關著打開才播動畫，操作後刷新不會再彈一次
+  if(!m.classList.contains('on')){ m.classList.add('on', 'opening'); setTimeout(() => m.classList.remove('opening'), 300); }
 }
 function closeModal(){ modalFor = null; $('#modal').classList.remove('on'); }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });

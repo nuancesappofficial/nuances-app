@@ -575,6 +575,20 @@ def item_ratio(rs):
     return sum(rs.values()) / len(rs) if rs else None
 
 
+def compare_groups(items, rs):
+    """依格式 / hook 句型 / 劇名算平均倍數：[(標題, [(倍數, 名稱, 篇數), …由高到低]), …]，沒資料的組不列。"""
+    out = []
+    for key, title in (("format", "格式"), ("hook", "Hook 句型"), ("show", "劇名")):
+        groups = {}
+        for it in items:
+            r = item_ratio(rs.get(it["id"], {}))
+            if r is not None:
+                groups.setdefault(it.get("tags", {}).get(key) or "未標記", []).append(r)
+        if groups:
+            out.append((title, sorted(((sum(v) / len(v), g, len(v)) for g, v in groups.items()), reverse=True)))
+    return out
+
+
 def cmd_metrics(q, a):
     secrets = load_secrets()
     collect_metrics(q, secrets, force=a.now)
@@ -829,15 +843,7 @@ def dashboard(q):
 
     def compare(items):
         blocks = []
-        for key, title in (("format", "格式"), ("hook", "Hook 句型"), ("show", "劇名")):
-            groups = {}
-            for it in items:
-                r = item_ratio(rs.get(it["id"], {}))
-                if r is not None:
-                    groups.setdefault(it.get("tags", {}).get(key) or "未標記", []).append(r)
-            if not groups:
-                continue
-            rows = sorted(((sum(v) / len(v), g, len(v)) for g, v in groups.items()), reverse=True)
+        for title, rows in compare_groups(items, rs):
             blocks.append(f'<div class="cmp"><h3>{title}</h3>' + "".join(
                 f'<div class="row"><span>{e(g)}</span><span class="bar"><i style="width:{min(r / 2, 1) * 100:.0f}%"></i></span>'
                 f'<span class="num">{r:.2f}×</span><span class="dim">{n} 篇</span></div>' for r, g, n in rows) + "</div>")
@@ -883,7 +889,7 @@ def dashboard(q):
     mode = ("" if CLOUD else '<div class="warn">本機測試模式：資料只在這台 Mac，GitHub Actions 不會發這裡的貼文</div>')
     nav = ('<div class="nav">' + "".join(f'<a href="#ch-{e(cid)}">{e(c["name"])}</a>' for cid, c in q["channels"].items()) + "</div>"
            if multi else "")
-    body = f"""<h1>Nuances 發文排程</h1><div class="sub">更新於 {t:%m/%d %H:%M}</div>
+    body = f"""<h1>Nuances 發文狀況（唯讀）</h1><div class="sub">更新於 {t:%m/%d %H:%M} · 要排程、改日期請在 Mac 上開控制台：postq.py serve</div>
 {mode}{nav}{"".join(section(cid) for cid in q["channels"])}"""
     if CLOUD:
         cloud_put("state/view.json", json.dumps({"html": body}, ensure_ascii=False).encode(), bucket=PUBLIC)
@@ -903,7 +909,7 @@ async function load(){{try{{const r=await fetch({json.dumps(live_url)}+'?t='+Dat
 document.querySelector('main').innerHTML=j.html;tick()}}catch(e){{document.querySelector('main').innerHTML='<div class="warn">讀不到雲端資料：'+e+'</div>'}}}}
 load();setInterval(load,60000);"""
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nuances 發文排程</title>{'' if live_url else '<meta http-equiv="refresh" content="60">'}
+<title>Nuances 發文狀況（唯讀）</title>{'' if live_url else '<meta http-equiv="refresh" content="60">'}
 <style>
 :root{{--bg:#0E0F12;--panel:#17191E;--ink:#F5F6F8;--mute:#9BA1AB;--blue:#4EAFF4;--line:rgba(255,255,255,.08)}}
 *{{box-sizing:border-box;margin:0}}body{{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,"PingFang TC",sans-serif;padding:28px 16px 60px}}

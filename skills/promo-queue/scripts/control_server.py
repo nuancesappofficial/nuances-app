@@ -111,6 +111,19 @@ def scan_inbox(q, cid):
     return out
 
 
+def free_slots(q, cid, days=42):
+    """接下來幾週還沒被佔走的發文時段（當地時間 YYYY-MM-DDTHH:MM），給日曆的空格和「排進這天」用。"""
+    tz = ZoneInfo(Q.chan(q, cid)["tz"])
+    taken = {Q.parse(it["scheduled_for"]).astimezone(tz).strftime("%Y-%m-%dT%H:%M")
+             for it in q["items"] if it["channel"] == cid and Q.state(it) != "skipped"}
+    out, t = [], Q.now(q, cid)
+    end = t + dt.timedelta(days=days)
+    while (t := Q.next_slot(q, t, cid)) < end:
+        if (k := t.strftime("%Y-%m-%dT%H:%M")) not in taken:
+            out.append(k)
+    return out
+
+
 def state_json(cid):
     q = Q.load()
     cid = cid if cid in q["channels"] else next(iter(q["channels"]))
@@ -125,6 +138,9 @@ def state_json(cid):
                 if n in used or n in acct]
     return {"channels": {k: v["name"] for k, v in q["channels"].items()}, "channel": cid, "chan": c,
             "cloud": bool(Q.CLOUD), "items": items, "inbox": scan_inbox(q, cid), "accounts": accounts,
+            "free": free_slots(q, cid),
+            "compare": [{"title": t, "rows": [{"name": g, "ratio": round(r, 2), "n": n} for r, g, n in rows]}
+                        for t, rows in Q.compare_groups([it for it in q["items"] if it["channel"] == cid], rs)],
             "all_platforms": [{"name": n, "label": l, "manual": n in P.MANUAL} for n, l in Q.NAMES.items()],
             "now": Q.now(q, cid).strftime("%m/%d %H:%M")}
 

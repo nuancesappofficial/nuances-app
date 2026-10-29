@@ -11,10 +11,10 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 
 | 要做的事 | 指令 |
 |---|---|
-| 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：收件匣、排程、日曆（拖曳改日期）、待手動、已發布 + 成效、帳號與設定；都是格狀縮圖，點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
+| 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：兩個分頁 +「⚙ 設定」。「排程」= 下一篇 + 待辦（待手動、失敗）+ 4 週日曆（虛線是空時段）+ 右邊「做好了、還沒排」；「成效」= 哪種比較好 + 發過的貼文。點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
 | 做完一支片段，排進發文 | `python3 $Q add promo-vids/<日期>/<topic>` |
 | 看排程 | `python3 $Q list` |
-| 給使用者看看板 | 開 `promo-vids/dashboard.html`（打開時從雲端讀即時資料，每分鐘更新；檔案不見了跑 `python3 $Q dashboard`） |
+| 給使用者看看板（唯讀，手機也能看） | 開 `promo-vids/dashboard.html`（打開時從雲端讀即時資料，每分鐘更新；檔案不見了跑 `python3 $Q dashboard`）。要排程、改日期用上面的控制台 |
 | 確認會發什麼、不真的發 | `python3 $Q post-due --dry-run` / `python3 $Q post <id> --dry-run` |
 | 手動平台發完了 | `python3 $Q done <id> --platform xiaohongshu [--url …]` |
 | 國家 / 帳號組 | `python3 $Q channel`（列出）、`channel add jp --name 日本 --tz Asia/Tokyo --lang ja`、`channel set tw --slots 12:30,20:00 --reel instagram,facebook,xiaohongshu` |
@@ -27,7 +27,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 
 ## 控制台與收件匣
 - `serve` 在 Mac 上開網頁控制台（`scripts/control_server.py` + `assets/control.html`），讀寫的是雲端同一份 queue，跟 GitHub Actions 同步。
-- **收件匣不用另外放資料夾**：自動掃 `promo-vids/<日期>/<主題>/` 和 `promo-vids/<日期>-<主題>/`（功能介紹片），有成品影片（`*-final.mp4`、`*_final*.mp4`、`final/*.mp4` 取最新）或 `slides/` 但還沒排進目前國家的就會出現；可以直接在網頁寫文案（存回 `caption-reel.txt` / `caption.txt`）、選 hook 句型，按「排進發文」= 跑 `add`。「不要了」會把資料夾記在 queue 的 `ignored`。
+- **「做好了、還沒排」（收件匣）不用另外放資料夾**：自動掃 `promo-vids/<日期>/<主題>/` 和 `promo-vids/<日期>-<主題>/`（功能介紹片），有成品影片（`*-final.mp4`、`*_final*.mp4`、`final/*.mp4` 取最新）或 `slides/` 但還沒排進目前國家的就會出現；可以直接在網頁寫文案（存回 `caption-reel.txt` / `caption.txt`）、選 hook 句型，選哪天發（預設最近的空時段；也可以直接拖到日曆的空格），按「排進發文」= 跑 `add --at`。「不要了」會把資料夾記在 queue 的 `ignored`。
 - 使用者說「打開控制台」→ 用 run_in_terminal 跑 `python3 skills/promo-queue/scripts/postq.py serve`。
 - 測試模式（`POSTQ_DIR`）不讀任何帳號金鑰，按「立刻發」不會真的發出去。
 
