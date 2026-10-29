@@ -72,3 +72,6 @@ Thumbs.db
 .roo/
 output/
 
+
+# clip-to-nuance: old pause-and-capture assets, unused by the pipeline
+skills/clip-to-nuance/_legacy/
