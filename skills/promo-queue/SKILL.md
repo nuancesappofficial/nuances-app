@@ -11,6 +11,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 
 | 要做的事 | 指令 |
 |---|---|
+| 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：收件匣、排程、日曆（拖曳改日期）、待手動、已發布 + 成效、帳號與設定；都是格狀縮圖，點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
 | 做完一支片段，排進發文 | `python3 $Q add promo-vids/<日期>/<topic>` |
 | 看排程 | `python3 $Q list` |
 | 給使用者看看板 | 開 `promo-vids/dashboard.html`（打開時從雲端讀即時資料，每分鐘更新；檔案不見了跑 `python3 $Q dashboard`） |
@@ -23,6 +24,12 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | 刪掉或改順序後重排時段 | `python3 $Q reschedule` |
 
 `<id>` 可以只打結尾，例如 `modern_family-reel`。
+
+## 控制台與收件匣
+- `serve` 在 Mac 上開網頁控制台（`scripts/control_server.py` + `assets/control.html`），讀寫的是雲端同一份 queue，跟 GitHub Actions 同步。
+- **收件匣不用另外放資料夾**：自動掃 `promo-vids/<日期>/<主題>/` 和 `promo-vids/<日期>-<主題>/`（功能介紹片），有成品影片（`*-final.mp4`、`*_final*.mp4`、`final/*.mp4` 取最新）或 `slides/` 但還沒排進目前國家的就會出現；可以直接在網頁寫文案（存回 `caption-reel.txt` / `caption.txt`）、選 hook 句型，按「排進發文」= 跑 `add`。「不要了」會把資料夾記在 queue 的 `ignored`。
+- 使用者說「打開控制台」→ 用 run_in_terminal 跑 `python3 skills/promo-queue/scripts/postq.py serve`。
+- 測試模式（`POSTQ_DIR`）不讀任何帳號金鑰，按「立刻發」不會真的發出去。
 
 ## 排進發文（add）
 

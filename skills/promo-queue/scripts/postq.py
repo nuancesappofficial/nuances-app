@@ -10,6 +10,7 @@ usage（在專案根目錄）：
   postq.py done <id> --platform xiaohongshu [--url …]   # 沒有 API 的平台（小紅書等）手動發完後標記
   postq.py reschedule                 # 未發布的重新照時段排（刪掉或改順序後用）
   postq.py metrics [--now]            # 看成效（發文後第 3、7 天 post-due 會自動抓；--now 立刻抓一次）
+  postq.py serve                      # 開本機控制台（瀏覽器操作：收件匣、排序、改時間 / 文案、立刻發…）
   postq.py dashboard                  # 重產看板（每次改 queue 都會自動重產）
   postq.py push-secrets --channel tw [--only instagram,threads]   # 把本機金鑰傳到雲端那個國家（setup_wizard.sh 最後會跑）
   postq.py channel [list | add <id> --name 日本 --tz Asia/Tokyo --lang ja | set <id> --slots 12:30,20:00]
@@ -131,7 +132,9 @@ def save(q):
 
 def load_secrets():
     """{"supabase": …, "channels": {"tw": {"instagram": …, …}}}；舊格式（平台金鑰放最外層）視為 tw。"""
-    if not CLOUD:
+    if os.environ.get("POSTQ_DIR"):
+        s = {}   # 測試模式不碰真的帳號，避免「立刻發」真的發出去
+    elif not CLOUD:
         s = local_secrets()
     else:
         raw = cloud_get("secrets.json")
@@ -249,13 +252,17 @@ def tags(folder, kind, a):
     """比較成效用的標籤：格式、hook 句型、劇名。"""
     if kind == "carousel":
         fmt = "輪播圖"
+    elif (folder / "ladder.json").exists():
+        fmt = "nuance-ladder"
+    elif (folder / "cards.json").exists():
+        fmt = "Ghost 卡影片"
     else:
-        fmt = "nuance-ladder" if (folder / "ladder.json").exists() else "Ghost 卡影片"
+        fmt = "功能介紹片"
     show = a.show
     if not show and (folder / "slides.json").exists():
         show = json.loads((folder / "slides.json").read_text()).get("show", "")
     if not show:
-        show = "原創" if fmt == "nuance-ladder" else folder.name
+        show = "原創" if fmt in ("nuance-ladder", "功能介紹片") else day_topic(folder)[1]
     hook = (a.hook_reel if kind == "reel" else a.hook_carousel) or ""
     return {"format": fmt, "hook": hook, "show": show.title() if show.isupper() else show}
 
@@ -269,16 +276,32 @@ def duration(path):
         return None
 
 
+def find_final(folder):
+    """成品影片：<topic>-final.mp4（clip-to-nuance / nuance-ladder）、*_final*.mp4、或 final/ 裡最新的 mp4（功能介紹片）。"""
+    for pat in ("*-final.mp4", "*_final*.mp4", "final/*.mp4"):
+        hits = sorted(folder.glob(pat), key=lambda p: p.stat().st_mtime, reverse=True)
+        if hits:
+            return hits[0]
+    return None
+
+
+def day_topic(folder):
+    """promo-vids/<日期>/<主題>/ → (日期, 主題)；promo-vids/<日期>-<主題>/（功能介紹片）→ 一樣拆開。"""
+    if folder.parent.name == "promo-vids" and len(folder.name) > 11 and folder.name[10] == "-":
+        return folder.name[:10], folder.name[11:]
+    return folder.parent.name, folder.name
+
+
 def cmd_add(q, a):
     folder = (ROOT / a.folder).resolve() if not pathlib.Path(a.folder).is_absolute() else pathlib.Path(a.folder)
     if not folder.is_dir():
         sys.exit(f"找不到資料夾：{folder}")
     rel = folder.relative_to(ROOT)
-    topic = folder.name
+    day, topic = day_topic(folder)
     found = {}
-    finals = sorted(folder.glob("*-final.mp4"))
-    if finals:
-        found["reel"] = [finals[0].name]
+    final = find_final(folder)
+    if final:
+        found["reel"] = [str(final.relative_to(folder))]
     slides = sorted((folder / "slides").glob("slide_*.png"))
     variants = {}
     if slides:
@@ -292,7 +315,7 @@ def cmd_add(q, a):
             variants["video"] = [show[0].name]
     kinds = [k for k in ("reel", "carousel") if k in found and (not a.only or a.only == k)]
     if not kinds:
-        sys.exit("資料夾裡沒有 *-final.mp4 或 slides/slide_*.png")
+        sys.exit("資料夾裡沒有成品影片（*-final.mp4 / final/*.mp4）或 slides/slide_*.png")
     cid = a.channel or next(iter(q["channels"]))
     if cid not in q["channels"]:
         sys.exit(f"沒有 {cid} 這個國家（現有：{', '.join(q['channels'])}）")
@@ -300,7 +323,7 @@ def cmd_add(q, a):
     if a.at:
         at = dt.datetime.fromisoformat(a.at).replace(tzinfo=ZoneInfo(chan(q, cid)["tz"]))
     for kind in kinds:
-        iid = f"{cid}-{rel.parent.name}-{topic}-{kind}"
+        iid = f"{cid}-{day}-{topic}-{kind}"
         if any(it["id"] == iid for it in q["items"]):
             print(f"已在排程裡：{iid}（要重排先 skip 或改 queue.json）")
             continue
@@ -936,10 +959,12 @@ def main():
     x = sp.add_parser("done"); x.add_argument("id"); x.add_argument("--platform", required=True, choices=list(NAMES)); x.add_argument("--url")
     x = sp.add_parser("retry"); x.add_argument("id"); x.add_argument("--platform", choices=list(NAMES))
     x = sp.add_parser("push-secrets"); x.add_argument("--only"); x.add_argument("--channel", default="tw")
+    x = sp.add_parser("serve"); x.add_argument("--port", type=int, default=8790); x.add_argument("--no-open", action="store_true")
     a = ap.parse_args()
     fns = {"add": cmd_add, "list": cmd_list, "dashboard": lambda q, a: (dashboard(q), print(DASH)), "reschedule": cmd_reschedule,
            "post-due": cmd_post_due, "post": cmd_post, "skip": cmd_skip, "retry": cmd_retry,
-           "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done}
+           "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done,
+           "serve": lambda q, a: __import__("control_server").serve(a.port, not a.no_open)}
     if a.cmd in ("post-due", "post", "add", "skip", "retry", "reschedule", "metrics", "channel", "done"):
         with_lock(lambda: fns[a.cmd](load(), a))
     else:

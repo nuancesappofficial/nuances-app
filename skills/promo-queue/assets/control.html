@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nuances 控制台</title>
+<style>
+:root{--bg:#0E0F12;--panel:#17191E;--panel2:#1E2127;--ink:#F5F6F8;--mute:#9BA1AB;--dim:#6B7079;--blue:#4EAFF4;--line:rgba(255,255,255,.08);
+  --ok:#5DDB7F;--bad:#FF6B61;--warn:#FFB340}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang TC",sans-serif}
+header{position:sticky;top:0;z-index:5;background:rgba(14,15,18,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar{max-width:1280px;margin:auto;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+h1{font-size:18px;margin-right:auto}
+select,input,textarea,button{font:inherit;color:var(--ink)}
+select,input[type=text],input[type=datetime-local],textarea{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+textarea{width:100%;min-height:140px;resize:vertical;font-size:13px;line-height:1.55}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--mute)}button.primary{background:var(--blue);border-color:var(--blue);color:#0E0F12;font-weight:700}
+button.danger{color:var(--bad)}button.small{padding:3px 9px;font-size:13px}button:disabled{opacity:.4;cursor:default}
+nav{max-width:1280px;margin:auto;padding:0 16px;display:flex;gap:2px;overflow-x:auto}
+nav a{padding:9px 14px;color:var(--mute);border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer}
+nav a.on{color:var(--ink);border-color:var(--blue)}
+.badge{display:inline-block;min-width:18px;padding:0 6px;border-radius:99px;background:var(--blue);color:#0E0F12;font-size:11px;font-weight:700;text-align:center;margin-left:4px}
+.badge.warn{background:var(--warn)}
+main{max-width:1280px;margin:auto;padding:18px 16px 80px}
+.hint{color:var(--mute);font-size:13px;margin-bottom:14px}
+h2{font-size:13px;color:var(--mute);margin:22px 0 10px;font-weight:600;letter-spacing:.3px}
+/* grid tiles */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;position:relative;transition:border-color .15s}
+.tile:hover{border-color:var(--mute)}.tile.next{border-color:var(--blue)}.tile.manual{border-color:var(--warn)}
+.tile .img{aspect-ratio:4/5;background:#000 center/cover no-repeat}
+.tile .tag{position:absolute;top:8px;left:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(14,15,18,.8)}
+.tile .tag.r{left:auto;right:8px}
+.tile .cap{padding:8px 10px}.tile .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .sub{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dots{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18)}
+.dot.posted{background:var(--ok)}.dot.failed{background:var(--bad)}.dot.manual{background:var(--warn)}.dot.skipped{background:transparent;border:1px solid var(--dim)}
+.warn-t{color:var(--warn)}
+.empty{color:var(--mute);padding:24px;background:var(--panel);border-radius:14px;text-align:center}
+/* calendar */
+.calhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}.calhead b{font-size:17px;min-width:120px;text-align:center}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.dow{color:var(--mute);font-size:12px;text-align:center;padding-bottom:2px}
+.day{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-height:118px;padding:6px;display:flex;flex-direction:column;gap:4px}
+.day.other{opacity:.35}.day.today{border-color:var(--blue)}.day.drop{background:var(--panel2);border-color:var(--blue)}
+.day .n{font-size:12px;color:var(--mute)}.day.today .n{color:var(--blue);font-weight:700}
+.ev{display:flex;gap:6px;align-items:center;background:var(--panel2);border-radius:6px;padding:3px;cursor:pointer;font-size:12px;border-left:3px solid var(--blue)}
+.ev img{width:26px;height:32px;object-fit:cover;border-radius:4px;flex:none}.ev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.posted{border-color:var(--ok)}.ev.failed{border-color:var(--bad)}.ev.manual{border-color:var(--warn)}.ev.skipped{opacity:.45}
+.ev[draggable=true]{cursor:grab}
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+#modal.on{display:flex}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:min(880px,100%);padding:20px;position:relative}
+.sheet .x{position:absolute;top:12px;right:12px}
+.cols{display:flex;gap:20px;flex-wrap:wrap}.cols>.media{flex:0 0 260px}.cols>.info{flex:1;min-width:280px}
+.media video{width:260px;max-height:460px;border-radius:10px;background:#000}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}.strip img{height:150px;border-radius:6px}
+.media .strip img{height:auto;width:100%}.media .strip{flex-direction:column;max-height:520px;overflow-y:auto}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.chip{font-size:12px;padding:2px 10px;border-radius:99px;text-decoration:none;color:var(--ink);background:rgba(255,255,255,.08)}
+.chip.posted{background:rgba(52,199,89,.18);color:var(--ok)}.chip.failed{background:rgba(255,69,58,.18);color:var(--bad)}
+.chip.skipped{background:transparent;border:1px solid var(--line);color:var(--dim)}.chip.manual{background:rgba(255,159,10,.18);color:var(--warn)}
+.err{color:var(--bad);font-size:12px;margin-top:6px;word-break:break-all}.note{color:var(--dim);font-size:12px;margin-top:4px}
+.perf{font-size:13px;margin-top:6px}.dim{color:var(--dim)}.title{font-size:18px;font-weight:700}.sub{color:var(--mute);font-size:13px}
+.kind{background:var(--panel2);border-radius:10px;padding:12px;margin-top:12px}
+table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:14px;overflow:hidden}
+td,th{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--mute);font-weight:600}
+.ok{color:var(--ok)}.no{color:var(--dim)}
+pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px;font-size:13px;margin-top:10px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 16px;
+  border-radius:10px;max-width:90vw;white-space:pre-wrap;display:none;z-index:9}
+@media(max-width:700px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}.day{min-height:70px}.ev span{display:none}}
+</style></head><body>
+<header>
+  <div class="bar"><h1>Nuances 控制台</h1>
+    <span class="sub" id="mode"></span>
+    <select id="chan" title="國家"></select>
+    <button onclick="load()">重新整理</button>
+  </div>
+  <nav id="tabs"></nav>
+</header>
+<main id="main"><div class="empty">讀取中…</div></main>
+<div id="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" id="sheet"></div></div>
+<div id="toast"></div>
+<script>
+let S = null, tab = localStorage.getItem('tab') || 'inbox', cal = null, modalFor = null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const HOOKS = ['劇情懸念', '打破你以為的', '數字承諾', '直接考你'];
+const ST = {posted:'已發', queued:'排隊', skipped:'略過', failed:'失敗', manual:'待手動'};
+const LBL = {hook:'開頭留人', keep:'收藏分享', follow:'轉追蹤'};
+
+function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display=m?'block':'none'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 4500); }
+async function api(action, body){
+  const r = await fetch('/api/'+action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json(); toast(j.message || (j.ok ? '完成' : '失敗')); await load(); return j;
+}
+async function load(){
+  const c = $('#chan').value || localStorage.getItem('chan') || '';
+  S = await (await fetch('/api/state?channel=' + encodeURIComponent(c))).json();
+  localStorage.setItem('chan', S.channel);
+  $('#chan').innerHTML = Object.entries(S.channels).map(([k,v]) => `<option value="${k}" ${k===S.channel?'selected':''}>${esc(v)}（${k}）</option>`).join('');
+  $('#mode').textContent = (S.cloud ? '雲端資料' : '⚠ 本機測試資料') + ' · ' + S.now;
+  render();
+  if(modalFor) openModal(...modalFor);   // 操作後刷新開著的詳細頁
+}
+$('#chan').onchange = () => load();
+const queuedList = () => S.items.filter(i => ['queued','partial'].includes(i.state));
+const manualList = () => S.items.filter(i => i.platforms.some(p => p.status === 'manual'));
+const doneList = () => S.items.filter(i => !['queued','partial'].includes(i.state)).reverse();
+
+function render(){
+  const tabs = [['inbox','收件匣',S.inbox.reduce((n,f)=>n+f.kinds.length,0),''],['queue','排程',queuedList().length,''],['calendar','日曆',0,''],
+                ['manual','待手動',manualList().length,'warn'],['posted','已發布',doneList().length,''],['settings','帳號與設定',0,'']];
+  $('#tabs').innerHTML = tabs.map(([k,l,n,c]) => `<a class="${k===tab?'on':''}" onclick="go('${k}')">${l}${n?`<span class="badge ${c}">${n}</span>`:''}</a>`).join('');
+  $('#main').innerHTML = {inbox: inboxView, queue: queueView, calendar: calView, manual: manualView, posted: postedView, settings: settingsView}[tab]();
+}
+function go(t){ tab = t; localStorage.setItem('tab', t); render(); }
+
+// ---------- 方塊 ----------
+function dots(i){ return `<div class="dots">${i.platforms.map(p => `<span class="dot ${p.status}" title="${esc(p.label)}：${ST[p.status]}"></span>`).join('')}</div>`; }
+function itemTile(i, extra=''){
+  return `<div class="tile ${extra}" onclick="openModal('item','${i.id}')">
+    <div class="img" style="background-image:url('${esc(i.thumb)}')"></div>
+    <span class="tag">${esc(i.kind==='carousel'?'輪播':'影片')}</span>${i.rating?`<span class="tag r">${esc(i.rating)}</span>`:''}
+    <div class="cap"><div class="name">${esc(i.topic)}</div><div class="sub">${esc(i.when)}</div>${dots(i)}</div></div>`;
+}
+
+// ---------- 收件匣 ----------
+function inboxView(){
+  const tiles = S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => `<div class="tile" onclick="openModal('inbox',${fi},${ki})">
+    <div class="img" style="background-image:url('${esc(k.poster)}')"></div>
+    <span class="tag">${esc(k.kind_zh)}</span>
+    <div class="cap"><div class="name">${esc(f.topic)}</div><div class="sub">${esc(f.day)} · ${esc(f.format)}</div>
+      <div class="sub ${k.caption?'':'warn-t'}">${k.caption?'文案 ✓':'還沒寫文案'}</div></div></div>`));
+  return `<div class="hint">promo-vids 裡做好、還沒排進「${esc(S.channels[S.channel])}」的成品，點開寫文案後排進發文。</div>` +
+    (tiles.length ? `<div class="grid">${tiles.join('')}</div>` : `<div class="empty">沒有新的成品</div>`) +
+    `<div class="row"><button class="small" onclick="api('unignore',{})">還原被移除的</button></div>`;
+}
+function inboxModal(fi, ki){
+  const f = S.inbox[fi], k = f.kinds[ki];
+  return `<div class="cols"><div class="media">
+      ${k.video ? `<video src="${k.preview}" poster="${k.poster}" controls preload="none"></video>` : `<div class="strip">${k.slides.map(s=>`<img src="${s}">`).join('')}</div>`}
+    </div><div class="info">
+      <div class="title">${esc(f.topic)}</div><div class="sub">${esc(f.day)} · ${esc(f.format)} · ${esc(k.kind_zh)}${k.extras?.length?' · 另有 '+k.extras.join('、'):''}</div>
+      ${!k.video && false ? '' : ''}
+      <div class="row"><span class="sub">Hook 句型</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
+        <span class="sub">劇名</span><input type="text" id="ms" value="${esc(f.show)}" placeholder="選填" style="width:140px"></div>
+      <div class="sub" style="margin-top:12px">文案（存成 ${esc(k.caption_file)}）${k.caption?'':' <span class="warn-t">— 必填</span>'}</div>
+      <textarea id="mc" placeholder="第一行 hook、單字清單、CTA、hashtag">${esc(k.caption)}</textarea>
+      <div class="row"><button class="primary" onclick="addInbox(${fi},${ki})">排進發文</button>
+        <button class="danger small" onclick="closeModal();api('ignore',{folder:'${esc(f.folder)}'})">不要了</button></div>
+      <div class="note">排進後會接在排程最後面；上傳媒體要一點時間。</div>
+    </div></div>`;
+}
+function addInbox(fi, ki){
+  const f = S.inbox[fi], k = f.kinds[ki], cap = $('#mc').value.trim();
+  if(!cap) return toast('文案還沒寫');
+  const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: $('#ms').value};
+  b[k.kind==='reel'?'hook_reel':'hook_carousel'] = $('#mh').value;
+  closeModal(); toast('上傳中…'); api('add', b);
+}
+
+// ---------- 排程 / 待手動 / 已發布 ----------
+function queueView(){
+  const l = queuedList();
+  return `<div class="hint">每天 ${esc(S.chan.slots.join('、'))}（${esc(S.chan.tz)}）發一篇，照下面的順序。點開可以改時間、文案、立刻發。到「日曆」可以拖曳改日期。</div>` +
+    (l.length ? `<div class="grid">${l.map((i,n) => itemTile(i, n===0?'next':'')).join('')}</div>` : `<div class="empty">排程是空的，到「收件匣」把成品排進來。</div>`);
+}
+function manualView(){
+  const l = manualList();
+  return `<div class="hint">小紅書這類沒有 API 的平台，時間到會出現在這裡。點開拿素材和文案，發完按「發好了」。</div>` +
+    (l.length ? `<div class="grid">${l.map(i => itemTile(i, 'manual')).join('')}</div>` : `<div class="empty">沒有要手動發的。</div>`);
+}
+function postedView(){
+  const l = doneList();
+  return l.length ? `<div class="grid">${l.map(i => itemTile(i)).join('')}</div>` : `<div class="empty">還沒有發布的貼文。</div>`;
+}
+function itemModal(id){
+  const i = S.items.find(x => x.id === id); if(!i) return '<div class="empty">找不到</div>';
+  const q = queuedList(), n = q.findIndex(x => x.id === id), open = n >= 0;
+  const chips = i.platforms.map(p => { const lab = `${esc(p.label)}${p.as?'（'+p.as+'）':''} · ${ST[p.status]}`;
+    return p.url ? `<a class="chip ${p.status}" href="${esc(p.url)}" target="_blank">${lab}</a>` : `<span class="chip ${p.status}">${lab}</span>`; }).join('');
+  const manual = i.platforms.filter(p => p.status==='manual').map((p,k) => `<div class="kind"><b>${esc(p.label)}</b>
+      <div class="strip" style="margin-top:6px">${p.media.map(m => /\.mp4/.test(m) ? `<a class="chip" href="${esc(m)}" target="_blank">下載影片</a>` : `<a href="${esc(m)}" target="_blank"><img src="${esc(m)}" style="height:90px"></a>`).join('')}</div>
+      <textarea readonly style="min-height:90px" onclick="this.select();navigator.clipboard?.writeText(this.value);toast('文案已複製')">${esc(p.caption)}</textarea>
+      <div class="row"><input type="text" id="u${k}" placeholder="貼文網址（選填）" style="flex:1"><button class="primary small" onclick="api('done',{id:'${i.id}',platform:'${p.name}',url:$('#u${k}').value})">發好了</button></div></div>`).join('');
+  const perf = i.platforms.filter(p=>Object.keys(p.scores).length).map(p=>`<div class="perf"><b>${esc(p.label)}</b> ${Object.entries(p.scores).map(([k,v])=>`${LBL[k]} ${k==='hook'?Math.round(v*100)+'%':v+'‰'}`).join(' · ')}
+      <span class="dim">（${{d7:'第 7 天',d3:'第 3 天',latest:'即時'}[p.snapshot]}${p.ratio!=null?'，中位數的 '+p.ratio.toFixed(1)+' 倍':''}）</span></div>`).join('');
+  const retry = i.platforms.filter(p=>['failed','skipped'].includes(p.status)).map(p=>`<button class="small" onclick="api('retry',{id:'${i.id}',platform:'${p.name}'})">重發 ${esc(p.label)}</button>`).join('');
+  return `<div class="cols"><div class="media"><img src="${esc(i.thumb)}" style="width:260px;border-radius:10px"></div><div class="info">
+    <div class="title">${esc(i.topic)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
+    <div class="sub">${esc(i.kind==='carousel'?'輪播 '+i.count+' 張':'影片')} · ${esc(i.tags.format||'')} · ${esc(i.tags.hook||'')}</div>
+    <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">
+        <button class="small" ${n===0?'disabled':''} onclick="api('move',{id:'${i.id}',dir:-1})">往前一篇</button>
+        <button class="small" ${n===q.length-1?'disabled':''} onclick="api('move',{id:'${i.id}',dir:1})">往後一篇</button>` : `<span class="sub">${esc(i.when)}</span>`}</div>
+    <div class="row">${chips}</div>
+    ${i.platforms.filter(p=>p.error).map(p=>`<div class="err">${esc(p.label)}：${esc(p.error)}</div>`).join('')}
+    ${i.platforms.filter(p=>p.note).map(p=>`<div class="note">${esc(p.label)}：${esc(p.note)}</div>`).join('')}
+    ${i.job?`<div class="note">${esc(i.job)}</div>`:''}
+    ${perf}${manual}
+    <div class="sub" style="margin-top:12px">文案</div><textarea id="mc">${esc(i.caption)}</textarea>
+    <div class="row"><button class="small" onclick="api('caption',{id:'${i.id}',text:$('#mc').value})">儲存文案</button>
+      ${open ? `<button class="primary small" onclick="if(confirm('現在就發到所有平台？'))api('post-now',{id:'${i.id}'})">立刻發</button>
+      <button class="small" onclick="api('skip',{id:'${i.id}'})">跳過</button>
+      <button class="danger small" onclick="if(confirm('從排程刪除？（成品會回到收件匣）')){closeModal();api('delete',{id:'${i.id}'})}">刪除</button>` : ''}${retry}</div>
+  </div></div>`;
+}
+
+// ---------- 日曆 ----------
+const pad = n => String(n).padStart(2,'0');
+function calView(){
+  const now = new Date(); cal = cal || {y: now.getFullYear(), m: now.getMonth()};
+  const first = new Date(cal.y, cal.m, 1), start = new Date(first); start.setDate(1 - first.getDay());
+  const byDay = {};
+  for(const i of S.items){ if(i.state === 'skipped') continue; const d = i.when_abs.slice(0,10); (byDay[d] ||= []).push(i); }
+  const todayKey = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  let cells = '';
+  for(let k=0; k<42; k++){
+    const d = new Date(start); d.setDate(start.getDate()+k);
+    const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const evs = (byDay[key]||[]).sort((a,b)=>a.when_abs.localeCompare(b.when_abs)).map(i => {
+      const st = i.platforms.some(p=>p.status==='manual') ? 'manual' : i.platforms.some(p=>p.status==='failed') ? 'failed' : i.state==='posted' ? 'posted' : i.state;
+      const drag = ['queued'].includes(i.state);
+      return `<div class="ev ${st}" ${drag?`draggable="true" ondragstart="event.dataTransfer.setData('text',`+"'"+i.id+"'"+`)"`:''} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
+        <img src="${esc(i.thumb)}"><span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
+    cells += `<div class="day ${d.getMonth()!==cal.m?'other':''} ${key===todayKey?'today':''}" data-d="${key}"
+      ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')" ondrop="dropOn(event,'${key}')">
+      <div class="n">${d.getDate()}</div>${evs}</div>`;
+  }
+  return `<div class="calhead"><button class="small" onclick="calMove(-1)">‹</button><b>${cal.y} 年 ${cal.m+1} 月</b><button class="small" onclick="calMove(1)">›</button>
+    <button class="small" onclick="cal=null;render()">今天</button><span class="sub" style="margin-left:auto">藍＝排隊 · 綠＝已發 · 橘＝待手動 · 紅＝失敗　排隊中的可以拖到別天</span></div>
+    <div class="cal">${['日','一','二','三','四','五','六'].map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>`;
+}
+function calMove(d){ cal.m += d; if(cal.m<0){cal.m=11;cal.y--} if(cal.m>11){cal.m=0;cal.y++} render(); }
+function dropOn(ev, key){
+  ev.preventDefault(); const id = ev.dataTransfer.getData('text'), i = S.items.find(x=>x.id===id); if(!i) return;
+  api('time', {id, at: key + 'T' + i.when_abs.slice(11,16)});   // 換日期、保留原本的時段
+}
+
+// ---------- 設定 ----------
+function settingsView(){
+  const c = S.chan;
+  return `<h2>帳號（${esc(S.channels[S.channel])}）</h2>
+  <table><tr><th>平台</th><th>帳號</th><th>影片</th><th>輪播圖</th></tr>
+  ${S.all_platforms.map(p => { const a = S.accounts.find(x => x.name===p.name) || {};
+    return `<tr><td>${esc(p.label)}${p.manual?' <span class="dim">手動</span>':''}</td>
+      <td>${p.manual ? '<span class="dim">不用設定</span>' : a.configured ? `<span class="ok">✓ ${esc(a.username||'已連結')}</span>` : '<span class="no">未設定</span>'}</td>
+      <td><input type="checkbox" data-k="reel" data-p="${p.name}" ${c.platforms.reel.includes(p.name)?'checked':''}></td>
+      <td><input type="checkbox" data-k="carousel" data-p="${p.name}" ${c.platforms.carousel.includes(p.name)?'checked':''}></td></tr>`; }).join('')}
+  </table>
+  <div class="row"><button class="primary small" onclick="savePlatforms()">儲存發文平台</button>
+    <button class="small" onclick="check()">檢查帳號是否還能用</button></div>
+  <div class="note">新增或重新授權帳號：在終端機跑 <code>bash skills/promo-queue/scripts/setup_wizard.sh</code>，國家代號選 ${esc(S.channel)}。</div>
+  <pre id="checkout" style="display:none"></pre>
+  <h2>發文時段（${esc(c.tz)}）</h2>
+  <div class="row"><input type="text" id="slots" value="${esc(c.slots.join(','))}" placeholder="例如 12:30,20:00">
+    <button class="small" onclick="api('slots',{channel:S.channel,slots:$('#slots').value})">儲存</button>
+    <button class="small" onclick="api('reschedule',{})">重新排時段</button></div>
+  <div class="note">一個時段發一篇。改完按「重新排時段」，排隊中的貼文會照新時段往後排。</div>`;
+}
+async function savePlatforms(){
+  for(const k of ['reel','carousel'])
+    await api('platforms', {channel:S.channel, kind:k, list:[...document.querySelectorAll(`input[data-k="${k}"]:checked`)].map(x=>x.dataset.p)});
+}
+async function check(){ toast('檢查中…'); const r = await fetch('/api/check',{method:'POST',body:JSON.stringify({channel:S.channel})}); const j = await r.json();
+  const o = $('#checkout'); o.style.display='block'; o.textContent = j.message; }
+
+// ---------- 詳細頁 ----------
+function openModal(type, a, b){
+  modalFor = [type, a, b];
+  $('#sheet').innerHTML = `<button class="small x" onclick="closeModal()">✕</button>` + (type==='inbox' ? (S.inbox[a]?.kinds[b] ? inboxModal(a,b) : '<div class="empty">已排進發文</div>') : itemModal(a));
+  $('#modal').classList.add('on');
+}
+function closeModal(){ modalFor = null; $('#modal').classList.remove('on'); }
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+
+load(); setInterval(() => { if(!modalFor && !document.querySelector('textarea:focus,input:focus')) load(); }, 30000);
+</script></body></html>
