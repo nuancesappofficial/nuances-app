@@ -1,0 +1,34 @@
+# Nuances 推廣貼文自動發文：每小時跑一次 postq.py post-due（排程、金鑰、媒體都在 Supabase）。
+# 需要 repo secrets：SUPABASE_URL、SUPABASE_SERVICE_KEY（skills/promo-queue/scripts/setup_wizard.sh 會設）。
+# 說明見 skills/promo-queue/SKILL.md。
+name: promo-queue
+
+on:
+  schedule:
+    - cron: "3 * * * *"   # 每小時第 3 分（UTC）；GitHub 尖峰時段可能延遲幾分鐘到半小時
+  workflow_dispatch:
+
+concurrency:
+  group: promo-queue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: skills/promo-queue
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet requests pillow
+      - name: Post due items and collect metrics
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python skills/promo-queue/scripts/postq.py post-due

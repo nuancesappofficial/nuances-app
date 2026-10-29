@@ -7,7 +7,7 @@ description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗�
 
 成品結構：**封面 hook → 單字頁 ×3–5（一字一頁）→ CTA**，全部 1080x1350 PNG。素材直接吃 clip-to-nuance 的工作資料夾，不用重新下載。
 
-## 管線流程（5 步驟）
+## 管線流程（6 步驟）
 
 1. **找到工作資料夾**
    - `promo-vids/<YYYY-MM-DD>/<topic>/`，裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
@@ -47,7 +47,15 @@ description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗�
 
 5. **交付**
    - 把總覽圖傳給使用者，附上 `slides/` 路徑。
-   - 同時寫 `caption.txt`：第一行重複 hook（不給答案）、列出 3–5 個單字（英文 + 中文）、一行「下載 Nuances，看劇順手存單字」、5–8 個中文 / 英文 hashtag（劇名、#學英文、#英文單字…）。
+   - 同時寫 `caption.txt`：第一行重複 hook（不給答案）、列出 3–5 個單字（英文 + 中文）、一行「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」、5–8 個中文 / 英文 hashtag（劇名、#學英文、#英文單字…）。
+   - 資料夾裡有 `<topic>-final.mp4`（從 clip-to-nuance 接過來）時，也寫影片用的 `caption-reel.txt`：格式一樣，但第一行換一句不同的 hook（用劇情懸念，例如「浴缸裡泡著一個陌生人，他們第一個念頭竟然是…打招呼？」）。
+
+6. **排進發文（promo-queue）**
+   ```bash
+   python3 .agents/skills/promo-queue/scripts/postq.py add promo-vids/<YYYY-MM-DD>/<topic> --hook-reel <影片 hook 句型，例如 劇情懸念>
+   ```
+   - 影片和輪播圖各排一篇，自動接在排程最後面；印出來的時間轉告使用者。
+   - 規則、看板、改順序見 promo-queue skill。
 
 ## 版面規格（照 `assets/slides.html`）
 - 1080x1350、底色 `#0E0F12`、強調色 Nuances 藍 `#4EAFF4`；左右邊距 64。

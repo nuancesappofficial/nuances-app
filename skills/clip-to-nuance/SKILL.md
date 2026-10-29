@@ -68,6 +68,7 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 7. **接著做輪播圖（呼叫 `/clip-to-slides`）**
    - 影片交付後，直接用 Skill 工具呼叫 `clip-to-slides`，沿用同一個工作資料夾的 `<topic>.mp4` 與 `cards.json`，不用重新下載或選字。
    - 從 clip-to-slides 的第 2 步（寫封面 hook）開始，照它的流程走完；hook 一樣要停下來等使用者選定。
+   - clip-to-slides 最後一步會把影片和輪播圖一起排進發文排程（promo-queue），這裡不用另外排。
 
 ## 版面規格（1080x1920、30fps、48kHz stereo）
 - 背景：原片放大填滿 + 高斯模糊。
