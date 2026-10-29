@@ -1,13 +1,13 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- 輪播圖模板（暗色海報風，1080x1350）。render_slides.py 會在同資料夾寫 data.js（window.DATA），用 ?i=<頁序 0 起> 截圖。 -->
+<!-- 輪播圖模板（暗色海報風，寬 1080；高度看 ?h=：1350 = 4:5、1440 = 3:4、1920 = 9:16）。render_slides.py 會在同資料夾寫 data.js（window.DATA），用 ?i=<頁序 0 起>&h=<高> 截圖。 -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Inter:wght@500;600;700;800;900&display=block">
 <style>
-  :root { --bg: #0E0F12; --ink: #F5F6F8; --mute: #9BA1AB; --blue: #4EAFF4; --line: rgba(255,255,255,.12); }
+  :root { --h: 1350px; --bg: #0E0F12; --ink: #F5F6F8; --mute: #9BA1AB; --blue: #4EAFF4; --line: rgba(255,255,255,.12); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 1080px; height: 1350px; overflow: hidden; background: var(--bg); }
+  html, body { width: 1080px; height: var(--h); overflow: hidden; background: var(--bg); }
   body { font-family: "Inter", "Noto Sans TC", "PingFang TC", sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
-  .slide { width: 1080px; height: 1350px; position: relative; overflow: hidden; }
+  .slide { width: 1080px; height: var(--h); position: relative; overflow: hidden; }
   .zh { font-family: "Noto Sans TC", "PingFang TC", sans-serif; }
 
   /* 每頁共用的頂列 / 底列 */
@@ -32,8 +32,8 @@
   .cover .sub { font-size: 36px; line-height: 1.5; color: #C9CDD4; margin-top: 30px; font-weight: 500; }
 
   /* ---------- 單字頁 ---------- */
-  .word-slide .photo { position: absolute; top: 0; left: 0; right: 0; height: 780px; background-size: cover; }
-  .word-slide .shade { position: absolute; top: 0; left: 0; right: 0; height: 782px;
+  .word-slide .photo { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--h) * .578); background-size: cover; }
+  .word-slide .shade { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--h) * .578 + 2px);
     background: linear-gradient(180deg, rgba(14,15,18,.6) 0%, rgba(14,15,18,0) 25%, rgba(14,15,18,0) 60%, var(--bg) 100%); }
   .word-slide .body { position: absolute; left: 64px; right: 64px; bottom: 150px; z-index: 2; }
   .quote { font-size: 120px; line-height: .6; font-weight: 900; color: var(--blue); font-family: Georgia, serif; height: 56px; }
@@ -48,6 +48,12 @@
   .def-row { display: flex; align-items: center; gap: 20px; margin-top: 26px; }
   .pos { font-size: 28px; font-weight: 700; color: var(--blue); border: 2px solid var(--blue); border-radius: 999px; padding: 4px 20px; flex: none; }
   .def { font-size: 44px; font-weight: 700; line-height: 1.3; }
+
+  /* ---------- 9:16 安全區 ---------- */
+  .tall .top { top: 150px; }
+  .tall .foot { bottom: 300px; right: 180px; }
+  .tall .cover .text, .tall .word-slide .body { bottom: 390px; right: 180px; }
+  .tall .cta .center { padding-bottom: 200px; }
 
   /* ---------- CTA ---------- */
   .cta .photo { position: absolute; inset: -80px; background-size: cover; background-position: center;
@@ -66,7 +72,12 @@
 <script src="data.js"></script>
 <script>
 const D = window.DATA;
-const i = +new URLSearchParams(location.search).get('i') || 0;
+const qs = new URLSearchParams(location.search);
+const i = +qs.get('i') || 0;
+const H = +qs.get('h') || 1350;
+document.documentElement.style.setProperty('--h', H + 'px');
+// 9:16 會被 TikTok / Reels / Shorts 的介面蓋住：上方分頁列、右側按鈕、下方文案，所以內容往安全區內縮
+if (H >= 1900) document.documentElement.classList.add('tall');
 const total = D.words.length + 2;
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // 文案語法：| 斷行、[文字] 標藍
@@ -112,7 +123,7 @@ document.body.insertAdjacentHTML('beforeend', html);
 document.fonts.ready.then(() => {
   const box = document.querySelector('.cover .text, .word-slide .body');
   if (!box) return;
-  const limit = box.closest('.cover') ? 300 : 430;
+  const limit = H * (box.closest('.cover') ? .22 : .32);
   const shrink = [...box.querySelectorAll('h1, .sub, .line-en, .line-zh, .word, .def')];
   const base = shrink.map(el => parseFloat(getComputedStyle(el).fontSize));
   for (let s = 1; s > 0.6 && box.getBoundingClientRect().top < limit; s -= 0.04)

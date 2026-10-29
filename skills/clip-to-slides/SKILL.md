@@ -1,11 +1,11 @@
 ---
 name: clip-to-slides
-description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗色海報風，4:5 1080x1350）：封面一句「打破你以為的」hook → 每個目標單字一頁（劇照 + 台詞 + 單字解釋）→ CTA。當使用者要把片段做成圖文輪播、slideshow、carousel，或呼叫 /clip-to-slides 時使用。
+description: 把 clip-to-nuance 做好的影視片段變成輪播圖（暗色海報風，一次輸出 4:5 / 3:4 / 9:16 三種尺寸和一支 9:16 輪播影片，給不同平台用）：封面一句「打破你以為的」hook → 每個目標單字一頁（劇照 + 台詞 + 單字解釋）→ CTA。當使用者要把片段做成圖文輪播、slideshow、carousel，或呼叫 /clip-to-slides 時使用。
 ---
 
 # Clip to Slides
 
-成品結構：**封面 hook → 單字頁 ×3–5（一字一頁）→ CTA**，全部 1080x1350 PNG。素材直接吃 clip-to-nuance 的工作資料夾，不用重新下載。
+成品結構：**封面 hook → 單字頁 ×3–5（一字一頁）→ CTA**，一次輸出各平台要的版本（見下面「輸出」）。素材直接吃 clip-to-nuance 的工作資料夾，不用重新下載。
 
 ## 管線流程（6 步驟）
 
@@ -42,7 +42,15 @@ description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗�
    ```bash
    python3 .agents/skills/clip-to-slides/scripts/render_slides.py --slides slides.json
    ```
-   - 輸出 `slides/slide_01.png`…，和一張總覽 `<topic>-slides-strip.jpg`。
+   - 輸出（約 20 秒）：
+     | 檔案 | 尺寸 | 給誰 |
+     |---|---|---|
+     | `slides/slide_01.png`… | 4:5 1080x1350 | IG、Threads、Dcard、X（前 4 張） |
+     | `slides-3x4/` | 3:4 1080x1440 | 小紅書圖文 |
+     | `slides-9x16/` | 9:16 1080x1920 | TikTok 圖文、抖音、LINE VOOM |
+     | `<topic>-slideshow.mp4` | 9:16 影片，約 15 秒 | FB Reels、TikTok、YouTube Shorts（只收影片的平台） |
+     | `<topic>-slides-strip.jpg` | 4:5 總覽 | 自己檢查用 |
+   - `--sizes 4x5` 只出某些尺寸、`--no-video` 不做影片。哪個平台用哪個版本由 promo-queue 自動挑。
    - **讀總覽圖自己檢查**：封面臉有沒有被裁掉、例句標色有沒有標到、字有沒有被擠小。文字太長時模板會自動縮字（最多縮到 60%），縮太多就改短文案。
 
 5. **交付**
@@ -58,12 +66,15 @@ description: 把 clip-to-nuance 做好的影視片段變成 IG 輪播圖（暗�
    - 規則、看板、改順序見 promo-queue skill。
 
 ## 版面規格（照 `assets/slides.html`）
-- 1080x1350、底色 `#0E0F12`、強調色 Nuances 藍 `#4EAFF4`；左右邊距 64。
+- 寬 1080，高 1350 / 1440 / 1920（模板 `?h=`）、底色 `#0E0F12`、強調色 Nuances 藍 `#4EAFF4`；左右邊距 64。
 - 頂列：左邊系列字（封面 = `show`、單字頁 = `WORD 01`、CTA = `NUANCES`），右邊頁碼 `n / 總頁數`。底列：App icon + `Nuances`，右邊「往右滑 →」（封面）或 `→`。
 - 封面：劇照滿版 + 底部暗色漸層；藍底小標、104px 粗 900 大標、36px 副標。
 - 單字頁：上方 780px 劇照漸層融進黑底；下方依序是藍色引號、英文台詞（目標字藍底標色，`match` 規則同 clip-to-nuance）、中文翻譯、分隔線、92px 單字 + 音標、詞性外框膠囊 + 中文釋義。
 - CTA：封面劇照模糊壓暗當底，App icon、標語（`|` 斷行、`[ ]` 標藍）、副標、App Store / Google Play 徽章、App 名稱。
 - 字型：Noto Sans TC（900）+ Inter，渲染時從 Google Fonts 載入，**需要網路**；離線會退回 PingFang TC（變細，不能用）。
+
+- 9:16 有安全區：TikTok / Reels / Shorts 的介面會蓋住上方約 150px、右側約 180px、下方約 300px，所以 9:16 的頂列、文字區、底列都往內縮（模板的 `.tall` 規則）。
+- 輪播影片：封面停 3 秒、每個單字頁 2.8 秒、CTA 3.2 秒，左滑換頁 0.35 秒，換頁配 clip-to-nuance `sfx.py` 的 swipe 音效、CTA 配 shine。
 
 ## Skill 檔案
 - `scripts/render_slides.py`：抓畫面（ffmpeg）→ 寫 `data.js` → Chrome headless 逐頁截圖 → 總覽圖；`--contact` 出挑封面用的總覽。

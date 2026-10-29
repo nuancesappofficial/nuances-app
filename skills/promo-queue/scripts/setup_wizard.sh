@@ -184,17 +184,17 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 #
-# Nuances 自動發文設定：Supabase（放公開媒體）→ Instagram → Threads → TikTok → YouTube → 排程。
+# Nuances 自動發文設定：Supabase（放公開媒體）→ Instagram → Threads → Facebook 粉專 → TikTok → YouTube → 上傳雲端。
 # 在專案根目錄跑：bash skills/promo-queue/scripts/setup_wizard.sh
-# 每個平台都可以先跳過，之後重跑只設那一個。值記在 ~/.config/nuances-promo/wizard.env，
+# 一次設定一個國家（channel，例如 tw、jp）的帳號；要加國家就重跑一次選新的代號。
+# 每個平台都可以先跳過，之後重跑只設那一個。值記在 ~/.config/nuances-promo/wizard.<國家>.env，
 # 完成的平台寫進本機 secrets.json，最後只把「這次有完成的平台」傳到雲端（postq.py 會在雲端輪替 token，跳過的平台不覆蓋）。
 
-TOTAL_STAGES=10
+TOTAL_STAGES=11
 
 CONF_DIR="$HOME/.config/nuances-promo"
 mkdir -p "$CONF_DIR"; chmod 700 "$CONF_DIR"
-ENV_FILE="$CONF_DIR/wizard.env"
-touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
+ENV_FILE="$CONF_DIR/wizard.env"   # 第 1 步選好國家後換成 wizard.<國家>.env，各國帳號分開記
 SECRETS_JSON="$CONF_DIR/secrets.json"
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPTS/../../.." && pwd)"
@@ -235,10 +235,22 @@ say "這個精靈會幫你把 4 個平台的發文和成效權限接好，最後
 say "先確認這些帳號都已經存在（沒有的話先去 App 裡建好）："
 step "Instagram：Nuances 的帳號要切成「專業帳號」（商業或創作者都可以）"
 step "Threads：用同一個 Instagram 帳號登入過 Threads"
+step "Facebook：Nuances 的粉絲專頁（你要是粉專管理員）"
 step "TikTok：Nuances 的 TikTok 帳號"
 step "YouTube：Nuances 的 Google 帳號，底下已經有頻道"
 step "GitHub CLI 已登入（gh auth status），精靈要幫 repo 設定兩個 secret"
 note "任何一個平台還沒準備好，到那一步選 N 跳過就好，之後重跑精靈再補。"
+say ""
+say "每個國家是一組獨立的帳號。這次要設定哪個國家？"
+note "代號用兩個小寫字母：tw 台灣、hk 香港、jp 日本、kr 韓國、my 馬來西亞…（現有的國家：$(cd "$REPO" && python3 "$SCRIPTS/postq.py" channel list 2>/dev/null | awk '{print $1}' | paste -sd ' ' - || true)）"
+printf '  %s國家代號（Enter = tw）：%s ' "$BOLD" "$RESET"
+read -r CHANNEL || true
+CHANNEL="${CHANNEL:-tw}"
+ENV_FILE="$CONF_DIR/wizard.$CHANNEL.env"
+touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
+if [[ "$CHANNEL" != tw ]]; then
+  warn "TikTok 帳號的地區在註冊時就決定了：$CHANNEL 的 TikTok 帳號要用當地門號或當地網路註冊，才會被推給當地的人。"
+fi
 pause "都確認好了就按 Enter"
 
 # ── 2 ────────────────────────────────────────────────────────────────────
@@ -250,6 +262,11 @@ note "專案：$SUPABASE_URL"
 open_url "https://supabase.com/dashboard/project/$(printf '%s' "$SUPABASE_URL" | sed -E 's#https://([^.]+)\..*#\1#')/settings/api-keys"
 step "在 API Keys 頁面找到 service_role（或 Secret keys 底下的 secret key），按 Reveal 後複製"
 warn "這把鑰匙權限很大，只會存在你這台 Mac 的 $CONF_DIR，不會進 git"
+# 設過別的國家時，Supabase 金鑰已經在 secrets.json，直接帶入（Enter 沿用）
+if [[ -z "$(_existing SUPABASE_SERVICE_KEY || true)" ]]; then
+  PREV=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.config/nuances-promo/secrets.json"))).get("supabase",{}).get("service_key",""))' 2>/dev/null || true)
+  [[ -n "$PREV" ]] && printf 'SUPABASE_SERVICE_KEY=%s\n' "$PREV" >> "$ENV_FILE"
+fi
 ask_secret SUPABASE_SERVICE_KEY "貼上 service key："
 write_env SUPABASE_SERVICE_KEY "$SUPABASE_SERVICE_KEY"
 say "建立公開 bucket「$BUCKET」，並放一個授權用的回呼頁…"
@@ -274,21 +291,23 @@ say "${BOLD}$CALLBACK${RESET}"
 pause
 
 # ── 3 ────────────────────────────────────────────────────────────────────
-stage "Meta：建立 App（IG + Threads 共用）"
-if confirm "要設定 Instagram / Threads 嗎？"; then
+stage "Meta：建立 App（IG + Threads + Facebook 共用）"
+if confirm "要設定 Instagram / Threads / Facebook 嗎？"; then
   DO_META=1
   open_url "https://developers.facebook.com/apps/creation/"
+  note "已經為別的國家建過 Meta App 的話，不用再建：直接按 Enter 到下一步，用同一個 App 加這個國家的帳號。"
   step "用管理 Nuances IG 的 Facebook 帳號登入（第一次會要你註冊成開發者，照畫面走）"
   step "建立應用程式 → 名稱填「Nuances Poster」→ 用途勾選："
   note "    「管理 Instagram 上的訊息和內容」(Manage messaging & content on Instagram)"
   note "    「存取 Threads API」(Access the Threads API)"
+  note "    「管理粉絲專頁上的所有內容」(Manage everything on your Page)"
   note "    如果不能同時勾兩個，就先勾 Instagram，之後在 App 的「使用案例」再加 Threads；還是不行就各建一個 App"
   step "商家帳號可以先不連，一路按下一步到建立完成"
   note "不用送審：App 維持開發模式，就能發文到你自己（有角色）的帳號。"
   pause "App 建好了就按 Enter"
 else
   DO_META=0
-  SKIPPED+=("Instagram / Threads（之後重跑精靈）")
+  SKIPPED+=("Instagram / Threads / Facebook（之後重跑精靈）")
 fi
 
 # ── 4 ────────────────────────────────────────────────────────────────────
@@ -297,7 +316,7 @@ if [[ "$DO_META" == 1 ]]; then
   step "在 App 後台左邊選「使用案例」→ Instagram 那一項按「自訂」"
   step "選「使用 Instagram 登入的 API 設定」(API setup with Instagram login)"
   step "權限要有 instagram_business_basic、instagram_business_content_publish、instagram_business_manage_insights（沒有就按新增）"
-  step "第 2 段「產生存取權杖」→「新增帳號」→ 登入 Nuances 的 IG"
+  step "第 2 段「產生存取權杖」→「新增帳號」→ 登入 $CHANNEL 這個國家的 Nuances IG 帳號"
   note "    如果要你接受測試者邀請：IG App → 設定 → 應用程式和網站 → 測試者邀請 → 接受"
   step "帳號出現後按「產生權杖」，勾同意後複製那串 token"
   ask_secret IG_TOKEN "貼上 Instagram token："
@@ -356,11 +375,51 @@ else
   note "跳過"; pause
 fi
 
+# ── 5b ───────────────────────────────────────────────────────────────────
+stage "Facebook 粉專：授權"
+if [[ "$DO_META" == 1 ]] && confirm "要設定 Facebook 粉專嗎？"; then
+  step "App 後台 →「使用案例」→「管理粉絲專頁上的所有內容」按「自訂」，權限加上："
+  note "    pages_show_list、pages_read_engagement、pages_manage_posts、read_insights"
+  step "左邊「應用程式設定」→「基本資料」，複製「應用程式編號」和「應用程式密鑰」（顯示後複製）"
+  ask FB_APP_ID "應用程式編號："
+  ask_secret FB_APP_SECRET "應用程式密鑰："
+  write_env FB_APP_ID "$FB_APP_ID"; write_env FB_APP_SECRET "$FB_APP_SECRET"
+  open_url "https://developers.facebook.com/tools/explorer/"
+  step "右邊「Meta App」選 Nuances Poster；「使用者或粉專」選「取得用戶存取權杖」"
+  step "「權限」加入上面那 4 個 → 按「Generate Access Token」→ 勾選 $CHANNEL 這個國家的 Nuances 粉專 → 完成"
+  step "複製上方的「存取權杖」"
+  ask_secret FB_USER_TOKEN "貼上存取權杖："
+  PAGES=$(ID="$FB_APP_ID" SEC="$FB_APP_SECRET" TOK="$FB_USER_TOKEN" py '
+import os, json, requests
+e, api = os.environ, "https://graph.facebook.com/v23.0"
+r = requests.get(f"{api}/oauth/access_token", timeout=30, params={"grant_type": "fb_exchange_token", "client_id": e["ID"],
+                 "client_secret": e["SEC"], "fb_exchange_token": e["TOK"]})
+if r.status_code >= 400: raise SystemExit(f"換長效權杖失敗：{r.text}")
+r = requests.get(f"{api}/me/accounts", params={"access_token": r.json()["access_token"], "fields": "id,name,access_token"}, timeout=30)
+if r.status_code >= 400: raise SystemExit(f"讀不到粉專：{r.text}")
+print(json.dumps(r.json().get("data", [])))') || { warn "Facebook 授權失敗，這次先跳過"; PAGES="[]"; }
+  N=$(printf '%s' "$PAGES" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))')
+  if [[ "$N" == 0 ]]; then
+    warn "沒有找到粉專（授權時要勾選粉專），這次先跳過"; SKIPPED+=("Facebook 粉專")
+  else
+    printf '%s' "$PAGES" | python3 -c 'import json,sys;[print("    %d. %s" % (i + 1, p["name"])) for i, p in enumerate(json.load(sys.stdin))]'
+    PICK=1
+    if [[ "$N" != 1 ]]; then printf '  %s要用哪一個（輸入編號）：%s ' "$BOLD" "$RESET"; read -r PICK || true; fi
+    FB_JSON=$(printf '%s' "$PAGES" | PICK="$PICK" python3 -c 'import json,os,sys;p=json.load(sys.stdin)[int(os.environ["PICK"])-1];print(json.dumps({"page_id":p["id"],"name":p["name"],"token":p["access_token"]}))')
+    save_section facebook "$FB_JSON"
+    note "粉專權杖由長效權杖換來，不會過期（除非你改密碼或移除 App 權限）。"
+  fi
+  pause
+else
+  note "跳過"; pause
+fi
+
 # ── 6 ────────────────────────────────────────────────────────────────────
 stage "TikTok：建立 App"
 if confirm "要設定 TikTok 嗎？"; then
   DO_TT=1
   open_url "https://developers.tiktok.com/apps/"
+  note "已經為別的國家建過 TikTok App 的話，不用再建：沿用同一組 Client key / secret，Sandbox 的 Target Users 加入這個國家的帳號。"
   step "用 Nuances 的 TikTok 帳號登入開發者平台 → Manage apps → Connect an app"
   step "填基本資料：App icon、名稱、說明、Category，Terms of Service / Privacy Policy 網址填 Nuances 官網的"
   step "Products 加上 Login Kit 和 Content Posting API（Content Posting 裡把 Direct Post 打開）"
@@ -383,7 +442,7 @@ fi
 stage "TikTok：授權"
 if [[ "$DO_TT" == 1 ]]; then
   open_url "https://www.tiktok.com/v2/auth/authorize/?client_key=$TT_CLIENT_KEY&scope=user.info.basic,video.publish,video.list&response_type=code&state=nuances&redirect_uri=$(CB="$CALLBACK" py 'import os,urllib.parse as u;print(u.quote(os.environ["CB"],safe=""))')"
-  step "用 Nuances 的 TikTok 帳號按授權。跳轉後把網址列整段複製回來"
+  step "用 $CHANNEL 這個國家的 Nuances TikTok 帳號按授權（瀏覽器登入的是別的帳號就先登出）。跳轉後把網址列整段複製回來"
   ask_code TT_CODE "貼上跳轉後的整段網址："
   TT_JSON=$(K="$TT_CLIENT_KEY" S="$TT_CLIENT_SECRET" CODE="$TT_CODE" CB="$CALLBACK" py '
 import os, json, requests
@@ -404,6 +463,7 @@ fi
 stage "YouTube：建立 Google Cloud 專案"
 if confirm "要設定 YouTube Shorts 嗎？"; then
   DO_YT=1
+  note "已經為別的國家建過 Google Cloud 專案的話，不用再建：沿用同一組用戶端 ID / 密鑰。"
   open_url "https://console.cloud.google.com/projectcreate"
   step "用 Nuances 的 Google 帳號 → 建立專案，名稱「Nuances Poster」"
   open_url "https://console.cloud.google.com/apis/library/youtube.googleapis.com"
@@ -429,7 +489,7 @@ fi
 stage "YouTube：授權"
 if [[ "$DO_YT" == 1 ]]; then
   say "接下來會打開 Google 登入頁，授權後自動回到這裡（本機 127.0.0.1:8765 接收）。"
-  step "選 Nuances 的帳號（有多個頻道時選 Nuances 的頻道）"
+  step "選 $CHANNEL 這個國家的 Nuances 頻道（同一個 Google 帳號底下有多個頻道時，在這裡選對的那個）"
   step "看到「Google 尚未驗證這個應用程式」→ 進階 → 前往 Nuances Poster → 允許"
   note "YouTube API 專案沒通過 Google 稽核前，上傳的影片會被設成私人；要公開得另外申請稽核。"
   pause "準備好就按 Enter 打開授權頁"
@@ -465,29 +525,30 @@ fi
 # ── 10 ───────────────────────────────────────────────────────────────────
 stage "上傳到雲端，開啟自動發文"
 say "金鑰和排程會存在 Supabase 的私人空間，由 GitHub Actions 每小時檢查一次，Mac 關機也會發。"
+if ! (cd "$REPO" && python3 "$SCRIPTS/postq.py" channel list | awk '{print $1}' | grep -qx "$CHANNEL"); then
+  say "新增國家 $CHANNEL："
+  ask CH_NAME "顯示名稱（例如 日本）："
+  ask CH_TZ "時區（例如 Asia/Tokyo、Asia/Hong_Kong、Asia/Seoul）："
+  ask CH_LANG "內容語言（例如 ja、zh-Hant、zh-Hans、ko、es）："
+  write_env CH_NAME "$CH_NAME"; write_env CH_TZ "$CH_TZ"; write_env CH_LANG "$CH_LANG"
+  (cd "$REPO" && python3 "$SCRIPTS/postq.py" channel add "$CHANNEL" --name "$CH_NAME" --tz "$CH_TZ" --lang "$CH_LANG")
+fi
 PLATFORMS=""
 for d in "${DONE[@]}"; do [[ "$d" != supabase ]] && PLATFORMS="${PLATFORMS:+$PLATFORMS,}$d"; done
 if [[ -n "$PLATFORMS" ]]; then
-  (cd "$REPO" && python3 "$SCRIPTS/postq.py" push-secrets --only "$PLATFORMS")
+  (cd "$REPO" && python3 "$SCRIPTS/postq.py" push-secrets --channel "$CHANNEL" --only "$PLATFORMS")
 else
   note "這次沒有新設定的平台，不用上傳金鑰"
 fi
 set_secret SUPABASE_URL "$SUPABASE_URL"
 set_secret SUPABASE_SERVICE_KEY "$SUPABASE_SERVICE_KEY"
 say ""
-say "目前設定：每天台灣時間 20:00 發一篇（影片和輪播圖各算一篇）。"
+say "預設每天當地時間 20:00 發一篇（影片和輪播圖各算一篇）。"
 ask POST_SLOTS "要改時段嗎？用逗號分隔，例如 12:30,20:00（Enter 用 20:00）："
 POST_SLOTS="${POST_SLOTS:-20:00}"
 write_env POST_SLOTS "$POST_SLOTS"
-(cd "$REPO" && SLOTS="$POST_SLOTS" SCRIPTS="$SCRIPTS" py '
-import os, sys
-sys.path.insert(0, os.environ["SCRIPTS"])
-import postq
-q = postq.load()
-q["settings"]["slots"] = [s.strip() for s in os.environ["SLOTS"].split(",") if s.strip()]
-postq.save(q)
-postq.cmd_reschedule(q, None)')
-printf '  %s✓ saved%s 發文時段 %s\n' "$GREEN" "$RESET" "$POST_SLOTS"
+(cd "$REPO" && python3 "$SCRIPTS/postq.py" channel set "$CHANNEL" --slots "$POST_SLOTS" && python3 "$SCRIPTS/postq.py" reschedule >/dev/null)
+printf '  %s✓ saved%s %s 發文時段 %s\n' "$GREEN" "$RESET" "$CHANNEL" "$POST_SLOTS"
 note "GitHub Actions 的排程只在 main 分支上有效：promo-queue.yml 合併進 main 之後才會開始自動發。"
 note "這次完成：${DONE[*]:-無}"
 note "看板：promo-vids/dashboard.html（用瀏覽器打開，會自動讀雲端最新資料）"

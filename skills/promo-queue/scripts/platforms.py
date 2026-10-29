@@ -129,6 +129,19 @@ def tiktok_headers(sec):
     return {"Authorization": f"Bearer {t['access_token']}", "Content-Type": "application/json; charset=UTF-8"}
 
 
+def x_text(caption, limit=280):
+    """X 上限 280（中日韓字算 2）：留第一行 hook、CTA 那行、前 2 個 hashtag。"""
+    lines = [l.strip() for l in caption.splitlines() if l.strip()]
+    tags = [w for w in caption.split() if w.startswith("#")][:2]
+    body = [l for l in lines if not l.startswith("#")]
+    keep = [body[0]] + [l for l in body[1:] if "Nuances" in l][:1] if body else []
+    text = "\n\n".join(keep + ([" ".join(tags)] if tags else []))
+    w = lambda t: sum(2 if ord(c) > 0x2E7F else 1 for c in t)
+    while w(text) > limit and len(text) > 1:
+        text = text[:-2] + "…"
+    return text
+
+
 # ---------- YouTube Shorts ----------
 def youtube(kind, files, caption, sec):
     if kind != "reel":
@@ -179,10 +192,43 @@ def tiktok(kind, files, caption, sec):
     raise RuntimeError("TikTok 處理逾時")
 
 
+# ---------- Facebook 粉專 ----------
+FB = "https://graph.facebook.com/v23.0"
+
+
+def facebook(kind, urls, caption, sec):
+    """影片 → 粉專 Reels（用公開網址讓 FB 自己抓檔）；輪播圖 → 多圖貼文。sec = {page_id, token(粉專 token)}。"""
+    need(sec, "page_id", "token")
+    pid, tok = sec["page_id"], sec["token"]
+    if kind == "reel":
+        vid = _check(requests.post(f"{FB}/{pid}/video_reels", data={"upload_phase": "start", "access_token": tok}, timeout=TIMEOUT))["video_id"]
+        _check(requests.post(f"https://rupload.facebook.com/video-upload/v23.0/{vid}", timeout=TIMEOUT,
+                             headers={"Authorization": f"OAuth {tok}", "file_url": urls[0]}))
+        def uploaded():
+            st = _check(requests.get(f"{FB}/{vid}", params={"fields": "status", "access_token": tok}, timeout=TIMEOUT)).get("status", {})
+            if st.get("video_status") in ("upload_failed", "error", "expired"):
+                return "ERROR"
+            done = st.get("uploading_phase", {}).get("status") == "complete" or st.get("video_status") in ("upload_complete", "processing", "ready")
+            return "OK" if done else "WAIT"
+        _wait(uploaded, ("OK",), "FB 影片上傳")
+        _check(requests.post(f"{FB}/{pid}/video_reels", timeout=TIMEOUT, data={
+            "video_id": vid, "upload_phase": "finish", "video_state": "PUBLISHED", "description": caption, "access_token": tok}))
+        return {"id": vid, "url": f"https://www.facebook.com/reel/{vid}"}
+    photos = [_check(requests.post(f"{FB}/{pid}/photos", data={"url": u, "published": "false", "access_token": tok},
+                                   timeout=TIMEOUT))["id"] for u in urls]
+    post = _check(requests.post(f"{FB}/{pid}/feed", timeout=TIMEOUT, data={
+        "message": caption, "attached_media": json.dumps([{"media_fbid": x} for x in photos]), "access_token": tok}))["id"]
+    return {"id": post, "url": f"https://www.facebook.com/{post}"}
+
+
 # 哪些平台要先把檔案傳到公開網址
-NEEDS_URL = {"instagram", "threads"}
-ADAPTERS = {"instagram": instagram, "threads": threads, "tiktok": tiktok, "youtube": youtube}
-SUPPORTS = {"instagram": {"reel", "carousel"}, "threads": {"reel", "carousel"}, "tiktok": {"reel"}, "youtube": {"reel"}}
+NEEDS_URL = {"instagram", "threads", "facebook"}
+ADAPTERS = {"instagram": instagram, "threads": threads, "tiktok": tiktok, "youtube": youtube, "facebook": facebook}
+SUPPORTS = {"instagram": {"reel", "carousel"}, "threads": {"reel", "carousel"}, "tiktok": {"reel"}, "youtube": {"reel"},
+            "facebook": {"reel", "carousel"}}
+# 沒有開放發文 API 的平台：時間到時看板會列出來，使用者手動發完再用 postq.py done 標記
+MANUAL = {"xiaohongshu": "小紅書", "douyin": "抖音", "bilibili": "Bilibili", "line_voom": "LINE VOOM", "dcard": "Dcard",
+          "naver_blog": "Naver Blog", "x": "X"}
 
 
 def refresh_meta_tokens(secrets):
@@ -203,10 +249,10 @@ IG_METRICS = {"reel": ["reach", "views", "likes", "comments", "saved", "shares",
               "carousel": ["reach", "views", "likes", "comments", "saved", "shares", "follows", "profile_visits"]}
 
 
-def _meta_insights(api, mid, names, tok):
+def _meta_insights(api, mid, names, tok, edge="insights"):
     """一次要全部；有指標不支援（API 會整批報錯）就改成一個一個要，略過失敗的。"""
     def fetch(ns):
-        r = requests.get(f"{api}/{mid}/insights", params={"metric": ",".join(ns), "access_token": tok}, timeout=TIMEOUT)
+        r = requests.get(f"{api}/{mid}/{edge}", params={"metric": ",".join(ns), "access_token": tok}, timeout=TIMEOUT)
         if r.status_code >= 400:
             return None
         out = {}
@@ -268,4 +314,40 @@ def youtube_metrics(kind, vid, posted_at, sec):
             "shares": m.get("shares", 0), "subs_gained": m.get("subscribersGained", 0)}
 
 
-METRICS = {"instagram": instagram_metrics, "threads": threads_metrics, "tiktok": tiktok_metrics, "youtube": youtube_metrics}
+def facebook_metrics(kind, oid, posted_at, sec):
+    """Reels：video_insights（播放、平均觀看秒數）+ 按讚 / 留言數；多圖貼文：分享 / 按讚 / 留言 + 點擊。
+    FB 的 Reels 互動不在貼文 insights 裡，所以分享數拿不到時 keep 只算得到 0。"""
+    need(sec, "token")
+    tok = sec["token"]
+    out = {}
+    if kind == "reel":
+        try:
+            out.update(_meta_insights(FB, oid, ["blue_reels_play_count", "post_video_avg_time_watched"], tok, edge="video_insights"))
+        except RuntimeError:
+            pass
+        f = requests.get(f"{FB}/{oid}", params={"fields": "likes.summary(true).limit(0),comments.summary(true).limit(0)",
+                                                "access_token": tok}, timeout=TIMEOUT)
+    else:
+        try:
+            out.update(_meta_insights(FB, oid, ["post_clicks", "post_impressions_organic"], tok))
+        except RuntimeError:
+            pass
+        f = requests.get(f"{FB}/{oid}", params={"fields": "shares,reactions.summary(true).limit(0),comments.summary(true).limit(0)",
+                                                "access_token": tok}, timeout=TIMEOUT)
+    if f.status_code < 400:
+        j = f.json()
+        out["likes"] = (j.get("likes") or j.get("reactions") or {}).get("summary", {}).get("total_count", 0)
+        out["comments"] = (j.get("comments") or {}).get("summary", {}).get("total_count", 0)
+        if "shares" in j:
+            out["shares"] = j["shares"].get("count", 0)
+    m = {"views": out.get("blue_reels_play_count") or out.get("post_impressions_unique") or out.get("post_impressions_organic", 0),
+         "likes": out.get("likes", 0), "comments": out.get("comments", 0), "shares": out.get("shares", 0)}
+    if "post_video_avg_time_watched" in out:
+        m["avg_watch_s"] = out["post_video_avg_time_watched"] / 1000
+    if "post_clicks" in out:
+        m["clicks"] = out["post_clicks"]
+    return m
+
+
+METRICS = {"instagram": instagram_metrics, "threads": threads_metrics, "tiktok": tiktok_metrics, "youtube": youtube_metrics,
+           "facebook": facebook_metrics}
