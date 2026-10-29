@@ -32,6 +32,13 @@ def need(sec, *keys):
 
 
 # ---------- 媒體上傳 ----------
+def sb_headers(key):
+    """Supabase 金鑰：新版 secret key（sb_secret_…）只放 apikey；舊版 service_role（JWT，eyJ…）兩個都放。"""
+    h = {"apikey": key}
+    if key.startswith("eyJ"):
+        h["Authorization"] = f"Bearer {key}"
+    return h
+
 def upload_public(secrets, path, key):
     """上傳到 Supabase Storage 公開 bucket，回傳公開網址。PNG 轉成 JPEG（IG 輪播只收 JPEG）。"""
     s = secrets.get("supabase", {})
@@ -45,7 +52,7 @@ def upload_public(secrets, path, key):
         body, ctype = path.read_bytes(), mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     base = s["url"].rstrip("/")
     r = requests.post(f"{base}/storage/v1/object/{s['bucket']}/{key}", data=body, timeout=300,
-                      headers={"Authorization": f"Bearer {s['service_key']}", "Content-Type": ctype, "x-upsert": "true"})
+                      headers={**sb_headers(s["service_key"]), "Content-Type": ctype, "x-upsert": "true"})
     _check(r)
     return f"{base}/storage/v1/object/public/{s['bucket']}/{key}"
 
@@ -62,9 +69,15 @@ def _wait(get_status, ok, label):
     raise RuntimeError(f"{label} 處理逾時")
 
 
+def ig_api(sec):
+    """IG 有兩條路：Instagram 登入（graph.instagram.com，IG token 60 天）；
+    Facebook 登入（graph.facebook.com，IG 要連到粉專，用粉專 token、不會過期）→ sec["via"] == "facebook"。"""
+    return FB if sec.get("via") == "facebook" else "https://graph.instagram.com/v21.0"
+
+
 def instagram(kind, urls, caption, sec):
     need(sec, "user_id", "token")
-    api, uid = "https://graph.instagram.com/v21.0", sec["user_id"]
+    api, uid = ig_api(sec), sec["user_id"]
     tok = {"access_token": sec["token"]}
     status = lambda cid: _check(requests.get(f"{api}/{cid}", params={**tok, "fields": "status_code"}, timeout=TIMEOUT)).get("status_code")
     if kind == "reel":
@@ -237,7 +250,7 @@ def refresh_meta_tokens(secrets):
     for name, url, grant in (("instagram", "https://graph.instagram.com/refresh_access_token", "ig_refresh_token"),
                              ("threads", "https://graph.threads.net/refresh_access_token", "th_refresh_token")):
         sec = secrets.get(name, {})
-        if not sec.get("token") or sec.get("token_expires", 0) - now > 20 * 86400:
+        if not sec.get("token") or "token_expires" not in sec or sec["token_expires"] - now > 20 * 86400:
             continue
         j = _check(requests.get(url, params={"grant_type": grant, "access_token": sec["token"]}, timeout=TIMEOUT))
         sec["token"], sec["token_expires"] = j["access_token"], now + int(j.get("expires_in", 5184000))
@@ -273,7 +286,7 @@ def _meta_insights(api, mid, names, tok, edge="insights"):
 
 def instagram_metrics(kind, mid, posted_at, sec):
     need(sec, "token")
-    m = _meta_insights("https://graph.instagram.com/v21.0", mid, IG_METRICS[kind], sec["token"])
+    m = _meta_insights(ig_api(sec), mid, IG_METRICS[kind], sec["token"])
     if "ig_reels_avg_watch_time" in m:
         m["avg_watch_s"] = m.pop("ig_reels_avg_watch_time") / 1000   # API 給毫秒
     return m

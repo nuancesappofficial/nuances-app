@@ -46,7 +46,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 ## 平台
 | 平台 | 方式 | 影片 | 輪播圖 |
 |---|---|---|---|
-| Instagram | API | Reels | 輪播 |
+| Instagram | API（走 Facebook 登入：IG 要連到同國家的 FB 粉專，用粉專權杖，不會過期；`secrets` 裡 `via: facebook`） | Reels | 輪播 |
 | Threads | API | 影片 | 輪播 |
 | Facebook 粉專 | API | Reels（90 秒內、30 篇 / 24 小時） | 改發 9:16 輪播影片（FB 多圖會排成拼貼，不能滑） |
 | TikTok | API | 影片 | 改發 9:16 輪播影片（API 圖文要驗證網域） |
