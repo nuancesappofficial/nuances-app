@@ -1,72 +1,82 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- 輪播圖模板（暗色海報風，寬 1080；高度看 ?h=：1350 = 4:5、1440 = 3:4、1920 = 9:16）。render_slides.py 會在同資料夾寫 data.js（window.DATA），用 ?i=<頁序 0 起>&h=<高> 截圖。 -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Inter:wght@500;600;700;800;900&display=block">
+<!-- 輪播圖模板（小報海報風，寬 1080；高度看 ?h=：1350 = 4:5、1440 = 3:4、1920 = 9:16）。render_slides.py 會在同資料夾寫 data.js（window.DATA），用 ?i=<頁序 0 起>&h=<高> 截圖。 -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif:ital,wght@1,400&family=JetBrains+Mono:wght@500&display=block">
 <style>
-  :root { --h: 1350px; --bg: #0E0F12; --ink: #F5F6F8; --mute: #9BA1AB; --blue: #4EAFF4; --line: rgba(255,255,255,.12); }
+  :root { --h: 1350px; --bg: #0B0B0C; --ink: #F3EFE7; --mute: #A39E95; --dim: rgba(243,239,231,.45);
+    --blue: #4EAFF4; --navy: #0A2844; --line: rgba(243,239,231,.16); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 1080px; height: var(--h); overflow: hidden; background: var(--bg); }
-  body { font-family: "Inter", "Noto Sans TC", "PingFang TC", sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+  body { color: var(--ink); -webkit-font-smoothing: antialiased; font-family: "Noto Sans TC", sans-serif; }
   .slide { width: 1080px; height: var(--h); position: relative; overflow: hidden; }
-  .zh { font-family: "Noto Sans TC", "PingFang TC", sans-serif; }
+  .en { font-family: "Anton", sans-serif; font-weight: 400; }
+  .mono { font-family: "JetBrains Mono", monospace; }
+  /* 細顆粒，避免大面積純色看起來太數位 */
+  .grain { position: absolute; inset: 0; z-index: 5; pointer-events: none; opacity: .09; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-  /* 每頁共用的頂列 / 底列 */
-  .top { position: absolute; top: 56px; left: 64px; right: 64px; display: flex; justify-content: space-between;
-    align-items: center; z-index: 3; font-size: 26px; font-weight: 700; letter-spacing: 3px; color: rgba(255,255,255,.75); }
-  .top .num { letter-spacing: 1px; }
-  .foot { position: absolute; bottom: 52px; left: 64px; right: 64px; display: flex; justify-content: space-between;
-    align-items: center; z-index: 3; font-size: 26px; font-weight: 600; color: rgba(255,255,255,.6); }
-  .foot .brand { display: flex; align-items: center; gap: 14px; }
-  .foot img { width: 46px; height: 46px; border-radius: 12px; }
-  .swipe { font-weight: 700; color: var(--ink); letter-spacing: 1px; }
+  /* 每頁共用的頂列 */
+  .top { position: absolute; top: 60px; left: 72px; right: 72px; display: flex; justify-content: space-between; z-index: 4;
+    font-size: 22px; letter-spacing: 4px; color: var(--dim); text-transform: uppercase; }
+  .photo { position: absolute; background-size: cover; background-position: center; }
 
   /* ---------- 封面 ---------- */
-  .cover .photo { position: absolute; inset: 0; background-size: cover; }
+  .cover .photo { inset: 0; }
   .cover .shade { position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(14,15,18,.55) 0%, rgba(14,15,18,0) 22%, rgba(14,15,18,.15) 42%, rgba(14,15,18,.92) 66%, var(--bg) 100%); }
-  .cover .text { position: absolute; left: 64px; right: 64px; bottom: 150px; z-index: 2; }
-  .cover .kicker { display: inline-block; font-size: 30px; font-weight: 700; color: var(--bg); background: var(--blue);
-    padding: 8px 20px; border-radius: 8px; margin-bottom: 30px; }
-  .cover h1 { font-size: 104px; line-height: 1.18; font-weight: 900; letter-spacing: -1px; }
-  .cover h1 .hl { color: var(--blue); }
-  .cover .sub { font-size: 36px; line-height: 1.5; color: #C9CDD4; margin-top: 30px; font-weight: 500; }
+    background: linear-gradient(180deg, rgba(11,11,12,.55) 0%, rgba(11,11,12,0) 20%, rgba(11,11,12,.1) 40%, rgba(11,11,12,.9) 64%, var(--bg) 88%); }
+  .cover .text { position: absolute; left: 72px; right: 72px; bottom: 120px; z-index: 3; }
+  .cover h1 { font-size: 132px; line-height: 1.1; font-weight: 700; letter-spacing: -2px; }
+  .cover .not { font-size: 52px; font-weight: 700; color: var(--mute); margin: 18px 0 6px; }
+  .hl { color: var(--blue); }
+  /* 錯誤說法：藍線劃掉 */
+  .cover .wrong { font-size: 150px; line-height: 1.05; font-style: italic; position: relative; display: inline-block; }
+  .cover .wrong::after { content: ""; position: absolute; left: -10px; right: -14px; top: 54%; height: 9px;
+    background: var(--blue); transform: rotate(-3deg); }
+  .cover .sub { display: flex; justify-content: space-between; align-items: baseline; gap: 24px; margin-top: 56px; padding-top: 28px;
+    border-top: 2px solid var(--line); font-size: 30px; color: var(--mute); }
+  .cover .sub b { color: var(--ink); font-weight: 500; flex: none; }
 
   /* ---------- 單字頁 ---------- */
-  .word-slide .photo { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--h) * .578); background-size: cover; }
-  .word-slide .shade { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--h) * .578 + 2px);
-    background: linear-gradient(180deg, rgba(14,15,18,.6) 0%, rgba(14,15,18,0) 25%, rgba(14,15,18,0) 60%, var(--bg) 100%); }
-  .word-slide .body { position: absolute; left: 64px; right: 64px; bottom: 150px; z-index: 2; }
-  .quote { font-size: 120px; line-height: .6; font-weight: 900; color: var(--blue); font-family: Georgia, serif; height: 56px; }
-  .line-en { font-size: 46px; line-height: 1.32; font-weight: 700; margin-top: 18px; }
-  .line-en .hl { color: var(--bg); background: var(--blue); padding: 0 10px; border-radius: 8px;
-    box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-  .line-zh { font-size: 34px; line-height: 1.5; color: var(--mute); margin-top: 16px; font-weight: 500; }
-  .rule { height: 2px; background: var(--line); margin: 44px 0 40px; }
-  .word-row { display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap; }
-  .word { font-size: 92px; font-weight: 900; letter-spacing: -2.5px; line-height: 1.05; }
-  .ipa { font-size: 32px; color: var(--mute); font-weight: 500; }
-  .def-row { display: flex; align-items: center; gap: 20px; margin-top: 26px; }
-  .pos { font-size: 28px; font-weight: 700; color: var(--blue); border: 2px solid var(--blue); border-radius: 999px; padding: 4px 20px; flex: none; }
-  .def { font-size: 44px; font-weight: 700; line-height: 1.3; }
+  .word-slide .photo { top: 0; left: 0; right: 0; height: calc(var(--h) * .56); }
+  .word-slide .shade { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--h) * .56 + 2px);
+    background: linear-gradient(180deg, rgba(11,11,12,.55) 0%, rgba(11,11,12,0) 22%, rgba(11,11,12,0) 55%, rgba(11,11,12,.75) 85%, var(--bg) 100%); }
+  /* 台詞做成片中字幕，底部對齊在劇照下緣上方 */
+  .sub-line { position: absolute; left: 72px; right: 72px; bottom: calc(var(--h) * .44 + 70px); z-index: 3; text-align: center;
+    text-shadow: 0 2px 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.9); }
+  .sub-line .s-en { font-size: 42px; line-height: 1.3; font-weight: 500; }
+  .sub-line .s-en .hl { font-weight: 700; }
+  .sub-line .s-zh { font-size: 32px; line-height: 1.4; margin-top: 8px; color: #E4E0D8; }
+  .entry { position: absolute; left: 72px; right: 72px; bottom: 110px; z-index: 3; }
+  .entry .meta { display: flex; gap: 22px; align-items: baseline; font-size: 24px; color: var(--mute); letter-spacing: 2px; }
+  .entry .meta .n { color: var(--blue); }
+  .word { font-size: 170px; line-height: .95; text-transform: uppercase; margin: 14px 0 0 -4px; white-space: nowrap; }
+  .ipa { font-family: "Noto Serif", serif; font-size: 38px; font-style: italic; color: var(--mute); margin-top: 6px; }
+  .def { margin-top: 40px; padding-top: 34px; border-top: 2px solid var(--line); font-size: 54px; font-weight: 700; line-height: 1.3; }
+
+  /* ---------- CTA：剛剛學的字疊成單字卡 ---------- */
+  .cta { background: var(--navy); }
+  .cta .glow { position: absolute; inset: 0; background: radial-gradient(80% 50% at 50% 34%, rgba(78,175,244,.22), rgba(10,40,68,0) 70%); }
+  .cta .stack { position: absolute; left: 0; right: 0; top: calc(var(--h) * .1); height: 640px; z-index: 2; }
+  .card { position: absolute; left: 50%; width: 420px; background: #FBF9F5; color: #10151C; border-radius: 34px; overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0,0,0,.35), 0 4px 12px rgba(0,0,0,.2); }
+  .card .img { height: 230px; background-size: cover; background-position: center; }
+  .card .c-body { padding: 26px 34px 34px; }
+  .card .w { font-size: 60px; line-height: 1; text-transform: uppercase; white-space: nowrap; }
+  .card .d { font-size: 28px; font-weight: 500; color: #5A6270; margin-top: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.l { transform: translate(-50%, 190px) translateX(-250px) rotate(-7deg); }
+  .card.r { transform: translate(-50%, 190px) translateX(250px) rotate(7deg); }
+  .card.c { transform: translate(-50%, 0) rotate(-1deg); }
+  .cta .text { position: absolute; left: 72px; right: 72px; bottom: 120px; z-index: 3; text-align: center; }
+  .cta h2 { font-size: 92px; line-height: 1.18; font-weight: 700; letter-spacing: -1px; }
+  .cta .sub { font-size: 32px; color: rgba(243,239,231,.7); margin-top: 22px; }
+  .cta .badges { display: flex; justify-content: center; gap: 22px; margin-top: 50px; }
+  .cta .badges img { height: 92px; }
 
   /* ---------- 9:16 安全區 ---------- */
   .tall .top { top: 150px; }
-  .tall .foot { bottom: 300px; right: 180px; }
-  .tall .cover .text, .tall .word-slide .body { bottom: 390px; right: 180px; }
-  .tall .cta .center { padding-bottom: 200px; }
-
-  /* ---------- CTA ---------- */
-  .cta .photo { position: absolute; inset: -80px; background-size: cover; background-position: center;
-    filter: blur(36px) brightness(.35) saturate(.8); }
-  .cta .center { position: absolute; left: 64px; right: 64px; top: 0; bottom: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; text-align: center; z-index: 2; }
-  .cta .icon { width: 220px; height: 220px; border-radius: 50px; box-shadow: 0 30px 70px rgba(78,175,244,.35); }
-  .cta h2 { font-size: 80px; line-height: 1.25; font-weight: 900; margin-top: 64px; }
-  .cta h2 .hl { color: var(--blue); }
-  .cta .sub { font-size: 36px; line-height: 1.55; color: #C9CDD4; margin-top: 28px; font-weight: 500; }
-  .cta .badges { display: flex; gap: 24px; margin-top: 64px; }
-  .cta .badges img { height: 96px; }
-  .cta .name { font-size: 30px; font-weight: 700; color: rgba(255,255,255,.75); margin-top: 30px; }
+  .tall .cover .text, .tall .entry { bottom: 360px; right: 180px; }
+  .tall .cta .text { bottom: 360px; }
+  .tall .cta .stack { top: calc(var(--h) * .2); }
 </style></head>
 <body>
 <script src="data.js"></script>
@@ -78,7 +88,7 @@ const H = +qs.get('h') || 1350;
 document.documentElement.style.setProperty('--h', H + 'px');
 // 9:16 會被 TikTok / Reels / Shorts 的介面蓋住：上方分頁列、右側按鈕、下方文案，所以內容往安全區內縮
 if (H >= 1900) document.documentElement.classList.add('tall');
-const total = D.words.length + 2;
+const n = D.words.length, total = n + 2;
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // 文案語法：| 斷行、[文字] 標藍
 const rich = s => esc(s).replace(/\[([^\]]+)\]/g, '<span class="hl">$1</span>').replace(/\|/g, '<br>');
@@ -87,44 +97,51 @@ const mark = (s, m) => {
   const k = s.toLowerCase().indexOf(m.toLowerCase());
   return k < 0 ? esc(s) : esc(s.slice(0, k)) + '<span class="hl">' + esc(s.slice(k, k + m.length)) + '</span>' + esc(s.slice(k + m.length));
 };
-const topBar = (l) => `<div class="top"><span>${esc(l)}</span><span class="num">${i + 1} / ${total}</span></div>`;
-const foot = (r) => `<div class="foot"><span class="brand"><img src="icon.png">Nuances</span><span class="swipe zh">${r}</span></div>`;
+const pad = x => String(x).padStart(2, '0');
+const topBar = l => `<div class="top mono"><span>${esc(l)}</span><span>${pad(i + 1)} / ${pad(total)}</span></div>`;
 const photo = (src, pos) => `<div class="photo" style="background-image:url(${src});background-position:${pos || 'center'}"></div>`;
+const grain = '<div class="grain"></div>';
 
 let html;
 if (i === 0) {
+  // hook 第一行當大標；整行只有 [錯誤說法] 的那行用藍線劃掉；其他行是小一號的灰字
   const c = D.cover;
+  const lines = c.hook.split('|').map((l, k) => {
+    const wrong = l.trim().match(/^\[([^\]]+)\]$/);
+    if (wrong) return `<div class="wrong en">${esc(wrong[1])}</div>`;
+    return k === 0 ? `<h1>${rich(l)}</h1>` : `<div class="not">${rich(l)}</div>`;
+  }).join('');
   html = `<div class="slide cover">${photo(c.image, c.focus || '50% 30%')}<div class="shade"></div>${topBar(D.show)}
-    <div class="text zh">${c.kicker ? `<div class="kicker">${esc(c.kicker)}</div>` : ''}
-      <h1>${rich(c.hook)}</h1>${c.sub ? `<div class="sub">${rich(c.sub)}</div>` : ''}</div>
-    ${foot('往右滑 →')}</div>`;
-} else if (i <= D.words.length) {
+    <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>答案往右滑 →</b></div></div>${grain}</div>`;
+} else if (i <= n) {
   const w = D.words[i - 1];
-  html = `<div class="slide word-slide">${photo(w.image, w.focus)}<div class="shade"></div>
-    ${topBar('WORD ' + String(i).padStart(2, '0'))}
-    <div class="body"><div class="quote">“</div>
-      <div class="line-en">${mark(w.sentence, w.match || w.word)}</div>
-      <div class="line-zh zh">${esc(w.translation)}</div>
-      <div class="rule"></div>
-      <div class="word-row"><span class="word">${esc(w.word)}</span><span class="ipa">${esc(w.ipa || '')}</span></div>
-      <div class="def-row zh">${w.pos ? `<span class="pos">${esc(w.pos)}</span>` : ''}<span class="def">${esc(w.definition)}</span></div>
-    </div>${foot('→')}</div>`;
+  html = `<div class="slide word-slide">${photo(w.image, w.focus)}<div class="shade"></div>${topBar(D.show)}
+    <div class="sub-line"><div class="s-en">${mark(w.sentence, w.match || w.word)}</div><div class="s-zh">${esc(w.translation)}</div></div>
+    <div class="entry"><div class="meta mono"><span class="n">NO.${pad(i)}</span><span>${esc(w.pos || '')}</span></div>
+      <div class="word en">${esc(w.word)}</div><div class="ipa">${esc(w.ipa || '')}</div>
+      <div class="def">${esc(w.definition)}</div></div>${grain}</div>`;
 } else {
-  const c = D.cta;
-  html = `<div class="slide cta">${photo(D.cover.image)}${topBar('NUANCES')}
-    <div class="center zh"><img class="icon" src="icon.png"><h2>${rich(c.headline)}</h2>
-      ${c.sub ? `<div class="sub">${rich(c.sub)}</div>` : ''}
-      <div class="badges"><img src="badge_appstore_zh-TW.png"><img src="badge_play_zh-TW.png"></div>
-      <div class="name">${esc(c.name)}</div></div></div>`;
+  // 最多疊 3 張；最後一個字放中間最上層
+  const c = D.cta, picks = D.words.slice(-3), pos = { 1: ['c'], 2: ['l', 'r'], 3: ['l', 'r', 'c'] }[picks.length];
+  const cards = picks.map((w, k) => `<div class="card ${pos[k]}"><div class="img" style="background-image:url(${w.image});background-position:${w.focus || 'center'}"></div>
+    <div class="c-body"><div class="w en">${esc(w.word)}</div><div class="d">${esc(w.definition)}</div></div></div>`).join('');
+  html = `<div class="slide cta"><div class="glow"></div>${topBar('Nuances')}<div class="stack">${cards}</div>
+    <div class="text"><h2>${rich(c.headline.replace('{n}', n))}</h2>${c.sub ? `<div class="sub">${rich(c.sub)}</div>` : ''}
+      <div class="badges"><img src="badge_appstore_zh-TW.png"><img src="badge_play_zh-TW.png"></div></div>${grain}</div>`;
 }
 document.body.insertAdjacentHTML('beforeend', html);
 
-// 字太多時逐步縮字，直到文字區不壓到頂部安全線
 document.fonts.ready.then(() => {
-  const box = document.querySelector('.cover .text, .word-slide .body');
+  // 單字 / 卡片字太長就縮到剛好一行
+  document.querySelectorAll('.word, .card .w').forEach(el => {
+    const max = el.parentElement.clientWidth, fs = parseFloat(getComputedStyle(el).fontSize);
+    if (el.scrollWidth > max) el.style.fontSize = fs * max / el.scrollWidth + 'px';
+  });
+  // 字太多時逐步縮字，直到文字區不壓到頂部安全線
+  const box = document.querySelector('.cover .text, .word-slide .entry');
   if (!box) return;
-  const limit = H * (box.closest('.cover') ? .22 : .32);
-  const shrink = [...box.querySelectorAll('h1, .sub, .line-en, .line-zh, .word, .def')];
+  const limit = H * (box.closest('.cover') ? .22 : .58);
+  const shrink = [...box.querySelectorAll('h1, .not, .wrong, .def')];
   const base = shrink.map(el => parseFloat(getComputedStyle(el).fontSize));
   for (let s = 1; s > 0.6 && box.getBoundingClientRect().top < limit; s -= 0.04)
     shrink.forEach((el, k) => el.style.fontSize = base[k] * s + 'px');

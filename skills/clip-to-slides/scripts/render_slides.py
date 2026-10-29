@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 clip-to-nuance 的片段做成輪播圖（暗色海報風）：封面 hook → 每個單字一頁 → CTA。各平台要的尺寸一次輸出：
+"""把 clip-to-nuance 的片段做成輪播圖（小報海報風）：封面 hook → 每個單字一頁 → CTA。各平台要的尺寸一次輸出：
   slides/        4:5  1080x1350（IG、Threads、Dcard…）
   slides-3x4/    3:4  1080x1440（小紅書圖文）
   slides-9x16/   9:16 1080x1920（TikTok 圖文、LINE VOOM、抖音）
@@ -13,7 +13,7 @@ slides.json（放在工作資料夾，相對路徑以它為準）：
   {"source": "<topic>.mp4", "cards": "cards.json", "show": "MODERN FAMILY",
    "cover": {"time": 8, "focus": "63% 30%", "kicker": "看影集學英文", "hook": "「大驚小怪」|英文不是|[too surprised]", "sub": "..."},
    "words": {"stranger": {"time": 2.6, "focus": "40% 50%"}},          # 選填：覆寫單字頁的畫面秒數 / 裁切位置
-   "cta": {"headline": "...", "sub": "...", "name": "..."}}           # 選填：預設見 CTA_DEFAULT
+   "cta": {"headline": "...", "sub": "..."}}                          # 選填：預設見 CTA_DEFAULT
   文案語法：| 斷行、[文字] 標藍。單字頁畫面預設用 cards.json 的 trigger 秒數。
 """
 import argparse, json, pathlib, shutil, subprocess, sys, tempfile
@@ -28,7 +28,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 POS_ZH = {"n": "名詞", "noun": "名詞", "v": "動詞", "verb": "動詞", "adj": "形容詞", "adjective": "形容詞",
           "adv": "副詞", "adverb": "副詞", "phrase": "片語", "pron": "代名詞", "prep": "介系詞"}
-CTA_DEFAULT = {"headline": "看劇聽到不懂的字|一鍵存成[單字卡]", "sub": "跟「懶得查」說 bye bye！", "name": "Nuances: 英文單字卡"}
+CTA_DEFAULT = {"headline": "剛剛這 {n} 個字|一鍵存成[單字卡]", "sub": "看劇聽到不懂的字，不用再暫停去查"}   # {n} = 單字數
 
 
 def grab(source, t, out):
