@@ -28,7 +28,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 POS_ZH = {"n": "名詞", "noun": "名詞", "v": "動詞", "verb": "動詞", "adj": "形容詞", "adjective": "形容詞",
           "adv": "副詞", "adverb": "副詞", "phrase": "片語", "pron": "代名詞", "prep": "介系詞"}
-CTA_DEFAULT = {"headline": "剛剛這 {n} 個字|一鍵存成[單字卡]", "sub": "看劇聽到不懂的字，不用再暫停去查"}   # {n} = 單字數
+CTA_DEFAULT = {"headline": "跟「懶得查」|[說 bye bye！]", "sub": ""}   # App 的 slogan，跟商店截圖同一套；headline 可用 {n} = 單字數
 
 
 def grab(source, t, out):

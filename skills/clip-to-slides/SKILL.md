@@ -36,9 +36,9 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
     "cover": {"time": 8, "focus": "63% 30%",
               "hook": "「大驚小怪」|英文可不是|[too surprised]", "sub": "《摩登家庭》30 秒，3 個母語者天天在用的字"},
     "words": {"stranger": {"time": 2.6, "focus": "40% 50%"}},
-    "cta": {"headline": "剛剛這 {n} 個字|一鍵存成[單字卡]", "sub": "看劇聽到不懂的字，不用再暫停去查"}}
+    "cta": {"headline": "跟「懶得查」|[說 bye bye！]"}}
    ```
-   - `words` / `cta` 都選填；`cta` 預設見 `render_slides.py` 的 `CTA_DEFAULT`。
+   - `words` / `cta` 都選填；`cta` 預設是 App slogan「跟「懶得查」說 bye bye！」、沒有副標（`render_slides.py` 的 `CTA_DEFAULT`），通常不用改。
    ```bash
    python3 .agents/skills/clip-to-slides/scripts/render_slides.py --slides slides.json
    ```
@@ -71,7 +71,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 - 頂列：左邊劇名（CTA = `NUANCES`），右邊頁碼 `01 / 05`。沒有底列。
 - 封面：劇照滿版 + 底部暗色漸層。`hook` 第一行 = 132px 大標；整行只有 `[錯誤說法]` 的那行 = 150px 英文斜體 + 藍線劃掉；其他行 = 52px 灰字。下面一條細線，左 `sub`、右「答案往右滑 →」。不用 `kicker`。
 - 單字頁：上方 56% 劇照漸層融進黑底；台詞做成片中字幕（置中白字 + 陰影，目標字藍色，`match` 規則同 clip-to-nuance），下面一行中文翻譯；下方 `NO.01 + 詞性`、170px 單字（太長自動縮成一行）、音標、細線、中文釋義。
-- CTA：品牌深藍底，最後 3 個單字做成附劇照的單字卡疊在上方（卡片字體照 App：SF Pro 900 + PingFang TC，灰色詞性膠囊），下面標語（`{n}` = 單字數，`|` 斷行、`[ ]` 標藍）、副標、App Store / Google Play 徽章。
+- CTA：品牌深藍底，最後 3 個單字做成附劇照的單字卡疊在上方（卡片字體照 App：SF Pro 900 + PingFang TC，灰色詞性膠囊），下面 slogan（`|` 斷行、`[ ]` 標藍，可用 `{n}` = 單字數；有 `sub` 才顯示副標）、App Store / Google Play 徽章。
 
 - 9:16 有安全區：TikTok / Reels / Shorts 的介面會蓋住上方約 150px、右側約 180px、下方約 300px，所以 9:16 的頂列、文字區、底列都往內縮（模板的 `.tall` 規則）。
 - 輪播影片：封面停 3 秒、每個單字頁 2.8 秒、CTA 3.2 秒，左滑換頁 0.35 秒，換頁配 clip-to-nuance `sfx.py` 的 swipe 音效、CTA 配 shine。
