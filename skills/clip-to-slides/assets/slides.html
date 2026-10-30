@@ -139,7 +139,8 @@ document.body.insertAdjacentHTML('beforeend', html);
 document.fonts.ready.then(() => {
   // 單字 / 卡片字太長就縮到剛好一行
   document.querySelectorAll('.word, .card .w').forEach(el => {
-    const max = el.parentElement.clientWidth, fs = parseFloat(getComputedStyle(el).fontSize);
+    const ps = getComputedStyle(el.parentElement), fs = parseFloat(getComputedStyle(el).fontSize);
+    const max = el.parentElement.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
     if (el.scrollWidth > max) el.style.fontSize = fs * max / el.scrollWidth + 'px';
   });
   // 字太多時逐步縮字，直到文字區不壓到頂部安全線
