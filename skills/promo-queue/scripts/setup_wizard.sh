@@ -341,6 +341,7 @@ if [[ "$DO_META" == 1 ]] && confirm "要設定 Threads 嗎？"; then
   step "App 後台 →「使用案例」→ Threads 那一項按「自訂」"
   step "權限加上 threads_basic、threads_content_publish、threads_manage_insights"
   step "「設定」裡的「回呼網址」(Redirect Callback URLs) 貼上：$CALLBACK"
+  note "    「解除安裝回呼網址」和「刪除回呼網址」也貼同一個網址，三格都填才存得起來，再按「儲存」"
   note "    另外兩個「解除安裝 / 刪除」回呼網址也填同一個就好"
   step "同一頁複製「Threads 應用程式編號」和「Threads 應用程式密鑰」"
   step "「應用程式角色」→「角色」→ 新增 Threads 測試者 → 輸入 Nuances 的 Threads 帳號"
