@@ -115,10 +115,11 @@ const mark = (s, m) => {
 };
 const pad = x => String(x).padStart(2, '0');
 const topBar = l => `<div class="mast en">Nuances</div><div class="top mono"><span class="show">${esc(l)}</span><span class="page">${pad(i + 1)} / ${pad(total)}</span></div>`;
-const photo = (src, pos) => `<div class="photo" style="background-image:url(${src});background-position:${pos || 'center'}"></div>`;
+const photo = (src, pos, size) => `<div class="photo" style="background-image:url(${src});background-position:${pos || 'center'}${size ? ';background-size:' + size + ';background-repeat:no-repeat' : ''}"></div>`;
 // 劇照 + 漸層；有人物遮罩就再疊一層只留人物的去背層，蓋在 App 名稱上面
-const scene = (src, pos, mask) => photo(src, pos) + '<div class="shade"></div>' + (mask
-  ? `<div class="fg" style="-webkit-mask-image:url(${mask});mask-image:url(${mask});-webkit-mask-position:${pos || 'center'};mask-position:${pos || 'center'}">${photo(src, pos)}<div class="shade"></div></div>`
+// size：選填，背景縮放（例如 'auto 75%'，臉太大時縮小；預設 cover）
+const scene = (src, pos, mask, size) => photo(src, pos, size) + '<div class="shade"></div>' + (mask
+  ? `<div class="fg" style="-webkit-mask-image:url(${mask});mask-image:url(${mask});-webkit-mask-position:${pos || 'center'};mask-position:${pos || 'center'}${size ? ';-webkit-mask-size:' + size + ';mask-size:' + size : ''}">${photo(src, pos, size)}<div class="shade"></div></div>`
   : '');
 const grain = '<div class="grain"></div>';
 
@@ -133,7 +134,7 @@ if (i === 0) {
     if (term) return `<div class="word en">${esc(term[1])}</div>`;
     return k === 0 ? `<h1>${rich(l)}</h1>` : `<div class="not">${rich(l)}</div>`;
   }).join('');
-  html = `<div class="slide cover">${scene(c.image, c.focus || '50% 30%', c.mask)}${topBar(D.show)}
+  html = `<div class="slide cover">${scene(c.image, c.focus || '50% 30%', c.mask, c.size)}${topBar(D.show)}
     <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>答案往右滑 →</b></div></div>${grain}</div>`;
 } else if (i <= n) {
   const w = D.words[i - 1];

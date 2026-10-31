@@ -2,7 +2,7 @@
 """Nuances 推廣貼文排程：promo-vids/queue.json 記錄排隊中 / 已發布的貼文，時間到自動發到 IG、Threads、TikTok、YouTube Shorts。
 
 usage（在專案根目錄）：
-  postq.py new promo|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
+  postq.py new promo|news|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
   postq.py move <資料夾> <分類>       # 換分類（例如 wip 做完分到 promo），編號換成新分類的下一號
   postq.py roll [--channel tw]        # 點名表：依分類列出每支影片的編號、製作日期、發文狀態
   postq.py add <工作資料夾> [--only reel|carousel] [--at "2026-11-02 20:00"]   # 加入排程（影片 + 輪播圖各一篇）
@@ -293,7 +293,7 @@ def find_final(folder):
 # 影片依分類放：promo-vids/<分類>/<編號>-<主題>/，每個分類各自從 001 編起。還沒分類的放 wip/，分好再 move。
 VIDS = ROOT / "promo-vids"   # 成品一律在這裡（測試模式 POSTQ_DIR 只換 queue 的位置）
 INDEX = VIDS / "index.json"
-CATEGORIES = {"promo": "推廣片", "demo": "Demo 片", "in-app": "App 內功能", "wip": "還沒分類"}
+CATEGORIES = {"promo": "推廣片", "news": "新聞片", "demo": "Demo 片", "in-app": "App 內功能", "wip": "還沒分類"}
 NAME_RE = re.compile(r"^(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)$")
 
 

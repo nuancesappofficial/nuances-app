@@ -12,7 +12,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | 要做的事 | 指令 |
 |---|---|
 | 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：兩個分頁 +「⚙ 設定」。「排程」= 下一篇 + 待辦（待手動、失敗）+ 4 週日曆（虛線是空時段）+ 右邊「做好了、還沒排」；「成效」= 哪種比較好 + 發過的貼文。點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
-| 開新影片資料夾（拿該分類的下一個編號） | `python3 $Q new promo\|demo\|in-app\|wip <topic> --title "中文標題"` → 印出 `promo-vids/<分類>/<編號>-<topic>` |
+| 開新影片資料夾（拿該分類的下一個編號） | `python3 $Q new promo\|news\|demo\|in-app\|wip <topic> --title "中文標題"` → 印出 `promo-vids/<分類>/<編號>-<topic>` |
 | 換分類（例如 wip 做完分到 promo） | `python3 $Q move promo-vids/wip/001-so-tired promo` |
 | 點名表：依分類列出每支影片的編號與發文狀態 | `python3 $Q roll` |
 | 做完一支片段，排進發文 | `python3 $Q add promo-vids/<分類>/<編號>-<topic>` |
@@ -35,6 +35,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
   | 分類 | 放什麼 |
   |---|---|
   | `promo` | 推廣片：影集 / 電影片段做成的單字影片和輪播圖（clip-to-nuance + clip-to-slides） |
+  | `news` | 新聞片：熱門新聞的英文片段，同樣走 clip-to-nuance + clip-to-slides；有時效，排程插隊 |
   | `demo` | Demo 片：介紹 App 功能的影片 |
   | `in-app` | App 內功能的操作影片（分享選單、口說測驗…） |
   | `wip` | 還在做、還沒決定分類的（例如 nuance-ladder 的 so-tired）；分好用 `move`，編號會換成新分類的下一號，已排進發文的不能搬 |
