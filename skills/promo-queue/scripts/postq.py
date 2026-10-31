@@ -125,6 +125,7 @@ def save(q):
     body = json.dumps(q, ensure_ascii=False, indent=1)
     if CLOUD:
         cloud_put("queue.json", body.encode())
+        sync_trigger(q)
     else:
         PROMO.mkdir(parents=True, exist_ok=True)
         tmp = QUEUE.with_suffix(".tmp")
@@ -911,6 +912,25 @@ def cmd_retry(q, a):
     if parse(it["scheduled_for"]) > now(q, it["channel"]):
         it["scheduled_for"] = now(q, it["channel"]).isoformat(timespec="seconds")
     save(q); print("重新排入", it["id"])
+
+
+_trigger_due = "unset"
+
+
+def sync_trigger(q):
+    """把下一篇的時間寫進 Supabase promo_trigger，pg_cron 時間到就叫 GitHub 跑（見 assets/exact_trigger.sql）。
+    表還沒建或寫失敗都不擋存檔：GitHub 每小時的排程還在。"""
+    global _trigger_due
+    due = min((it["scheduled_for"] for it in q["items"] if state(it) == "queued"), default=None)
+    due = parse(due).astimezone(dt.timezone.utc).isoformat() if due else None
+    if due == _trigger_due:
+        return
+    try:
+        P._check(requests.post(f"{CLOUD['url']}/rest/v1/promo_trigger", timeout=30, json={"id": 1, "due_at": due},
+                               headers={**P.sb_headers(CLOUD["service_key"]), "Prefer": "resolution=merge-duplicates"}))
+        _trigger_due = due
+    except Exception as e:
+        log(f"準時觸發的時間沒寫進去（GitHub 每小時排程照跑）：{e}")
 
 
 def cmd_reschedule(q, a):
