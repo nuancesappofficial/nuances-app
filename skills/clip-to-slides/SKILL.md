@@ -69,6 +69,9 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
    - 影片和輪播圖各排一篇，自動接在排程最後面；印出來的時間轉告使用者。
    - 規則、看板、改順序見 promo-queue skill。
 
+## 在地化
+之後會依國家換語言重做（規則見 clip-to-nuance 的「在地化」一節）：所有會換語言的字（hook、副標、釋義、翻譯、CTA 標語）都放在資料檔（`slides.json` / `cards.json` 等），不手動改圖；跟語言無關的設定（畫面秒數、`focus`、`size`）換語言時沿用。
+
 ## 版面規格（照 `assets/slides.html`，小報海報風）
 
 **定案樣式（2026-10-31 起固定）**：封面、字型、Logo、配色、版面位置都照下面的規格，不要自己改、不要換模板；使用者明確要求才動。以前的雜誌風（`style: editorial`）已停用。範例：`promo-vids/promo/010-modern-family-pilot/`。
