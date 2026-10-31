@@ -66,6 +66,11 @@ aside{position:sticky;top:110px}
 .chip{font-size:12px;padding:2px 10px;border-radius:99px;text-decoration:none;color:var(--ink);background:rgba(255,255,255,.08)}
 .chip.posted{background:rgba(52,199,89,.18);color:var(--ok)}.chip.failed{background:rgba(255,69,58,.18);color:var(--bad)}
 .chip.skipped{background:transparent;border:1px solid var(--line);color:var(--dim)}.chip.manual{background:rgba(255,159,10,.18);color:var(--warn)}
+.chip.tag{background:transparent;border:1px solid var(--line);color:var(--mute)}
+.pick-pf{display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:3px 10px 3px 6px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--mute);user-select:none;opacity:.45}
+.pick-pf input{display:none}.pick-pf .pf{width:20px;height:20px;background:transparent}.pick-pf .pf i{width:12px;height:12px}
+.pick-pf.on{opacity:1;border-color:var(--blue);color:var(--ink);background:rgba(78,175,244,.12)}.pick-pf.on .pf{--c:var(--blue)}
+.pick-pf .dim{font-size:11px}
 .chip.pick{cursor:pointer;border:1px solid var(--line);background:transparent}.chip.pick.on{background:var(--blue);color:#0E0F12;border-color:var(--blue);font-weight:700}
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:8;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
 #modal.on{display:flex}
@@ -122,6 +127,26 @@ pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px
 .ev:hover,.todo:hover{transform:translateX(2px)}
 button:active{transform:scale(.96)}
 button.ghost{background:transparent;border-color:transparent;color:var(--dim)}button.ghost:hover{color:var(--mute)}
+/* 背景工作：按了畫面先變，右上角顯示還在處理的 */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breathe{50%{opacity:.45}}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-1px}
+.busy{animation:breathe 1.3s ease-in-out infinite}
+.store.busy,.next.busy,.ev.busy,.prow.busy{border-style:dashed}
+.sk{border-radius:12px;background:linear-gradient(90deg,var(--panel) 30%,var(--panel2) 50%,var(--panel) 70%);background-size:200% 100%;animation:shimmer 1.3s linear infinite}
+#sync{min-width:92px}#sync.run{color:var(--blue);border-color:var(--blue)}#sync.bad{color:var(--bad);border-color:var(--bad)}#sync.idle{color:var(--dim)}
+#tray{position:fixed;top:56px;right:16px;width:min(340px,calc(100vw - 32px));max-height:60vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:6px;z-index:7;display:none;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#tray.on{display:block;animation:rise .18s ease-out}
+.task{display:flex;gap:10px;align-items:flex-start;padding:8px;border-radius:8px;font-size:13px}.task+.task{border-top:1px solid var(--line)}
+.task>span:first-child{width:14px;flex:none;text-align:center}.task .sub{white-space:pre-wrap;word-break:break-all}
+.task.error b{color:var(--bad)}
+/* 拖排好的貼文時，右邊「還沒排」變成放回去的地方 */
+body.dragging-item aside{outline:2px dashed var(--dim);outline-offset:6px;border-radius:12px}
+body.dragging-item aside::before{content:'放這裡＝取消排程';display:block;text-align:center;color:var(--blue);font-weight:600;padding:10px;margin-bottom:8px;border-radius:10px;background:rgba(78,175,244,.12)}
+aside.drop{outline-color:var(--blue)!important;background:rgba(78,175,244,.06)}
+h2 .when{font-size:16px}h2 .count{font-size:14px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(max-width:900px){.sched{grid-template-columns:1fr}aside{position:static}}
 @media(max-width:700px){nav{margin-left:0;order:3;width:100%}.day{min-height:64px}.ev>span:not(.th){display:none}.legend,#mode{display:none}
@@ -133,35 +158,171 @@ button.ghost{background:transparent;border-color:transparent;color:var(--dim)}bu
     <nav id="tabs"></nav>
     <div class="tools"><span class="sub" id="mode"></span>
       <select id="chan" title="國家"></select>
-      <button class="small" onclick="load()">重新整理</button>
+      <button class="small" id="sync" onclick="toggleTray(event)" title="背景處理中的工作"></button>
+      <button class="small" id="refresh" onclick="load()">重新整理</button>
       <button class="small" id="gear" onclick="go(tab==='settings'?'schedule':'settings')" title="帳號與設定">⚙ 設定</button></div>
   </div>
 </header>
-<main id="main"><div class="empty">讀取中…</div></main>
+<main id="main"></main>
+<div id="tray"></div>
 <div id="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" id="sheet"></div></div>
 <div id="toast"></div>
 <script>
 let S = null, tab = localStorage.getItem('tab2') || 'schedule', cal = null, modalFor = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const HOOKS = ['劇情懸念', '打破你以為的', '數字承諾', '直接考你'];
+const HOOK = {reel:'劇情懸念', carousel:'打破你以為的'};   // 開頭類型只是比成效用的標籤，照類型自動帶
 const ST = {posted:'已發', queued:'排隊', skipped:'略過', failed:'失敗', manual:'待手動'};
 const LBL = {hook:'開頭留人', keep:'收藏分享', follow:'轉追蹤'};
 const WD = ['日','一','二','三','四','五','六'];
 
 function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display=m?'block':'none'; t.classList.remove('show'); void t.offsetWidth; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 4500); }
-async function api(action, body){
-  const r = await fetch('/api/'+action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  const j = await r.json(); toast(j.message || (j.ok ? '完成' : '失敗')); await load(); return j;
+// ---------- 背景工作 ----------
+// 按下去先改畫面（optimistic），伺服器在背景照順序做；全部做完才重新讀一次雲端資料，失敗的會被讀回來的資料蓋回去
+const TASKS = [];
+const TLBL = {add:'排進發文（上傳中）', caption:'儲存文案', time:'改時間', move:'換順序', 'item-platforms':'改這篇的平台', skip:'跳過',
+  retry:'重發', done:'標記已發', delete:'刪除', 'post-now':'立刻發', slots:'改發文時段', platforms:'改發文平台', reschedule:'重新排時段',
+  check:'檢查帳號', ignore:'移出收件匣', unignore:'還原收件匣'};
+const pending = () => TASKS.filter(t => t.status === 'pending' || t.status === 'running');
+// 只標被改到的那一篇：排程上的貼文用 id，收件匣（還沒有 id）用資料夾
+const busy = i => pending().some(t => t.targets.includes(i.id || i.folder));
+const targetsOf = (action, b) => action === 'add' ? b.kinds.map(k => `${b.channel}-${(b.folder.match(/([^/]+)\/(\d+)-[^/]*$/) || []).slice(1).join('-')}-${k}`)
+  : b.id ? [b.id] : action === 'ignore' ? [b.folder] : [];
+let lastTask = 0;
+function api(action, body, quiet){
+  const t = {action, label: TLBL[action] || action, status: 'pending', message: '', targets: targetsOf(action, body), quiet, t0: Date.now()};
+  const done = new Promise(r => t.resolve = r);
+  TASKS.unshift(t); lastTask = t.t0;
+  if(optimistic(action, body)) rerender();
+  renderTray();
+  fetch('/api/'+action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
+    .then(r => r.json()).then(j => {
+      if(!j.ok) throw new Error(j.message);
+      if(!j.task){ t.status = 'done'; t.message = j.message || ''; return finish(t); }   // 舊版伺服器：做完才回，沒有任務編號
+      t.sid = j.task; poll(); })
+    .catch(e => { t.status = 'error'; t.message = e.message || String(e); finish(t); });
+  return done;
 }
-async function load(){
-  const c = $('#chan').value || localStorage.getItem('chan') || '';
-  S = await (await fetch('/api/state?channel=' + encodeURIComponent(c))).json();
+let polling = false;
+async function poll(){
+  if(polling) return; polling = true;
+  while(TASKS.some(t => t.sid && ['pending','running'].includes(t.status))){
+    await new Promise(r => setTimeout(r, 500));
+    try{
+      const all = await (await fetch('/api/tasks')).json();
+      for(const t of TASKS){
+        if(!t.sid || !['pending','running'].includes(t.status)) continue;
+        const s = all[t.sid] || {status: 'error', message: '控制台重開過，這個工作沒做完'};
+        t.status = s.status; t.message = s.message;
+        if(['done','error'].includes(s.status)) finish(t);
+      }
+    }catch(e){}
+    renderTray();
+  }
+  polling = false;
+}
+function finish(t){
+  t.t1 = Date.now(); renderTray();
+  if(t.status === 'error') toast(`✗ ${t.label}失敗：${t.message}`);
+  else if(!t.quiet && t.message) toast(t.message);
+  t.resolve(t);
+  if(!pending().length) load(true);   // 全部做完才讀回雲端，避免把還沒做完的改動蓋掉
+}
+const secs = t => Math.max(1, Math.round(((t.t1 || Date.now()) - t.t0) / 1000)) + ' 秒';
+function renderTray(){
+  const n = pending().length, bad = TASKS.some(t => t.status === 'error' && !t.seen), s = $('#sync');
+  s.className = 'small ' + (n ? 'run' : bad ? 'bad' : 'idle');
+  s.innerHTML = n ? `<span class="spin"></span> 處理中 ${n}` : bad ? '⚠ 有失敗' : '✓ 已同步';
+  const ic = {pending:'<span class="dim">⋯</span>', running:'<span class="spin" style="color:var(--blue)"></span>', done:'<span class="ok">✓</span>', error:'<span style="color:var(--bad)">✗</span>'};
+  $('#tray').innerHTML = TASKS.length ? TASKS.slice(0, 10).map(t => `<div class="task ${t.status}">${ic[t.status]}<div style="min-width:0">
+      <b>${esc(t.label)}</b> <span class="dim">${t.status==='pending' ? '排隊中' : t.status==='running' ? '處理中 ' + secs(t) : secs(t)}</span>
+      ${t.message ? `<div class="sub">${esc(t.message)}</div>` : ''}</div></div>`).join('')
+    : '<div class="task dim">還沒有操作</div>';
+}
+function toggleTray(e){
+  e.stopPropagation(); const tr = $('#tray'); tr.classList.toggle('on');
+  if(tr.classList.contains('on')){ TASKS.forEach(t => t.seen = true); renderTray(); }
+}
+document.addEventListener('click', e => { if(!e.target.closest('#tray')) $('#tray').classList.remove('on'); });
+
+// 先改畫面：回傳 true 代表畫面要重畫
+function optimistic(a, b){
+  if(!S) return false;
+  const i = b.id && S.items.find(x => x.id === b.id);
+  const setWhen = (it, at) => { it.when_iso = at; it.when_abs = at + ':00' + it.when_abs.slice(19); it.when = at.slice(5,10).replace('-','/') + ' ' + at.slice(11,16); };
+  const blank = n => ({name: n, label: (S.all_platforms.find(p => p.name === n) || {}).label || n, status: 'queued', url: '', error: '', note: '',
+    manual: !!(S.all_platforms.find(p => p.name === n) || {}).manual, scores: {}, snapshot: '', ratio: null, as: '', media: [], caption: ''});
+  const sort = () => S.items.sort((x, y) => x.when_abs.localeCompare(y.when_abs));
+  switch(a){
+    case 'time': if(!i) return false; setWhen(i, b.at); S.free = S.free.filter(s => s !== b.at); sort(); return true;
+    case 'move': { const q = queuedList(), k = q.indexOf(i), o = q[k + b.dir]; if(!o) return false;
+      [i.when_abs, o.when_abs, i.when_iso, o.when_iso, i.when, o.when] = [o.when_abs, i.when_abs, o.when_iso, i.when_iso, o.when, i.when]; sort(); return true; }
+    case 'caption': if(i) i.caption = b.text.trim(); return !!i;
+    case 'skip': if(i) i.state = 'skipped'; return !!i;
+    case 'delete': { if(!i) return false;
+      S.items = S.items.filter(x => x !== i);
+      // 先放回「還沒排」，預覽影片等讀回雲端資料再補
+      let f = S.inbox.find(f => f.folder === i.folder);
+      if(!f) S.inbox.push(f = {folder: i.folder, day: '', topic: i.topic, show: i.tags.show || '', format: i.tags.format || '', kinds: [], has_cards: false});
+      f.kinds.push(i.kind === 'reel'
+        ? {kind: 'reel', kind_zh: '影片', video: true, preview: '', poster: i.thumb, caption: i.caption, caption_file: 'caption-reel.txt'}
+        : {kind: 'carousel', kind_zh: `輪播 ${i.count} 張`, video: false, poster: i.thumb, slides: Array(i.count).fill(i.thumb), extras: [], caption: i.caption, caption_file: 'caption.txt'});
+      return true; }
+    case 'ignore': S.inbox = S.inbox.filter(f => f.folder !== b.folder); return true;
+    case 'item-platforms': if(!i) return false;
+      i.platforms = [...i.platforms.filter(p => b.list.includes(p.name) || p.status !== 'queued'), ...b.list.filter(n => !i.platforms.some(p => p.name === n)).map(blank)];
+      i.platforms.forEach(p => { if(b.list.includes(p.name) && p.status === 'skipped'){ p.status = 'queued'; p.note = ''; } });
+      return true;
+    case 'retry': if(!i) return false;
+      i.platforms.forEach(p => { if((!b.platform || p.name === b.platform) && p.status !== 'posted'){ p.status = 'queued'; p.error = p.note = ''; } });
+      if(i.state === 'skipped' || i.state === 'failed') i.state = 'queued'; return true;
+    case 'done': { const p = i && i.platforms.find(p => p.name === b.platform); if(!p) return false; p.status = 'posted'; p.url = b.url || p.url; return true; }
+    case 'slots': S.chan.slots = b.slots.split(',').map(s => s.trim()).filter(Boolean).sort(); return true;
+    case 'platforms': S.chan.platforms[b.kind] = b.list; return true;
+    case 'add': {
+      const f = S.inbox.find(f => f.folder === b.folder); if(!f) return false;
+      const [, cat, no] = b.folder.match(/([^/]+)\/(\d+)-[^/]*$/) || [];
+      const off = (S.items[0] && S.items[0].when_abs.slice(19)) || '+08:00';
+      for(const kind of b.kinds){
+        const k = f.kinds.find(x => x.kind === kind); if(!k) continue;
+        f.kinds = f.kinds.filter(x => x !== k);
+        const it = {id: `${b.channel}-${cat}-${no}-${kind}`, channel: b.channel, topic: f.topic, kind, kind_zh: KNAME[kind], count: k.slides ? k.slides.length : 1,
+          folder: b.folder, tags: {hook: b.hook_reel || b.hook_carousel || '', show: b.show || '', format: f.format}, state: 'queued',
+          when_abs: b.at + ':00' + off, caption: b.captions[kind] || '', thumb: k.poster, platforms: (b.platforms[kind] || []).map(blank), rating: '', job: ''};
+        setWhen(it, b.at); S.items.push(it);
+      }
+      S.inbox = S.inbox.filter(f => f.kinds.length); S.free = S.free.filter(s => s !== b.at); sort(); return true;
+    }
+  }
+  return false;
+}
+function rerender(){ render(); if(modalFor) openModal(...modalFor); }
+
+// 第一次打開、換國家時的骨架畫面
+function skeleton(){
+  const b = (h, st='') => `<div class="sk" style="height:${h}px;${st}"></div>`;
+  $('#main').innerHTML = `<div class="sched"><div><h2>下一篇</h2>${b(166)}<h2>日曆</h2>${b(28,'width:240px;margin-bottom:10px')}
+    <div class="cal">${Array(28).fill(b(96)).join('')}</div></div>
+    <aside><h2>還沒排</h2>${Array(5).fill(b(69,'margin-bottom:8px')).join('')}</aside></div>`;
+}
+async function load(silent){
+  const c = $('#chan').value || localStorage.getItem('chan') || '', t0 = Date.now(), btn = $('#refresh');
+  if(!S || c !== S.channel) skeleton();
+  btn.innerHTML = '<span class="spin"></span> 讀取中'; btn.disabled = true;
+  try{
+    const r = await fetch('/api/state?channel=' + encodeURIComponent(c)), j = await r.json();
+    if(!r.ok) throw new Error(j.error || r.status);
+    if(lastTask > t0 && pending().length) return;   // 讀的途中又按了別的，等那個做完會再讀
+    S = j;
+  }catch(e){
+    toast('讀不到資料：' + (e.message || e) + '（控制台還開著嗎？）');
+    if(!S) $('#main').innerHTML = `<div class="empty">讀不到資料，<a href="#" onclick="load();return false" style="color:var(--blue)">再試一次</a></div>`;
+    return;
+  }finally{ btn.innerHTML = '重新整理'; btn.disabled = false; }
   localStorage.setItem('chan', S.channel);
   $('#chan').innerHTML = Object.entries(S.channels).map(([k,v]) => `<option value="${k}" ${k===S.channel?'selected':''}>${esc(v)}（${k}）</option>`).join('');
   $('#mode').textContent = (S.cloud ? '雲端資料' : '⚠ 本機測試資料') + ' · ' + S.now;
-  render();
-  if(modalFor) openModal(...modalFor);   // 操作後刷新開著的詳細頁
+  rerender();   // 操作後刷新開著的詳細頁
 }
 $('#chan').onchange = () => load();
 const queuedList = () => S.items.filter(i => ['queued','partial'].includes(i.state));
@@ -199,7 +360,18 @@ function pf(p, big){
   const tag = p.url ? 'a' : 'span', href = p.url ? ` href="${esc(p.url)}" target="_blank" onclick="event.stopPropagation()"` : '';
   return `<${tag} class="pf ${p.status} ${big?'big':''}" title="${esc(p.label)}${p.as?'（'+p.as+'）':''} · ${ST[p.status]}"${href}${BADGE[p.status]&&!big?` data-b="${BADGE[p.status]}"`:''}>${logo}${big?esc(p.label)+(p.as?'（'+p.as+'）':'')+' · '+ST[p.status]:''}</${tag}>`;
 }
-function chips(i){ return `<div class="pfs">${i.platforms.map(p => pf(p)).join('')}</div>`; }
+// 還沒發的貼文：略過的平台不算要發，縮圖旁和詳細頁的勾選都只看這些
+const active = i => ['queued','partial'].includes(i.state) ? i.platforms.filter(p => p.status !== 'skipped') : i.platforms;
+function chips(i){ return `<div class="pfs">${active(i).map(p => pf(p)).join('')}</div>`; }
+// 排好的貼文可以拖：拖到別天改時間，拖回右邊「還沒排」取消排程
+const dragItem = i => i.state === 'queued' ? `draggable="true" ondragstart="dragStart(event,'item:${i.id}')" ondragend="dragEnd()"` : '';
+function dragStart(e, v){ e.dataTransfer.setData('text', v); if(v.startsWith('item:')) document.body.classList.add('dragging-item'); }
+function dragEnd(){ document.body.classList.remove('dragging-item'); document.querySelectorAll('.drop').forEach(x => x.classList.remove('drop')); }
+function dropBack(e){
+  e.preventDefault(); dragEnd();
+  const [type, id] = e.dataTransfer.getData('text').split(':');
+  if(type === 'item'){ toast('已取消排程，回到「還沒排」'); api('delete', {id}, true); }
+}
 const LEGEND = `<span class="legend"><span><i style="background:var(--mute)"></i>排隊</span><span><i style="background:var(--ok)"></i>已發</span>
   <span><i style="background:var(--warn)"></i>待手動</span><span><i style="background:var(--bad)"></i>失敗</span></span>`;
 function countdown(iso){
@@ -216,28 +388,29 @@ function dayWord(iso){
 // ---------- 排程分頁：待辦 + 日曆 + 還沒排 ----------
 function scheduleView(){
   const q = queuedList(), nx = q[0];
-  const next = nx ? `<div class="next" onclick="openModal('item','${nx.id}')">${th(nx.thumb, nx.kind)}
-      <div><div class="when">${esc(dayWord(nx.when_iso))}<span class="count">· ${countdown(nx.when_abs)}</span></div>
-        <div class="title">${esc(nx.topic)}</div>
+  const next = nx ? `<div class="next ${busy(nx)?'busy':''}" ${dragItem(nx)} onclick="openModal('item','${nx.id}')">${th(nx.thumb, nx.kind)}
+      <div><div class="title">${esc(nx.topic)}</div>
         <div class="sub">${kt(nx.kind, nx.kind==='carousel'?' '+nx.count+' 張':'')}${nx.tags.hook?' · '+esc(nx.tags.hook):''}</div>
         ${chips(nx)}</div></div>`
     : `<div class="empty">排程是空的</div>`;
   const todos = manualList().map(i => `<div class="todo manual" onclick="openModal('item','${i.id}')">⚠ <span><b>${esc(i.topic)}</b> · 手動發 ${i.platforms.filter(p=>p.status==='manual').map(p=>esc(p.label)).join('、')}</span><span class="go">›</span></div>`)
     .concat(failedList().map(i => `<div class="todo failed" onclick="openModal('item','${i.id}')">✗ <span><b>${esc(i.topic)}</b> · 失敗 ${i.platforms.filter(p=>p.status==='failed').map(p=>esc(p.label)).join('、')}</span><span class="go">›</span></div>`)).join('');
   return `<div class="sched"><div>
-      <h2>下一篇 ${LEGEND}</h2>${next}${todos}
+      <h2>${nx ? `<span class="when">${esc(dayWord(nx.when_iso))}</span><span class="count">· ${countdown(nx.when_abs)}</span>` : '下一篇'} ${LEGEND}</h2>${next}${todos}
       <h2>日曆</h2>${calView()}
-    </div><aside>${storeView()}</aside></div>`;
+    </div><aside ondragover="if(document.body.classList.contains('dragging-item')){event.preventDefault();this.classList.add('drop')}"
+      ondragleave="if(!this.contains(event.relatedTarget))this.classList.remove('drop')" ondrop="dropBack(event)">${storeView()}</aside></div>`;
 }
 
 function storeView(){
-  const rows = S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => `<div class="store" draggable="true"
-      ondragstart="event.dataTransfer.setData('text','inbox:${fi}:${ki}')" onclick="openModal('inbox',${fi},${ki})">
+  // 還沒排的成品，影片和輪播分兩區
+  const part = kind => S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => k.kind !== kind ? '' : `<div class="store ${busy(f)?'busy':''}" draggable="true"
+      ondragstart="dragStart(event,'inbox:${fi}:${ki}')" ondragend="dragEnd()" onclick="openModal('inbox',${fi},${ki})">
       ${th(k.poster, k.kind, true)}<div class="t"><div class="name">${esc(f.topic)}</div>
-      <div class="sub">${kt(k.kind)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">●</span>'}</div></div></div>`));
-  return `<h2>還沒排 ${rows.length}</h2>
-    ${rows.length ? rows.join('') : `<div class="empty">沒有新的成品</div>`}
-    <div class="row"><button class="small ghost" onclick="api('unignore',{})">還原被移除的</button></div>`;
+      <div class="sub">${kind==='carousel'?k.slides.length+' 張':esc(f.format)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">● 沒文案</span>'}</div></div></div>`)).filter(Boolean);
+  return ['reel','carousel'].map(kind => { const rows = part(kind);
+      return `<h2>${kt(kind)} 還沒排 ${rows.length}</h2>${rows.length ? rows.join('') : `<div class="empty">沒有新的${KNAME[kind]}</div>`}`; }).join('')
+    + `<div class="row"><button class="small ghost" onclick="api('unignore',{})">還原被移除的</button></div>`;
 }
 
 const pad = n => String(n).padStart(2,'0');
@@ -256,8 +429,7 @@ function calView(){
     const key = keyOf(d);
     const evs = (byDay[key]||[]).sort((a,b)=>a.when_abs.localeCompare(b.when_abs)).map(i => {
       const st = i.platforms.some(p=>p.status==='manual') ? 'manual' : i.platforms.some(p=>p.status==='failed') ? 'failed' : i.state==='posted' ? 'posted' : i.state;
-      const drag = i.state === 'queued';
-      return `<div class="ev ${st}" ${drag?`draggable="true" ondragstart="event.dataTransfer.setData('text','item:${i.id}')"`:''} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
+      return `<div class="ev ${st} ${busy(i)?'busy':''}" ${dragItem(i)} onclick="openModal('item','${i.id}')" title="${esc(i.topic)}">
         ${th(i.thumb, i.kind, true)}<span>${esc(i.when_abs.slice(11,16))} ${esc(i.topic)}</span></div>`; }).join('');
     const slots = (free[key]||[]).map(s => `<div class="slot" title="空的時段：把成品拖到這裡" ondragover="event.preventDefault();this.classList.add('drop')"
         ondragleave="this.classList.remove('drop')" ondrop="event.stopPropagation();dropOn(event,'${s}')">${s.slice(11)}</div>`).join('');
@@ -290,8 +462,9 @@ function inboxModal(fi, ki, at){
       <div class="sub" style="margin-top:14px">發文時間</div>
       <div class="chips">${S.free.slice(0,4).map(s=>`<span class="chip pick ${s===when?'on':''}" onclick="pickWhen('${s}')">${esc(dayWord(s))}</span>`).join('')}</div>
       <div class="row"><input type="datetime-local" id="mt" value="${esc(when)}" oninput="pickWhen(this.value)"></div>
-      <div class="row"><span class="sub" title="只是標籤，不會改文案；成效分頁用它比較哪種開頭比較好">開頭類型（比成效用）</span><select id="mh">${HOOKS.map(h=>`<option ${h===(k.kind==='carousel'?'打破你以為的':'劇情懸念')?'selected':''}>${h}</option>`).join('')}</select>
-        <span class="sub">劇名</span><input type="text" id="ms" value="${esc(f.show)}" placeholder="選填" style="width:140px"></div>
+      <div class="row"><span class="chip tag" title="只是標籤，不會改文案；成效分頁用它比較哪種開頭比較好">開頭：${HOOK[k.kind]}</span>
+        ${f.show?`<span class="chip tag" title="比成效用的標籤，做內容時就決定好">劇名：${esc(f.show)}</span>`:''}</div>
+      <div class="sub" style="margin-top:12px">發到哪些平台</div>${pfPicker(k.kind, S.chan.platforms[k.kind])}
       <div class="sub" style="margin-top:12px">文案</div>
       <textarea id="mc" placeholder="第一行 hook、單字清單、CTA、hashtag">${esc(k.caption)}</textarea>
       <div class="row"><button class="primary" onclick="addInbox(${fi},${ki})">排進發文</button>
@@ -306,10 +479,24 @@ function addInbox(fi, ki){
   const f = S.inbox[fi], k = f.kinds[ki], cap = $('#mc').value.trim(), at = $('#mt').value;
   if(!cap) return toast('文案還沒寫');
   if(!at) return toast('還沒選哪天發');
-  const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: $('#ms').value, at};
-  b[k.kind==='reel'?'hook_reel':'hook_carousel'] = $('#mh').value;
-  closeModal(); toast('上傳中…'); api('add', b);
+  const plats = picked();
+  if(!plats.length) return toast('至少勾一個平台');
+  const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: f.show, at,
+             platforms: {[k.kind]: plats}};
+  b[k.kind==='reel'?'hook_reel':'hook_carousel'] = HOOK[k.kind];
+  closeModal(); toast(`已排進 ${dayWord(at)}，影片 / 圖片在背景上傳`); api('add', b, true);
 }
+
+// 平台勾選：這個類型預設的 + 已連好帳號的；手動平台標「手動」
+function pfPicker(kind, on){
+  const ok = new Set(S.accounts.filter(a => a.configured && !a.manual).map(a => a.name));
+  const list = S.all_platforms.filter(p => on.includes(p.name) || ok.has(p.name));
+  return `<div class="chips" id="pfpick">${list.map(p => `<label class="pick-pf ${on.includes(p.name)?'on':''}">
+      <input type="checkbox" value="${p.name}" ${on.includes(p.name)?'checked':''} onchange="this.parentNode.classList.toggle('on',this.checked)">
+      ${pf({name:p.name, label:p.label, status:'queued'}).replace(/ data-b="[^"]*"/,'')}${esc(p.label)}${p.manual?' <span class="dim">手動</span>':''}
+      ${ok.has(p.name)||p.manual?'':' <span class="dim warn-t">未連結</span>'}</label>`).join('')}</div>`;
+}
+const picked = () => [...document.querySelectorAll('#pfpick input:checked')].map(x => x.value);
 
 // ---------- 成效分頁 ----------
 function statsView(){
@@ -319,7 +506,7 @@ function statsView(){
   const l = doneList();
   const rows = l.map(i => {
     const perf = i.platforms.filter(p => p.scores.keep != null).map(p => `${esc(p.label)} 收藏分享 ${p.scores.keep}‰${p.ratio!=null?'（'+p.ratio.toFixed(1)+'×）':''}`).join(' · ');
-    return `<div class="prow" onclick="openModal('item','${i.id}')">${th(i.thumb, i.kind)}<div style="min-width:0">
+    return `<div class="prow ${busy(i)?'busy':''}" onclick="openModal('item','${i.id}')">${th(i.thumb, i.kind)}<div style="min-width:0">
       <div><b>${esc(i.topic)}</b> <span class="sub">${esc(i.when)}</span> ${kt(i.kind)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
       ${chips(i)}${perf?`<div class="perf">${perf}</div>`:''}</div></div>`; }).join('');
   return `<h2>哪種比較好 <span class="dim" title="收藏分享率跟中位數比，1× = 一般">ⓘ</span></h2>${cmp}
@@ -329,7 +516,7 @@ function statsView(){
 // ---------- 詳細頁 ----------
 function itemModal(id){
   const i = S.items.find(x => x.id === id); if(!i) return '<div class="empty">找不到</div>';
-  const q = queuedList(), n = q.findIndex(x => x.id === id), open = n >= 0;
+  const open = queuedList().includes(i);
   const chipsHtml = i.platforms.map(p => pf(p, true)).join('');
   const manual = i.platforms.filter(p => p.status==='manual').map((p,k) => `<div class="kind"><b>${esc(p.label)}</b>
       <div class="strip" style="margin-top:6px">${p.media.map(m => /\.mp4/.test(m) ? `<a class="chip" href="${esc(m)}" target="_blank">下載影片</a>` : `<a href="${esc(m)}" target="_blank"><img src="${esc(m)}" style="height:90px"></a>`).join('')}</div>
@@ -337,17 +524,18 @@ function itemModal(id){
       <div class="row"><input type="text" id="u${k}" placeholder="貼文網址（選填）" style="flex:1"><button class="primary small" onclick="api('done',{id:'${i.id}',platform:'${p.name}',url:$('#u${k}').value})">發好了</button></div></div>`).join('');
   const perf = i.platforms.filter(p=>Object.keys(p.scores).length).map(p=>`<div class="perf"><b>${esc(p.label)}</b> ${Object.entries(p.scores).map(([k,v])=>`${LBL[k]} ${k==='hook'?Math.round(v*100)+'%':v+'‰'}`).join(' · ')}
       <span class="dim">（${{d7:'第 7 天',d3:'第 3 天',latest:'即時'}[p.snapshot]}${p.ratio!=null?'，中位數的 '+p.ratio.toFixed(1)+' 倍':''}）</span></div>`).join('');
-  const retry = i.platforms.filter(p=>['failed','skipped'].includes(p.status)).map(p=>`<button class="small" onclick="api('retry',{id:'${i.id}',platform:'${p.name}'})">重發 ${esc(p.label)}</button>`).join('');
+  const retry = i.platforms.filter(p=>p.status==='failed' || (!open && p.status==='skipped'))   // 還沒發的用上面的勾選加回略過的平台.map(p=>`<button class="small" onclick="api('retry',{id:'${i.id}',platform:'${p.name}'})">重發 ${esc(p.label)}</button>`).join('');
   return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span></div><div class="info">
     <div class="title">${esc(i.topic)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
-    <div class="sub">${kt(i.kind, i.kind==='carousel'?' '+i.count+' 張':'')} · ${esc(i.tags.format||'')} · ${esc(i.tags.hook||'')}</div>
-    <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">
-        <button class="small" ${n===0?'disabled':''} onclick="api('move',{id:'${i.id}',dir:-1})">往前一篇</button>
-        <button class="small" ${n===q.length-1?'disabled':''} onclick="api('move',{id:'${i.id}',dir:1})">往後一篇</button>` : `<span class="sub">${esc(i.when)}</span> ${kt(i.kind)}`}</div>
-    <div class="row">${chipsHtml}</div>
+    <div class="sub">${kt(i.kind, i.kind==='carousel'?' '+i.count+' 張':'')} · ${esc(i.tags.format||'')} ${i.tags.show?`<span class="chip tag" title="比成效用的標籤">劇名：${esc(i.tags.show)}</span>`:''} ${i.tags.hook?`<span class="chip tag" title="比成效用的標籤">開頭：${esc(i.tags.hook)}</span>`:''}</div>
+    <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">` :`<span class="sub">${esc(i.when)}</span> ${kt(i.kind)}`}</div>
+    ${open ? `<div class="sub" style="margin-top:12px">發到哪些平台</div>${pfPicker(i.kind, active(i).map(p=>p.name))}
+      <div class="row"><button class="small" onclick="if(!picked().length)return toast('至少勾一個平台');api('item-platforms',{id:'${i.id}',list:picked()})">儲存平台</button></div>`
+      : `<div class="row">${chipsHtml}</div>`}
     ${i.platforms.filter(p=>p.error).map(p=>`<div class="err">${esc(p.label)}：${esc(p.error)}</div>`).join('')}
     ${i.platforms.filter(p=>p.note).map(p=>`<div class="note">${esc(p.label)}：${esc(p.note)}</div>`).join('')}
     ${i.job?`<div class="note">${esc(i.job)}</div>`:''}
+    ${busy(i)?'<div class="note"><span class="spin"></span> 背景處理中，可以先關掉這頁</div>':''}
     ${perf}${manual}
     <div class="sub" style="margin-top:12px">文案</div><textarea id="mc">${esc(i.caption)}</textarea>
     <div class="row"><button class="primary small" onclick="api('caption',{id:'${i.id}',text:$('#mc').value})">儲存文案</button>
@@ -371,19 +559,22 @@ function settingsView(){
   <div class="row"><button class="primary small" onclick="savePlatforms()">儲存發文平台</button>
     <button class="small" onclick="check()">檢查帳號是否還能用</button></div>
   <div class="note">新增或重新授權帳號：在終端機跑 <code>bash skills/promo-queue/scripts/setup_wizard.sh</code>，國家代號選 ${esc(S.channel)}。</div>
-  <pre id="checkout" style="display:none"></pre>
+  <pre id="checkout" style="display:${checkOut?'block':'none'}">${esc(checkOut)}</pre>
   <h2>發文時段（${esc(c.tz)}）</h2>
   <div class="row"><input type="text" id="slots" value="${esc(c.slots.join(','))}" placeholder="例如 12:30,20:00">
     <button class="small" onclick="api('slots',{channel:S.channel,slots:$('#slots').value})">儲存</button>
     <button class="small" onclick="api('reschedule',{})">重新排時段</button></div>
   <div class="note">一個時段發一篇。改完按「重新排時段」，排隊中的貼文會照新時段往後排。</div>`;
 }
-async function savePlatforms(){
-  for(const k of ['reel','carousel'])
-    await api('platforms', {channel:S.channel, kind:k, list:[...document.querySelectorAll(`input[data-k="${k}"]:checked`)].map(x=>x.dataset.p)});
+function savePlatforms(){
+  const lists = ['reel','carousel'].map(k => [k, [...document.querySelectorAll(`input[data-k="${k}"]:checked`)].map(x=>x.dataset.p)]);
+  lists.forEach(([k, list]) => api('platforms', {channel:S.channel, kind:k, list}));
 }
-async function check(){ toast('檢查中…'); const r = await fetch('/api/check',{method:'POST',body:JSON.stringify({channel:S.channel})}); const j = await r.json();
-  const o = $('#checkout'); o.style.display='block'; o.textContent = j.message; }
+let checkOut = '';   // 存起來，背景讀回資料重畫設定頁時才不會不見
+function check(){
+  checkOut = '檢查中…'; render();
+  api('check', {channel:S.channel}, true).then(t => { checkOut = t.message; if(tab === 'settings') render(); });
+}
 
 // ---------- 詳細頁開關 ----------
 function openModal(type, a, b, at){
@@ -395,5 +586,6 @@ function openModal(type, a, b, at){
 function closeModal(){ modalFor = null; $('#modal').classList.remove('on'); }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
-load(); setInterval(() => { if(!modalFor && !document.querySelector('textarea:focus,input:focus')) load(); }, 30000);
+renderTray(); load();
+setInterval(() => { if(!modalFor && !pending().length && !document.querySelector('textarea:focus,input:focus')) load(true); }, 30000);
 </script></body></html>

@@ -4,7 +4,7 @@
 usage（在專案根目錄）：python3 skills/promo-queue/scripts/postq.py serve [--port 8790]
 資料一樣讀寫雲端 queue（跟 GitHub Actions 同一份），只是多一個網頁介面。收件匣要讀本機的 promo-vids，所以這個要在 Mac 上開。
 """
-import contextlib, datetime as dt, io, json, mimetypes, pathlib, threading, traceback, types, urllib.parse, webbrowser
+import contextlib, datetime as dt, io, itertools, json, mimetypes, pathlib, queue, threading, time, traceback, types, urllib.parse, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
@@ -14,8 +14,11 @@ import platforms as P
 PAGE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "control.html"
 LOCK = threading.Lock()
 JOBS = {}            # 立刻發的背景工作：id → 狀態文字
-SKIP_DIRS = {"CTA-screens", "references", "sounds"}
-VIDS = Q.ROOT / "promo-vids"   # 成品一律在這裡找（測試模式 POSTQ_DIR 只換 queue 的位置）
+TASKS = {}           # 網頁按下去的操作：任務編號 → {status: pending|running|done|error, message}；畫面先變，這裡在背景照順序做
+WORK = queue.Queue()
+SEQ = itertools.count(1)
+ACCT = {}            # 國家 → (讀取時間, 帳號)；金鑰在雲端，每次讀要 0.3 秒，一分鐘內用快取
+VIDS = Q.VIDS
 KIND_ZH = {"reel": "影片", "carousel": "輪播圖"}
 
 
@@ -57,17 +60,6 @@ def item_view(q, it, rs):
             "job": JOBS.get(it["id"], "")}
 
 
-def topic_folders():
-    """promo-vids/<日期>/<主題>/ 和 promo-vids/<日期>-<主題>/（功能介紹片那種）。"""
-    for d in sorted(VIDS.iterdir(), reverse=True):
-        if not d.is_dir() or d.name.startswith((".", "_")) or d.name in SKIP_DIRS or not d.name[:4].isdigit():
-            continue
-        if len(d.name) > 11 and d.name[10] == "-":
-            yield d
-        else:
-            yield from (f for f in sorted(d.iterdir()) if f.is_dir() and not f.name.startswith((".", "_")))
-
-
 def poster(video):
     """影片的封面縮圖（第 1 秒），快取在 .dashboard/。"""
     import hashlib
@@ -81,20 +73,22 @@ def scan_inbox(q, cid):
     """做好、但還沒排進這個國家的影片 / 輪播圖。"""
     queued = {it["id"] for it in q["items"]}
     ignored = set(q.get("ignored", []))
+    made = {(v["category"], v["no"]): v["made"] for v in Q.load_index()["videos"]}
     out = []
-    for folder in topic_folders():
+    for folder in Q.video_folders():
         rel = str(folder.relative_to(Q.ROOT))
         if rel in ignored:
             continue
-        day, topic = Q.day_topic(folder)
+        cat, no, topic = Q.cat_no_topic(folder)
+        day = made.get((cat, no), "")
         final = Q.find_final(folder)
         slides = sorted((folder / "slides").glob("slide_*.png"))
         kinds = []
-        if final and f"{cid}-{day}-{topic}-reel" not in queued:
+        if final and f"{cid}-{cat}-{no}-reel" not in queued:
             cap = folder / "caption-reel.txt"
             kinds.append({"kind": "reel", "kind_zh": "影片", "video": True, "preview": media_url(final), "poster": poster(final),
                           "caption": cap.read_text() if cap.exists() else "", "caption_file": "caption-reel.txt"})
-        if slides and f"{cid}-{day}-{topic}-carousel" not in queued:
+        if slides and f"{cid}-{cat}-{no}-carousel" not in queued:
             cap = folder / "caption.txt"
             kinds.append({"kind": "carousel", "kind_zh": f"輪播 {len(slides)} 張", "video": False,
                           "poster": media_url(slides[0]), "slides": [media_url(x) for x in slides],
@@ -106,7 +100,7 @@ def scan_inbox(q, cid):
             if (folder / "slides.json").exists():
                 show = json.loads((folder / "slides.json").read_text()).get("show", "")
             fmt = "nuance-ladder" if (folder / "ladder.json").exists() else "Ghost 卡" if (folder / "cards.json").exists() else "功能介紹片"
-            out.append({"folder": rel, "day": day, "topic": topic, "show": show, "format": fmt, "kinds": kinds,
+            out.append({"folder": rel, "day": day, "topic": Q.label(cat, no, topic), "show": show, "format": fmt, "kinds": kinds,
                         "has_cards": (folder / "cards.json").exists()})
     return out
 
@@ -124,12 +118,20 @@ def free_slots(q, cid, days=42):
     return out
 
 
+def account(cid):
+    t, a = ACCT.get(cid, (0, None))
+    if time.time() - t > 60:
+        a = Q.account(Q.load_secrets(), cid)
+        ACCT[cid] = (time.time(), a)
+    return a
+
+
 def state_json(cid):
     q = Q.load()
     cid = cid if cid in q["channels"] else next(iter(q["channels"]))
     rs = Q.ratios(q)
     items = [item_view(q, it, rs) for it in sorted(q["items"], key=lambda x: x["scheduled_for"]) if it["channel"] == cid]
-    acct = Q.account(Q.load_secrets(), cid)
+    acct = account(cid)
     c = Q.chan(q, cid)
     used = list(dict.fromkeys(c["platforms"]["reel"] + c["platforms"]["carousel"]))
     accounts = [{"name": n, "label": Q.NAMES[n], "manual": n in P.MANUAL, "configured": n in acct or n in P.MANUAL,
@@ -173,7 +175,8 @@ def act(action, b):
             for kind in b["kinds"]:
                 msgs.append(run_cmd(Q.cmd_add, q, ns(folder=b["folder"], only=kind, at=b.get("at") or None, show=b.get("show") or None,
                                                      hook_reel=b.get("hook_reel") or None,
-                                                     hook_carousel=b.get("hook_carousel") or "打破你以為的", channel=b["channel"])))
+                                                     hook_carousel=b.get("hook_carousel") or "打破你以為的", channel=b["channel"],
+                                                     platforms=(b.get("platforms") or {}).get(kind))))
                 q = Q.load()
             return "\n".join(m for m in msgs if m)
         if action == "ignore":
@@ -204,6 +207,16 @@ def act(action, b):
                 it["scheduled_for"], o["scheduled_for"] = o["scheduled_for"], it["scheduled_for"]
                 Q.save(q)
             return ""
+        if action == "item-platforms":
+            # 已發 / 待手動 / 失敗的平台保留紀錄；只有還在排隊的可以取消，新勾的加成排隊
+            want = [n for n in b["list"] if n in Q.NAMES]
+            it["platforms"] = {**{n: p for n, p in it["platforms"].items() if n in want or p["status"] != "queued"},
+                               **{n: {"status": "queued", "attempts": 0} for n in want if n not in it["platforms"]}}
+            for n in want:   # 之前略過的平台重新勾回來 = 要發
+                if it["platforms"][n]["status"] == "skipped":
+                    it["platforms"][n] = {"status": "queued", "attempts": 0}
+            Q.save(q)
+            return "這篇的平台已更新"
         if action == "skip":
             return run_cmd(Q.cmd_skip, q, ns(id=it["id"]))
         if action == "retry":
@@ -234,6 +247,30 @@ def act(action, b):
         if action == "check":
             return check_accounts(b["channel"])
     raise ValueError(f"不認得的操作：{action}")
+
+
+def enqueue(action, b):
+    """排進背景工作，馬上回任務編號；網頁用 /api/tasks 看做完沒。"""
+    tid = str(next(SEQ))
+    TASKS[tid] = {"status": "pending", "message": ""}
+    WORK.put((tid, action, b))
+    return tid
+
+
+def worker():
+    # 一次只做一件，照按的順序，雲端的 queue 才不會互相蓋掉
+    while True:
+        tid, action, b = WORK.get()
+        t = TASKS[tid]
+        t["status"] = "running"
+        try:
+            t.update(status="done", message=act(action, b))
+        except (Exception, SystemExit) as e:   # postq 找不到貼文時會 sys.exit
+            traceback.print_exc()
+            t.update(status="error", message=str(e) or "失敗")
+        t["ended"] = time.time()
+        for k in [k for k, v in list(TASKS.items()) if time.time() - v.get("ended", time.time()) > 600]:
+            TASKS.pop(k, None)
 
 
 def post_now(iid):
@@ -280,6 +317,7 @@ def check_accounts(cid):
     if "youtube" in a:
         chk("YouTube", lambda: (P.youtube_token(a["youtube"]), "權杖正常")[1])
     Q.save_secrets(s)   # TikTok refresh token 會換
+    ACCT.clear()
     return "\n".join(out) or "這個國家還沒有設定任何帳號"
 
 
@@ -310,6 +348,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
             if u.path == "/api/state":
                 return self.send(200, state_json(qs.get("channel", [""])[0]))
+            if u.path == "/api/tasks":
+                return self.send(200, {k: {"status": v["status"], "message": v["message"]} for k, v in list(TASKS.items())})
             if u.path == "/media":
                 return self.media(qs.get("p", [""])[0])
             self.send(404, {"error": "not found"})
@@ -338,8 +378,7 @@ class H(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            msg = act(u.path.removeprefix("/api/"), body)
-            self.send(200, {"ok": True, "message": msg})
+            self.send(200, {"ok": True, "task": enqueue(u.path.removeprefix("/api/"), body)})
         except Exception as e:
             traceback.print_exc()
             self.send(400, {"ok": False, "message": str(e)})
@@ -354,6 +393,7 @@ def serve(port=8790, open_browser=True):
             continue
     else:
         raise SystemExit("找不到可用的 port")
+    threading.Thread(target=worker, daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
     print(f"控制台：{url}（{'雲端' if Q.CLOUD else '本機測試'}資料）。按 Ctrl-C 關閉。", flush=True)
     if open_browser:
