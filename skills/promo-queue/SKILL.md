@@ -94,7 +94,8 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 ## 自動發文怎麼運作
 - **全部在雲端，Mac 關機也會發**：
   - `add` 時（在 Mac 上）就把影片 / 圖片 / 縮圖傳到 Supabase 公開 bucket `promo-media`，文案也存進排程，之後不需要本機檔案。
-  - GitHub Actions（`.github/workflows/promo-queue.yml`）每小時第 3 分跑 `post-due`：讀 Supabase 的 queue 和金鑰 → 發文 → 抓成效 → 寫回 → 更新看板資料 `promo-media/state/view.json`。
+  - **準時觸發**：每次存 queue 時把下一篇的時間寫進 Supabase 表 `promo_trigger`；Supabase pg_cron 每分鐘檢查，時間到就用 Vault 裡的 `promo_github_token`（只有這個 repo 的 Actions 讀寫權限）叫 GitHub 跑 workflow，通常 1 分鐘內開始。設定在 `assets/exact_trigger.sql`（使用者在 SQL Editor 貼過了；這個 Supabase 是 App 正式資料庫，不要用 `db push`）。`promo_trigger.last_status` 可以看上次有沒有叫成功。
+  - GitHub Actions（`.github/workflows/promo-queue.yml`）每小時第 3 分跑 `post-due`（備援：重試失敗的平台、抓成效）：讀 Supabase 的 queue 和金鑰 → 發文 → 抓成效 → 寫回 → 更新看板資料 `promo-media/state/view.json`。
   - 只有 `main` 分支上的 workflow 會被排程執行；repo secrets 要有 `SUPABASE_URL`、`SUPABASE_SERVICE_KEY`。
   - 手動觸發：GitHub → Actions → promo-queue → Run workflow（或 `gh workflow run promo-queue.yml`）。
 - GitHub 排程可能延遲；錯過的時段一次只補一篇，兩篇至少隔 `min_gap_hours`（預設 6 小時），後面的自動往後順延。
