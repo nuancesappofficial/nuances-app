@@ -171,7 +171,7 @@ h2 .when{font-size:16px}h2 .count{font-size:14px}
 let S = null, tab = localStorage.getItem('tab2') || 'schedule', cal = null, modalFor = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const HOOK = {reel:'劇情懸念', carousel:'打破你以為的'};   // 開頭類型只是比成效用的標籤，照類型自動帶
+const HOOK = {reel:'劇情懸念', carousel:'英文怎麼說'};   // 開頭類型只是比成效用的標籤，照類型自動帶
 const ST = {posted:'已發', queued:'排隊', skipped:'略過', failed:'失敗', manual:'待手動'};
 const LBL = {hook:'開頭留人', keep:'收藏分享', follow:'轉追蹤'};
 const WD = ['日','一','二','三','四','五','六'];
@@ -531,7 +531,11 @@ function itemModal(id){
       ${i.video ? `<video id="cv" src="${esc(i.video)}" controls preload="metadata" style="margin-top:6px"></video>
         <div class="row"><button class="small" onclick="api('cover',{id:'${i.id}',at:$('#cv').currentTime.toFixed(1)})">用目前這一格當封面</button>
         ${i.slide_cover && i.cover_at != null ? `<button class="small" onclick="api('cover',{id:'${i.id}',at:'slide'})">改回輪播封面</button>` : ''}</div>` : ''}` : '';
-  return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.cover || i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span>${coverTools}</div><div class="info">
+  // 輪播：整組每一張排成一列，放在內容下面
+  const slideTools = i.kind === 'carousel' && i.slides?.length > 1 ? `
+    <div class="sub" style="margin-top:16px">整組 ${i.slides.length} 張</div>
+    <div class="strip" style="margin-top:6px">${i.slides.map(s => `<a href="${esc(s)}" target="_blank" style="flex:none"><img src="${esc(s)}" style="height:340px"></a>`).join('')}</div>` : '';
+  return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.kind==='carousel' && i.slides?.[0] || i.cover || i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span>${coverTools}</div><div class="info">
     <div class="title">${esc(i.topic)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
     <div class="sub">${kt(i.kind, i.kind==='carousel'?' '+i.count+' 張':'')} · ${esc(i.tags.format||'')} ${i.tags.show?`<span class="chip tag" title="比成效用的標籤">劇名：${esc(i.tags.show)}</span>`:''} ${i.tags.hook?`<span class="chip tag" title="比成效用的標籤">開頭：${esc(i.tags.hook)}</span>`:''}</div>
     <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">` :`<span class="sub">${esc(i.when)}</span> ${kt(i.kind)}`}</div>
@@ -548,7 +552,7 @@ function itemModal(id){
       ${open ? `<button class="small" onclick="if(confirm('現在就發到所有平台？'))api('post-now',{id:'${i.id}'})">立刻發</button>
       <button class="small" onclick="api('skip',{id:'${i.id}'})">跳過</button>
       <button class="danger small" onclick="if(confirm('從排程刪除？（成品會回到「還沒排」）')){closeModal();api('delete',{id:'${i.id}'})}">刪除</button>` : ''}${retry}</div>
-  </div></div>`;
+  </div></div>${slideTools}`;
 }
 
 // ---------- 設定 ----------

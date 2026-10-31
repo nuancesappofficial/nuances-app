@@ -41,6 +41,9 @@ def item_view(q, it, rs):
         thumb = media_url(rel_promo(folder / it["media"][0]))
     else:
         thumb = media_url(rel_promo(Q.PROMO / Q.thumb(it)))
+    def url(m):   # 本機有檔就用本機的，沒有就用雲端那份
+        return media_url(rel_promo(folder / m)) if (folder / m).exists() else it.get("public_urls", {}).get(f"{it['id']}/{m}", "")
+    slides = [url(m) for m in it["media"]] if it["kind"] == "carousel" else []
     plats = []
     for n, p in it["platforms"].items():
         lab, _ = Q.snapshot(p)
@@ -58,6 +61,7 @@ def item_view(q, it, rs):
             "caption": it.get("caption", ""), "thumb": thumb, "platforms": plats,
             "cover": it.get("cover", ""), "cover_at": it.get("cover_at"), "slide_cover": (folder / "slides-9x16").is_dir(),
             "video": media_url(folder / it["media"][0]) if it["kind"] == "reel" and (folder / it["media"][0]).exists() else "",
+            "slides": slides,
             "rating": Q.rating(Q.item_ratio(rs.get(it["id"], {}))) if Q.state(it) in ("posted", "partial") else "",
             "job": JOBS.get(it["id"], "")}
 
@@ -177,7 +181,7 @@ def act(action, b):
             for kind in b["kinds"]:
                 msgs.append(run_cmd(Q.cmd_add, q, ns(folder=b["folder"], only=kind, at=b.get("at") or None, show=b.get("show") or None,
                                                      hook_reel=b.get("hook_reel") or None,
-                                                     hook_carousel=b.get("hook_carousel") or "打破你以為的", channel=b["channel"],
+                                                     hook_carousel=b.get("hook_carousel") or "英文怎麼說", channel=b["channel"],
                                                      platforms=(b.get("platforms") or {}).get(kind))))
                 q = Q.load()
             return "\n".join(m for m in msgs if m)
