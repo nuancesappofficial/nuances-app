@@ -50,3 +50,37 @@ export function placeNewAlbumInSlotOrder(
   nextOrder.push(newAlbumId);
   return nextOrder;
 }
+
+/**
+ * Resolves the stored main screen order against the albums that exist now.
+ * - Keeps empty slots, drops ids of deleted or repeated albums.
+ * - Albums missing from the order (e.g. created from a card) are placed the
+ *   same way as a newly created album, so they fill an empty slot on the
+ *   current page instead of landing after the trailing empty slots.
+ */
+export function resolveAlbumSlotOrder(
+  storedOrder: string[],
+  albumIds: string[]
+): string[] {
+  const existingIds = new Set(albumIds);
+  const placedIds = new Set<string>();
+  let order: string[] = [];
+
+  (storedOrder || []).forEach((slot) => {
+    if (isMainScreenEmptyAlbumSlot(slot)) {
+      order.push(slot);
+      return;
+    }
+    if (!existingIds.has(slot) || placedIds.has(slot)) return;
+    placedIds.add(slot);
+    order.push(slot);
+  });
+
+  albumIds.forEach((albumId) => {
+    if (placedIds.has(albumId)) return;
+    placedIds.add(albumId);
+    order = placeNewAlbumInSlotOrder(order, albumId);
+  });
+
+  return order;
+}

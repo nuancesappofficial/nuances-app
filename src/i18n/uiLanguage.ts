@@ -419,6 +419,9 @@ export type UIStringKey =
   | 'auth.connecting'
   | 'auth.continueWithApple'
   | 'auth.continueWithGoogle'
+  | 'auth.cardPos'
+  | 'auth.cardDefinition'
+  | 'auth.slogan'
   | 'onboarding.question.learningLanguages'
   | 'onboarding.question.captureHabit'
   | 'onboarding.question.stumbleContext'
@@ -962,6 +965,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'auth.connecting': 'Connecting...',
     'auth.continueWithApple': 'Continue with Apple',
     'auth.continueWithGoogle': 'Continue with Google',
+    'auth.cardPos': 'noun',
+    'auth.cardDefinition': 'the subtle shade of meaning a dictionary leaves out',
+    'auth.slogan': 'Say [bye bye] to|“I’ll look it up later.”',
     'onboarding.question.learningLanguages':
       'Which language should Nuances use for explanations?',
     'onboarding.question.captureHabit':
@@ -1493,6 +1499,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'auth.connecting': '連線中...',
     'auth.continueWithApple': '使用 Apple 繼續',
     'auth.continueWithGoogle': '使用 Google 繼續',
+    'auth.cardPos': '名詞',
+    'auth.cardDefinition': '細微的差別；字典查不到的那一層意思',
+    'auth.slogan': '跟「懶得查」|說 [bye bye！]',
     'onboarding.question.learningLanguages':
       '你希望 Nuances 用什麼語言解釋英文？',
     'onboarding.question.captureHabit': '遇到不懂的字時，你通常會？',
@@ -2011,6 +2020,9 @@ const STRINGS: Record<'en' | 'zh-TW' | 'zh-CN', Record<UIStringKey, string>> = {
     'auth.connecting': '连接中...',
     'auth.continueWithApple': '使用 Apple 继续',
     'auth.continueWithGoogle': '使用 Google 继续',
+    'auth.cardPos': '名词',
+    'auth.cardDefinition': '细微的差别；词典查不到的那一层意思',
+    'auth.slogan': '跟「懒得查」|说 [bye bye！]',
     'onboarding.question.learningLanguages':
       '你希望 Nuances 用什么语言解释英文？',
     'onboarding.question.captureHabit': '遇到不懂的词时，你通常怎么办？',

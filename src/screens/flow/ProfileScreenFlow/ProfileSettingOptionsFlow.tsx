@@ -78,6 +78,7 @@ import {
 import CreateAlbumModalUI from '../../../components/UI/DeckScreenUI/CreateAlbumModalUI';
 import AlbumSettingsModalUI from '../../../components/UI/DeckScreenUI/AlbumSettingsModalUI';
 import { applyDeckAlbumAppearanceUpdate } from '../../../features/deck/albumAppearanceSettings';
+import { resolveAlbumSlotOrder } from '../../../features/deck/albumSlotPlacement';
 import ImageCropperModal from '../../../components/ImageCropperModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
@@ -247,26 +248,10 @@ function normalizeMainScreenSlots(
     return storedOrder;
   }
 
-  const albumIds = new Set(albums.map((album) => album.id));
-  const usedAlbumIds = new Set<string>();
-  const slots: string[] = [];
-
-  storedOrder.forEach((slot) => {
-    if (isMainScreenEmptyAlbumSlot(slot)) {
-      slots.push(slot);
-      return;
-    }
-    if (!albumIds.has(slot) || usedAlbumIds.has(slot)) return;
-    usedAlbumIds.add(slot);
-    slots.push(slot);
-  });
-
-  albums.forEach((album) => {
-    if (!usedAlbumIds.has(album.id)) {
-      usedAlbumIds.add(album.id);
-      slots.push(album.id);
-    }
-  });
+  const slots = resolveAlbumSlotOrder(
+    storedOrder,
+    albums.map((album) => album.id)
+  );
 
   const lastAlbumIndex = slots.reduce((latest, slot, index) => {
     return isMainScreenEmptyAlbumSlot(slot) ? latest : index;

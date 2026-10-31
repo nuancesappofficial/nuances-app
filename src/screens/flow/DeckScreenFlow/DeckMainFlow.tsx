@@ -63,7 +63,10 @@ import {
   type MainScreenAlbumGridCount,
   type UILanguage,
 } from '@services/settings/userSettings';
-import { placeNewAlbumInSlotOrder } from '../../../features/deck/albumSlotPlacement';
+import {
+  placeNewAlbumInSlotOrder,
+  resolveAlbumSlotOrder,
+} from '../../../features/deck/albumSlotPlacement';
 import { applyDeckAlbumAppearanceUpdate } from '../../../features/deck/albumAppearanceSettings';
 import { TOUR_TARGET_WORD } from '../../../features/createCard/draftBuilders';
 import { isEnglishLearningCard } from '../../../features/cards/englishLearningPolicy';
@@ -1043,25 +1046,10 @@ export default function DeckMainFlow({
     if (mainScreenAlbumOrder.length === 0) return result;
 
     const albumById = new Map(result.map((album) => [album.id, album]));
-    const usedAlbumIds = new Set<string>();
-    const laidOutAlbums: Array<DeckAlbum | null> = [];
-
-    mainScreenAlbumOrder.forEach((slot) => {
-      if (isMainScreenEmptyAlbumSlot(slot)) {
-        laidOutAlbums.push(null);
-        return;
-      }
-      const album = albumById.get(slot);
-      if (!album || usedAlbumIds.has(slot)) return;
-      usedAlbumIds.add(slot);
-      laidOutAlbums.push(album);
-    });
-
-    result.forEach((album) => {
-      if (!usedAlbumIds.has(album.id)) {
-        laidOutAlbums.push(album);
-      }
-    });
+    const laidOutAlbums: Array<DeckAlbum | null> = resolveAlbumSlotOrder(
+      mainScreenAlbumOrder,
+      result.map((album) => album.id)
+    ).map((slot) => albumById.get(slot) ?? null);
 
     while (
       laidOutAlbums.length > 0 &&
@@ -1543,16 +1531,10 @@ export default function DeckMainFlow({
     setCustomAlbums((prev) => [...prev, newAlbum]);
     pendingAlbumToEditRef.current = newAlbum;
 
-    const existingAlbumIds = mergedAlbums.map((album) => album.id);
-    const baseOrder =
-      mainScreenAlbumOrder.length > 0
-        ? [
-            ...mainScreenAlbumOrder,
-            ...existingAlbumIds.filter(
-              (id) => !mainScreenAlbumOrder.includes(id)
-            ),
-          ]
-        : existingAlbumIds;
+    const baseOrder = resolveAlbumSlotOrder(
+      mainScreenAlbumOrder,
+      mergedAlbums.map((album) => album.id)
+    );
 
     const nextOrder = placeNewAlbumInSlotOrder(
       baseOrder,
