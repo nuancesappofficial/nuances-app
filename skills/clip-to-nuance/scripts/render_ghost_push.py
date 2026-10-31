@@ -377,7 +377,10 @@ def title_block(title, sub="", style="plain"):
                 d.text((x, y), t, font=ft, fill=(0, 0, 0, 0), stroke_width=2, stroke_fill=(200, 200, 200))
             y += lh
         if sub:
-            t = " ".join(sub.upper())
+            if re.search(r"[　-鿿＀-￯]", sub):   # SF 沒有中文字，改用蘋方
+                fs, t = font(30, "medium"), sub.upper()
+            else:
+                t = " ".join(sub.upper())
             d.text(((W - fs.getlength(t)) / 2, y + 16), t, font=fs, fill=(150, 150, 150))
         return img
     raise ValueError(style)

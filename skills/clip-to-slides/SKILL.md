@@ -56,6 +56,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 5. **交付**
    - 把總覽圖傳給使用者，附上 `slides/` 路徑。
    - 同時寫 `caption.txt`：第一行重複 hook（不給答案）、列出 3–5 個單字（英文 + 中文）、一行「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」、5–8 個中文 / 英文 hashtag（劇名、#學英文、#英文單字…）。
+   - **`caption.txt` 和 `caption-reel.txt` 都要在前兩行內寫出原作的中文片名**（例如「汽車總動員」），不能只放在 hashtag 裡。
    - 資料夾裡有 `<topic>-final.mp4`（從 clip-to-nuance 接過來）時，也寫影片用的 `caption-reel.txt`：格式一樣，但第一行換一句不同的 hook（用劇情懸念，例如「浴缸裡泡著一個陌生人，他們第一個念頭竟然是…打招呼？」）。
 
 6. **排進發文（promo-queue）**
