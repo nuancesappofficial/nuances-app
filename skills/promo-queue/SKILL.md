@@ -130,6 +130,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
   bash skills/promo-queue/scripts/setup_wizard.sh
   ```
   精靈一次設定一個國家：帶他建 Meta App（IG + Threads + Facebook 粉專）、TikTok App、Google Cloud 專案，做 OAuth，最後把金鑰傳到雲端、設定 GitHub secrets。在專案根目錄跑，需要 `gh` 已登入。每個平台都能先跳過。
+- IG + FB 粉專用**系統用戶**（2026-11-01 起，tw）：個人帳號「Nuances App」被 Meta 擋 API 發文（`Cannot call API for app … on behalf of user …`），改用商業帳號「Nuances 英文單字卡」裡的系統用戶 `promo-poster` 產生的永久權杖。換權杖：商業設定 → 系統用戶 → 產生權杖（App 選 Nuances Poster、期限永不、勾 pages_show_list / pages_read_engagement / pages_manage_posts / read_insights / instagram_basic / instagram_content_publish / instagram_manage_insights / business_management）→ 請使用者跑 `python3 skills/promo-queue/scripts/connect_meta_system.py` 貼上。Threads 不支援系統用戶。
 - 只補 Threads：`python3 skills/promo-queue/scripts/connect_threads.py [--channel tw]`（讀精靈存的 App 編號，授權完自動傳上雲端）。Threads 後台的回呼、解除安裝、刪除三個網址都要填同一個才存得起來，漏填授權時會說回呼網址不對。回呼網址那格存不進去時，改用同一頁最下面「用戶權杖產生器」產生權杖，跑 `connect_threads.py --token` 貼上。
 - 平台限制（審核過才會公開）：
   - TikTok App 沒通過審核前，影片只有自己看得到（dashboard 會標「僅自己可見」）。
