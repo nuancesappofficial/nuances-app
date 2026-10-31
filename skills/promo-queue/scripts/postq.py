@@ -497,7 +497,7 @@ def post_item(q, it, secrets, dry):
     tmp = pathlib.Path(tempfile.mkdtemp())
     acct = account(secrets, it["channel"])
     manual = set(P.MANUAL) | set(chan(q, it["channel"]).get("manual", []))   # 國家可以把有 API 的平台也改手動（例如 App 還沒過審核）
-    went_manual = []
+    went_manual, went_posted, went_failed = [], [], []
     for name, ps in it["platforms"].items():
         if ps["status"] not in ("queued",):
             continue
@@ -542,6 +542,7 @@ def post_item(q, it, secrets, dry):
             if kind != it["kind"]:
                 ps["as"] = kind   # 例如輪播圖改發輪播影片
             ps.pop("error", None)
+            went_posted.append(name)
             log(f"已發布 {it['id']} → {NAMES[name]} {res.get('url', '')}")
         except P.NotConfigured as e:
             ps.update(status="skipped", note=f"未設定：{e}")
@@ -551,23 +552,20 @@ def post_item(q, it, secrets, dry):
             ps["error"] = str(e)[:600]
             if ps["attempts"] >= q["settings"]["max_attempts"]:
                 ps["status"] = "failed"
+            went_failed.append(name)
             log(f"失敗 {it['id']} → {NAMES[name]}（第 {ps['attempts']} 次）：{e}")
             traceback.print_exc()
         save(q)
         save_secrets(secrets)   # TikTok refresh token 每次會換
     if went_manual:
-        notify(secrets, it, went_manual, q=q)
+        notify(secrets, it, went_manual, q=q)   # 狀態裡已含這次發成功 / 失敗的平台
+    elif went_posted or went_failed:
+        notify_result(secrets, q, it, went_posted, went_failed)
 
 
 def push_status(q, it, names):
     """通知內文：每個平台發了沒、接下來要做什麼、下一篇是什麼。"""
-    mark = {"posted": "✅ 已自動發", "manual": "✋ 等你手動發", "failed": "❌ 失敗", "skipped": "➖ 略過"}
-    lines = []
-    for n, ps in it["platforms"].items():
-        st = ps["status"]
-        txt = mark.get(st, "⏳ 失敗，下小時重試" if ps.get("error") else "⏳ 排隊中")
-        why = ps.get("note") or (ps.get("error", "")[:60] if st == "failed" else "")
-        lines.append(f"{NAMES[n]}　{txt}{'（' + why + '）' if why else ''}")
+    lines = status_lines(it)
     who = "、".join(NAMES[n] for n in names)
     steps = [f"1. 點「打開影片 / 圖片」存到手機",
              f"2. 文案在另一則通知，長按複製",
@@ -575,13 +573,48 @@ def push_status(q, it, names):
              f"4. 發好在控制台按「發好了」，或跟 Claude 說「發好了」"]
     if any(it["platforms"][n]["status"] == "failed" for n in it["platforms"]):
         steps.append("5. 有失敗的：控制台按「重發」，或跟 Claude 說")
+    return "【狀態】\n" + "\n".join(lines) + "\n\n【你要做的】\n" + "\n".join(steps) + next_line(q, it)
+
+
+def status_lines(it):
+    """每個平台一行：發了沒、為什麼（略過的原因、失敗的錯誤開頭）。"""
+    mark = {"posted": "✅ 已自動發", "manual": "✋ 等你手動發", "failed": "❌ 失敗", "skipped": "➖ 略過"}
+    lines = []
+    for n, ps in it["platforms"].items():
+        st = ps["status"]
+        txt = mark.get(st, "⏳ 失敗，下小時重試" if ps.get("error") else "⏳ 排隊中")
+        why = ps.get("note") or (ps.get("error", "")[:60] if ps.get("error") and st != "posted" else "")
+        lines.append(f"{NAMES[n]}　{txt}{'（' + why + '）' if why else ''}")
+    return lines
+
+
+def next_line(q, it):
     nxt = sorted((x for x in q["items"] if x["channel"] == it["channel"] and state(x) == "queued" and x["id"] != it["id"]),
                  key=lambda x: x["scheduled_for"])
-    tail = ""
-    if nxt:
-        when = parse(nxt[0]["scheduled_for"]).astimezone(ZoneInfo(chan(q, it["channel"])["tz"]))
-        tail = f"\n\n下一篇：{when:%m/%d %H:%M} {nxt[0]['id']}"
-    return "【狀態】\n" + "\n".join(lines) + "\n\n【你要做的】\n" + "\n".join(steps) + tail
+    if not nxt:
+        return ""
+    when = parse(nxt[0]["scheduled_for"]).astimezone(ZoneInfo(chan(q, it["channel"])["tz"]))
+    return f"\n\n下一篇：{when:%m/%d %H:%M} {nxt[0]['id']}"
+
+
+def notify_result(secrets, q, it, posted, failed):
+    """自動發文的結果推播一則：這次發成功 / 失敗的平台（失敗每次重試都推，最多 max_attempts 次）。點了打開第一個發好的貼文。"""
+    topic = secrets.get("ntfy", {}).get("topic")
+    if not topic:
+        return
+    ok, bad = "、".join(NAMES[n] for n in posted), "、".join(NAMES[n] for n in failed)
+    title = (f"⚠️ {ok} 發好了，{bad} 失敗" if posted and failed else f"✅ 已發布到 {ok}" if posted else f"❌ 發文失敗：{bad}") + f"：{it['id']}"
+    links = [it["platforms"][n]["url"] for n in posted if it["platforms"][n].get("url")]
+    todo = "\n\n【你要做的】\n控制台按「重發」，或跟 Claude 說（錯誤有 401 / token / blocked 多半要重新授權）" if failed else ""
+    try:
+        P._check(requests.post("https://ntfy.sh/", timeout=30, json={
+            "topic": topic, "title": title, "tags": ["warning" if failed else "white_check_mark"],
+            "message": "【狀態】\n" + "\n".join(status_lines(it)) + todo + next_line(q, it),
+            "click": links[0] if links else "",
+            "actions": [{"action": "view", "label": NAMES[n], "url": it["platforms"][n]["url"]} for n in posted if it["platforms"][n].get("url")][:3]}))
+        log(f"已推播結果 {it['id']}：成功 {ok or '—'}，失敗 {bad or '—'}")
+    except Exception as e:
+        log(f"推播失敗：{e}")
 
 
 def notify(secrets, it, names, title=None, q=None):
