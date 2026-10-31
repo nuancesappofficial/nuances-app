@@ -556,11 +556,37 @@ def post_item(q, it, secrets, dry):
         save(q)
         save_secrets(secrets)   # TikTok refresh token 每次會換
     if went_manual:
-        notify(secrets, it, went_manual)
+        notify(secrets, it, went_manual, q=q)
 
 
-def notify(secrets, it, names, title=None):
-    """推播到手機（ntfy）：點通知打開影片 / 第一張圖，內文是文案（長按複製），下面有封面圖按鈕。沒設定 topic 就不推。"""
+def push_status(q, it, names):
+    """通知內文：每個平台發了沒、接下來要做什麼、下一篇是什麼。"""
+    mark = {"posted": "✅ 已自動發", "manual": "✋ 等你手動發", "failed": "❌ 失敗", "skipped": "➖ 略過"}
+    lines = []
+    for n, ps in it["platforms"].items():
+        st = ps["status"]
+        txt = mark.get(st, "⏳ 失敗，下小時重試" if ps.get("error") else "⏳ 排隊中")
+        why = ps.get("note") or (ps.get("error", "")[:60] if st == "failed" else "")
+        lines.append(f"{NAMES[n]}　{txt}{'（' + why + '）' if why else ''}")
+    who = "、".join(NAMES[n] for n in names)
+    steps = [f"1. 點「打開影片 / 圖片」存到手機",
+             f"2. 文案在另一則通知，長按複製",
+             f"3. 到 {who} 發文，封面點「封面圖」存下來用" + ("（YouTube 標題用文案第一行）" if "youtube" in names else ""),
+             f"4. 發好在控制台按「發好了」，或跟 Claude 說「發好了」"]
+    if any(it["platforms"][n]["status"] == "failed" for n in it["platforms"]):
+        steps.append("5. 有失敗的：控制台按「重發」，或跟 Claude 說")
+    nxt = sorted((x for x in q["items"] if x["channel"] == it["channel"] and state(x) == "queued" and x["id"] != it["id"]),
+                 key=lambda x: x["scheduled_for"])
+    tail = ""
+    if nxt:
+        when = parse(nxt[0]["scheduled_for"]).astimezone(ZoneInfo(chan(q, it["channel"])["tz"]))
+        tail = f"\n\n下一篇：{when:%m/%d %H:%M} {nxt[0]['id']}"
+    return "【狀態】\n" + "\n".join(lines) + "\n\n【你要做的】\n" + "\n".join(steps) + tail
+
+
+def notify(secrets, it, names, title=None, q=None):
+    """推播到手機（ntfy）兩則：先一則只有文案（方便長按複製），再一則狀態 + 該做什麼（點了打開影片 / 第一張圖，附封面圖按鈕）。
+    沒設定 topic 就不推。"""
     topic = secrets.get("ntfy", {}).get("topic")
     if not topic:
         return
@@ -569,11 +595,15 @@ def notify(secrets, it, names, title=None):
     links = [urls[k] for k in (f"{it['id']}/{m}" for m in (pl[1] if pl else [])) if k in urls] or list(urls.values())
     acts = ([{"action": "view", "label": "打開影片" if links[0].endswith(".mp4") else "打開圖片", "url": links[0]}] if links else []) \
         + ([{"action": "view", "label": "封面圖", "url": it["cover"]}] if it.get("cover") else [])
+    who = "、".join(NAMES[n] for n in names)
     try:
         P._check(requests.post("https://ntfy.sh/", timeout=30, json={
-            "topic": topic, "title": title or f"該手動發了：{it['topic']} → {'、'.join(NAMES[n] for n in names)}",
-            "message": it.get("caption") or "（沒有文案）", "tags": ["memo"], "click": links[0] if links else "", "actions": acts}))
-        log(f"已推播提醒 {it['id']} → {'、'.join(names)}")
+            "topic": topic, "title": f"文案（長按複製）：{it['id']}", "message": it.get("caption") or "（沒有文案）", "tags": ["clipboard"]}))
+        P._check(requests.post("https://ntfy.sh/", timeout=30, json={
+            "topic": topic, "title": title or f"✋ 該手動發 {who}：{it['id']}",
+            "message": push_status(q, it, names) if q else "測試通知", "tags": ["memo"],
+            "click": links[0] if links else "", "actions": acts}))
+        log(f"已推播提醒 {it['id']} → {who}")
     except Exception as e:
         log(f"推播失敗：{e}")
 
@@ -586,8 +616,15 @@ def cmd_notify(q, a):
         import secrets as rnd
         n["topic"] = f"nuances-{rnd.token_hex(6)}"
         save_secrets(s)
-    it = next((x for x in q["items"] if x.get("public_urls")), {"id": "test", "topic": "測試", "caption": "這是測試通知"})
-    notify(s, it, [], title="Nuances 提醒已連上 ✅")
+    def hand(x):   # 這篇時間到會變待手動的平台
+        m = set(P.MANUAL) | set(chan(q, x["channel"]).get("manual", []))
+        return [n for n, ps in x["platforms"].items() if n in m and ps["status"] == "queued"]
+    it = next((x for x in sorted(q["items"], key=lambda x: x["scheduled_for"])
+               if x.get("public_urls") and state(x) == "queued" and hand(x)), None)
+    if not it:
+        sys.exit("沒有會變待手動的排隊貼文可以拿來測試")
+    names = hand(it)
+    notify(s, it, names, title=f"🧪 測試：{it['id']} 時間到會長這樣", q=q)
     print(f"ntfy topic：{n['topic']}\n手機裝 ntfy App → 右下 + → 輸入這個 topic 訂閱。之後手動平台到時間就會收到通知。")
 
 
@@ -924,9 +961,13 @@ def upload_thumb(folder, it):
 
 
 def make_cover(folder, it, out):
-    """Reels 封面 / YouTube 縮圖（9:16 JPEG）：有 9:16 輪播圖就用封面那張，沒有或指定了 cover_at 就截影片那一秒（預設第 1 秒）。"""
+    """Reels 封面 / YouTube 縮圖（9:16 JPEG）：資料夾有 cover/cover.png（手做的）優先；再來是 9:16 輪播圖的封面；
+    沒有或指定了 cover_at 就截影片那一秒（預設第 1 秒）。"""
     slides = sorted((folder / "slides-9x16").glob("slide_*.png"))
-    if slides and it.get("cover_at") is None:
+    made = folder / "cover" / "cover.png"
+    if made.exists() and it.get("cover_at") is None and it["kind"] == "reel":
+        src = ["-i", str(made)]
+    elif slides and it.get("cover_at") is None:
         src = ["-i", str(slides[0])]
     elif it["kind"] == "reel":
         src = ["-ss", str(it.get("cover_at") or 1), "-i", str(folder / it["media"][0])]
