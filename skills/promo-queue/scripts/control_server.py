@@ -56,6 +56,8 @@ def item_view(q, it, rs):
             "count": len(it["media"]), "folder": it["folder"], "tags": it.get("tags", {}), "state": Q.state(it),
             "when": when.strftime("%m/%d (%a) %H:%M"), "when_iso": when.strftime("%Y-%m-%dT%H:%M"), "when_abs": when.isoformat(),
             "caption": it.get("caption", ""), "thumb": thumb, "platforms": plats,
+            "cover": it.get("cover", ""), "cover_at": it.get("cover_at"), "slide_cover": (folder / "slides-9x16").is_dir(),
+            "video": media_url(folder / it["media"][0]) if it["kind"] == "reel" and (folder / it["media"][0]).exists() else "",
             "rating": Q.rating(Q.item_ratio(rs.get(it["id"], {}))) if Q.state(it) in ("posted", "partial") else "",
             "job": JOBS.get(it["id"], "")}
 
@@ -217,6 +219,10 @@ def act(action, b):
                     it["platforms"][n] = {"status": "queued", "attempts": 0}
             Q.save(q)
             return "這篇的平台已更新"
+        if action == "cover":
+            if not Q.CLOUD:
+                raise ValueError("本機測試模式不能換封面（要上傳到雲端）")
+            return run_cmd(Q.cmd_covers, q, ns(id=it["id"], at=b.get("at")))
         if action == "skip":
             return run_cmd(Q.cmd_skip, q, ns(id=it["id"]))
         if action == "retry":

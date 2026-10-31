@@ -182,7 +182,7 @@ function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display=m?'bloc
 const TASKS = [];
 const TLBL = {add:'排進發文（上傳中）', caption:'儲存文案', time:'改時間', move:'換順序', 'item-platforms':'改這篇的平台', skip:'跳過',
   retry:'重發', done:'標記已發', delete:'刪除', 'post-now':'立刻發', slots:'改發文時段', platforms:'改發文平台', reschedule:'重新排時段',
-  check:'檢查帳號', ignore:'移出收件匣', unignore:'還原收件匣'};
+  check:'檢查帳號', ignore:'移出收件匣', unignore:'還原收件匣', cover:'換封面'};
 const pending = () => TASKS.filter(t => t.status === 'pending' || t.status === 'running');
 // 只標被改到的那一篇：排程上的貼文用 id，收件匣（還沒有 id）用資料夾
 const busy = i => pending().some(t => t.targets.includes(i.id || i.folder));
@@ -525,7 +525,13 @@ function itemModal(id){
   const perf = i.platforms.filter(p=>Object.keys(p.scores).length).map(p=>`<div class="perf"><b>${esc(p.label)}</b> ${Object.entries(p.scores).map(([k,v])=>`${LBL[k]} ${k==='hook'?Math.round(v*100)+'%':v+'‰'}`).join(' · ')}
       <span class="dim">（${{d7:'第 7 天',d3:'第 3 天',latest:'即時'}[p.snapshot]}${p.ratio!=null?'，中位數的 '+p.ratio.toFixed(1)+' 倍':''}）</span></div>`).join('');
   const retry = i.platforms.filter(p=>p.status==='failed' || (!open && p.status==='skipped'))   // 還沒發的用上面的勾選加回略過的平台.map(p=>`<button class="small" onclick="api('retry',{id:'${i.id}',platform:'${p.name}'})">重發 ${esc(p.label)}</button>`).join('');
-  return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span></div><div class="info">
+  // 封面：IG Reels 封面和 YouTube 縮圖用同一張；還沒發的影片可以從影片挑一格換掉
+  const coverTools = open && i.kind === 'reel' ? `
+      <div class="sub" style="margin-top:12px">${i.cover_at == null && i.slide_cover ? '封面：輪播封面那張' : i.cover ? `封面：影片第 ${i.cover_at ?? 1} 秒` : '還沒有封面'}</div>
+      ${i.video ? `<video id="cv" src="${esc(i.video)}" controls preload="metadata" style="margin-top:6px"></video>
+        <div class="row"><button class="small" onclick="api('cover',{id:'${i.id}',at:$('#cv').currentTime.toFixed(1)})">用目前這一格當封面</button>
+        ${i.slide_cover && i.cover_at != null ? `<button class="small" onclick="api('cover',{id:'${i.id}',at:'slide'})">改回輪播封面</button>` : ''}</div>` : ''}` : '';
+  return `<div class="cols"><div class="media"><span class="th"><img src="${esc(i.cover || i.thumb)}" style="width:260px;border-radius:10px"><span class="kd ${i.kind}">${KSVG[i.kind]}<span>${KNAME[i.kind]}</span></span></span>${coverTools}</div><div class="info">
     <div class="title">${esc(i.topic)} ${i.rating?`<span class="chip">${esc(i.rating)}</span>`:''}</div>
     <div class="sub">${kt(i.kind, i.kind==='carousel'?' '+i.count+' 張':'')} · ${esc(i.tags.format||'')} ${i.tags.show?`<span class="chip tag" title="比成效用的標籤">劇名：${esc(i.tags.show)}</span>`:''} ${i.tags.hook?`<span class="chip tag" title="比成效用的標籤">開頭：${esc(i.tags.hook)}</span>`:''}</div>
     <div class="row">${open ? `<input type="datetime-local" value="${i.when_iso}" onchange="api('time',{id:'${i.id}',at:this.value})">` :`<span class="sub">${esc(i.when)}</span> ${kt(i.kind)}`}</div>

@@ -2,6 +2,9 @@
 """Nuances 推廣貼文排程：promo-vids/queue.json 記錄排隊中 / 已發布的貼文，時間到自動發到 IG、Threads、TikTok、YouTube Shorts。
 
 usage（在專案根目錄）：
+  postq.py new promo|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
+  postq.py move <資料夾> <分類>       # 換分類（例如 wip 做完分到 promo），編號換成新分類的下一號
+  postq.py roll [--channel tw]        # 點名表：依分類列出每支影片的編號、製作日期、發文狀態
   postq.py add <工作資料夾> [--only reel|carousel] [--at "2026-11-02 20:00"]   # 加入排程（影片 + 輪播圖各一篇）
   postq.py list                       # 列出排程與狀態
   postq.py post-due [--dry-run]       # 時間到的發出去（GitHub Actions 每小時跑一次）
@@ -22,7 +25,7 @@ Mac 關機也會發。看板 promo-vids/dashboard.html 打開時從雲端讀即�
 本機模式（POSTQ_DIR 設了，或沒有 Supabase 金鑰）：全部讀寫 POSTQ_DIR / promo-vids，只拿來測試。
 本機金鑰檔 ~/.config/nuances-promo/secrets.json（不進 git），由 setup_wizard.sh 產生。
 """
-import argparse, datetime as dt, fcntl, html, json, os, pathlib, subprocess, sys, tempfile, traceback
+import argparse, datetime as dt, fcntl, html, json, os, pathlib, re, subprocess, sys, tempfile, traceback
 import requests
 from zoneinfo import ZoneInfo
 
@@ -262,7 +265,7 @@ def tags(folder, kind, a):
     if not show and (folder / "slides.json").exists():
         show = json.loads((folder / "slides.json").read_text()).get("show", "")
     if not show:
-        show = "原創" if fmt in ("nuance-ladder", "功能介紹片") else day_topic(folder)[1]
+        show = "原創" if fmt in ("nuance-ladder", "功能介紹片") else cat_no_topic(folder)[2]
     hook = (a.hook_reel if kind == "reel" else a.hook_carousel) or ""
     return {"format": fmt, "hook": hook, "show": show.title() if show.isupper() else show}
 
@@ -285,11 +288,90 @@ def find_final(folder):
     return None
 
 
-def day_topic(folder):
-    """promo-vids/<日期>/<主題>/ → (日期, 主題)；promo-vids/<日期>-<主題>/（功能介紹片）→ 一樣拆開。"""
-    if folder.parent.name == "promo-vids" and len(folder.name) > 11 and folder.name[10] == "-":
-        return folder.name[:10], folder.name[11:]
-    return folder.parent.name, folder.name
+# ---------- 點名表（promo-vids/index.json）----------
+# 影片依分類放：promo-vids/<分類>/<編號>-<主題>/，每個分類各自從 001 編起。還沒分類的放 wip/，分好再 move。
+VIDS = ROOT / "promo-vids"   # 成品一律在這裡（測試模式 POSTQ_DIR 只換 queue 的位置）
+INDEX = VIDS / "index.json"
+CATEGORIES = {"promo": "推廣片", "demo": "Demo 片", "in-app": "App 內功能", "wip": "還沒分類"}
+NAME_RE = re.compile(r"^(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)$")
+
+
+def load_index():
+    return json.loads(INDEX.read_text()) if INDEX.exists() else {"videos": []}
+
+
+def save_index(idx):
+    idx["videos"].sort(key=lambda v: (list(CATEGORIES).index(v["category"]), v["no"]))
+    INDEX.write_text(json.dumps(idx, ensure_ascii=False, indent=1) + "\n")
+
+
+def video_folders():
+    for cat in CATEGORIES:
+        if (VIDS / cat).is_dir():
+            yield from (d for d in sorted((VIDS / cat).iterdir(), reverse=True) if d.is_dir() and NAME_RE.match(d.name))
+
+
+def cat_no_topic(folder):
+    """promo-vids/promo/002-modern-family-confused/ → ("promo", "002", "modern-family-confused")。"""
+    m = NAME_RE.match(folder.name)
+    if not m or folder.parent.parent != VIDS or folder.parent.name not in CATEGORIES:
+        sys.exit(f"{folder} 不是點名表裡的資料夾（要是 promo-vids/<分類>/<編號>-<主題>/，新影片用 postq.py new 開）")
+    return folder.parent.name, m.group(1), m.group(2)
+
+
+def label(cat, no, topic):
+    return f"{cat} #{no} {topic}"
+
+
+def next_no(idx, cat):
+    return f"{max((int(v['no']) for v in idx['videos'] if v['category'] == cat), default=0) + 1:03d}"
+
+
+def cmd_new(a):
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", a.topic):
+        sys.exit("主題只能用小寫英文、數字和 -，例如 modern-family-confused")
+    idx = load_index()
+    no = next_no(idx, a.category)
+    folder = VIDS / a.category / f"{no}-{a.topic}"
+    folder.mkdir(parents=True)
+    idx["videos"].append({"category": a.category, "no": no, "topic": a.topic, "title": a.title or "",
+                          "made": dt.date.today().isoformat()})
+    save_index(idx)
+    print(folder.relative_to(ROOT))
+
+
+def cmd_move(a):
+    """換分類：資料夾搬到新分類、拿新分類的下一個編號（例如 wip 做完分到 promo）。已排進發文的不能搬。"""
+    folder = (ROOT / a.folder).resolve()
+    cat, no, topic = cat_no_topic(folder)
+    if a.category == cat:
+        sys.exit(f"已經在 {cat} 了")
+    q = load()
+    if any(it["folder"] == str(folder.relative_to(ROOT)) for it in q["items"]):
+        sys.exit("這支已經排進發文，搬了排程會找不到檔案；先 skip 再搬")
+    idx = load_index()
+    v = next(v for v in idx["videos"] if v["category"] == cat and v["no"] == no)
+    v["category"], v["no"] = a.category, next_no(idx, a.category)
+    dest = VIDS / a.category / f"{v['no']}-{topic}"
+    dest.parent.mkdir(exist_ok=True)
+    folder.rename(dest)
+    save_index(idx)
+    print(f"{folder.relative_to(ROOT)} → {dest.relative_to(ROOT)}")
+
+
+def cmd_roll(q, a):
+    cid = a.channel or next(iter(q["channels"]))
+    icon = {"posted": "✅ 已發", "partial": "✅ 部分", "queued": "· 排隊中", "failed": "❌ 失敗", "skipped": "– 跳過"}
+    kind = {"reel": "影片", "carousel": "輪播圖"}
+    last = None
+    for v in load_index()["videos"]:
+        if v["category"] != last:
+            last = v["category"]
+            print(f"\n{last}（{CATEGORIES[last]}）")
+        st = [f"{kind[it['kind']]} {icon.get(state(it), state(it))}"
+              for it in q["items"] if it["id"].startswith(f"{cid}-{v['category']}-{v['no']}-")]
+        gone = "" if (VIDS / v["category"] / f"{v['no']}-{v['topic']}").is_dir() else "（資料夾不見了）"
+        print(f"  #{v['no']}  {v['made']}  {v['topic']:28} {v['title']}{gone}  {'、'.join(st) or '未排'}")
 
 
 def cmd_add(q, a):
@@ -297,7 +379,7 @@ def cmd_add(q, a):
     if not folder.is_dir():
         sys.exit(f"找不到資料夾：{folder}")
     rel = folder.relative_to(ROOT)
-    day, topic = day_topic(folder)
+    cat, no, topic = cat_no_topic(folder)
     found = {}
     final = find_final(folder)
     if final:
@@ -323,7 +405,7 @@ def cmd_add(q, a):
     if a.at:
         at = dt.datetime.fromisoformat(a.at).replace(tzinfo=ZoneInfo(chan(q, cid)["tz"]))
     for kind in kinds:
-        iid = f"{cid}-{day}-{topic}-{kind}"
+        iid = f"{cid}-{cat}-{no}-{kind}"
         if any(it["id"] == iid for it in q["items"]):
             print(f"已在排程裡：{iid}（要重排先 skip 或改 queue.json）")
             continue
@@ -333,10 +415,10 @@ def cmd_add(q, a):
         when = at or next_slot(q, last_time(q, cid), cid)
         at = None if a.at is None else next_slot(q, when, cid)   # 同時加兩篇時，第二篇排到下一個時段
         item = {
-            "id": iid, "channel": cid, "topic": topic, "kind": kind, "folder": str(rel), "media": found[kind], "caption_file": cap,
+            "id": iid, "channel": cid, "topic": label(cat, no, topic), "kind": kind, "folder": str(rel), "media": found[kind], "caption_file": cap,
             "scheduled_for": when.isoformat(), "added_at": now(q, cid).isoformat(timespec="seconds"),
             "tags": tags(folder, kind, a),
-            "platforms": {p: {"status": "queued", "attempts": 0} for p in chan(q, cid)["platforms"][kind]},
+            "platforms": {p: {"status": "queued", "attempts": 0} for p in pick_platforms(q, cid, kind, a)},
         }
         item["caption"] = (folder / cap).read_text().strip()
         if kind == "carousel" and variants:
@@ -350,9 +432,18 @@ def cmd_add(q, a):
                 key = f"{iid}/{m}"
                 item.setdefault("public_urls", {})[key] = P.upload_public(load_secrets(), folder / m, key)
             item["thumb"] = upload_thumb(folder, item)
+            upload_cover(folder, item)
         q["items"].append(item)
         print(f"加入 {iid} → {when:%m/%d %H:%M}（{chan(q, cid)['name']}時間）")
     save(q)
+
+
+def pick_platforms(q, cid, kind, a):
+    """這篇要發哪些平台：--platforms（逗號分隔，或控制台傳來的清單）優先，沒給就用這個國家的預設。"""
+    want = getattr(a, "platforms", None)
+    if isinstance(want, str):
+        want = [x.strip() for x in want.split(",") if x.strip()]
+    return [p for p in want if p in NAMES] if want else chan(q, cid)["platforms"][kind]
 
 
 def all_media(it):
@@ -405,15 +496,18 @@ def post_item(q, it, secrets, dry):
     caption = it.get("caption") or (ROOT / it["folder"] / it["caption_file"]).read_text().strip()
     tmp = pathlib.Path(tempfile.mkdtemp())
     acct = account(secrets, it["channel"])
+    manual = set(P.MANUAL) | set(chan(q, it["channel"]).get("manual", []))   # 國家可以把有 API 的平台也改手動（例如 App 還沒過審核）
+    went_manual = []
     for name, ps in it["platforms"].items():
         if ps["status"] not in ("queued",):
             continue
-        if name in P.MANUAL:
+        if name in manual:
             if dry:
                 print(f"[dry-run] {it['id']} → {NAMES[name]}：會列進「待手動發布」")
                 continue
             ps.update(status="manual", due_at=now(q).isoformat(timespec="seconds"))
             log(f"待手動發布 {it['id']} → {NAMES[name]}")
+            went_manual.append(name)
             save(q); continue
         sec = acct.get(name, {})
         pl = plan(it, name)
@@ -442,7 +536,8 @@ def post_item(q, it, secrets, dry):
             else:
                 media = fetch(it, rels, tmp)
             ps["attempts"] += 1
-            res = P.ADAPTERS[name](kind, media, caption_for(name, caption), sec)
+            extra = {"cover": it["cover"]} if it.get("cover") and kind == "reel" and name in P.COVER else {}
+            res = P.ADAPTERS[name](kind, media, caption_for(name, caption), sec, **extra)
             ps.update(status="posted", posted_at=now(q).isoformat(timespec="seconds"), **{k: v for k, v in res.items() if v})
             if kind != it["kind"]:
                 ps["as"] = kind   # 例如輪播圖改發輪播影片
@@ -460,6 +555,51 @@ def post_item(q, it, secrets, dry):
             traceback.print_exc()
         save(q)
         save_secrets(secrets)   # TikTok refresh token 每次會換
+    if went_manual:
+        notify(secrets, it, went_manual)
+
+
+def notify(secrets, it, names, title=None):
+    """推播到手機（ntfy）：點通知打開影片 / 第一張圖，內文是文案（長按複製），下面有封面圖按鈕。沒設定 topic 就不推。"""
+    topic = secrets.get("ntfy", {}).get("topic")
+    if not topic:
+        return
+    urls = it.get("public_urls", {})
+    pl = plan(it, names[0]) if names else None
+    links = [urls[k] for k in (f"{it['id']}/{m}" for m in (pl[1] if pl else [])) if k in urls] or list(urls.values())
+    acts = ([{"action": "view", "label": "打開影片" if links[0].endswith(".mp4") else "打開圖片", "url": links[0]}] if links else []) \
+        + ([{"action": "view", "label": "封面圖", "url": it["cover"]}] if it.get("cover") else [])
+    try:
+        P._check(requests.post("https://ntfy.sh/", timeout=30, json={
+            "topic": topic, "title": title or f"該手動發了：{it['topic']} → {'、'.join(NAMES[n] for n in names)}",
+            "message": it.get("caption") or "（沒有文案）", "tags": ["memo"], "click": links[0] if links else "", "actions": acts}))
+        log(f"已推播提醒 {it['id']} → {'、'.join(names)}")
+    except Exception as e:
+        log(f"推播失敗：{e}")
+
+
+def cmd_notify(q, a):
+    """手機提醒：第一次跑會產生私人 topic 存進金鑰，並送一則測試通知。"""
+    s = load_secrets()
+    n = s.setdefault("ntfy", {})
+    if not n.get("topic"):
+        import secrets as rnd
+        n["topic"] = f"nuances-{rnd.token_hex(6)}"
+        save_secrets(s)
+    it = next((x for x in q["items"] if x.get("public_urls")), {"id": "test", "topic": "測試", "caption": "這是測試通知"})
+    notify(s, it, [], title="Nuances 提醒已連上 ✅")
+    print(f"ntfy topic：{n['topic']}\n手機裝 ntfy App → 右下 + → 輸入這個 topic 訂閱。之後手動平台到時間就會收到通知。")
+
+
+def cmd_covers(q, a):
+    """補做封面：排隊中、還沒有封面的貼文；--id 指定一篇並可用 --at 指定影片第幾秒（--at slide 改回輪播封面）。"""
+    todo = [get(q, a.id)] if a.id else [it for it in q["items"] if state(it) == "queued" and not it.get("cover")]
+    for it in todo:
+        if a.at is not None:
+            it["cover_at"] = None if a.at == "slide" else float(a.at)
+        upload_cover(ROOT / it["folder"], it)
+        print(f"{it['id']}：{it.get('cover') or '沒有封面（輪播圖沒有 9:16 版本）'}")
+    save(q)
 
 
 # ---------- 成效 ----------
@@ -745,7 +885,9 @@ def cmd_channel(q, a):
         c["platforms"]["reel"] = [x for x in a.reel.split(",") if x]
     if a.carousel is not None:
         c["platforms"]["carousel"] = [x for x in a.carousel.split(",") if x]
-    bad = [p for k in ("reel", "carousel") for p in c["platforms"][k] if p not in NAMES]
+    if a.manual is not None:
+        c["manual"] = [x for x in a.manual.split(",") if x]
+    bad = [p for k in ("reel", "carousel", "manual") for p in c.get(k, c["platforms"].get(k, [])) if p not in NAMES]
     if bad:
         sys.exit(f"不認得的平台：{bad}")
     save(q)
@@ -779,6 +921,30 @@ def upload_thumb(folder, it):
         out = pathlib.Path(d) / "thumb.jpg"
         make_thumb(folder / it["media"][0], out)
         return P.upload_public(load_secrets(), out, f"{it['id']}/thumb.jpg")
+
+
+def make_cover(folder, it, out):
+    """Reels 封面 / YouTube 縮圖（9:16 JPEG）：有 9:16 輪播圖就用封面那張，沒有或指定了 cover_at 就截影片那一秒（預設第 1 秒）。"""
+    slides = sorted((folder / "slides-9x16").glob("slide_*.png"))
+    if slides and it.get("cover_at") is None:
+        src = ["-i", str(slides[0])]
+    elif it["kind"] == "reel":
+        src = ["-ss", str(it.get("cover_at") or 1), "-i", str(folder / it["media"][0])]
+    else:
+        return False
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", *src, "-frames:v", "1", "-q:v", "3", str(out)], capture_output=True)
+    return r.returncode == 0 and out.exists()
+
+
+def upload_cover(folder, it):
+    """做封面傳到公開網址，存在 it["cover"]；影片的看板縮圖也換成封面。網址每次換新，避免平台抓到舊的快取。"""
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d) / "cover.jpg"
+        if not make_cover(folder, it, out):
+            return
+        it["cover"] = P.upload_public(load_secrets(), out, f"{it['id']}/cover-{dt.datetime.now():%m%d%H%M%S}.jpg")
+    if it["kind"] == "reel":
+        it["thumb"] = it["cover"]
 
 
 def thumb(it):
@@ -953,10 +1119,17 @@ def main():
     x.add_argument("--show", help="劇名（預設讀 slides.json 的 show）"); x.add_argument("--hook-reel", help="影片的 hook 句型")
     x.add_argument("--hook-carousel", default="打破你以為的", help="輪播圖的 hook 句型")
     x.add_argument("--channel", help="排到哪個國家（預設第一個，通常是 tw）")
+    x.add_argument("--platforms", help="這篇只發這些平台（逗號分隔，例如 instagram,threads）；預設用國家設定")
+    x = sp.add_parser("new"); x.add_argument("category", choices=list(CATEGORIES)); x.add_argument("topic"); x.add_argument("--title")
+    x = sp.add_parser("move"); x.add_argument("folder"); x.add_argument("category", choices=list(CATEGORIES))
+    x = sp.add_parser("roll"); x.add_argument("--channel")
     x = sp.add_parser("channel"); x.add_argument("action", choices=["list", "add", "set"], nargs="?", default="list")
     x.add_argument("id", nargs="?"); x.add_argument("--name"); x.add_argument("--tz"); x.add_argument("--lang")
     x.add_argument("--slots", help="逗號分隔，例如 12:30,20:00"); x.add_argument("--reel", help="影片發哪些平台，逗號分隔")
     x.add_argument("--carousel", help="輪播圖發哪些平台，逗號分隔")
+    x.add_argument("--manual", help="這些平台改成手動發（時間到推播提醒），逗號分隔；空字串 = 全部自動")
+    sp.add_parser("notify")
+    x = sp.add_parser("covers"); x.add_argument("--id"); x.add_argument("--at", help="影片第幾秒當封面；slide = 用 9:16 輪播封面")
     x = sp.add_parser("metrics"); x.add_argument("--now", action="store_true", help="不管天數，現在抓一次")
     sp.add_parser("list"); sp.add_parser("dashboard"); sp.add_parser("reschedule")
     x = sp.add_parser("post-due"); x.add_argument("--dry-run", action="store_true")
@@ -967,11 +1140,16 @@ def main():
     x = sp.add_parser("push-secrets"); x.add_argument("--only"); x.add_argument("--channel", default="tw")
     x = sp.add_parser("serve"); x.add_argument("--port", type=int, default=8790); x.add_argument("--no-open", action="store_true")
     a = ap.parse_args()
-    fns = {"add": cmd_add, "list": cmd_list, "dashboard": lambda q, a: (dashboard(q), print(DASH)), "reschedule": cmd_reschedule,
+    if a.cmd == "new":   # 只動本機資料夾和點名表，不用讀 queue
+        return cmd_new(a)
+    if a.cmd == "move":
+        return with_lock(lambda: cmd_move(a))
+    fns = {"roll": cmd_roll, "add": cmd_add, "list": cmd_list, "dashboard": lambda q, a: (dashboard(q), print(DASH)), "reschedule": cmd_reschedule,
            "post-due": cmd_post_due, "post": cmd_post, "skip": cmd_skip, "retry": cmd_retry,
            "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done,
+           "notify": cmd_notify, "covers": cmd_covers,
            "serve": lambda q, a: __import__("control_server").serve(a.port, not a.no_open)}
-    if a.cmd in ("post-due", "post", "add", "skip", "retry", "reschedule", "metrics", "channel", "done"):
+    if a.cmd in ("post-due", "post", "add", "skip", "retry", "reschedule", "metrics", "channel", "done", "covers"):
         with_lock(lambda: fns[a.cmd](load(), a))
     else:
         fns[a.cmd](load(), a)

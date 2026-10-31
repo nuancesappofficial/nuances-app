@@ -12,7 +12,10 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | 要做的事 | 指令 |
 |---|---|
 | 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：兩個分頁 +「⚙ 設定」。「排程」= 下一篇 + 待辦（待手動、失敗）+ 4 週日曆（虛線是空時段）+ 右邊「做好了、還沒排」；「成效」= 哪種比較好 + 發過的貼文。點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
-| 做完一支片段，排進發文 | `python3 $Q add promo-vids/<日期>/<topic>` |
+| 開新影片資料夾（拿該分類的下一個編號） | `python3 $Q new promo\|demo\|in-app\|wip <topic> --title "中文標題"` → 印出 `promo-vids/<分類>/<編號>-<topic>` |
+| 換分類（例如 wip 做完分到 promo） | `python3 $Q move promo-vids/wip/001-so-tired promo` |
+| 點名表：依分類列出每支影片的編號與發文狀態 | `python3 $Q roll` |
+| 做完一支片段，排進發文 | `python3 $Q add promo-vids/<分類>/<編號>-<topic>` |
 | 看排程 | `python3 $Q list` |
 | 給使用者看看板（唯讀，手機也能看） | 開 `promo-vids/dashboard.html`（打開時從雲端讀即時資料，每分鐘更新；檔案不見了跑 `python3 $Q dashboard`）。要排程、改日期用上面的控制台 |
 | 確認會發什麼、不真的發 | `python3 $Q post-due --dry-run` / `python3 $Q post <id> --dry-run` |
@@ -22,13 +25,27 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | 看成效 | `python3 $Q metrics`（`--now` 不管天數立刻抓一次） |
 | 重發失敗的平台 | `python3 $Q retry <id> [--platform threads]` |
 | 刪掉或改順序後重排時段 | `python3 $Q reschedule` |
+| 補做 / 換封面（IG Reels 封面、YouTube 縮圖） | `python3 $Q covers`（排隊中沒封面的全補）、`covers --id <id> --at 3.5`（影片第 3.5 秒）、`--at slide`（改回輪播封面）；控制台詳細頁也能挑一格換 |
+| 手機推播提醒（ntfy） | `python3 $Q notify`：第一次會產生私人 topic 存進雲端金鑰並送測試通知；使用者在 ntfy App 訂閱那個 topic |
 
-`<id>` 可以只打結尾，例如 `modern_family-reel`。
+`<id>` = `<國家>-<分類>-<編號>-<reel|carousel>`，例如 `tw-promo-002-reel`；可以只打結尾，例如 `promo-002-reel`。
+
+## 編號與點名表
+- 影片依用途分類，每個分類各自從 `001` 編起，不重複、刪掉也不補號。口頭講「promo #002」就是那一支。
+  | 分類 | 放什麼 |
+  |---|---|
+  | `promo` | 推廣片：影集 / 電影片段做成的單字影片和輪播圖（clip-to-nuance + clip-to-slides） |
+  | `demo` | Demo 片：介紹 App 功能的影片 |
+  | `in-app` | App 內功能的操作影片（分享選單、口說測驗…） |
+  | `wip` | 還在做、還沒決定分類的（例如 nuance-ladder 的 so-tired）；分好用 `move`，編號會換成新分類的下一號，已排進發文的不能搬 |
+- 資料夾：`promo-vids/<分類>/<編號>-<topic>/`。
+- 點名表 `promo-vids/index.json`：`category`、`no`、`topic`、`title`（中文標題）、`made`（開資料夾那天）。新影片一律用 `new` 開，換分類用 `move`，不要手動 mkdir、搬資料夾或改編號。
+- 看板和控制台上的名稱前面會帶 `promo #002`。
 
 ## 控制台與收件匣
 - `serve` 在 Mac 上開網頁控制台（`scripts/control_server.py` + `assets/control.html`），讀寫的是雲端同一份 queue，跟 GitHub Actions 同步。
-- **「做好了、還沒排」（收件匣）不用另外放資料夾**：自動掃 `promo-vids/<日期>/<主題>/` 和 `promo-vids/<日期>-<主題>/`（功能介紹片），有成品影片（`*-final.mp4`、`*_final*.mp4`、`final/*.mp4` 取最新）或 `slides/` 但還沒排進目前國家的就會出現；可以直接在網頁寫文案（存回 `caption-reel.txt` / `caption.txt`）、選 hook 句型，選哪天發（預設最近的空時段；也可以直接拖到日曆的空格），按「排進發文」= 跑 `add --at`。「不要了」會把資料夾記在 queue 的 `ignored`。
-- 使用者說「打開控制台」→ 用 run_in_terminal 跑 `python3 skills/promo-queue/scripts/postq.py serve`。
+- **「做好了、還沒排」（收件匣）不用另外放資料夾**：自動掃 `promo-vids/<分類>/<編號>-<topic>/`，有成品影片（`*-final.mp4`、`*_final*.mp4`、`final/*.mp4` 取最新）或 `slides/` 但還沒排進目前國家的就會出現；可以直接在網頁寫文案（存回 `caption-reel.txt` / `caption.txt`）、選 hook 句型，選哪天發（預設最近的空時段；也可以直接拖到日曆的空格），按「排進發文」= 跑 `add --at`。「不要了」會把資料夾記在 queue 的 `ignored`。
+- 使用者說「打開控制台」→ 用 run_in_terminal 跑 `python3 skills/promo-queue/scripts/postq.py serve`。使用者自己開：在 Finder 雙擊 `promo-vids/開啟控制台.command`（已經開著就直接打開那一頁）。
 - 測試模式（`POSTQ_DIR`）不讀任何帳號金鑰，按「立刻發」不會真的發出去。
 
 ## 排進發文（add）
@@ -42,7 +59,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
    - 第一行是 hook（不給答案），接著列出單字（英文｜中文），一行 CTA「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」，最後 5–8 個 hashtag。
    - 影片的 hook 跟輪播圖不同句，避免同一個主題連兩天講一樣的話。
    - Threads 上限 500 字、只留第一個 hashtag；YouTube 標題取第一行；這些腳本會自動處理。
-4. 範例：`promo-vids/2026-10-07/modern_family/`（`caption.txt`、`caption-reel.txt`）。
+4. 範例：`promo-vids/promo/001-modern-family-hot-tub/`（`caption.txt`、`caption-reel.txt`）。
 
 ## 國家（channel）
 - 每個國家一組：自己的帳號 token、時區、發文時段（當地時間）、內容語言、影片 / 輪播圖各發哪些平台。存在 queue 的 `channels`，金鑰在雲端 `secrets.json` 的 `channels.<代號>`。
@@ -68,6 +85,9 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 - 輪播圖改發影片的平台，狀態裡會記 `as: reel`，成效照影片算，但跟「影片」那類貼文分開比。
 
 - 手動平台（`platforms.py` 的 `MANUAL`）：時間到時狀態變「待手動」（不擋後面的排程），看板最上方「待手動發布」列出素材連結、可直接複製的文案和 `done` 指令。使用者說發好了，就幫他跑 `done`。
+  - 有 API 的平台也能整個國家改手動：`channel set tw --manual tiktok,youtube`（App 還沒過審核、API 發的會被隱藏時用）；`--manual ""` 改回自動。
+  - 變成「待手動」時會推播到手機（ntfy，topic 在金鑰 `ntfy.topic`）：標題是哪篇、哪些平台，內文是文案，點通知打開影片 / 圖片，另有「封面圖」按鈕。
+- 封面：`add` 時自動做 9:16 封面傳上雲端（`cover`）——有 `slides-9x16/` 就用輪播封面那張，沒有就截影片第 1 秒（`cover_at` 可改）。發 IG Reels 時當 `cover_url`、發 YouTube 時設成縮圖（頻道要做過電話驗證，失敗只記在 note）。
 - 加平台到某國：`channel set <代號> --reel …,… --carousel …,…`（完整清單，會覆蓋）。
 
 ## 自動發文怎麼運作
@@ -108,6 +128,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
   bash skills/promo-queue/scripts/setup_wizard.sh
   ```
   精靈一次設定一個國家：帶他建 Meta App（IG + Threads + Facebook 粉專）、TikTok App、Google Cloud 專案，做 OAuth，最後把金鑰傳到雲端、設定 GitHub secrets。在專案根目錄跑，需要 `gh` 已登入。每個平台都能先跳過。
+- 只補 Threads：`python3 skills/promo-queue/scripts/connect_threads.py [--channel tw]`（讀精靈存的 App 編號，授權完自動傳上雲端）。Threads 後台的回呼、解除安裝、刪除三個網址都要填同一個才存得起來，漏填授權時會說回呼網址不對。回呼網址那格存不進去時，改用同一頁最下面「用戶權杖產生器」產生權杖，跑 `connect_threads.py --token` 貼上。
 - 平台限制（審核過才會公開）：
   - TikTok App 沒通過審核前，影片只有自己看得到（dashboard 會標「僅自己可見」）。
   - YouTube API 專案沒通過 Google 稽核前，上傳的影片會被設成私人。

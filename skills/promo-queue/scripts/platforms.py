@@ -75,14 +75,15 @@ def ig_api(sec):
     return FB if sec.get("via") == "facebook" else "https://graph.instagram.com/v21.0"
 
 
-def instagram(kind, urls, caption, sec):
+def instagram(kind, urls, caption, sec, cover=None):
     need(sec, "user_id", "token")
     api, uid = ig_api(sec), sec["user_id"]
     tok = {"access_token": sec["token"]}
     status = lambda cid: _check(requests.get(f"{api}/{cid}", params={**tok, "fields": "status_code"}, timeout=TIMEOUT)).get("status_code")
     if kind == "reel":
         cid = _check(requests.post(f"{api}/{uid}/media", data={**tok, "media_type": "REELS", "video_url": urls[0],
-                                                                 "caption": caption, "share_to_feed": "true"}, timeout=TIMEOUT))["id"]
+                                                                 "caption": caption, "share_to_feed": "true",
+                                                                 **({"cover_url": cover} if cover else {})}, timeout=TIMEOUT))["id"]
     else:
         kids = [_check(requests.post(f"{api}/{uid}/media", data={**tok, "image_url": u, "is_carousel_item": "true"},
                                      timeout=TIMEOUT))["id"] for u in urls]
@@ -156,7 +157,7 @@ def x_text(caption, limit=280):
 
 
 # ---------- YouTube Shorts ----------
-def youtube(kind, files, caption, sec):
+def youtube(kind, files, caption, sec, cover=None):
     if kind != "reel":
         raise Unsupported("YouTube 只發影片")
     at = youtube_token(sec)
@@ -171,7 +172,15 @@ def youtube(kind, files, caption, sec):
     _check(r)
     vid = _check(requests.put(r.headers["Location"], data=path.read_bytes(), timeout=600,
                               headers={"Authorization": f"Bearer {at}", "Content-Type": "video/mp4"}))["id"]
-    return {"id": vid, "url": f"https://youtube.com/shorts/{vid}"}
+    out = {"id": vid, "url": f"https://youtube.com/shorts/{vid}"}
+    if cover:   # 縮圖要頻道做過電話驗證；設不成功不算發文失敗
+        try:
+            _check(requests.post(f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={vid}", timeout=TIMEOUT,
+                                 data=requests.get(cover, timeout=TIMEOUT).content,
+                                 headers={"Authorization": f"Bearer {at}", "Content-Type": "image/jpeg"}))
+        except Exception as e:
+            out["note"] = f"縮圖沒設成功：{str(e)[:200]}"
+    return out
 
 
 # ---------- TikTok ----------
@@ -237,6 +246,7 @@ def facebook(kind, urls, caption, sec):
 # 哪些平台要先把檔案傳到公開網址
 NEEDS_URL = {"instagram", "threads", "facebook"}
 ADAPTERS = {"instagram": instagram, "threads": threads, "tiktok": tiktok, "youtube": youtube, "facebook": facebook}
+COVER = {"instagram", "youtube"}   # 發影片時可以指定封面圖（IG Reels 封面、YouTube 縮圖）
 SUPPORTS = {"instagram": {"reel", "carousel"}, "threads": {"reel", "carousel"}, "tiktok": {"reel"}, "youtube": {"reel"},
             "facebook": {"reel", "carousel"}}
 # 沒有開放發文 API 的平台：時間到時看板會列出來，使用者手動發完再用 postq.py done 標記
