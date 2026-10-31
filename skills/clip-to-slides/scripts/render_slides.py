@@ -32,7 +32,7 @@ CTA_DEFAULT = {"headline": "跟「懶得查」|[說 bye bye！]", "sub": ""}   #
 
 
 def person_mask(img, out):
-    """雜誌風用：Apple Vision 人物去背，失敗（沒人、非 macOS）就回 None，模板會略過去背層。"""
+    """Apple Vision 人物去背，失敗（沒人、非 macOS）就回 None，模板會略過去背層。"""
     r = subprocess.run(["swift", str(pathlib.Path(__file__).with_name("person_mask.swift")), str(img), str(out)],
                        capture_output=True)
     return out.name if r.returncode == 0 else None
@@ -150,10 +150,10 @@ def main():
             grab(source, o.get("time", c["trigger"]), work / img)
             words.append({**c, "pos": POS_ZH.get(c.get("pos", "").lower().strip(". "), c.get("pos", "")),
                           "image": img, "focus": o.get("focus", "center")})
-        if cfg.get("style") == "editorial":
-            cfg["cover"]["mask"] = person_mask(work / "cover.jpg", work / "cover_mask.png")
-            for w in words:
-                w["mask"] = person_mask(work / w["image"], work / w["image"].replace(".jpg", "_mask.png"))
+        # 人物去背，疊在左上角 App 名稱前面
+        cfg["cover"]["mask"] = person_mask(work / "cover.jpg", work / "cover_mask.png")
+        for w in words:
+            w["mask"] = person_mask(work / w["image"], work / w["image"].replace(".jpg", "_mask.png"))
         data = {"show": cfg.get("show", topic.replace("_", " ").upper()),
                 "cover": {**cfg["cover"], "image": "cover.jpg"},
                 "words": words, "cta": {**CTA_DEFAULT, **cfg.get("cta", {})}}

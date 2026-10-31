@@ -1211,7 +1211,7 @@ def main():
     sp = ap.add_subparsers(dest="cmd", required=True)
     x = sp.add_parser("add"); x.add_argument("folder"); x.add_argument("--only", choices=["reel", "carousel"]); x.add_argument("--at")
     x.add_argument("--show", help="劇名（預設讀 slides.json 的 show）"); x.add_argument("--hook-reel", help="影片的 hook 句型")
-    x.add_argument("--hook-carousel", default="打破你以為的", help="輪播圖的 hook 句型")
+    x.add_argument("--hook-carousel", default="英文怎麼說", help="輪播圖的 hook 句型")
     x.add_argument("--channel", help="排到哪個國家（預設第一個，通常是 tw）")
     x.add_argument("--platforms", help="這篇只發這些平台（逗號分隔，例如 instagram,threads）；預設用國家設定")
     x = sp.add_parser("new"); x.add_argument("category", choices=list(CATEGORIES)); x.add_argument("topic"); x.add_argument("--title")

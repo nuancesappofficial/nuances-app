@@ -54,7 +54,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
    - 影片：`*-final.mp4` + 文案 `caption-reel.txt`（沒有時會用 `caption.txt`）
    - 輪播圖：`slides/slide_*.png` + 文案 `caption.txt`
 2. 兩個都有就排兩篇（影片、輪播圖），各占一個時段；`--channel jp` 排到別的國家（預設第一個，tw），內容語言要跟那個國家一致；`--only reel|carousel` 只排一種，`--at "2026-11-02 20:00"` 指定時間。
-   - 標籤（拿來比成效）：`--hook-reel <句型>`（例如 `劇情懸念`）、`--hook-carousel <句型>`（預設 `打破你以為的`）、`--show <劇名>`（預設讀 `slides.json`）。格式自動判斷：輪播圖 / Ghost 卡影片 / nuance-ladder。
+   - 標籤（拿來比成效）：`--hook-reel <句型>`（例如 `劇情懸念`）、`--hook-carousel <句型>`（預設 `英文怎麼說`）、`--show <劇名>`（預設讀 `slides.json`）。格式自動判斷：輪播圖 / Ghost 卡影片 / nuance-ladder。
 3. 文案寫法：
    - 第一行是 hook（不給答案），接著列出單字（英文｜中文），一行 CTA「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」，最後 5–8 個 hashtag。
    - 影片的 hook 跟輪播圖不同句，避免同一個主題連兩天講一樣的話。
