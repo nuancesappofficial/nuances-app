@@ -14,7 +14,7 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    - 沒給 `<topic>` 就先問，問到才繼續。
 
 2. **下載影音與字幕**
-   - `yt-dlp` 下載指定區間影音與原生字幕（沒有就用本地 Whisper 轉錄）→ `promo-vids/<YYYY-MM-DD>/<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。
+   - `yt-dlp` 下載指定區間影音與原生字幕（沒有就用本地 Whisper 轉錄）→ 工作資料夾 `promo-vids/promo/<編號>-<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。
    - 同時保留 YouTube 自動字幕 `.vtt`（有字級時間，第 4 步要用）。
    - **下載完先停下來，請使用者打開 `<topic>.mp4` 檢查並自行修剪**，給出檔案路徑後等使用者回覆「好了」才繼續。
    - 使用者回覆後重新讀檔（修剪可能直接覆蓋原檔，也可能另存新檔——兩種都要找）：
@@ -42,9 +42,12 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    ```bash
    python3 .agents/skills/clip-to-nuance/scripts/render_ghost_push.py \
      --source <topic>.mp4 --subs subtitles.ass --cards cards.json \
+     --title "<標題第一行>|<第二行>" --title-sub "<劇名 (年份)>" \
      [--hold 3] [--theme light|dark] [--type-speed 2] [--audio <有音軌的檔>] \
      --out <topic>-ghost.mp4
    ```
+   - **上方標題（每支都加）**：放在影片上面的黑色區域，避開上緣 150px（Reels / TikTok 介面會蓋住）。文字預設沿用 clip-to-slides 的封面 hook（例如「無法跳過的|汽車總動員片段」），`--title-sub` 放劇名。樣式預設 `quiet`：淺灰字、不用藍色，**藍色只留給字幕的目標字**，標題不能搶字幕的注意力。影片一開始上推，標題就往上淡出（約 0.18 秒），落回後再浮回來。其他樣式（`plain` / `box` / `marker` / `sticker` / `outline`）是試過但沒採用的。
+   - 原片結尾接片頭 / 片尾 logo 時，剪在 logo 之前。最後一張卡需要多一點時間的話，用最後一格畫面定格補足，**定格約 1–1.5 秒就好**，不要讓卡片在定格畫面上停 3 秒。
    - 先加 `--stills <秒數,...>` 輸出預覽 PNG（`--out` 改成資料夾）確認版面，再壓整支。
    - 卡片 UI 照抄 App 的 `CreateCardGhostPreviewSceneUI` 正面（預設 Light）：單字、音標 + 喇叭、詞性膠囊、釋義、分隔線、例句（目標字螢光底 + 底線）、翻譯。
    - 打字效果：App `ProgressiveText` 的跳字規則（每 50ms 一跳，依剩餘字數一次 1/2/3/6 字），**2 倍速、各段之間不停頓**，單字 → 釋義 → 例句 → 翻譯一口氣打完（一張卡約 1.3–1.6 秒）。
@@ -77,8 +80,8 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 - 推移曲線在 `render_ghost_push.py` 裡同時用於 ffmpeg 的 overlay y 表達式與 PIL 疊層（`ease()` / `ffmpeg_push_expr()`），要改就兩個一起改。
 
 ## 影片儲存與命名
-全部放在 `promo-vids/<YYYY-MM-DD>/<topic>/`：
-- 自動建立目錄；同日同名已存在時改用 `<topic>_02/`、`<topic>_03/`…
+全部放在 `promo-vids/promo/<編號>-<topic>/`：
+- 影片依分類放，每個分類各自編號（見 promo-queue 的點名表）。開資料夾一律用 `python3 .agents/skills/promo-queue/scripts/postq.py new promo <topic> --title "中文標題"`，它會拿 promo 的下一個編號、建資料夾、記進 `promo-vids/index.json`，並印出資料夾路徑；不要自己 mkdir。
 - 檔名：
   - 來源原片：`<topic>.mp4`
   - 字幕 / 單字卡資料：`subtitles.ass`（或 `subs.json`）、`cards.json`
@@ -87,12 +90,12 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 
 ## 公用素材（`promo-vids/CTA-screens/`）
 - `splash_transparent.mov`：冷啟動 1.6 秒透明轉場（ProRes 4444）。重新生成用 `scripts/generate_native_splash.swift`。
-- `CTA-nuances.mp4`：固定 CTA = promo 1 的 CTA 底片（`promo-vids/2026-10-12-feature-promo/project/assets/cta1/` 第 193–350 幀：App icon + 掃光，文字都已擦掉）+ 標語「跟「懶得查」說bye bye!」+ App 名稱「Nuances: 英文單字卡」（64px，promo 1 是 44px）+ App Store / Google Play 徽章。
+- `CTA-nuances.mp4`：固定 CTA = promo 1 的 CTA 底片（`promo-vids/demo/001-app-promo/project/assets/cta1/` 第 193–350 幀：App icon + 掃光，文字都已擦掉）+ 標語「跟「懶得查」說 bye bye！」（#97D2FD 淺藍、118px、在 icon 上方偏高，跟 demo 1 封面一樣）+ App 名稱「Nuances: 英文單字卡」（64px，promo 1 是 44px）+ App Store / Google Play 徽章。
   - 換文字時重產（標語用 `|` 斷行）：
     ```bash
     cd .agents/skills/clip-to-nuance/scripts && python3 build_cta.py \
-      <repo>/promo-vids/2026-10-12-feature-promo/project/assets/cta1 \
-      <repo>/promo-vids/CTA-screens/CTA-nuances.mp4 "跟「懶得查」|說bye bye!" [--name "Nuances: 英文單字卡"]
+      <repo>/promo-vids/demo/001-app-promo/project/assets/cta1 \
+      <repo>/promo-vids/CTA-screens/CTA-nuances.mp4 "跟「懶得查」|說 bye bye！" [--name "Nuances: 英文單字卡"]
     ```
   - 徽章 PNG 在 skill 的 `assets/`（`badge_appstore_zh-TW.png`、`badge_play_zh-TW.png`）。
 
@@ -102,7 +105,7 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 - `scripts/build_cta.py`：換 CTA 文字時重產 `CTA-nuances.mp4`。
 - `scripts/generate_native_splash.swift`：重產 Splash。
 - `_legacy/`：舊版「暫停 + 截圖吸入」做法的腳本與素材，管線已不使用。
-- 範例成品：`promo-vids/2026-10-07/modern_family/`（`cards.json`、`subtitles.ass`、`modern_family-final.mp4`）。
+- 範例成品：`promo-vids/promo/001-modern-family-hot-tub/`（`cards.json`、`subtitles.ass`、`modern_family-final.mp4`）。
 
 ## 調用方式
 - `/clip-to-nuance`

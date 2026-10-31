@@ -10,7 +10,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 ## 管線流程（6 步驟）
 
 1. **找到工作資料夾**
-   - `promo-vids/<YYYY-MM-DD>/<topic>/`，裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
+   - `promo-vids/promo/<編號>-<topic>/`（例如 `promo-vids/promo/002-modern-family-confused/`），裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
    - 還沒有就先跑 `/clip-to-nuance` 第 1–4 步（下載、修剪、選字、寫 `cards.json`），做完再回來。
    - 從 clip-to-nuance 第 7 步自動進來時，資料夾就是剛做完影片的那個，直接跳到第 2 步。
    - 單字頁數 = `cards.json` 的張數，要 3–5 個。
@@ -60,7 +60,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 
 6. **排進發文（promo-queue）**
    ```bash
-   python3 .agents/skills/promo-queue/scripts/postq.py add promo-vids/<YYYY-MM-DD>/<topic> --hook-reel <影片 hook 句型，例如 劇情懸念>
+   python3 .agents/skills/promo-queue/scripts/postq.py add promo-vids/promo/<編號>-<topic> --hook-reel <影片 hook 句型，例如 劇情懸念>
    ```
    - 影片和輪播圖各排一篇，自動接在排程最後面；印出來的時間轉告使用者。
    - 規則、看板、改順序見 promo-queue skill。
@@ -80,7 +80,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 - `scripts/render_slides.py`：抓畫面（ffmpeg）→ 寫 `data.js` → Chrome headless 逐頁截圖 → 總覽圖；`--contact` 出挑封面用的總覽。
 - `assets/slides.html`：三種頁面的模板（`?i=0` 封面、`1..n` 單字頁、最後一頁 CTA）。
 - `assets/icon.png`、`assets/badge_*.png`：App icon 與商店徽章（跟 clip-to-nuance 同一套）。
-- 範例：`promo-vids/2026-10-07/modern_family/`（`slides.json`、`slides/`、`modern_family-slides-strip.jpg`）。
+- 範例：`promo-vids/promo/001-modern-family-hot-tub/`（`slides.json`、`slides/`、`modern_family-slides-strip.jpg`）。
 
 ## 調用方式
 - `/clip-to-slides`

@@ -48,6 +48,8 @@ THEMES = {
 }
 SUB_ACCENT = (78, 175, 244)   # 字幕中目標字（MODAL_CTA_COLOR）
 SUB_ZH = (120, 214, 255)
+SUB_ZH_CINEMA = (225, 225, 225)
+LOOK = "cinema"   # cinema：純黑背景 + 無框陰影字幕；blur：模糊背景 + 黑底字幕框
 
 POS_ZH = {"n": "名詞", "noun": "名詞", "v": "動詞", "verb": "動詞", "adj": "形容詞", "adjective": "形容詞",
           "adv": "副詞", "adverb": "副詞", "phrase": "片語", "pron": "代名詞", "prep": "介系詞"}
@@ -232,8 +234,10 @@ def sub_block(cue, words):
     fe, fz = font_en(50), font(42, "semibold")
     en_lines = wrap_simple(fe, cue["en"], W - 140) if cue["en"] else []
     zh_lines = wrap_simple(fz, cue["zh"], W - 140) if cue["zh"] else []
-    pad_x, pad_y, gap = 24, 12, 14
-    rows = [(l, fe, (255, 255, 255), True) for l in en_lines] + [(l, fz, SUB_ZH, False) for l in zh_lines]
+    cinema = LOOK == "cinema"
+    pad_x, pad_y, gap = 24, 12, (2 if cinema else 14)
+    zh_color = SUB_ZH_CINEMA if cinema else SUB_ZH
+    rows = [(l, fe, (255, 255, 255), True) for l in en_lines] + [(l, fz, zh_color, False) for l in zh_lines]
     heights = [f.getbbox("Hg國")[3] + pad_y * 2 for _, f, _, _ in rows]
     img = Image.new("RGBA", (W, max(1, sum(heights) + gap * (len(rows) - 1))), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -242,7 +246,8 @@ def sub_block(cue, words):
     for (line, f, color, is_en), h in zip(rows, heights):
         lw = f.getlength(line)
         x = (W - lw) / 2
-        d.rounded_rectangle((x - pad_x, y, x + lw + pad_x, y + h), radius=14, fill=(0, 0, 0, 170))
+        if not cinema:
+            d.rounded_rectangle((x - pad_x, y, x + lw + pad_x, y + h), radius=14, fill=(0, 0, 0, 170))
         parts = pattern.split(line) if (pattern and is_en) else [line]
         cx = x
         for part in parts:
@@ -252,7 +257,130 @@ def sub_block(cue, words):
             d.text((cx, y + pad_y - 4), part, font=f, fill=SUB_ACCENT if hit else color)
             cx += f.getlength(part)
         y += h + gap
+    if cinema:   # 電影字幕：柔和陰影墊在字下
+        shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        shadow.putalpha(img.getchannel("A").point(lambda v: int(v * 0.9)))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(6))
+        base = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        base.alpha_composite(shadow, (0, 4))
+        base.alpha_composite(img)
+        img = base
     return img
+
+# ---------- 上方標題（影片上推時淡出）----------
+TITLE_SAFE_TOP = 150   # Reels / TikTok / Shorts 介面蓋住的上緣
+
+def _segments(line):
+    """「無法跳過的[汽車總動員]」→ [(文字, 是否標藍)]"""
+    return [(x.strip("[]"), x.startswith("[")) for x in re.split(r"(\[[^\]]*\])", line) if x]
+
+def title_block(title, sub="", style="plain"):
+    """`|` 斷行、`[ ]` 標藍；sub 是一行小字（劇名）。style：plain / box / marker / sticker。"""
+    lines = [l for l in title.split("|") if l]
+    blue, white, ink = SUB_ACCENT, (255, 255, 255), (17, 17, 17)
+    if style == "plain":
+        ft, fs = font(92, "semibold"), font_en(40, "Semibold")
+        rows = [(l, ft) for l in lines] + ([(sub, fs)] if sub else [])
+        heights = [f.getbbox("Hg國")[3] + (14 if f is ft else 28) for _, f in rows]
+        img = Image.new("RGBA", (W, sum(heights) + 20), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        y = 0
+        for (line, f), h in zip(rows, heights):
+            if f is fs:
+                y += 14
+            segs = _segments(line)
+            x = (W - sum(f.getlength(t) for t, _ in segs)) / 2
+            for t, hit in segs:
+                d.text((x, y), t, font=f, fill=blue if hit else (white if f is ft else (150, 150, 150)))
+                x += f.getlength(t)
+            y += h
+        return img
+    if style == "box":       # 社群原生字卡：每行一條白底圓角框，劇名做成藍色膠囊
+        ft, fs = font(84, "semibold"), font_en(34, "Bold")
+        lh, px, gap = ft.getbbox("國")[3] + 30, 30, 10
+        tag_h = fs.getbbox("Hg")[3] + 22 if sub else 0
+        img = Image.new("RGBA", (W, tag_h + (24 if sub else 0) + len(lines) * (lh + gap)), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        y = 0
+        if sub:
+            tw = fs.getlength(sub.upper()) + 44
+            d.rounded_rectangle(((W - tw) / 2, 0, (W + tw) / 2, tag_h), radius=tag_h / 2, fill=blue)
+            d.text(((W - tw) / 2 + 22, 9), sub.upper(), font=fs, fill=white)
+            y = tag_h + 24
+        for line in lines:
+            segs = _segments(line)
+            lw = sum(ft.getlength(t) for t, _ in segs)
+            x = (W - lw) / 2
+            d.rounded_rectangle((x - px, y, x + lw + px, y + lh), radius=18, fill=white)
+            for t, hit in segs:
+                d.text((x, y + 10), t, font=ft, fill=blue if hit else ink)
+                x += ft.getlength(t)
+            y += lh + gap
+        return img
+    if style == "marker":    # 跟輪播圖同一套小報風：靠左、劇名小字 + 藍點、重點字墊藍色螢光筆
+        ft, fs = font(100, "semibold"), font_en(32, "Semibold")
+        lh, mx = ft.getbbox("國")[3] + 26, 72
+        top = fs.getbbox("Hg")[3] + 30 if sub else 0
+        img = Image.new("RGBA", (W, top + len(lines) * lh + 30), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        if sub:
+            d.ellipse((mx, 10, mx + 16, 26), fill=blue)
+            d.text((mx + 30, 0), sub.upper(), font=fs, fill=(190, 190, 190))
+        y = top
+        for line in lines:
+            x = mx
+            for t, hit in _segments(line):
+                tw = ft.getlength(t)
+                if hit:
+                    d.rectangle((x - 6, y + lh * 0.42, x + tw + 6, y + lh - 6), fill=blue + (230,))
+                d.text((x, y), t, font=ft, fill=white)
+                x += tw
+            y += lh
+        d.line((mx, y + 14, mx + 120, y + 14), fill=blue, width=6)
+        return img
+    if style == "sticker":   # 藍色貼紙微微歪一邊
+        ft, fs = font(80, "semibold"), font_en(32, "Bold")
+        lh = ft.getbbox("國")[3] + 20
+        sub_h = fs.getbbox("Hg")[3] + 16 if sub else 0
+        bw = max(sum(ft.getlength(t) for t, _ in _segments(l)) for l in lines) + 100
+        bh = len(lines) * lh + sub_h + 70
+        card = Image.new("RGBA", (int(bw), int(bh)), (0, 0, 0, 0))
+        d = ImageDraw.Draw(card)
+        d.rounded_rectangle((0, 0, bw - 1, bh - 1), radius=36, fill=blue)
+        y = 30
+        for line in lines:
+            segs = _segments(line)
+            x = (bw - sum(ft.getlength(t) for t, _ in segs)) / 2
+            for t, hit in segs:
+                d.text((x, y), t, font=ft, fill=ink if hit else white)
+                x += ft.getlength(t)
+            y += lh
+        if sub:
+            d.text(((bw - fs.getlength(sub)) / 2, y + 6), sub, font=fs, fill=(225, 240, 252))
+        card = card.rotate(-3, resample=Image.BICUBIC, expand=True)
+        img = Image.new("RGBA", (W, card.height), (0, 0, 0, 0))
+        img.alpha_composite(card, ((W - card.width) // 2, 0))
+        return img
+    if style in ("quiet", "outline"):   # 低調版：不用藍色，讓位給字幕
+        ft = font(72 if style == "quiet" else 96, "semibold")
+        fs = font_en(28, "Semibold")
+        lh = ft.getbbox("國")[3] + 18
+        img = Image.new("RGBA", (W, len(lines) * lh + (60 if sub else 10)), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        y = 0
+        for line in lines:
+            t = "".join(x for x, _ in _segments(line))
+            x = (W - ft.getlength(t)) / 2
+            if style == "quiet":
+                d.text((x, y), t, font=ft, fill=(215, 215, 215))
+            else:
+                d.text((x, y), t, font=ft, fill=(0, 0, 0, 0), stroke_width=2, stroke_fill=(200, 200, 200))
+            y += lh
+        if sub:
+            t = " ".join(sub.upper())
+            d.text(((W - fs.getlength(t)) / 2, y + 16), t, font=fs, fill=(150, 150, 150))
+        return img
+    raise ValueError(style)
 
 def wrap_simple(f, text, max_w):
     lines, cur = [], ""
@@ -381,11 +509,17 @@ def main():
     ap.add_argument("--cards", required=True)
     ap.add_argument("--hold", type=float, default=3.0, help="打完字後停留秒數")
     ap.add_argument("--theme", choices=THEMES, default="light")
+    ap.add_argument("--look", choices=["cinema", "blur"], default="cinema", help="cinema：純黑背景 + 無框字幕；blur：舊版模糊背景 + 字幕框")
     ap.add_argument("--type-speed", type=float, default=2.0, help="打字速度倍率；1 = App 原速")
     ap.add_argument("--audio", default="", help="原片沒有音軌時，從這支檔案取音訊")
     ap.add_argument("--out", required=True)
     ap.add_argument("--stills", default="")
+    ap.add_argument("--title", default="", help="影片上方的標題，`|` 斷行、`[ ]` 標藍；影片上推時淡出")
+    ap.add_argument("--title-sub", default="", help="標題下面一行小字（例如劇名）")
+    ap.add_argument("--title-style", choices=["plain", "box", "marker", "sticker", "quiet", "outline"], default="quiet")
     a = ap.parse_args()
+    global LOOK
+    LOOK = a.look
 
     theme = THEMES[a.theme]
     global TEXT_UPDATE, TYPE_INTERVAL, TYPE_TAIL, REVEAL_DELAY
@@ -419,6 +553,8 @@ def main():
             for c in cs))
 
     sub_cache = {}
+    title_img = title_block(a.title, a.title_sub, a.title_style) if a.title else None
+    title_y = (TITLE_SAFE_TOP + y0 - title_img.height) // 2 if title_img else 0
 
     half = (CARD_W - SPLIT_GAP) / 2
     SLOTS = {"full": (CARD_MARGIN, 1.0), "left": (CARD_MARGIN, half / CARD_W),
@@ -476,6 +612,13 @@ def main():
         p = push_progress(t, segments)
         vy = y0 - d_push * p
         frame = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        if title_img:   # 影片往上推進標題區之前就淡掉，落回時再浮回來
+            k = min(1.0, p * 2.5)
+            if k < 1:
+                img = title_img if k == 0 else title_img.copy()
+                if k > 0:
+                    img.putalpha(img.getchannel("A").point(lambda v: int(v * (1 - k))))
+                frame.alpha_composite(img, (0, int(title_y - 40 * k)))
         cue = next((c for c in cues if c["start"] <= t < c["end"]), None)
         if cue:
             key = id(cue)
@@ -491,8 +634,9 @@ def main():
                 frame.alpha_composite(img, (int(x), int(cy + dy)))
         return frame, vy
 
+    bg_fx = "drawbox=c=black:t=fill" if a.look == "cinema" else "gblur=sigma=40,eq=brightness=-0.08"
     vf_bg = (f"[0:v]fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-             f"gblur=sigma=40,eq=brightness=-0.08[bg];"
+             f"{bg_fx}[bg];"
              f"[0:v]fps={FPS},scale={W}:{vid_h},setsar=1[vid];")
 
     if a.stills:
