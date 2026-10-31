@@ -139,8 +139,6 @@ def main():
         work = pathlib.Path(tmp)
         for f in ASSETS.iterdir():
             shutil.copy(f, work / f.name)
-        if cfg.get("style") == "editorial":   # 雜誌風模板蓋掉預設的小報風
-            shutil.copy(ASSETS / "slides-editorial.html", work / "slides.html")
         grab(source, cfg["cover"]["time"], work / "cover.jpg")
         over = cfg.get("words", {})
         words = []
