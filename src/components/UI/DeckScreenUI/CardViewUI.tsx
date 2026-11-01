@@ -21,6 +21,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type Card from '@database/models/Card';
+import { getCardMeaningPreview } from '../../../features/cards/cardMeaningPreview';
+import { isPhraseLikeCardSubject } from '../../../features/cards/cardUsage';
+import { formatPartOfSpeechLabel } from '../../../i18n/partOfSpeech';
 import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import {
   MODAL_CTA_COLOR,
@@ -400,6 +403,16 @@ export default function CardViewUI({
           removeClippedSubviews
           renderItem={({ item }) => {
             const status = getLearningStatus(item);
+            const meaningPreview = getCardMeaningPreview(item.definition);
+            const wordText = getWordText(item);
+            const isPhraseCard = isPhraseLikeCardSubject(wordText, item.partOfSpeech);
+            const posLabel =
+              isPhraseCard || (item.partOfSpeech || '').trim()
+                ? formatPartOfSpeechLabel(
+                    isPhraseCard ? 'phrase' : item.partOfSpeech,
+                    uiLanguage
+                  )
+                : '';
             const imageUri = cardImageMap[item.id];
             const isSelected = selectedCardIds?.has(item.id);
 
@@ -428,21 +441,30 @@ export default function CardViewUI({
                   }
                 }}
               >
-                <View style={styles.thumbnailWrap}>
-                  {imageUri ? (
-                    <Image
-                      source={{ uri: imageUri }}
-                      style={styles.thumbnailImage}
-                      resizeMode="cover"
+                <View>
+                  <View style={styles.thumbnailWrap}>
+                    {imageUri ? (
+                      <Image
+                        source={{ uri: imageUri }}
+                        style={styles.thumbnailImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text
+                        style={[styles.thumbnailFallbackText, { color: rowText }]}
+                        numberOfLines={1}
+                      >
+                        {getWordText(item).slice(0, 1)}
+                      </Text>
+                    )}
+                  </View>
+                  {/* Unseen cards get a notification-style dot on the thumbnail corner. */}
+                  {status?.label === 'NEW' ? (
+                    <View
+                      style={[styles.newDot, { borderColor: rowBg }]}
+                      accessibilityLabel="New"
                     />
-                  ) : (
-                    <Text
-                      style={[styles.thumbnailFallbackText, { color: rowText }]}
-                      numberOfLines={1}
-                    >
-                      {getWordText(item).slice(0, 1)}
-                    </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 <View style={styles.cardMiddle}>
@@ -450,32 +472,36 @@ export default function CardViewUI({
                     style={[styles.wordText, { color: rowText }]}
                     numberOfLines={1}
                   >
-                    {getWordText(item)}
+                    {wordText}
                   </Text>
 
-                  {status ? (
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        { backgroundColor: status.bgColor },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusIcon,
-                          status.label === 'NEW' ? styles.statusTextNew : null,
-                        ]}
-                      >
-                        {status.icon}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.statusText,
-                          status.label === 'NEW' ? styles.statusTextNew : null,
-                        ]}
-                      >
-                        {status.label}
-                      </Text>
+                  {posLabel || meaningPreview ? (
+                    <View style={styles.meaningRow}>
+                      {posLabel ? (
+                        <View
+                          style={[
+                            styles.posBadge,
+                            { backgroundColor: isLight ? '#E7E9EF' : '#1F2834' },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.posText,
+                              { color: isLight ? '#6B7280' : '#F8FAFC' },
+                            ]}
+                          >
+                            {posLabel}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {meaningPreview ? (
+                        <Text
+                          style={[styles.meaningText, { color: rowText }]}
+                          numberOfLines={1}
+                        >
+                          {meaningPreview}
+                        </Text>
+                      ) : null}
                     </View>
                   ) : null}
                 </View>
@@ -695,32 +721,40 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   wordText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: 8,
   },
-  statusBadge: {
-    alignSelf: 'flex-start',
+  newDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    backgroundColor: '#4EAFF4',
+  },
+  meaningRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginTop: 6,
+  },
+  posBadge: {
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
-  statusIcon: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
+  posText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  statusTextNew: {
-    color: '#FF6B6B',
+  meaningText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
   },
   moreWrap: {
     marginLeft: 6,
