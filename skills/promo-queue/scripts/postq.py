@@ -845,8 +845,13 @@ def cmd_post_due(q, a):
         posted = [parse(p["posted_at"]) for x in q["items"] if x["channel"] == cid and x is not it
                   for p in x["platforms"].values() if p.get("posted_at")]
         gap = q["settings"]["min_gap_hours"]
-        if state(it) == "queued" and posted and t - max(posted) < dt.timedelta(hours=gap):
-            print(f"距離上一篇不到 {gap} 小時，晚點再發 {it['id']}")
+        # 發一篇要跑幾分鐘（IG 影片轉檔），留 30 分鐘寬限，不然 12:00 發完 12:02、18:00 那篇就會差幾分鐘被擋
+        if state(it) == "queued" and posted and t - max(posted) < dt.timedelta(hours=gap, minutes=-30):
+            # 延到可以發的時間，準時觸發會跟著改，不會卡在原本的時段沒人叫
+            it["scheduled_for"] = (max(posted) + dt.timedelta(hours=gap)).astimezone(t.tzinfo).isoformat()
+            print(f"距離上一篇不到 {gap} 小時，{it['id']} 延到 {it['scheduled_for']}")
+            if not a.dry_run:
+                save(q)
             continue
         if secrets is None:
             secrets = load_secrets()
