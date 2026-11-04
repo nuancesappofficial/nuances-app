@@ -11,3 +11,8 @@ verify_jwt = false
 
 [functions.send-realtime-message]
 verify_jwt = false
+
+# RevenueCat 送的是自己的 Bearer token（不是 Supabase JWT），開著 verify_jwt 會在進程式前就被擋成 401。
+# 程式裡已經用 REVENUECAT_WEBHOOK_AUTH_TOKEN 自己驗證，所以這裡要關掉。
+[functions.revenuecat-webhook]
+verify_jwt = false

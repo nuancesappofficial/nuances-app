@@ -109,6 +109,47 @@ pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px
 .kd svg{width:12px;height:12px}.kd.reel{background:#B79CFF}.kd.carousel{background:#4ADE80}.kd span{display:none}
 .kd.mini{left:2px;bottom:2px;padding:2px}.kd.mini svg{width:10px;height:10px}
 .kt{display:inline-flex;align-items:center;gap:3px;font-weight:700}.kt svg{width:11px;height:11px}.kt.reel{color:#B79CFF}.kt.carousel{color:#4ADE80}
+/* 使用者 / 數據分頁 */
+.vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--panel);border-radius:10px;padding:3px;gap:2px}
+.seg a{padding:5px 12px;border-radius:8px;color:var(--mute);cursor:pointer;font-size:13px;white-space:nowrap}.seg a.on{background:var(--panel2);color:var(--ink);font-weight:600}
+.fresh{margin-left:auto;color:var(--dim);font-size:12px;display:inline-flex;gap:6px;align-items:center}.fresh .spin{width:9px;height:9px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}@media(max-width:800px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--panel);border:1px solid transparent;border-radius:14px;padding:12px 14px;cursor:pointer;min-width:0}
+.kpi:hover{border-color:var(--line)}.kpi.on{border-color:var(--blue)}
+.kpi .k{color:var(--mute);font-size:12px}.kpi .v{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.kpi .s{color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl{font-size:12px;font-weight:600;margin-left:6px}.dl.up{color:var(--ok)}.dl.down{color:var(--bad)}.dl.flat{color:var(--dim)}
+.spark{width:100%;height:28px;display:block;margin-top:6px}.spark path{fill:none;stroke:var(--c,var(--blue));stroke-width:1.5}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.card{background:var(--panel);border-radius:14px;padding:12px 14px;min-width:0}.card h3{font-size:14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px}
+.card h3 .dim{font-weight:400;font-size:12px}
+.big{margin-top:10px}.big .chart{height:180px}
+.chart{width:100%;height:120px;display:block}.chart rect.b{fill:var(--c,var(--blue))}.chart rect.h{fill:transparent}
+.chart g:hover rect.b{opacity:.7}.chart g.hit{cursor:pointer}.chart g.hit:hover rect.h{fill:rgba(255,255,255,.05)}
+.hb.click{cursor:pointer;border-radius:6px;margin:0 -6px;padding:2px 6px}.hb.click:hover{background:var(--panel2)}
+.dnav{display:flex;align-items:center;gap:8px;margin-top:4px}
+.xl{display:flex;justify-content:space-between;color:var(--dim);font-size:11px;margin-top:4px;font-variant-numeric:tabular-nums}
+.insight{color:var(--mute);font-size:13px;margin-top:10px}
+.hb{display:grid;grid-template-columns:minmax(70px,120px) 1fr 70px;gap:8px;align-items:center;font-size:13px;padding:2px 0}
+.hb .cbar i{background:var(--c,var(--blue))}.hb .num{font-variant-numeric:tabular-nums}
+.funnel .hb{grid-template-columns:minmax(90px,130px) 1fr 40px 86px}
+.ufilter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.ufilter input[type=text]{flex:1;min-width:180px}
+.tscroll{overflow-x:auto;border-radius:14px}
+.users td,.users th{white-space:nowrap;font-size:13px;padding:9px 12px}.users tr.r{cursor:pointer}.users tr.r:hover td{background:var(--panel2)}
+.users td.em{max-width:340px;overflow:hidden;text-overflow:ellipsis}.users .n{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;background:rgba(255,255,255,.08);color:var(--mute)}
+.tag.paid{background:rgba(93,219,127,.18);color:var(--ok)}.tag.gift{background:rgba(78,175,244,.16);color:var(--blue)}.tag.warn{background:rgba(255,179,64,.16);color:var(--warn)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}@media(max-width:700px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stats div{background:var(--panel2);border-radius:10px;padding:8px 10px}.stats b{display:block;font-size:16px}.stats span{color:var(--mute);font-size:12px}
+details.more{background:var(--panel2);border-radius:10px;margin-top:8px}details.more summary{cursor:pointer;padding:9px 12px;font-weight:600;font-size:13px;list-style:none}
+details.more summary::before{content:'▸ ';color:var(--dim)}details.more[open] summary::before{content:'▾ '}
+details.more table{background:transparent}
+.list{max-height:300px;overflow-y:auto;border-top:1px solid var(--line)}
+.list div{display:flex;gap:10px;padding:6px 12px;font-size:13px;border-bottom:1px solid var(--line)}.list div:last-child{border:0}
+.list .t{color:var(--dim);flex:none;font-variant-numeric:tabular-nums}.list .w{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .lv-error{color:var(--bad)}.list .lv-warn{color:var(--warn)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.two{grid-template-columns:1fr}}
 /* 動畫 */
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -159,7 +200,7 @@ h2 .when{font-size:16px}h2 .count{font-size:14px}
     <div class="tools"><span class="sub" id="mode"></span>
       <select id="chan" title="國家"></select>
       <button class="small" id="sync" onclick="toggleTray(event)" title="背景處理中的工作"></button>
-      <button class="small" id="refresh" onclick="load()">重新整理</button>
+      <button class="small" id="refresh" onclick="if(tab==='users'||tab==='data')loadApp(tab,true);load()">重新整理</button>
       <button class="small" id="gear" onclick="go(tab==='settings'?'schedule':'settings')" title="帳號與設定">⚙ 設定</button></div>
   </div>
 </header>
@@ -331,11 +372,13 @@ const failedList = () => S.items.filter(i => i.platforms.some(p => p.status === 
 const doneList = () => S.items.filter(i => !['queued','partial'].includes(i.state)).reverse();
 
 function render(){
-  const todo = manualList().length + failedList().length;
-  const tabs = [['schedule','排程',todo,'warn'],['stats','成效',0,'']];
+  if(!S && tab !== 'users' && tab !== 'data') return;   // 排程資料還沒讀到；使用者 / 數據分頁不用它
+  const todo = S ? manualList().length + failedList().length : 0;
+  const tabs = [['schedule','排程',todo,'warn'],['stats','成效',0,''],['users','使用者',0,''],['data','數據',0,'']];
   $('#tabs').innerHTML = tabs.map(([k,l,n,c]) => `<a class="${k===tab?'on':''}" onclick="go('${k}')">${l}${n?`<span class="badge ${c}">${n}</span>`:''}</a>`).join('');
   $('#gear').classList.toggle('on', tab === 'settings');
-  $('#main').innerHTML = ({schedule: scheduleView, stats: statsView, settings: settingsView}[tab] || scheduleView)();
+  $('#main').innerHTML = ({schedule: scheduleView, stats: statsView, settings: settingsView, users: usersView, data: dataView}[tab] || scheduleView)();
+  if(tab === 'users') drawUsers();
   $('#main').classList.toggle('anim', tab !== shown); shown = tab;
 }
 let shown = null;
@@ -513,6 +556,258 @@ function statsView(){
     <h2>發過的 ${LEGEND}</h2>${rows || '<div class="empty">還沒有發布的貼文。</div>'}`;
 }
 
+// ---------- 使用者 / 數據（讀 App 的 Supabase，跟發文排程無關） ----------
+// 先秀上次存下來的資料，背景再抓新的（stale-while-revalidate），切分頁不用等
+const APP = {users: null, data: null, detail: {}, busy: {}, err: {}};
+const LS = {get(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }, set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }};
+APP.users = LS.get('app:users'); APP.data = LS.get('app:data');
+const NAME = {
+  login: {google:'Google', apple:'Apple', email:'Email'}, platform: {ios:'iOS', android:'Android'},
+  lang: {'zh-TW':'繁中', 'zh-CN':'簡中', en:'英文', ja:'日文', ko:'韓文', es:'西文', fr:'法文'},
+  level: {beginner:'初級', intermediate:'中級', advanced:'高級'}, goal: {academic:'考試學術', slang:'道地口語', everyday:'日常'},
+  source: {'Quick Add':'快速新增', manual:'手動', share_sheet:'iOS 分享', android_share_sheet:'Android 分享', clipboard:'剪貼簿', Nuances:'App 內'}};
+const nm = (g, k) => (NAME[g] || {})[k] || (k === '?' || k == null ? '未填' : k);
+function loadApp(key, fresh){
+  if(APP.busy[key]) return;
+  APP.busy[key] = true; APP.err[key] = '';
+  if(tab === (key === 'data' ? 'data' : 'users')) paintFresh(key);
+  fetch(`/api/${key === 'data' ? 'analytics' : 'users'}${fresh ? '?fresh=1' : ''}`)
+    .then(r => r.json().then(j => { if(!r.ok) throw new Error(j.error || r.status); APP[key] = j; LS.set('app:' + key, j); }))
+    .catch(e => APP.err[key] = e.message || String(e))
+    .finally(() => { APP.busy[key] = false; appChanged(key); });
+}
+// 新資料到了：使用者分頁只換表格（不打斷正在打字的搜尋框），數據分頁整頁重畫
+function appChanged(key){
+  if(key === 'users' && tab === 'users' && $('#ulist')){ drawUsers(); paintFresh(key); }
+  else if(tab === (key === 'data' ? 'data' : 'users')) render();
+  if(modalFor && modalFor[0] === 'user') openModal('user', modalFor[1]);
+}
+function freshTag(key){
+  const d = APP[key], e = APP.err[key];
+  return `<span class="fresh" id="fresh-${key}">${APP.busy[key] ? '<span class="spin"></span> 更新中' : e ? `<span style="color:var(--bad)">更新失敗</span> <a href="#" onclick="loadApp('${key}',true);return false" style="color:var(--blue)">再試</a>` : d?.at ? `資料時間 ${d.at}` : ''}</span>`;
+}
+function paintFresh(key){ const el = $('#fresh-' + key); if(el) el.outerHTML = freshTag(key); }
+function appWait(key){
+  if(APP.err[key]) return `<div class="empty">讀不到 App 資料：${esc(APP.err[key])}　<a href="#" onclick="loadApp('${key}',true);return false" style="color:var(--blue)">再試一次</a></div>`;
+  loadApp(key);
+  const b = h => `<div class="sk" style="height:${h}px"></div>`;
+  return `<div class="kpis">${Array(4).fill(b(118)).join('')}</div><div style="margin-top:10px">${b(230)}</div>`;
+}
+const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+function delta(now, prev){
+  if(!prev) return now ? '<span class="dl up">新</span>' : '';
+  const p = Math.round((now - prev) / prev * 100);
+  return `<span class="dl ${p > 0 ? 'up' : p < 0 ? 'down' : 'flat'}" title="跟前 7 天比">${p > 0 ? '↑' : p < 0 ? '↓' : ''}${Math.abs(p)}%</span>`;
+}
+function spark(vals, color){
+  const max = Math.max(1, ...vals), W = 100, H = 28;
+  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${(i / (vals.length - 1) * W).toFixed(1)},${(H - 2 - v / max * (H - 4)).toFixed(1)}`).join('');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="--c:${color}"><path d="${d}" vector-effect="non-scaling-stroke"/></svg>`;
+}
+// 直條圖：每一天一根，滑上去看數字
+// drill 有給就能點：整根欄位（含上方空白）都是點擊區，點了開那一天的第二層
+function bars(rows, key, color, fmt = v => v, drillKey){
+  const W = 600, H = 104, max = Math.max(1, ...rows.map(r => r[key])), w = W / rows.length;
+  const cols = rows.map((r, i) => { const h = Math.max(Math.round(H * r[key] / max), r[key] ? 2 : 0), x = (i * w + 1).toFixed(1), bw = (w - 2).toFixed(1);
+    const bar = `<rect class="b" x="${x}" y="${H - h}" width="${bw}" height="${h}" rx="2"></rect>`, tip = `<title>${r.d}：${fmt(r[key])}${drillKey ? '（點了看明細）' : ''}</title>`;
+    return drillKey && r.iso ? `<g class="hit" onclick="drill('day:${drillKey}:${r.iso}')"><rect class="h" x="${x}" y="0" width="${bw}" height="${H}"></rect>${bar}${tip}</g>` : `<g>${bar}${tip}</g>`; }).join('');
+  const lab = [0, Math.floor(rows.length / 2), rows.length - 1].map(i => `<span>${rows[i].d}</span>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="--c:${color}">${cols}</svg><div class="xl">${lab}</div>`;
+}
+function hbars(obj, group, color){
+  const rows = Object.entries(obj || {}).sort((a, b) => b[1] - a[1]), tot = rows.reduce((s, r) => s + r[1], 0), max = Math.max(1, ...rows.map(r => r[1]));
+  const can = SEG.includes(group);
+  return rows.map(([k, n]) => `<div class="hb ${can ? 'click' : ''}" style="--c:${color}" ${can ? `onclick="drill('seg:${group}:${esc(k)}')" title="點了看是哪些人"` : ''}><span title="${esc(k)}">${esc(nm(group, k))}</span><span class="cbar"><i style="width:${n / max * 100}%"></i></span><span class="num">${n}<span class="dim" style="font-weight:400"> ${pct(n, tot)}</span></span></div>`).join('') || '<div class="dim">沒有資料</div>';
+}
+
+// 數據：第一層只有 4 個數字 + 1 張圖，其他放子分頁
+let DSUB = localStorage.getItem('dsub') || 'overview', DKPI = localStorage.getItem('dkpi') || 'active';
+const setD = (k, v) => { if(k === 'sub') DSUB = v; else DKPI = v; localStorage.setItem(k === 'sub' ? 'dsub' : 'dkpi', v); render(); };
+function dataView(){
+  const a = APP.data;
+  const subs = [['overview', '總覽'], ['funnel', '轉換與留存'], ['who', '使用者組成'], ['cost', 'AI 成本']];
+  const head = `<div class="vhead"><div class="seg">${subs.map(([k, l]) => `<a class="${DSUB === k ? 'on' : ''}" onclick="setD('sub','${k}')">${l}</a>`).join('')}</div>${freshTag('data')}</div>`;
+  if(!a) return head + appWait('data');
+  if(APP.busy.data == null && !APP.err.data) loadApp('data');
+  return head + ({overview: dOverview, funnel: dFunnel, who: dWho, cost: dCost}[DSUB] || dOverview)(a);
+}
+function dOverview(a){
+  const k = a.kpi, d = a.daily, last = (key, from, to) => d.slice(d.length - to, d.length - from).reduce((s, r) => s + r[key], 0);
+  const M = {
+    active: {k: '本週活躍', v: k.wau, prev: k.wau_prev, s: `今天 ${k.dau} 人・本月 ${k.mau} 人`, key: 'active', c: 'var(--blue)', u: ' 人', t: '每天活躍人數'},
+    signups: {k: '本週新註冊', v: k.new7, prev: k.new_prev7, s: `總共 ${k.users} 人`, key: 'signups', c: 'var(--ok)', u: ' 人', t: '每天新註冊'},
+    cards: {k: '本週新卡片', v: last('cards', 0, 7), prev: last('cards', 7, 14), s: `近 30 天 ${k.cards30} 張`, key: 'cards', c: '#B79CFF', u: ' 張', t: '每天新卡片'}};
+  const cardsHtml = Object.entries(M).map(([id, m]) => `<div class="kpi ${DKPI === id ? 'on' : ''}" onclick="setD('kpi','${id}')">
+      <div class="k">${m.k}</div><div class="v">${m.v}${delta(m.v, m.prev)}</div><div class="s">${m.s}</div>${spark(d.map(r => r[m.key]), m.c)}</div>`).join('')
+    + `<div class="kpi" onclick="UF.plan='paid';saveUF();go('users')" title="點了看是誰">
+      <div class="k">付費中</div><div class="v">${k.paid}</div><div class="s">訂閱金額 NT$${Number(k.revenue || 0).toLocaleString()}</div><div class="s">另有贈送 ${k.gift} 人 →</div></div>`;
+  const m = M[DKPI] || M.active, avg = d.reduce((s, r) => s + r[m.key], 0) / d.length;
+  return `<div class="kpis">${cardsHtml}</div>
+    <div class="card big"><h3>${m.t} <span class="dim">近 30 天・平均 ${avg.toFixed(1)}${m.u}</span></h3>${bars(d, m.key, m.c, v => v + m.u, m.key)}</div>
+    <div class="insight">本月 ${pct(k.mau, k.users)} 的使用者有回來用（${k.mau} / ${k.users}），付費轉換 ${pct(k.paid, k.users)}。<span class="dim" title="活躍＝這天有開 App、做卡片或用 AI">ⓘ 活躍怎麼算</span></div>`;
+}
+function dFunnel(a){
+  const f = a.funnel, top = f[0].n;
+  const funnel = f.map((s, i) => `<div class="hb click" onclick="drill('funnel:${i}')" title="點了看是哪些人"><span>${s.k}</span><span class="cbar"><i style="width:${s.n / Math.max(top, 1) * 100}%"></i></span><span class="num">${s.n}</span><span class="dim">${i ? '上一步 ' + pct(s.n, f[i - 1].n) : ''}</span></div>`).join('');
+  const ret = a.retention.map(r => `<tr><td>${r.w} 那週</td><td class="n">${r.n}</td><td class="n">${r.n ? pct(r.d1, r.n) : '—'}</td><td class="n">${r.d7_ready ? pct(r.d7, r.n) : '<span class="dim">還沒滿</span>'}</td></tr>`).join('');
+  return `<div class="two"><div class="card funnel"><h3>轉換漏斗 <span class="dim">全部使用者</span></h3>${funnel}</div>
+    <div class="card"><h3>留存 <span class="dim">D1＝隔天有回來・D7＝第 7–13 天有回來</span></h3>
+      <table><tr><th>註冊週</th><th class="n">人數</th><th class="n">D1</th><th class="n">D7</th></tr>${ret}</table></div></div>`;
+}
+function dWho(a){
+  const S2 = a.split, c = (t, sub, o, g, col) => `<div class="card"><h3>${t} ${sub ? `<span class="dim">${sub}</span>` : ''}</h3>${hbars(o, g, col)}</div>`;
+  return `<div class="charts">${c('裝置', '近 30 天活躍', S2.platform, 'platform', 'var(--blue)')}${c('母語', '', S2.lang, 'lang', 'var(--ok)')}
+    ${c('英文程度', '', S2.level, 'level', 'var(--ok)')}${c('學習目標', '', S2.goal, 'goal', 'var(--ok)')}
+    ${c('卡片從哪裡來', '', S2.source, 'source', '#B79CFF')}${c('登入方式', '', S2.login, 'login', 'var(--blue)')}
+    ${c('App 版本', '近 30 天活躍', S2.version, 'version', 'var(--mute)')}</div>`;
+}
+function dCost(a){
+  const k = a.kpi, d = a.daily, sum = d.reduce((s, r) => s + r.ai, 0);
+  return `<div class="kpis"><div class="kpi"><div class="k">近 30 天 AI 成本</div><div class="v">NT$${k.ai30}</div></div>
+    <div class="kpi"><div class="k">每位活躍使用者</div><div class="v">NT$${k.mau ? (k.ai30 / k.mau).toFixed(1) : 0}</div><div class="s">${k.mau} 位活躍</div></div>
+    <div class="kpi"><div class="k">每張卡片</div><div class="v">NT$${k.cards30 ? (k.ai30 / k.cards30).toFixed(2) : 0}</div><div class="s">${k.cards30} 張</div></div></div>
+    <div class="card big"><h3>每天 AI 成本 <span class="dim">共 NT$${sum.toFixed(0)}</span></h3>${bars(d, 'ai', 'var(--warn)', v => 'NT$' + v, 'ai')}</div>`;
+}
+
+// 使用者：列表只留 4 欄，其他點進去看
+let UF = {plan: '', sort: 'joined', ...(LS.get('uf') || {}), q: ''};
+function saveUF(){ LS.set('uf', {plan: UF.plan, sort: UF.sort}); }
+const isGift = x => !x.paid && x.product && x.sub_status === 'active';
+const TS = s => s ? new Date(s.replace(' ', 'T') + ':00+08:00') : null;
+function ago(s){
+  const t = TS(s); if(!t) return '—';
+  const m = (Date.now() - t) / 6e4;
+  return m < 60 ? `${Math.max(1, Math.round(m))} 分鐘前` : m < 1440 ? `${Math.round(m / 60)} 小時前` : m < 1440 * 60 ? `${Math.round(m / 1440)} 天前` : s.slice(0, 10);
+}
+const FILTERS = [['', '全部', x => true], ['paid', '付費', x => x.paid], ['gift', '贈送', isGift],
+  ['active', '7 天內活躍', x => x.seen && Date.now() - TS(x.seen) < 7 * 864e5], ['noob', '沒完成引導', x => !x.onboarded]];
+function usersView(){
+  const L = APP.users;
+  const head = `<div class="vhead"><span class="title" style="font-size:15px">使用者</span>${freshTag('users')}</div>`;
+  if(!L) return head + appWait('users');
+  if(APP.busy.users == null && !APP.err.users) loadApp('users');
+  const u = L.users;
+  return head + `<div class="ufilter"><input type="text" id="uq" placeholder="搜尋 email 或編號" value="${esc(UF.q)}" oninput="UF.q=this.value;drawUsers()">
+      <select onchange="UF.sort=this.value;saveUF();drawUsers()">${[['joined', '最新註冊'], ['seen', '最近活躍'], ['cards', '卡片最多']].map(([v, l]) => `<option value="${v}" ${UF.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="ufilter">${FILTERS.map(([k, l, f]) => `<span class="chip pick ${UF.plan === k ? 'on' : ''}" onclick="UF.plan='${k}';saveUF();render()">${l} ${u.filter(f).length}</span>`).join('')}</div>
+    <div class="tscroll"><table class="users"><thead><tr><th>Email</th><th>方案</th><th>最後活躍</th><th class="n">卡片</th></tr></thead><tbody id="ulist"></tbody></table></div>`;
+}
+function planTag(x){
+  const t = x.tier === 'lite' ? 'Lite' : 'Pro';
+  if(x.paid) return `<span class="tag paid">${t} 付費</span>${x.unsub ? ' <span class="tag warn">已取消續訂</span>' : ''}`;
+  if(isGift(x)) return `<span class="tag gift">贈送 ${t}</span>`;
+  if(x.product && !x.product.startsWith('rc_promo')) return '<span class="tag">訂閱已到期</span>';
+  return x.onboarded ? '<span class="tag">免費</span>' : '<span class="tag warn">沒完成引導</span>';
+}
+function drawUsers(){
+  const L = APP.users, el = $('#ulist'); if(!L || !el) return;
+  const q = UF.q.trim().toLowerCase(), f = (FILTERS.find(x => x[0] === UF.plan) || FILTERS[0])[2];
+  const rows = L.users.filter(x => f(x) && (!q || (x.email || '').toLowerCase().includes(q) || x.id.startsWith(q)))
+    .sort((a, b) => { const k = UF.sort, va = a[k] ?? '', vb = b[k] ?? ''; return va < vb ? 1 : va > vb ? -1 : 0; });
+  el.innerHTML = rows.map(x => `<tr class="r" onclick="openModal('user','${x.id}')">
+    <td class="em" title="${esc(x.email)}">${esc(x.email || '（沒有 email）')}</td><td>${planTag(x)}</td>
+    <td title="${esc(x.seen || '')}">${ago(x.seen)}</td><td class="n">${x.cards || '<span class="dim">0</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="dim">沒有符合的使用者</td></tr>';
+}
+function userModal(id){
+  const x = (APP.users?.users || []).find(u => u.id === id); if(!x) return '<div class="empty">找不到這位使用者</div>';
+  const d = APP.detail[id];
+  if(!APP.busy[id] && (!d || d.error || !d._fresh)){   // 有舊的先秀，背景再抓一次
+    APP.busy[id] = true;
+    fetch('/api/user?id=' + id).then(r => r.json().then(j => { if(!r.ok) throw new Error(j.error || r.status); APP.detail[id] = {...j, _fresh: true}; }))
+      .catch(e => { if(!APP.detail[id]) APP.detail[id] = {error: e.message || String(e)}; })
+      .finally(() => { APP.busy[id] = false; if(modalFor && modalFor[1] === id) openModal('user', id); });
+  }
+  const tags = [planTag(x), nm('login', x.login), x.platform && nm('platform', x.platform) + ' ' + (x.version || ''), nm('lang', x.lang) + '母語', x.level && nm('level', x.level), x.goal && nm('goal', x.goal)]
+    .filter(Boolean).map(t => t.startsWith('<') ? t : `<span class="tag">${esc(t)}</span>`).join(' ');
+  let body = '<div class="sk" style="height:150px;margin-top:14px"></div>';
+  if(d?.error) body = `<div class="err">${esc(d.error)}</div>`;
+  else if(d){
+    const days = {}; d.days.forEach(r => days[r.d] = r.n);
+    const last30 = Array.from({length: 30}, (_, i) => { const iso = new Date(Date.now() - (29 - i) * 864e5).toLocaleDateString('sv-SE', {timeZone: 'Asia/Taipei'}); return {d: iso.slice(5), n: days[iso] || 0}; });
+    body = `<div class="card" style="margin-top:14px;background:var(--panel2)"><h3>近 30 天每天做的卡片</h3>${bars(last30, 'n', '#B79CFF', v => v + ' 張')}</div>
+      <details class="more"><summary>最近的卡片（${x.cards}）</summary><div class="list">${d.cards.map(c => `<div><span class="t">${esc(c.at.slice(5))}</span><span class="w"><b>${esc(c.w)}</b> <span class="dim">${esc(c.pos || '')}</span></span><span class="dim">${esc(nm('source', c.src))}</span></div>`).join('') || '<div class="dim">還沒做卡片</div>'}</div></details>
+      <details class="more"><summary>最近的 App 紀錄</summary><div class="list">${d.events.map(e => `<div><span class="t">${esc(e.at)}</span><span class="w lv-${esc(e.level)}" title="${esc(e.category)}">${esc(e.event)}</span><span class="dim">${esc(e.v || '')}</span></div>`).join('') || '<div class="dim">沒有紀錄</div>'}</div></details>
+      <details class="more" ${x.paid || isGift(x) ? 'open' : ''}><summary>訂閱紀錄（${d.subs.length}）</summary>
+      ${d.subs.length ? `<table><tr><th>方案</th><th>開始</th><th>到期</th></tr>${d.subs.map(s => `<tr><td>${esc(s.product_id || '—')}${s.environment !== 'production' ? ` <span class="dim">${esc(s.environment)}</span>` : ''}</td><td>${esc(s.started || '—')}</td><td>${esc(s.expires || '—')}</td></tr>`).join('')}</table>` : '<div class="list"><div class="dim">沒有訂閱紀錄</div></div>'}</details>`;
+  }
+  return `<div class="title" style="padding-right:40px;word-break:break-all">${esc(x.email || '（沒有 email）')}</div>
+    <div class="row">${tags}</div>
+    <div class="stats"><div><b>${esc(x.joined.slice(0, 10))}</b><span>註冊</span></div><div><b>${ago(x.seen)}</b><span>最後活躍</span></div>
+      <div><b>${x.cards}</b><span>卡片・近 7 天 ${x.cards7}</span></div><div><b>${x.paid ? 'NT$' + (x.price ?? '—') : esc(x.expires || '—')}</b><span>${x.paid ? '訂閱金額・到期 ' + esc(x.expires || '') : '方案到期'}</span></div></div>
+    <div class="row"><a class="chip" href="${APP.users.rc}${x.id}" target="_blank" rel="noopener">在 RevenueCat 打開 ↗</a>
+      <span class="chip pick" onclick="navigator.clipboard.writeText('${x.id}');toast('已複製使用者編號')">複製使用者編號</span>
+      <span class="dim" style="font-size:12px">AI 成本 NT$${x.ai_twd}${d?.ai ? `・${d.ai.calls} 次` : ''}</span></div>
+    ${body}`;
+}
+// ---------- 第二層（drill-down）：點長條 / 漏斗 / 組成 → 那群人或那天的明細，再點人 → 個人頁，可以一路返回 ----------
+const SEG = ['platform', 'login', 'lang', 'level', 'goal', 'version'];
+const STACK = [];
+const drill = spec => openModal('drill', spec);
+function openUser(id){ STACK.push(modalFor); openModal('user', id); }
+function back(){ const p = STACK.pop(); if(p) openModal(...p); else closeModal(); }
+const uById = id => (APP.users?.users || []).find(u => u.id === id);
+const FUNNEL = [x => true, x => x.onboarded, x => x.cards >= 1, x => x.cards >= 5, x => x.paid];
+const MLABEL = {active: '活躍的人', signups: '新註冊', cards: '新卡片', ai: 'AI 成本'};
+function shiftDay(iso, n){ const t = new Date(iso + 'T12:00:00+08:00'); t.setDate(t.getDate() + n); return t.toLocaleDateString('sv-SE', {timeZone: 'Asia/Taipei'}); }
+// 人的清單：extra = [[欄名, x => 內容], ...]
+function peopleTable(list, extra = []){
+  if(!list.length) return '<div class="empty">沒有人</div>';
+  return `<div class="tscroll"><table class="users"><thead><tr><th>Email</th><th>方案</th>${extra.map(e => `<th class="n">${e[0]}</th>`).join('')}<th>最後活躍</th></tr></thead><tbody>
+    ${list.map(([x, row]) => x ? `<tr class="r" onclick="openUser('${x.id}')"><td class="em">${esc(x.email || '（沒有 email）')}</td><td>${planTag(x)}</td>
+      ${extra.map(e => `<td class="n">${e[1](x, row)}</td>`).join('')}<td>${ago(x.seen)}</td></tr>` : '').join('')}</tbody></table></div>`;
+}
+function drillModal(spec){
+  const [kind, a, b] = spec.split(':'), U = APP.users?.users || [];
+  if(!APP.users) return '<div class="sk" style="height:200px"></div>';
+  const head = (t, sub, nav) => `<div class="title">${t}</div><div class="sub">${sub}</div>${nav || ''}<div style="height:12px"></div>`;
+  if(kind === 'seg'){
+    const list = U.filter(x => (x[a] ?? '?') === b);
+    return head(`${{platform: '裝置', login: '登入方式', lang: '母語', level: '英文程度', goal: '學習目標', version: 'App 版本'}[a]}：${esc(nm(a, b))}`, `${list.length} 人`)
+      + peopleTable(list.map(x => [x]), [['卡片', x => x.cards]]);
+  }
+  if(kind === 'funnel'){
+    const f = APP.data?.funnel || [], i = +a, now = U.filter(FUNNEL[i]), next = FUNNEL[i + 1] ? now.filter(x => !FUNNEL[i + 1](x)) : [];
+    return head(`漏斗：${esc(f[i]?.k || '')}`, `${now.length} 人${next.length ? `・其中 ${next.length} 人卡在下一步「${esc(f[i + 1].k)}」之前` : ''}`)
+      + (next.length ? `<h2>卡在這一步的人（可以去關心一下）</h2>${peopleTable(next.map(x => [x]), [['卡片', x => x.cards]])}<h2>全部</h2>` : '')
+      + peopleTable(now.map(x => [x]), [['卡片', x => x.cards]]);
+  }
+  // day:指標:日期 —— 上一天 / 下一天可以直接切
+  const today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Asia/Taipei'});
+  const nav = `<div class="dnav"><button class="small" onclick="openModal('drill','day:${a}:${shiftDay(b, -1)}')">‹ 前一天</button>
+    <button class="small" ${b >= today ? 'disabled' : ''} onclick="openModal('drill','day:${a}:${shiftDay(b, 1)}')">後一天 ›</button></div>`;
+  const title = `${b.slice(5).replace('-', '/')} 的${MLABEL[a]}`;
+  if(a === 'signups'){
+    const list = U.filter(x => x.joined.startsWith(b));
+    return head(title, `${list.length} 人`, nav) + peopleTable(list.map(x => [x]), [['註冊時間', x => x.joined.slice(11)], ['卡片', x => x.cards]]);
+  }
+  const key = spec, d = APP.detail[key];
+  if(!d && !APP.busy[key]){
+    APP.busy[key] = true;
+    fetch(`/api/day?d=${b}&m=${a}`).then(r => r.json().then(j => { if(!r.ok) throw new Error(j.error || r.status); APP.detail[key] = j.rows; }))
+      .catch(e => APP.detail[key] = {error: e.message || String(e)})
+      .finally(() => { APP.busy[key] = false; if(modalFor && modalFor[1] === key) openModal('drill', key); });
+  }
+  if(!d) return head(title, '讀取中…', nav) + '<div class="sk" style="height:200px"></div>';
+  if(d.error) return head(title, '', nav) + `<div class="err">${esc(d.error)}</div>`;
+  if(a === 'active') return head(title, `${d.length} 人`, nav)
+    + peopleTable(d.map(r => [uById(r.id), r]), [['動作數', (x, r) => r.n], ['做卡片', (x, r) => r.cards || '<span class="dim">0</span>'], ['用 AI', (x, r) => r.ai || '<span class="dim">0</span>']]);
+  if(a === 'cards'){
+    const by = {}; d.forEach(c => (by[c.id] = by[c.id] || []).push(c));
+    return head(title, `${d.length} 張・${Object.keys(by).length} 人做的`, nav)
+      + `<div class="card" style="background:var(--panel2);margin-bottom:10px"><h3>從哪裡來</h3>${hbars(d.reduce((o, c) => (o[c.src || '?'] = (o[c.src || '?'] || 0) + 1, o), {}), 'source', '#B79CFF')}</div>`
+      + Object.entries(by).sort((p, q) => q[1].length - p[1].length).map(([id, cs]) => { const x = uById(id);
+        return `<details class="more"><summary>${esc(x?.email || id)} <span class="dim">・${cs.length} 張</span></summary>
+          <div class="list">${cs.map(c => `<div><span class="t">${esc(c.at)}</span><span class="w"><b>${esc(c.w)}</b> <span class="dim">${esc(c.pos || '')}</span></span><span class="dim">${esc(nm('source', c.src))}</span></div>`).join('')}
+          ${x ? `<div><a href="#" onclick="openUser('${id}');return false" style="color:var(--blue)">看這個人 →</a></div>` : ''}</div></details>`; }).join('');
+  }
+  const tot = d.by.reduce((s, r) => s + Number(r.twd), 0);
+  return head(title, `NT$${tot.toFixed(2)}・${d.by.reduce((s, r) => s + r.n, 0)} 次呼叫`, nav)
+    + `<div class="card" style="background:var(--panel2);margin-bottom:10px"><h3>花在哪個功能</h3>${d.by.map(r => `<div class="hb"><span>${esc({generate_card: '產生卡片', text_to_speech: '朗讀', pronunciation_assessment: '發音評分'}[r.k] || r.k)}</span><span class="cbar"><i style="width:${tot ? r.twd / tot * 100 : 0}%;background:var(--warn)"></i></span><span class="num">NT$${r.twd}<span class="dim" style="font-weight:400"> ${r.n} 次</span></span></div>`).join('')}</div>`
+    + `<h2>誰用的</h2>` + peopleTable(d.users.map(r => [uById(r.id), r]), [['次數', (x, r) => r.n], ['成本', (x, r) => 'NT$' + r.twd]]);
+}
+
+loadApp('users'); loadApp('data');   // 一打開就背景抓，切過去就有新的
+
 // ---------- 詳細頁 ----------
 function itemModal(id){
   const i = S.items.find(x => x.id === id); if(!i) return '<div class="empty">找不到</div>';
@@ -589,11 +884,12 @@ function check(){
 // ---------- 詳細頁開關 ----------
 function openModal(type, a, b, at){
   modalFor = [type, a, b, at];
-  $('#sheet').innerHTML = `<button class="small x" onclick="closeModal()">✕</button>` + (type==='inbox' ? (S.inbox[a]?.kinds[b] ? inboxModal(a,b,at) : '<div class="empty">已排進發文</div>') : itemModal(a));
+  $('#sheet').innerHTML = `<button class="small x" onclick="closeModal()">✕</button>` + (STACK.length && (type==='user' || type==='drill') ? `<button class="small ghost" style="margin:-6px 0 6px -8px" onclick="back()">← 返回</button>` : '')
+    + (type==='drill' ? drillModal(a) : type==='user' ? userModal(a) : type==='inbox' ? (S.inbox[a]?.kinds[b] ? inboxModal(a,b,at) : '<div class="empty">已排進發文</div>') : itemModal(a));
   const m = $('#modal');   // 只有從關著打開才播動畫，操作後刷新不會再彈一次
   if(!m.classList.contains('on')){ m.classList.add('on', 'opening'); setTimeout(() => m.classList.remove('opening'), 300); }
 }
-function closeModal(){ modalFor = null; $('#modal').classList.remove('on'); }
+function closeModal(){ modalFor = null; STACK.length = 0; $('#modal').classList.remove('on'); }
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
 renderTray(); load();

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import postq as Q
 import platforms as P
+import analytics as A
 
 PAGE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "control.html"
 LOCK = threading.Lock()
@@ -362,6 +363,17 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, {k: {"status": v["status"], "message": v["message"]} for k, v in list(TASKS.items())})
             if u.path == "/media":
                 return self.media(qs.get("p", [""])[0])
+            fresh = qs.get("fresh", [""])[0] == "1"
+            if u.path == "/api/users":
+                return self.send(200, A.cached("users", A.users, fresh=fresh))
+            if u.path == "/api/analytics":
+                return self.send(200, A.cached("analytics", A.analytics, fresh=fresh))
+            if u.path == "/api/day":
+                d, m = qs.get("d", [""])[0], qs.get("m", [""])[0]
+                return self.send(200, A.cached(f"day:{d}:{m}", lambda: A.day(d, m), ttl=120, fresh=fresh))
+            if u.path == "/api/user":
+                uid = qs.get("id", [""])[0]
+                return self.send(200, A.cached("user:" + uid, lambda: A.user(uid), ttl=30, fresh=fresh))
             self.send(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
@@ -404,6 +416,7 @@ def serve(port=8790, open_browser=True):
     else:
         raise SystemExit("找不到可用的 port")
     threading.Thread(target=worker, daemon=True).start()
+    A.warm()
     url = f"http://127.0.0.1:{port}/"
     print(f"控制台：{url}（{'雲端' if Q.CLOUD else '本機測試'}資料）。按 Ctrl-C 關閉。", flush=True)
     if open_browser:
