@@ -13,9 +13,13 @@ CACHE, LOCK = {}, threading.Lock()
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
+SQL_LOCK = threading.Lock()   # supabase CLI 同時跑好幾個會互相卡死（實測全部卡到逾時），一次只跑一個
+
+
 def sql(q):
-    r = subprocess.run(["supabase", "db", "query", "--linked", "--output", "json", q],
-                       cwd=ROOT, capture_output=True, text=True, timeout=90)
+    with SQL_LOCK:
+        r = subprocess.run(["supabase", "db", "query", "--linked", "--output", "json", q],
+                           cwd=ROOT, capture_output=True, text=True, timeout=60)
     if r.returncode:
         raise RuntimeError("Supabase 查詢失敗：" + (r.stderr.strip().splitlines() or ["?"])[-1])
     return json.loads(r.stdout).get("rows", [])
@@ -26,10 +30,11 @@ def one(q):
     return (rows[0]["j"] if rows else None) or {}
 
 
-REFRESHING = set()
+REFRESHING = {}   # key → Event：同一包資料正在抓時，後來的請求等那一次，不再多開一個查詢
+# supabase CLI 同時開好幾個查詢會互相排隊（實測 8 個一起要 20 秒），所以重複的一律合併
 
 
-def _refresh(key, fn):
+def _refresh(key, fn, ev):
     try:
         val = fn()
         if isinstance(val, dict):
@@ -39,7 +44,8 @@ def _refresh(key, fn):
         return val
     finally:
         with LOCK:
-            REFRESHING.discard(key)
+            REFRESHING.pop(key, None)
+        ev.set()
 
 
 def cached(key, fn, ttl=60, fresh=False):
@@ -47,16 +53,20 @@ def cached(key, fn, ttl=60, fresh=False):
     with LOCK:
         hit = CACHE.get(key)
         stale = not hit or time.time() - hit[0] >= ttl
-        start = hit and stale and not fresh and key not in REFRESHING
-        if start:
-            REFRESHING.add(key)
+        ev = REFRESHING.get(key)
+        mine = ev is None and (fresh or stale)
+        if mine:
+            ev = REFRESHING[key] = threading.Event()
     if hit and not fresh:
-        if start:
-            threading.Thread(target=_refresh, args=(key, fn), daemon=True).start()
+        if mine:
+            threading.Thread(target=_refresh, args=(key, fn, ev), daemon=True).start()
         return hit[1]
+    if mine:
+        return _refresh(key, fn, ev)
+    ev.wait(120)   # 別人正在抓同一包：等它好了直接用
     with LOCK:
-        REFRESHING.add(key)
-    return _refresh(key, fn)
+        hit = CACHE.get(key)
+    return hit[1] if hit else _refresh(key, fn, threading.Event())
 
 
 def warm():
@@ -155,6 +165,10 @@ def analytics():
         'mau', (select count(distinct user_id) from act where ts > {day} - 29),
         'paid', (select count(distinct user_id) from subscriptions where {PAID}),
         'revenue', (select coalesce(sum((raw_event->'subscriptions'->product_id->'price'->>'amount')::numeric), 0) from subscriptions where {PAID}),
+        -- MRR：每個付費訂閱的價格換算成每月（年繳 ÷12、半年 ÷6、週繳 ×4.33），贈送的不算
+        'mrr', (select round(coalesce(sum((raw_event->'subscriptions'->product_id->'price'->>'amount')::numeric /
+                  case when product_id ~ 'year|annual' then 12 when product_id ~ 'six_month|semi' then 6 when product_id ~ 'quarter' then 3
+                       when product_id ~ 'week' then 0.2308 when product_id ~ 'lifetime' then null else 1 end), 0)) from subscriptions where {PAID}),
         'gift', (select count(distinct user_id) from subscriptions where {GIFT}),
         'cards30', (select count(*) from cards where created_at > now() - interval '30 days'),
         'ai30', (select round(coalesce(sum(estimated_cost_twd), 0)::numeric) from ai_usage_cost_events where occurred_at > now() - interval '30 days')),

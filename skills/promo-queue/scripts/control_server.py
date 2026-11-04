@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import postq as Q
 import platforms as P
 import analytics as A
+import release as R
 
 PAGE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "control.html"
 LOCK = threading.Lock()
@@ -368,6 +369,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, A.cached("users", A.users, fresh=fresh))
             if u.path == "/api/analytics":
                 return self.send(200, A.cached("analytics", A.analytics, fresh=fresh))
+            if u.path == "/api/release":
+                return self.send(200, R.state(fresh))
             if u.path == "/api/day":
                 d, m = qs.get("d", [""])[0], qs.get("m", [""])[0]
                 return self.send(200, A.cached(f"day:{d}:{m}", lambda: A.day(d, m), ttl=120, fresh=fresh))
@@ -400,6 +403,8 @@ class H(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            if u.path == "/api/release/run":   # 發布 / 公告：自己的背景工作，不跟發文排程搶同一條隊伍
+                return self.send(200, {"ok": True, "job": R.start(body)})
             self.send(200, {"ok": True, "task": enqueue(u.path.removeprefix("/api/"), body)})
         except Exception as e:
             traceback.print_exc()
@@ -417,6 +422,7 @@ def serve(port=8790, open_browser=True):
         raise SystemExit("找不到可用的 port")
     threading.Thread(target=worker, daemon=True).start()
     A.warm()
+    threading.Thread(target=R.state, daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
     print(f"控制台：{url}（{'雲端' if Q.CLOUD else '本機測試'}資料）。按 Ctrl-C 關閉。", flush=True)
     if open_browser:

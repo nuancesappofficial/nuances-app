@@ -114,7 +114,24 @@ pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px
 .seg{display:inline-flex;background:var(--panel);border-radius:10px;padding:3px;gap:2px}
 .seg a{padding:5px 12px;border-radius:8px;color:var(--mute);cursor:pointer;font-size:13px;white-space:nowrap}.seg a.on{background:var(--panel2);color:var(--ink);font-weight:600}
 .fresh{margin-left:auto;color:var(--dim);font-size:12px;display:inline-flex;gap:6px;align-items:center}.fresh .spin{width:9px;height:9px}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}@media(max-width:800px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}@media(max-width:800px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.subnav{margin:-4px 0 14px}.subnav .seg a{font-size:14px;padding:6px 14px}
+/* 發布與公告 */
+.steps{display:grid;grid-template-columns:70px repeat(4,minmax(0,1fr));gap:0;align-items:start;margin-top:6px}
+.steps .pl{font-weight:600;padding-top:2px;font-size:13px}
+.step{position:relative;text-align:center;font-size:12px;color:var(--mute);padding:0 4px}
+.step::before{content:'';position:absolute;top:8px;left:-50%;width:100%;height:2px;background:var(--line)}.step.first::before{display:none}
+.step.done::before,.step.run::before{background:var(--ok)}
+.step i{position:relative;display:block;width:18px;height:18px;margin:0 auto 6px;border-radius:50%;background:var(--panel2);border:2px solid var(--dim);font-style:normal;font-size:11px;line-height:14px;color:#0E0F12;font-weight:800}
+.step.done i{background:var(--ok);border-color:var(--ok)}.step.run i{border-color:var(--blue);animation:breathe 1.3s ease-in-out infinite}
+.step.fail i{background:var(--bad);border-color:var(--bad)}.step.wait i{border-color:var(--warn)}
+.step b{display:block;color:var(--ink);font-size:12px}.step a{color:var(--blue)}
+.relrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.form{display:grid;grid-template-columns:90px 1fr;gap:8px 10px;align-items:center}.form label{color:var(--mute);font-size:13px}
+.form input[type=text],.form textarea{width:100%}.form textarea{min-height:80px}
+.job{border-top:1px solid var(--line);padding:8px 0}.job:first-child{border:0}.job pre{max-height:180px;overflow:auto;margin-top:6px;font-size:12px}
+.job .st{font-size:12px;font-weight:700}.job .st.running{color:var(--blue)}.job .st.done{color:var(--ok)}.job .st.error{color:var(--bad)}
+@media(max-width:700px){.steps{grid-template-columns:52px repeat(4,minmax(0,1fr))}.form{grid-template-columns:1fr}}
 .kpi{background:var(--panel);border:1px solid transparent;border-radius:14px;padding:12px 14px;cursor:pointer;min-width:0}
 .kpi:hover{border-color:var(--line)}.kpi.on{border-color:var(--blue)}
 .kpi .k{color:var(--mute);font-size:12px}.kpi .v{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
@@ -200,7 +217,7 @@ h2 .when{font-size:16px}h2 .count{font-size:14px}
     <div class="tools"><span class="sub" id="mode"></span>
       <select id="chan" title="國家"></select>
       <button class="small" id="sync" onclick="toggleTray(event)" title="背景處理中的工作"></button>
-      <button class="small" id="refresh" onclick="if(tab==='users'||tab==='data')loadApp(tab,true);load()">重新整理</button>
+      <button class="small" id="refresh" onclick="if(APP_TABS.includes(tab))loadApp(tab,true);load()">重新整理</button>
       <button class="small" id="gear" onclick="go(tab==='settings'?'schedule':'settings')" title="帳號與設定">⚙ 設定</button></div>
   </div>
 </header>
@@ -371,13 +388,20 @@ const manualList = () => S.items.filter(i => i.platforms.some(p => p.status === 
 const failedList = () => S.items.filter(i => i.platforms.some(p => p.status === 'failed'));
 const doneList = () => S.items.filter(i => !['queued','partial'].includes(i.state)).reverse();
 
+// 兩個大分頁：發文（排程、成效）跟總覽（數據、使用者、發布與公告）；各自記得上次停在哪個小分頁
+const GROUPS = {dist: {label: '發文', subs: [['schedule', '排程'], ['stats', '成效']]},
+  ov: {label: '總覽', subs: [['data', '數據'], ['users', '使用者'], ['release', '發布與公告']]}};
+const groupOf = t => GROUPS.dist.subs.some(s => s[0] === t) ? 'dist' : GROUPS.ov.subs.some(s => s[0] === t) ? 'ov' : null;
+const APP_TABS = ['users', 'data', 'release'];
 function render(){
-  if(!S && tab !== 'users' && tab !== 'data') return;   // 排程資料還沒讀到；使用者 / 數據分頁不用它
-  const todo = S ? manualList().length + failedList().length : 0;
-  const tabs = [['schedule','排程',todo,'warn'],['stats','成效',0,''],['users','使用者',0,''],['data','數據',0,'']];
-  $('#tabs').innerHTML = tabs.map(([k,l,n,c]) => `<a class="${k===tab?'on':''}" onclick="go('${k}')">${l}${n?`<span class="badge ${c}">${n}</span>`:''}</a>`).join('');
+  if(!S && !APP_TABS.includes(tab)) return;   // 排程資料還沒讀到；總覽的分頁不用它
+  const todo = S ? manualList().length + failedList().length : 0, g = groupOf(tab);
+  $('#tabs').innerHTML = Object.entries(GROUPS).map(([k, G]) => { const n = k === 'dist' ? todo : 0;
+    return `<a class="${k === g ? 'on' : ''}" onclick="go(localStorage.getItem('sub-${k}') || '${G.subs[0][0]}')">${G.label}${n ? `<span class="badge warn">${n}</span>` : ''}</a>`; }).join('');
+  if(g) localStorage.setItem('sub-' + g, tab);
   $('#gear').classList.toggle('on', tab === 'settings');
-  $('#main').innerHTML = ({schedule: scheduleView, stats: statsView, settings: settingsView, users: usersView, data: dataView}[tab] || scheduleView)();
+  const sub = g ? `<div class="vhead subnav"><div class="seg">${GROUPS[g].subs.map(([k, l]) => `<a class="${k === tab ? 'on' : ''}" onclick="go('${k}')">${l}</a>`).join('')}</div></div>` : '';
+  $('#main').innerHTML = sub + ({schedule: scheduleView, stats: statsView, settings: settingsView, users: usersView, data: dataView, release: releaseView}[tab] || scheduleView)();
   if(tab === 'users') drawUsers();
   $('#main').classList.toggle('anim', tab !== shown); shown = tab;
 }
@@ -567,11 +591,12 @@ const NAME = {
   level: {beginner:'初級', intermediate:'中級', advanced:'高級'}, goal: {academic:'考試學術', slang:'道地口語', everyday:'日常'},
   source: {'Quick Add':'快速新增', manual:'手動', share_sheet:'iOS 分享', android_share_sheet:'Android 分享', clipboard:'剪貼簿', Nuances:'App 內'}};
 const nm = (g, k) => (NAME[g] || {})[k] || (k === '?' || k == null ? '未填' : k);
+const ENDPOINT = {users: 'users', data: 'analytics', release: 'release'};
 function loadApp(key, fresh){
   if(APP.busy[key]) return;
   APP.busy[key] = true; APP.err[key] = '';
-  if(tab === (key === 'data' ? 'data' : 'users')) paintFresh(key);
-  fetch(`/api/${key === 'data' ? 'analytics' : 'users'}${fresh ? '?fresh=1' : ''}`)
+  if(tab === key) paintFresh(key);
+  fetch(`/api/${ENDPOINT[key]}${fresh ? '?fresh=1' : ''}`)
     .then(r => r.json().then(j => { if(!r.ok) throw new Error(j.error || r.status); APP[key] = j; LS.set('app:' + key, j); }))
     .catch(e => APP.err[key] = e.message || String(e))
     .finally(() => { APP.busy[key] = false; appChanged(key); });
@@ -579,7 +604,9 @@ function loadApp(key, fresh){
 // 新資料到了：使用者分頁只換表格（不打斷正在打字的搜尋框），數據分頁整頁重畫
 function appChanged(key){
   if(key === 'users' && tab === 'users' && $('#ulist')){ drawUsers(); paintFresh(key); }
-  else if(tab === (key === 'data' ? 'data' : 'users')) render();
+  else if(key === 'release' && tab === 'release' && $('#rel-live')){ paintRelease(); paintFresh(key); }
+  if(key === 'release' && (APP.release?.jobs || []).some(j => j.status === 'running')) relPoll();
+  else if(tab === key) render();
   if(modalFor && modalFor[0] === 'user') openModal('user', modalFor[1]);
 }
 function freshTag(key){
@@ -625,7 +652,7 @@ let DSUB = localStorage.getItem('dsub') || 'overview', DKPI = localStorage.getIt
 const setD = (k, v) => { if(k === 'sub') DSUB = v; else DKPI = v; localStorage.setItem(k === 'sub' ? 'dsub' : 'dkpi', v); render(); };
 function dataView(){
   const a = APP.data;
-  const subs = [['overview', '總覽'], ['funnel', '轉換與留存'], ['who', '使用者組成'], ['cost', 'AI 成本']];
+  const subs = [['overview', '重點'], ['funnel', '轉換與留存'], ['who', '使用者組成'], ['cost', 'AI 成本']];
   const head = `<div class="vhead"><div class="seg">${subs.map(([k, l]) => `<a class="${DSUB === k ? 'on' : ''}" onclick="setD('sub','${k}')">${l}</a>`).join('')}</div>${freshTag('data')}</div>`;
   if(!a) return head + appWait('data');
   if(APP.busy.data == null && !APP.err.data) loadApp('data');
@@ -637,10 +664,13 @@ function dOverview(a){
     active: {k: '本週活躍', v: k.wau, prev: k.wau_prev, s: `今天 ${k.dau} 人・本月 ${k.mau} 人`, key: 'active', c: 'var(--blue)', u: ' 人', t: '每天活躍人數'},
     signups: {k: '本週新註冊', v: k.new7, prev: k.new_prev7, s: `總共 ${k.users} 人`, key: 'signups', c: 'var(--ok)', u: ' 人', t: '每天新註冊'},
     cards: {k: '本週新卡片', v: last('cards', 0, 7), prev: last('cards', 7, 14), s: `近 30 天 ${k.cards30} 張`, key: 'cards', c: '#B79CFF', u: ' 張', t: '每天新卡片'}};
-  const cardsHtml = Object.entries(M).map(([id, m]) => `<div class="kpi ${DKPI === id ? 'on' : ''}" onclick="setD('kpi','${id}')">
-      <div class="k">${m.k}</div><div class="v">${m.v}${delta(m.v, m.prev)}</div><div class="s">${m.s}</div>${spark(d.map(r => r[m.key]), m.c)}</div>`).join('')
-    + `<div class="kpi" onclick="UF.plan='paid';saveUF();go('users')" title="點了看是誰">
-      <div class="k">付費中</div><div class="v">${k.paid}</div><div class="s">訂閱金額 NT$${Number(k.revenue || 0).toLocaleString()}</div><div class="s">另有贈送 ${k.gift} 人 →</div></div>`;
+  const cards = Object.entries(M).map(([id, m]) => `<div class="kpi ${DKPI === id ? 'on' : ''}" onclick="setD('kpi','${id}')">
+      <div class="k">${m.k}</div><div class="v">${m.v}${delta(m.v, m.prev)}</div><div class="s">${m.s}</div>${spark(d.map(r => r[m.key]), m.c)}</div>`);
+  // MRR 放在活躍旁邊：付費訂閱換算成每月的收入（年繳 ÷12），點了看是哪些人
+  cards.splice(1, 0, `<div class="kpi" onclick="UF.plan='paid';saveUF();go('users')" title="每月經常性收入：付費訂閱換算成每月（年繳 ÷12），贈送的不算。點了看是誰">
+      <div class="k">MRR（每月訂閱收入）</div><div class="v">NT$${Number(k.mrr || 0).toLocaleString()}</div>
+      <div class="s">${k.paid} 位付費・年化 NT$${(Number(k.mrr || 0) * 12).toLocaleString()}</div><div class="s">另有贈送 ${k.gift} 人 →</div></div>`);
+  const cardsHtml = cards.join('');
   const m = M[DKPI] || M.active, avg = d.reduce((s, r) => s + r[m.key], 0) / d.length;
   return `<div class="kpis">${cardsHtml}</div>
     <div class="card big"><h3>${m.t} <span class="dim">近 30 天・平均 ${avg.toFixed(1)}${m.u}</span></h3>${bars(d, m.key, m.c, v => v + m.u, m.key)}</div>
@@ -683,7 +713,7 @@ const FILTERS = [['', '全部', x => true], ['paid', '付費', x => x.paid], ['g
   ['active', '7 天內活躍', x => x.seen && Date.now() - TS(x.seen) < 7 * 864e5], ['noob', '沒完成引導', x => !x.onboarded]];
 function usersView(){
   const L = APP.users;
-  const head = `<div class="vhead"><span class="title" style="font-size:15px">使用者</span>${freshTag('users')}</div>`;
+  const head = `<div class="vhead">${freshTag('users')}</div>`;
   if(!L) return head + appWait('users');
   if(APP.busy.users == null && !APP.err.users) loadApp('users');
   const u = L.users;
@@ -736,6 +766,7 @@ function userModal(id){
       <div><b>${x.cards}</b><span>卡片・近 7 天 ${x.cards7}</span></div><div><b>${x.paid ? 'NT$' + (x.price ?? '—') : esc(x.expires || '—')}</b><span>${x.paid ? '訂閱金額・到期 ' + esc(x.expires || '') : '方案到期'}</span></div></div>
     <div class="row"><a class="chip" href="${APP.users.rc}${x.id}" target="_blank" rel="noopener">在 RevenueCat 打開 ↗</a>
       <span class="chip pick" onclick="navigator.clipboard.writeText('${x.id}');toast('已複製使用者編號')">複製使用者編號</span>
+      ${x.email ? `<span class="chip pick" onclick="messageUser('${esc(x.email)}')">發訊息給他</span>` : ''}
       <span class="dim" style="font-size:12px">AI 成本 NT$${x.ai_twd}${d?.ai ? `・${d.ai.calls} 次` : ''}</span></div>
     ${body}`;
 }
@@ -806,7 +837,87 @@ function drillModal(spec){
     + `<h2>誰用的</h2>` + peopleTable(d.users.map(r => [uById(r.id), r]), [['次數', (x, r) => r.n], ['成本', (x, r) => 'NT$' + r.twd]]);
 }
 
-loadApp('users'); loadApp('data');   // 一打開就背景抓，切過去就有新的
+// ---------- 發布與公告（auto-update / announce-and-update 兩個 skill 的按鈕版） ----------
+APP.release = LS.get('app:release');
+const REL = {form: {type: 'both', priority: 'normal', title: '', body: '', email: '', url: '', button: ''}, poll: null};
+const BSTAT = {FINISHED: ['done', '完成'], IN_QUEUE: ['run', '排隊中'], NEW: ['run', '排隊中'], IN_PROGRESS: ['run', '打包中'], PENDING_CANCEL: ['fail', '取消中'],
+  ERRORED: ['fail', '失敗'], CANCELED: ['fail', '已取消']};
+function step(cls, title, sub, first){ return `<div class="step ${cls} ${first ? 'first' : ''}"><i>${cls === 'done' ? '✓' : cls === 'fail' ? '!' : ''}</i><b>${title}</b>${sub || ''}</div>`; }
+function progressRow(p, r){
+  const v = r.local.version, label = p === 'ios' ? 'iOS' : 'Android';
+  const chk = r.check?.error ? ['fail', '讀不到'] : r.check?.ok ? ['done', v] : ['fail', '三處不一致'];
+  const b = Array.isArray(r.builds) ? r.builds.find(x => x.platform === p && x.version === v) : null;
+  const bs = r.builds?.error ? ['fail', '讀不到 EAS'] : b ? BSTAT[b.status] || ['run', b.status] : ['', 'EAS 還沒打這版'];
+  const bsub = b ? `<a href="${b.url}" target="_blank" rel="noopener">${bs[1]}・#${esc(b.build)}</a>` : bs[1];
+  let st;
+  if(p === 'ios') st = r.store?.ios === v ? ['done', 'App Store 已上架'] : b?.status === 'FINISHED' ? ['wait', `<a href="${r.links.asc}" target="_blank" rel="noopener">TestFlight → 去送審</a>`] : ['', `線上是 ${esc(r.store?.ios || '?')}`];
+  else st = b?.status === 'FINISHED' ? ['wait', `<a href="${r.links.play}" target="_blank" rel="noopener">內部測試軌道 → 到 Play Console 看</a>`] : ['', '<a href="' + r.links.play + '" target="_blank" rel="noopener">Play Console</a>'];
+  const pol = r.policy?.[p], ps = r.policy?.error ? ['fail', '讀不到'] : pol?.latest_version === v ? ['done', `已提示 ${esc(v)}・${esc(pol.updated)}`] : ['', `目前提示 ${esc(pol?.latest_version || '—')}`];
+  return `<span class="pl">${label}</span>${step(chk[0], '版號一致', chk[1], true)}${step(bs[0], '打包上傳', bsub)}${step(st[0], '商店上架', st[1])}${step(ps[0], '更新提示', ps[1])}`;
+}
+function relLive(){
+  const r = APP.release; if(!r) return '<div class="sk" style="height:160px"></div>';
+  const busy = a => (r.jobs || []).some(j => j.action === a && j.status === 'running');
+  const msgs = Array.isArray(r.messages) ? r.messages : [];
+  return `<div class="card"><h3>版本進度 <span class="dim">本機版號 ${esc(r.local.version)}（iOS build ${esc(r.local.ios_build)}・Android ${esc(r.local.android_code)}）</span></h3>
+      <div class="steps">${progressRow('ios', r)}</div><div class="steps" style="margin-top:14px">${progressRow('android', r)}</div>
+      <div class="relrow">
+        <button class="small" ${busy('check') ? 'disabled' : ''} onclick="relRun({action:'check'})">檢查版號</button>
+        <select id="bplat"><option value="all">雙平台</option><option value="ios">只有 iOS</option><option value="android">只有 Android</option></select>
+        <button class="small primary" ${busy('build') ? 'disabled' : ''} onclick="relBuild()">打包並上傳商店</button>
+        <button class="small" onclick="relRun({action:'policy',dry:true})">預覽更新提示</button>
+        <button class="small" ${busy('policy') ? 'disabled' : ''} onclick="relPolicy()">發布更新提示</button>
+        <a class="chip" href="${r.links.eas}" target="_blank" rel="noopener">EAS ↗</a><a class="chip" href="${r.links.asc}" target="_blank" rel="noopener">App Store Connect ↗</a><a class="chip" href="${r.links.play}" target="_blank" rel="noopener">Play Console ↗</a></div>
+      <div class="note">要出新版：先把版號改大（app.json、Xcode、build.gradle 三處，叫 Claude 改最快）→ 檢查版號 → 打包上傳 → 商店上架後再發布更新提示。</div></div>
+    ${(r.jobs || []).length ? `<div class="card" style="margin-top:10px"><h3>執行紀錄</h3>${r.jobs.map(j => `<div class="job"><span class="st ${j.status}">${{running: '執行中…', done: '完成', error: '失敗'}[j.status]}</span> <b>${esc(j.label)}</b> <span class="dim">${esc(j.started)}</span>
+      ${j.log.length ? `<pre>${esc(j.log.join('\n'))}</pre>` : ''}</div>`).join('')}</div>` : ''}
+    <h2>最近的公告</h2>${r.messages?.error ? `<div class="err">${esc(r.messages.error)}</div>` : msgs.length ? `<table><tr><th>時間</th><th>標題</th><th>對象</th><th>管道</th></tr>${msgs.map(m => `<tr><td>${esc(m.at)}</td><td title="${esc(m.body)}"><b>${esc(m.title)}</b> <span class="dim">${esc(m.body).slice(0, 40)}</span></td><td>${m.target_type === 'all' ? '全部' : esc(m.target_email || '單一使用者')}</td><td>${esc({both: '彈窗＋推播', in_app: '彈窗', push: '推播'}[m.type] || m.type)}</td></tr>`).join('')}</table>` : '<div class="empty">還沒發過公告</div>'}`;
+}
+function releaseView(){
+  if(APP.busy.release == null) loadApp('release');
+  const f = REL.form, opt = (key, list) => `<select onchange="REL.form.${key}=this.value">${list.map(([v, l]) => `<option value="${v}" ${f[key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const inp = (key, ph) => `<input type="text" value="${esc(f[key])}" placeholder="${ph}" oninput="REL.form.${key}=this.value">`;
+  return `<div class="vhead">${freshTag('release')}</div><div id="rel-live">${relLive()}</div>
+    <h2>發公告</h2><div class="card"><div class="form">
+      <label>標題</label>${inp('title', '例如：週末學習挑戰開始！')}
+      <label>內容</label><textarea placeholder="公告內容" oninput="REL.form.body=this.value">${esc(f.body)}</textarea>
+      <label>管道</label><div class="row" style="margin:0">${opt('type', [['both', 'App 內彈窗＋手機推播'], ['in_app', '只有 App 內彈窗'], ['push', '只有手機推播']])}
+        ${opt('priority', [['normal', '一般（綠）'], ['high', '重要（橘）'], ['urgent', '緊急（紅）']])}</div>
+      <label>對象</label>${inp('email', '留空＝全部使用者；填 email＝只發給他')}
+      <label>連結</label><div class="row" style="margin:0">${inp('url', '選填：網址或 nuances://…')}${inp('button', '按鈕文字（預設：立即查看）')}</div>
+    </div><div class="relrow"><button class="small" onclick="relAnnounce(true)">預覽</button><button class="small primary" onclick="relAnnounce(false)">發送</button></div></div>`;
+}
+function paintRelease(){ const el = $('#rel-live'); if(el) el.innerHTML = relLive(); }
+function relRun(body){
+  return fetch('/api/release/run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    .then(r => r.json()).then(j => { if(!j.ok) throw new Error(j.message); toast('已開始：' + ({check: '檢查版號', build: '打包上傳', policy: body.dry ? '預覽更新提示' : '發布更新提示', announce: body.dry ? '預覽公告' : '發送公告'}[body.action])); relPoll(); })
+    .catch(e => toast('沒辦法開始：' + (e.message || e)));
+}
+// 有工作在跑就每 3 秒看一次，跑完自動停
+function relPoll(){
+  clearTimeout(REL.poll);
+  const tick = () => fetch('/api/release').then(r => r.json()).then(j => { APP.release = j; LS.set('app:release', j); if(tab === 'release') paintRelease();
+    if((j.jobs || []).some(x => x.status === 'running')) REL.poll = setTimeout(tick, 3000); }).catch(() => {});
+  REL.poll = setTimeout(tick, 800);
+}
+function relBuild(){
+  const p = $('#bplat').value, v = APP.release?.local.version, name = {all: 'iOS 和 Android', ios: 'iOS', android: 'Android'}[p];
+  if(confirm(`確定要把 ${v} 打包並上傳到 ${name} 商店嗎？\n會在 EAS 雲端打包（用掉打包額度），完成後自動送到 TestFlight / Google Play 內部測試。`)) relRun({action: 'build', platform: p});
+}
+function relPolicy(){
+  const v = APP.release?.local.version;
+  if(confirm(`確定要發布更新提示嗎？\n所有低於 ${v} 的 iOS 和 Android 使用者，打開 App 時都會被要求更新。\n請確認 ${v} 已經在商店上架。`)) relRun({action: 'policy'});
+}
+function relAnnounce(dry){
+  const f = REL.form;
+  if(!f.title.trim() || !f.body.trim()) return toast('標題和內容都要填');
+  const who = f.email.trim() || `全部 ${APP.users?.users.length || ''} 位使用者`;
+  if(!dry && !confirm(`確定要發送公告給 ${who} 嗎？\n「${f.title}」\n發出去就收不回來。`)) return;
+  relRun({action: 'announce', dry, ...f});
+}
+function messageUser(email){ REL.form.email = email; closeModal(); go('release'); setTimeout(() => document.querySelector('.form input')?.focus(), 50); }
+
+loadApp('users'); loadApp('data'); loadApp('release');   // 一打開就背景抓，切過去就有新的
 
 // ---------- 詳細頁 ----------
 function itemModal(id){
