@@ -75,7 +75,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | Threads | API | 影片 | 輪播 |
 | Facebook 粉專 | API | Reels（90 秒內、30 篇 / 24 小時） | 改發 9:16 輪播影片（FB 多圖會排成拼貼，不能滑） |
 | TikTok | API | 影片 | 改發 9:16 輪播影片（API 圖文要驗證網域） |
-| YouTube | API | Shorts | 改發 9:16 輪播影片 |
+| YouTube | API | Shorts | 只發影片，輪播不發 |
 | 小紅書 | 手動 | ✓ | 3:4 圖（標題 20 字內，看板會給建議標題） |
 | 抖音、LINE VOOM | 手動 | ✓ | 9:16 圖 |
 | X | 手動 | ✓ | 4:5 前 4 張（一篇最多 4 張）；文案自動縮到 280（中文算 2） |
@@ -103,7 +103,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 - GitHub 排程可能延遲；錯過的時段一次只補一篇，兩篇至少隔 `min_gap_hours`（預設 6 小時），後面的自動往後順延。
 - 時段、間隔、每種貼文發哪些平台都在 `queue.json` 的 `settings`（`slots`、`min_gap_hours`、`platforms`）。改完跑 `reschedule`。
 - 平台對應（新國家的預設）：
-  - 預設：影片 → IG、Threads、Facebook、TikTok、YouTube；輪播圖 → IG、Threads、Facebook（每國可改，見上面「平台」）
+  - 預設：影片 → IG、Threads、Facebook、TikTok、YouTube；輪播圖 → IG、Threads、Facebook（台灣目前影片和輪播都不直發 Facebook，改用 IG 自動分享、輪播不發 YouTube；每國可改，見上面「平台」）
 - IG / Threads 直接用公開網址（PNG 上傳時自動轉 JPEG），網址記在該篇的 `public_urls`；TikTok / YouTube 發文時從公開網址下載再上傳。
 - 每個平台各自記狀態：`queued` → `posted`（記 `url`）/ `skipped`（未設定或不支援，記 `note`）/ 失敗會重試，3 次後變 `failed`（記 `error`）。
 - 日誌：雲端執行的紀錄在 GitHub Actions 的執行紀錄（`gh run list --workflow promo-queue.yml`、`gh run view <id> --log`）；本機跑的指令寫在 `promo-vids/.postq.log`。
@@ -136,7 +136,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 - 只補 Threads：`python3 skills/promo-queue/scripts/connect_threads.py [--channel tw]`（讀精靈存的 App 編號，授權完自動傳上雲端）。Threads 後台的回呼、解除安裝、刪除三個網址都要填同一個才存得起來，漏填授權時會說回呼網址不對。回呼網址那格存不進去時，改用同一頁最下面「用戶權杖產生器」產生權杖，跑 `connect_threads.py --token` 貼上。
 - 平台限制（審核過才會公開）：
   - TikTok App 沒通過審核前，影片只有自己看得到（dashboard 會標「僅自己可見」）。
-  - YouTube API 專案沒通過 Google 稽核前，上傳的影片會被設成私人。
+  - YouTube：未驗證的 API 專案也能公開上傳（Google 2026-11-02 取消限制）；稽核只有要超過預設配額才需要。
   - IG / Threads 用開發模式的 App 發到自己的帳號，不用送審。
 - IG / Threads token 60 天過期，`post-due` 會在剩不到 20 天時自動換新；TikTok / YouTube 用 refresh token。哪個平台開始一直失敗（`error` 裡有 401 / token），請使用者重跑精靈的那一步。
 

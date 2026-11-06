@@ -507,7 +507,7 @@ if [[ "$DO_YT" == 1 ]]; then
   say "接下來會打開 Google 登入頁，授權後自動回到這裡（本機 127.0.0.1:8765 接收）。"
   step "選 $CHANNEL 這個國家的 Nuances 頻道（同一個 Google 帳號底下有多個頻道時，在這裡選對的那個）"
   step "看到「Google 尚未驗證這個應用程式」→ 進階 → 前往 Nuances Poster → 允許"
-  note "YouTube API 專案沒通過 Google 稽核前，上傳的影片會被設成私人；要公開得另外申請稽核。"
+  note "未驗證的 YouTube API 專案也能公開上傳；稽核只有要超過預設配額才需要。"
   pause "準備好就按 Enter 打開授權頁"
   YT_JSON=$(ID="$YT_CLIENT_ID" SEC="$YT_CLIENT_SECRET" py '
 import os, json, subprocess, urllib.parse as u, requests

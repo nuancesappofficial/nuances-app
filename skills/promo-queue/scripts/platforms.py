@@ -4,7 +4,7 @@
 media：reel = [影片路徑]、carousel = [圖片路徑…]。sec = secrets.json 裡該平台的那一段（會被就地更新 token）。
 IG / Threads 只吃公開網址，所以先把檔案傳到 Supabase；TikTok / YouTube 直接上傳檔案。
 """
-import io, json, mimetypes, pathlib, time
+import io, json, mimetypes, pathlib, re, time
 import requests
 from PIL import Image
 
@@ -157,12 +157,23 @@ def x_text(caption, limit=280):
 
 
 # ---------- YouTube Shorts ----------
+def youtube_title(caption):
+    """標題取文案第一行；系列影片把「故事名 Part x/N」那行放最前面。上限 100 字（含 #Shorts）。"""
+    lines = [l.strip() for l in caption.splitlines() if l.strip()]
+    first = lines[0] if lines else "Nuances"
+    label = next((l for l in lines if re.search(r"\bPart\s*\d+\s*/\s*\d+", l, re.I)), "")
+    room = 100 - len(" #Shorts")
+    if label and label != first:
+        rest = room - len(label) - 1
+        first = f"{label}｜{first if len(first) <= rest else first[:rest - 1] + '…'}"
+    return f"{first[:room]} #Shorts"
+
+
 def youtube(kind, files, caption, sec, cover=None):
     if kind != "reel":
         raise Unsupported("YouTube 只發影片")
     at = youtube_token(sec)
-    first = caption.strip().splitlines()[0] if caption.strip() else "Nuances"
-    title = (first[:90] + " #Shorts")[:100]
+    title = youtube_title(caption)
     meta = {"snippet": {"title": title, "description": caption, "categoryId": "27", "defaultLanguage": "zh-TW"},
             "status": {"privacyStatus": sec.get("privacy", "public"), "selfDeclaredMadeForKids": False}}
     path = pathlib.Path(files[0])
