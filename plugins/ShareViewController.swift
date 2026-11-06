@@ -12,13 +12,51 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
+    private var didPresentOpenAppPrompt = false
 
     private let uiLanguageKey = "nuances_ui_language"
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        handleSharedContent()
+        if hasActiveUser() {
+            handleSharedContent()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !hasActiveUser() {
+            presentOpenAppPrompt()
+        }
+    }
+
+    private func hasActiveUser() -> Bool {
+        let userID = UserDefaults(suiteName: appGroupID)?.string(forKey: "active_user_id")
+        return !(userID ?? "").isEmpty
+    }
+
+    // Without a signed-in owner the share cannot be queued. Say so instead of
+    // closing silently, which would look like the share worked and then vanished.
+    private func presentOpenAppPrompt() {
+        guard !didPresentOpenAppPrompt else { return }
+        didPresentOpenAppPrompt = true
+        let copy = ShareReceiptCopy.openAppPrompt(for: promptLanguage())
+        let alert = UIAlertController(title: "Nuances", message: copy.message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: copy.action, style: .default) { [weak self] _ in
+            self?.closeExtension(success: false)
+        })
+        present(alert, animated: true)
+    }
+
+    private func promptLanguage() -> String {
+        if let saved = UserDefaults(suiteName: appGroupID)?.string(forKey: uiLanguageKey) {
+            return saved
+        }
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        if preferred.hasPrefix("zh-Hans") { return "zh-CN" }
+        if preferred.hasPrefix("zh") { return "zh-TW" }
+        return String(preferred.prefix(2))
     }
     
     private func handleSharedContent() {
