@@ -438,7 +438,7 @@ if confirm "要設定 TikTok 嗎？"; then
   step "用 Nuances 的 TikTok 帳號登入開發者平台 → Manage apps → Connect an app"
   step "填基本資料：App icon、名稱、說明、Category，Terms of Service / Privacy Policy 網址填 Nuances 官網的"
   step "Products 加上 Login Kit 和 Content Posting API（Content Posting 裡把 Direct Post 打開）"
-  step "Scopes 要有 user.info.basic、video.publish、video.list（video.list 用來讀成效）"
+  step "Scopes 要有 user.info.basic、video.publish、video.upload、video.list（video.upload 把影片送進 App 收件匣，video.list 用來讀成效）"
   step "Login Kit → Redirect URI（Web）貼上：$CALLBACK"
   step "上方切到 Sandbox → 建一個 Sandbox → Target Users 加入 Nuances 的 TikTok 帳號"
   step "複製 Sandbox 的 Client key 和 Client secret"
@@ -457,7 +457,7 @@ fi
 # ── 7 ────────────────────────────────────────────────────────────────────
 stage "TikTok：授權"
 if [[ "$DO_TT" == 1 ]]; then
-  open_url "https://www.tiktok.com/v2/auth/authorize/?client_key=$TT_CLIENT_KEY&scope=user.info.basic,video.publish,video.list&response_type=code&state=nuances&redirect_uri=$(CB="$CALLBACK" py 'import os,urllib.parse as u;print(u.quote(os.environ["CB"],safe=""))')"
+  open_url "https://www.tiktok.com/v2/auth/authorize/?client_key=$TT_CLIENT_KEY&scope=user.info.basic,video.publish,video.list,video.upload&response_type=code&state=nuances&redirect_uri=$(CB="$CALLBACK" py 'import os,urllib.parse as u;print(u.quote(os.environ["CB"],safe=""))')"
   step "用 $CHANNEL 這個國家的 Nuances TikTok 帳號按授權（瀏覽器登入的是別的帳號就先登出）。跳轉後把網址列整段複製回來"
   ask_code TT_CODE "貼上跳轉後的整段網址："
   TT_JSON=$(K="$TT_CLIENT_KEY" S="$TT_CLIENT_SECRET" CODE="$TT_CODE" CB="$CALLBACK" py '
