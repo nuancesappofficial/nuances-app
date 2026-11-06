@@ -509,6 +509,9 @@ def post_item(q, it, secrets, dry):
             ps.update(status="manual", due_at=now(q).isoformat(timespec="seconds"))
             log(f"待手動發布 {it['id']} → {NAMES[name]}")
             went_manual.append(name)
+            if name == "tiktok" and acct.get("tiktok"):
+                send_tiktok_draft(it, ps, acct["tiktok"], tmp)
+                save_secrets(secrets)   # TikTok refresh token 每次會換
             save(q); continue
         sec = acct.get(name, {})
         pl = plan(it, name)
@@ -564,14 +567,52 @@ def post_item(q, it, secrets, dry):
         notify_result(secrets, q, it, went_posted, went_failed)
 
 
+def send_tiktok_draft(it, ps, sec, tmp):
+    """把這篇的影片送進 TikTok 收件匣；失敗不擋提醒，使用者還是能從推播存影片手動發。"""
+    try:
+        pl = plan(it, "tiktok")
+        if not pl or pl[0] != "reel":
+            raise RuntimeError("沒有影片版本")
+        ps["draft_id"] = P.tiktok_draft(fetch(it, pl[1], tmp)[0], sec)
+        ps["note"] = "已送進 TikTok 收件匣"
+        ps.pop("draft_error", None)
+        log(f"已送進 TikTok 收件匣 {it['id']}")
+        return True
+    except Exception as e:
+        ps["draft_error"] = str(e)[:300]
+        ps["note"] = "沒送進收件匣，要手動存影片"
+        log(f"TikTok 收件匣失敗 {it['id']}：{e}")
+        return False
+
+
+def post_hook(it):
+    """推播標題用：文案第一行，每篇一眼分得出來。"""
+    lines = (it.get("caption") or "").splitlines()
+    return (lines[0].strip() if lines else it["id"])[:36]
+
+
+def push_caption(it, names):
+    """推播的文案：TikTok / YouTube 發的是影片，拿掉輪播才有的「往右滑」。"""
+    cap = it.get("caption") or "（沒有文案）"
+    if it["kind"] == "carousel" and set(names) <= {"tiktok", "youtube"}:
+        cap = "\n".join(l for l in cap.splitlines() if "往右滑" not in l)
+    return cap
+
+
 def push_status(q, it, names):
     """通知內文：每個平台發了沒、接下來要做什麼、下一篇是什麼。"""
     lines = status_lines(it)
-    who = "、".join(NAMES[n] for n in names)
-    steps = [f"1. 點「打開影片 / 圖片」存到手機",
-             f"2. 文案在另一則通知，長按複製",
-             f"3. 到 {who} 發文，封面點「封面圖」存下來用" + ("（YouTube 標題用文案第一行）" if "youtube" in names else ""),
-             f"4. 發好在控制台按「發好了」，或跟 Claude 說「發好了」"]
+    drafted = "tiktok" in names and it["platforms"]["tiktok"].get("draft_id")
+    rest = [n for n in names if not (drafted and n == "tiktok")]
+    who = "、".join(NAMES[n] for n in rest)
+    steps = ["1. 文案在另一則通知，長按複製"]
+    if drafted:
+        steps.append(f"{len(steps) + 1}. 打開 TikTok 收件匣的上傳通知，貼上文案，按發布")
+    if rest:
+        steps.append(f"{len(steps) + 1}. 點「打開影片 / 圖片」存到手機，到 {who} 發文，封面點「封面圖」存下來用"
+                     + ("（YouTube 標題用文案第一行）" if "youtube" in rest else ""))
+    steps.append(f"{len(steps) + 1}. 發好在控制台按「發好了」，或跟 Claude 說「發好了」")
+    lines = lines + [f"編號：{it['id']}"]
     if any(it["platforms"][n]["status"] == "failed" for n in it["platforms"]):
         steps.append("5. 有失敗的：控制台按「重發」，或跟 Claude 說")
     return "【狀態】\n" + "\n".join(lines) + "\n\n【你要做的】\n" + "\n".join(steps) + next_line(q, it)
@@ -630,11 +671,15 @@ def notify(secrets, it, names, title=None, q=None):
     acts = ([{"action": "view", "label": "打開影片" if links[0].endswith(".mp4") else "打開圖片", "url": links[0]}] if links else []) \
         + ([{"action": "view", "label": "封面圖", "url": it["cover"]}] if it.get("cover") else [])
     who = "、".join(NAMES[n] for n in names)
+    hook = post_hook(it)
+    drafted = "tiktok" in names and it["platforms"]["tiktok"].get("draft_id")
+    default_title = f"🎬 TikTok 收件匣有新影片：{hook}" if drafted and names == ["tiktok"] else \
+        f"🎬 TikTok 收件匣有新影片，{'、'.join(NAMES[n] for n in names if n != 'tiktok')} 待手動：{hook}" if drafted else f"✋ 該手動發 {who}：{hook}"
     try:
         P._check(requests.post("https://ntfy.sh/", timeout=30, json={
-            "topic": topic, "title": f"文案（長按複製）：{it['id']}", "message": it.get("caption") or "（沒有文案）", "tags": ["clipboard"]}))
+            "topic": topic, "title": f"📋 文案：{hook}", "message": push_caption(it, names), "tags": ["clipboard"]}))
         P._check(requests.post("https://ntfy.sh/", timeout=30, json={
-            "topic": topic, "title": title or f"✋ 該手動發 {who}：{it['id']}",
+            "topic": topic, "title": title or default_title,
             "message": push_status(q, it, names) if q else "測試通知", "tags": ["memo"],
             "click": links[0] if links else "", "actions": acts}))
         log(f"已推播提醒 {it['id']} → {who}")
@@ -900,6 +945,21 @@ def cmd_done(q, a):
     ps.update(status="posted", posted_at=now(q, it["channel"]).isoformat(timespec="seconds"), **({"url": a.url} if a.url else {}))
     ps.pop("note", None)
     save(q); print(f"已標記 {it['id']} → {NAMES[a.platform]} 已發布")
+
+
+def cmd_draft(q, a):
+    """把待手動的貼文補送進 TikTok 收件匣（排定時間已過的那些）。"""
+    secrets = load_secrets()
+    it = get(q, a.id)
+    ps = it["platforms"].get("tiktok")
+    if not ps or ps["status"] != "manual":
+        sys.exit(f"{it['id']} 的 TikTok 不是待手動狀態")
+    if ps.get("draft_id") and not a.force:
+        sys.exit(f"{it['id']} 已經送過收件匣了（要重送加 --force）")
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    ok = send_tiktok_draft(it, ps, account(secrets, it["channel"])["tiktok"], tmp)
+    save_secrets(secrets); save(q)
+    print(("已送進收件匣：" if ok else f"失敗：{ps.get('draft_error')}：") + it["id"])
 
 
 def cmd_skip(q, a):
@@ -1234,6 +1294,7 @@ def main():
     x = sp.add_parser("post-due"); x.add_argument("--dry-run", action="store_true")
     x = sp.add_parser("post"); x.add_argument("id"); x.add_argument("--dry-run", action="store_true")
     x = sp.add_parser("skip"); x.add_argument("id")
+    x = sp.add_parser("draft"); x.add_argument("id"); x.add_argument("--force", action="store_true")
     x = sp.add_parser("done"); x.add_argument("id"); x.add_argument("--platform", required=True, choices=list(NAMES)); x.add_argument("--url")
     x = sp.add_parser("retry"); x.add_argument("id"); x.add_argument("--platform", choices=list(NAMES))
     x = sp.add_parser("push-secrets"); x.add_argument("--only"); x.add_argument("--channel", default="tw")
@@ -1244,11 +1305,11 @@ def main():
     if a.cmd == "move":
         return with_lock(lambda: cmd_move(a))
     fns = {"roll": cmd_roll, "add": cmd_add, "list": cmd_list, "dashboard": lambda q, a: (dashboard(q), print(DASH)), "reschedule": cmd_reschedule,
-           "post-due": cmd_post_due, "post": cmd_post, "skip": cmd_skip, "retry": cmd_retry,
+           "post-due": cmd_post_due, "post": cmd_post, "skip": cmd_skip, "draft": cmd_draft, "retry": cmd_retry,
            "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done,
            "notify": cmd_notify, "covers": cmd_covers,
            "serve": lambda q, a: __import__("control_server").serve(a.port, not a.no_open)}
-    if a.cmd in ("post-due", "post", "add", "skip", "retry", "reschedule", "metrics", "channel", "done", "covers"):
+    if a.cmd in ("post-due", "post", "add", "skip", "draft", "retry", "reschedule", "metrics", "channel", "done", "covers"):
         with_lock(lambda: fns[a.cmd](load(), a))
     else:
         fns[a.cmd](load(), a)

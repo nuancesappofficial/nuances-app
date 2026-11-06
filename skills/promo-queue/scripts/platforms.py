@@ -214,6 +214,28 @@ def tiktok(kind, files, caption, sec):
     raise RuntimeError("TikTok 處理逾時")
 
 
+def tiktok_draft(path, sec):
+    """把影片送進 TikTok App 收件匣，使用者點通知後自己按發布。API 不能帶文案；待處理的上傳 24 小時最多 5 支。"""
+    h = tiktok_headers(sec)
+    api = "https://open.tiktokapis.com/v2/post/publish"
+    path = pathlib.Path(path)
+    size = path.stat().st_size
+    d = _check(requests.post(f"{api}/inbox/video/init/", headers=h, timeout=TIMEOUT, json={
+        "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": size, "total_chunk_count": 1}}))["data"]
+    up = requests.put(d["upload_url"], data=path.read_bytes(), timeout=600,
+                      headers={"Content-Type": "video/mp4", "Content-Range": f"bytes 0-{size - 1}/{size}"})
+    if up.status_code >= 400:
+        raise RuntimeError(f"TikTok 上傳失敗 {up.status_code}: {up.text[:300]}")
+    for _ in range(60):
+        st = _check(requests.post(f"{api}/status/fetch/", headers=h, timeout=TIMEOUT, json={"publish_id": d["publish_id"]}))["data"]
+        if st.get("status") == "SEND_TO_USER_INBOX":
+            return d["publish_id"]
+        if st.get("status") == "FAILED":
+            raise RuntimeError(f"TikTok 上傳失敗：{st.get('fail_reason')}")
+        time.sleep(5)
+    raise RuntimeError("TikTok 處理逾時")
+
+
 # ---------- Facebook 粉專 ----------
 FB = "https://graph.facebook.com/v23.0"
 
