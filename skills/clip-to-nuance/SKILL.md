@@ -15,7 +15,7 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
      - 只抓資訊和字幕到 scratchpad：`yt-dlp --skip-download --write-auto-subs --write-subs --sub-langs "en.*" --sub-format vtt --print "%(title)s | %(duration_string)s" --no-simulate <網址>`。沒有字幕才下載音軌跑本地 Whisper。
      - 讀完整段字幕後切分。每支都要：自成完整段落、起訖落在句子邊界、有 3 個以上值得教的字；純音樂、片頭片尾不算台詞。段落撐不起第二支就建議 1 支。
      - 回報：第一行寫建議支數，接一句理由，再列表，每支一列（秒數、開頭 → 結尾那句、長度、候選單字）。
-     - 選了多支：每支各開資料夾、各走一次第 2–7 步，標題和文案照第 5 步的 `Part x/N` 規則。
+     - 選了多支：每支各開資料夾、各走一次第 2–7 步，標題和文案照第 5 步的 `Part x/N` 規則。第 2 步改成 x 支就交 x 個剪好的檔：整支只下載一次，每個資料夾留一份 `<topic>-full.mp4`，再依分析表把每支剪成各自的 `<topic>.mp4`（`ffmpeg -i <topic>-full.mp4 -ss <起> -to <訖> -c:v libx264 -crf 16 -c:a aac`，切點放在句間停頓）。使用者只要逐支檢查，要微調才自己動手。
    - 沒給 `<topic>` 就先問，問到才繼續。
 
 2. **下載影音與字幕**
