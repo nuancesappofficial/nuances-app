@@ -25,4 +25,5 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://cjmfobjitkmmideecfsw.supabase.co' }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_C0-jx_SFWceRy1eVTF33Kw_gN0tkV4B' }}
           APP_VERSION_POLICY_SYNC_TOKEN: ${{ secrets.APP_VERSION_POLICY_SYNC_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: node scripts/poll-store-and-sync.mjs

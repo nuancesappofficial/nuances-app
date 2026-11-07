@@ -197,6 +197,47 @@ async function syncPolicyToSupabase(supabaseUrl, syncToken, platform, newVersion
   console.log(`[AutoSync] Successfully synced ${platform} version ${newVersion} (build ${buildNumber}) to Supabase!`);
 }
 
+async function sendNtfy(env, { title, message, tags = [], click }) {
+  const topic = (env.NTFY_TOPIC || '').trim();
+  if (!topic) {
+    console.warn('[AutoSync] NTFY_TOPIC is not set; skipping phone notification.');
+    return;
+  }
+  const runUrl = env.GITHUB_RUN_ID
+    ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`
+    : undefined;
+  try {
+    const res = await fetch('https://ntfy.sh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, title, message, tags, click: click || runUrl }),
+    });
+    if (!res.ok) console.warn(`[AutoSync] ntfy returned status ${res.status}`);
+  } catch (err) {
+    // 通知失敗不能讓版本同步跟著失敗
+    console.warn('[AutoSync] ntfy send failed:', err.message);
+  }
+}
+
+// 同步後再讀一次 Supabase，通知內容是資料庫的實際狀態，不是「應該成功了」
+async function notifyPolicySynced(env, supabaseUrl, anonKey, platform, version, dryRun) {
+  if (dryRun) {
+    console.log(`[AutoSync][DRY-RUN] Would send phone notification for ${platform} ${version}`);
+    return;
+  }
+  const policies = await getSupabaseCurrentPolicies(supabaseUrl, anonKey);
+  const policy = policies.find((p) => p.platform === platform);
+  const verified = policy?.minimum_supported_version === version;
+  const name = platform === 'ios' ? 'iOS' : 'Android';
+  await sendNtfy(env, {
+    title: verified ? `✅ ${name} ${version} 更新通知已上線` : `❌ ${name} ${version} 更新通知沒有上線`,
+    message: verified
+      ? `從現在起，舊版使用者打開 App 就會看到更新通知。`
+      : `舊版使用者目前看不到 ${version} 的更新通知，點這則看原因。`,
+    tags: [verified ? 'white_check_mark' : 'warning'],
+  });
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
@@ -208,6 +249,14 @@ async function main() {
 
   console.log(`[AutoSync] Starting daily store version scan... (${new Date().toISOString()})`);
   if (dryRun) console.log('[AutoSync] Running in DRY-RUN mode.');
+
+  // 不寫入資料庫，只送一則測試通知，確認手機收得到
+  if (args.includes('--test-notify')) {
+    const policies = await getSupabaseCurrentPolicies(supabaseUrl, anonKey);
+    const lines = policies.map((p) => `${p.platform}：最低版本 ${p.minimum_supported_version}`).join('\n');
+    await sendNtfy(env, { title: '🧪 測試：版本同步通知', message: `目前資料庫的版本政策：\n${lines}`, tags: ['test_tube'] });
+    return;
+  }
 
   const policies = await getSupabaseCurrentPolicies(supabaseUrl, anonKey);
   const iosPolicy = policies.find((p) => p.platform === 'ios');
@@ -232,8 +281,10 @@ async function main() {
       console.log(`[AutoSync] >> DETECTED iOS UPGRADE: App Store (${liveIosVersion}, build ${targetBuildNumber}) > Supabase (${iosPolicy?.latest_version || 'none'}, build ${iosPolicy?.latest_build_number || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
+        await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
       } else {
         await syncPolicyToSupabase(supabaseUrl, syncToken, 'ios', liveIosVersion, targetBuildNumber, dryRun);
+        await notifyPolicySynced(env, supabaseUrl, anonKey, 'ios', liveIosVersion, dryRun);
       }
     } else {
       console.log(`[AutoSync] iOS policy is already up-to-date with App Store (${liveIosVersion}).`);
@@ -257,8 +308,10 @@ async function main() {
         console.log(`[AutoSync] >> DETECTED Android internal/closed testing upgrade: ${androidSettings.marketingVersion} (build ${androidSettings.buildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
         if (!syncToken && !dryRun) {
           console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
+          await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
         } else {
           await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', androidSettings.marketingVersion, androidSettings.buildNumber, dryRun);
+          await notifyPolicySynced(env, supabaseUrl, anonKey, 'android', androidSettings.marketingVersion, dryRun);
         }
       } else {
         console.log(`[AutoSync] Android policy is already up-to-date with internal/closed testing (${androidSettings.marketingVersion}, build ${androidSettings.buildNumber}).`);
@@ -279,8 +332,10 @@ async function main() {
       console.log(`[AutoSync] >> DETECTED Android UPGRADE: Google Play (${liveAndroid.version}, build ${targetBuildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
+        await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
       } else {
         await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', liveAndroid.version, targetBuildNumber, dryRun);
+        await notifyPolicySynced(env, supabaseUrl, anonKey, 'android', liveAndroid.version, dryRun);
       }
     } else {
       console.log(`[AutoSync] Android policy is already up-to-date with Google Play.`);
@@ -292,7 +347,8 @@ async function main() {
   console.log('[AutoSync] Daily scan completed.');
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error('[AutoSync] Fatal error:', err);
+  await sendNtfy(loadEnv(), { title: '❌ 版本同步失敗', message: `更新提示可能沒有啟動：${err.message}`, tags: ['warning'] });
   process.exit(1);
 });
