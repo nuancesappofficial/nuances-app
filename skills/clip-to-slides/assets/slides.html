@@ -135,7 +135,7 @@ if (i === 0) {
     return k === 0 ? `<h1>${rich(l)}</h1>` : `<div class="not">${rich(l)}</div>`;
   }).join('');
   html = `<div class="slide cover">${scene(c.image, c.focus || '50% 30%', c.mask, c.size)}${topBar(D.show)}
-    <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>答案往右滑 →</b></div></div>${grain}</div>`;
+    <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>${c.swipe || '答案往右滑 →'}</b></div></div>${grain}</div>`;
 } else if (i <= n) {
   const w = D.words[i - 1];
   html = `<div class="slide word-slide">${scene(w.image, w.focus, w.mask)}${topBar(D.show)}

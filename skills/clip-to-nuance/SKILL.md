@@ -11,10 +11,15 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 
 1. **取得來源、秒數、主題**
    - 影片網址、時間區間（例如 `00:20 ~ 00:47`）、主題名稱 `<topic>`。
+   - 沒給時間區間：先分析這支影片能切幾支，使用者選定後才進第 2 步。
+     - 只抓資訊和字幕到 scratchpad：`yt-dlp --skip-download --write-auto-subs --write-subs --sub-langs "en.*" --sub-format vtt --print "%(title)s | %(duration_string)s" --no-simulate <網址>`。沒有字幕才下載音軌跑本地 Whisper。
+     - 讀完整段字幕後切分。每支都要：自成完整段落、起訖落在句子邊界、有 3 個以上值得教的字；純音樂、片頭片尾不算台詞。段落撐不起第二支就建議 1 支。
+     - 回報：第一行寫建議支數，接一句理由，再列表，每支一列（秒數、開頭 → 結尾那句、長度、候選單字）。
+     - 選了多支：每支各開資料夾、各走一次第 2–7 步，標題和文案照第 5 步的 `Part x/N` 規則。
    - 沒給 `<topic>` 就先問，問到才繼續。
 
 2. **下載影音與字幕**
-   - `yt-dlp` 下載**整支**影音與原生字幕（沒有就用本地 Whisper 轉錄）→ 工作資料夾 `promo-vids/<分類>/<編號>-<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。**不要用 `--download-sections` 先截**——自己截很容易切在句子中間；只從字幕的字級時間列 1–3 個建議剪法（起訖秒數 + 開頭 / 結尾那句話），由使用者自己剪。
+   - `yt-dlp` 下載**整支**影音與原生字幕（沒有就用本地 Whisper 轉錄）→ 工作資料夾 `promo-vids/<分類>/<編號>-<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。**不要用 `--download-sections` 先截**——自己截很容易切在句子中間；只從字幕的字級時間給建議剪法（起訖秒數 + 開頭 / 結尾那句話；第 1 步分析過就沿用那張表），由使用者自己剪。
    - **一定要下載 H.264**：`-f "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]" --merge-output-format mp4`。YouTube 預設常給 AV1，Mac 播放器打開只有聲音沒畫面（已發生過不只一次）。下載完、交給使用者之前，一定先跑 `ffprobe -v error -select_streams v -show_entries stream=codec_name -of csv=p=0 <topic>.mp4` 確認是 `h264`；不是就重新下載（沒有 avc1 格式才用 `ffmpeg -c:v libx264 -pix_fmt yuv420p -c:a copy` 轉檔）。
    - 同時保留 YouTube 自動字幕 `.vtt`（有字級時間，第 4 步要用）。
    - **下載完先停下來，請使用者打開 `<topic>.mp4` 檢查並自行修剪**，給出檔案路徑後等使用者回覆「好了」才繼續。
@@ -130,4 +135,5 @@ App 和商店已經支援 7 種語言（英、西、日、韓、繁中、簡中�
 
 ## 調用方式
 - `/clip-to-nuance`
-- 或直接給影片網址、秒數區間與主題（例如：`https://... 00:20 ~ 00:47 topic: modern_family`）。
+- 或直接給影片網址、秒數區間與主題（例如：`https://... 00:20 ~ 00:47 topic: modern-family`）。
+- 只給網址：先分析能切幾支（第 1 步）。
