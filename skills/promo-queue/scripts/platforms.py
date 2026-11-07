@@ -247,6 +247,51 @@ def tiktok_draft(path, sec):
     raise RuntimeError("TikTok 處理逾時")
 
 
+# ---------- Buffer（代發 Facebook、TikTok，我們自己的 App 發了外人看不到）----------
+BUFFER_API = "https://api.buffer.com"
+
+
+def _buffer(sec, query, variables):
+    r = requests.post(BUFFER_API, timeout=TIMEOUT, headers={"Authorization": f"Bearer {sec['api_key']}"},
+                      json={"query": query, "variables": variables})
+    j = _check(r)
+    if j.get("errors"):
+        raise RuntimeError(f"Buffer 錯誤：{str(j['errors'])[:300]}")
+    return j["data"]
+
+
+def _buffer_input(service, kind, urls, caption, channel_id):
+    assets = [{"video": {"url": urls[0]}}] if kind == "reel" else [{"image": {"url": u}} for u in urls]
+    meta = {"tiktok": {"title": caption.splitlines()[0][:90] if caption else ""}} if service == "tiktok" \
+        else {"facebook": {"type": "reel" if kind == "reel" else "post"}}
+    return {"text": caption, "channelId": channel_id, "schedulingType": "automatic", "mode": "shareNow",
+            "needsApproval": False, "assets": assets, "metadata": meta}
+
+
+def buffer_post(service, kind, urls, caption, sec, tries=60, wait=10):
+    """透過 Buffer 立刻發布，等到真的送出才回傳。sec = {api_key, channels: {facebook, tiktok}}。"""
+    need(sec, "api_key", "channels")
+    channel = sec["channels"].get(service)
+    if not channel:
+        raise NotConfigured(f"Buffer 沒有連 {service}")
+    d = _buffer(sec, """mutation($i: CreatePostInput!) { createPost(input: $i) {
+        ... on PostActionSuccess { post { id } } ... on MutationError { message } } }""",
+                {"i": _buffer_input(service, kind, urls, caption, channel)})["createPost"]
+    if "post" not in d:
+        raise RuntimeError(f"Buffer 拒絕：{d.get('message')}")
+    pid = d["post"]["id"]
+    for _ in range(tries):
+        time.sleep(wait)
+        p = _buffer(sec, "query($i: PostId!) { post(input: {id: $i}) { status externalLink error { message } } }", {"i": pid})["post"]
+        if p["status"] == "sent":
+            url = p.get("externalLink") or ""
+            ids = re.findall(r"\d{6,}", url)
+            return {"id": ids[-1] if ids else pid, "url": url, "buffer_id": pid}
+        if p["status"] == "error":
+            raise RuntimeError(f"Buffer 發布失敗：{(p.get('error') or {}).get('message')}")
+    raise RuntimeError(f"Buffer 處理逾時（{pid}），先到 Buffer 確認有沒有發出去再重發")
+
+
 # ---------- Facebook 粉專 ----------
 FB = "https://graph.facebook.com/v23.0"
 
