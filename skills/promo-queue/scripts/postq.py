@@ -57,7 +57,7 @@ DEFAULT_CHANNEL = {
 }
 # 輪播圖在各平台用哪個版本（clip-to-slides 一次輸出）：
 #   4x5 = slides/、3x4 = slides-3x4/（小紅書）、9x16 = slides-9x16/、video = <topic>-slideshow.mp4、x4 = 4:5 前 4 張（X 上限 4 張）
-VARIANT = {"instagram": "4x5", "threads": "4x5", "facebook": "video", "tiktok": "video", "youtube": "video",
+VARIANT = {"instagram": "4x5", "threads": "4x5", "facebook": "4x5", "tiktok": "video", "youtube": "video",
            "xiaohongshu": "3x4", "douyin": "9x16", "line_voom": "9x16", "x": "x4", "dcard": "4x5", "naver_blog": "4x5",
            "bilibili": "video"}
 
@@ -526,10 +526,11 @@ def post_item(q, it, secrets, dry):
             ps.update(status="skipped", note="沒有這個平台能用的版本（重跑 clip-to-slides 產生各尺寸 / 輪播影片）"); save(q); continue
         if too_long:
             ps.update(status="skipped", note="FB Reels 上限 90 秒"); save(q); continue
-        if not sec:
+        if not sec and not (name in ("facebook", "tiktok") and acct.get("buffer")):
             ps.update(status="skipped", note=f"{chan(q, it['channel'])['name']}帳號未設定（跑 setup_wizard.sh）"); save(q); continue
         try:
-            if name in P.NEEDS_URL:
+            buffer = acct.get("buffer") if name in ("facebook", "tiktok") else None
+            if name in P.NEEDS_URL or buffer:
                 urls = it.setdefault("public_urls", {})
                 keys = [f"{it['id']}/{m}" for m in rels]
                 for key, m in zip(keys, rels):
@@ -541,7 +542,11 @@ def post_item(q, it, secrets, dry):
                 media = fetch(it, rels, tmp)
             ps["attempts"] += 1
             extra = {"cover": it["cover"]} if it.get("cover") and kind == "reel" and name in P.COVER else {}
-            res = P.ADAPTERS[name](kind, media, caption_for(name, caption), sec, **extra)
+            text = caption_for(name, caption)
+            if buffer:
+                res = P.buffer_post(name, kind, media, drop_swipe(it, text), buffer)
+            else:
+                res = P.ADAPTERS[name](kind, media, text, sec, **extra)
             ps.update(status="posted", posted_at=now(q).isoformat(timespec="seconds"), **{k: v for k, v in res.items() if v})
             if kind != it["kind"]:
                 ps["as"] = kind   # 例如輪播圖改發輪播影片
@@ -591,12 +596,17 @@ def post_hook(it):
     return (lines[0].strip() if lines else it["id"])[:36]
 
 
+def drop_swipe(it, caption):
+    """輪播文案裡的「往右滑」只適合 IG、Threads，其他平台拿掉。"""
+    if it["kind"] != "carousel":
+        return caption
+    return "\n".join(l for l in caption.splitlines() if "往右滑" not in l)
+
+
 def push_caption(it, names):
     """推播的文案：TikTok / YouTube 發的是影片，拿掉輪播才有的「往右滑」。"""
     cap = it.get("caption") or "（沒有文案）"
-    if it["kind"] == "carousel" and set(names) <= {"tiktok", "youtube"}:
-        cap = "\n".join(l for l in cap.splitlines() if "往右滑" not in l)
-    return cap
+    return drop_swipe(it, cap) if set(names) <= {"tiktok", "youtube"} else cap
 
 
 def push_status(q, it, names):
