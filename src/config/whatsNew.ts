@@ -3,6 +3,46 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.7': {
+    version: '1.3.7',
+    title: 'What’s New',
+    items: [
+      {
+        number: '1',
+        title: 'Nuances is back in your share sheet',
+      },
+    ],
+    localized: {
+      'zh-TW': {
+        title: '更新功能',
+        items: [{ number: '1', title: '修好分享選單找不到 Nuances 的問題' }],
+      },
+      'zh-CN': {
+        title: '更新功能',
+        items: [{ number: '1', title: '修复分享菜单找不到 Nuances 的问题' }],
+      },
+      'en': {
+        title: 'What’s New',
+        items: [{ number: '1', title: 'Nuances is back in your share sheet' }],
+      },
+      'ja': {
+        title: '新機能',
+        items: [{ number: '1', title: '共有メニューに Nuances が表示されない問題を修正' }],
+      },
+      'ko': {
+        title: '새로운 기능',
+        items: [{ number: '1', title: '공유 메뉴에 Nuances가 보이지 않던 문제 수정' }],
+      },
+      'es': {
+        title: 'Novedades',
+        items: [{ number: '1', title: 'Nuances vuelve a aparecer en el menú de compartir' }],
+      },
+      'fr': {
+        title: 'Nouveautés',
+        items: [{ number: '1', title: 'Nuances réapparaît dans le menu de partage' }],
+      },
+    },
+  },
   '1.3.6': {
     version: '1.3.6',
     title: 'What’s New',
