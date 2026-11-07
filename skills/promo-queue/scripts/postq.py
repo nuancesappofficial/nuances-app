@@ -84,7 +84,8 @@ CLOUD = cloud_creds()
 def cloud_get(path):
     r = requests.get(f"{CLOUD['url']}/storage/v1/object/{PRIVATE}/{path}", timeout=60,
                      headers=P.sb_headers(CLOUD["service_key"]))
-    if r.status_code in (400, 404):
+    # Supabase 檔案不存在和金鑰失效都回 400（失效時是 NoSuchBucket），只有 NoSuchKey 才算「沒有這個檔」
+    if r.status_code in (400, 404) and "NoSuchKey" in r.text:
         return None
     P._check(r) if r.status_code >= 400 else None
     return r.content
@@ -124,6 +125,10 @@ def load():
 def save(q):
     body = json.dumps(q, ensure_ascii=False, indent=1)
     if CLOUD:
+        if not q["items"]:
+            raw = cloud_get("queue.json")
+            if raw and json.loads(raw).get("items"):
+                raise RuntimeError("拒絕用空排程覆蓋雲端的排程")
         cloud_put("queue.json", body.encode())
         sync_trigger(q)
     else:
@@ -1319,6 +1324,8 @@ def main():
            "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done,
            "notify": cmd_notify, "covers": cmd_covers,
            "serve": lambda q, a: __import__("control_server").serve(a.port, not a.no_open)}
+    if a.cmd == "push-secrets" and CLOUD:   # 第一次設定時 bucket 還不存在，load() 會失敗
+        ensure_private_bucket()
     if a.cmd in ("post-due", "post", "add", "skip", "draft", "retry", "reschedule", "metrics", "channel", "done", "covers"):
         with_lock(lambda: fns[a.cmd](load(), a))
     else:
