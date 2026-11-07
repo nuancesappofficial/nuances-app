@@ -87,10 +87,14 @@ PAID = f"product_id is not null and product_id not like 'rc_promo%' and {LIVE}"
 GIFT = f"product_id like 'rc_promo%' and {LIVE}"
 
 
+# 一個人可能有多台裝置（含開發用模擬器），「最後一筆紀錄」會被舊版裝置蓋掉，所以取用過的最高版本
+BEST_VER = "case when app_version ~ '^[0-9]+([.][0-9]+)*$' then string_to_array(app_version, '.')::int[] end desc nulls last"
+
+
 def users():
     q = f"""with {ACT},
     last_log as (select distinct on (user_id) user_id, platform, app_version, occurred_at
-                 from app_diagnostic_logs where user_id is not null order by user_id, occurred_at desc),
+                 from app_diagnostic_logs where user_id is not null order by user_id, {BEST_VER}, occurred_at desc),
     seen as (select user_id, max(ts) ts from act group by 1),
     c as (select user_id, count(*) n, count(*) filter (where created_at > now() - interval '7 days') n7
           from cards where deleted_at is null group by 1),
@@ -193,7 +197,7 @@ def analytics():
         'source', (select json_object_agg(coalesce(k, '?'), n) from (select source_app k, count(*) n from cards group by 1) x),
         'version', (select json_object_agg(coalesce(k, '?'), n) from (select k, count(*) n from (
                       select distinct on (user_id) user_id, app_version k from app_diagnostic_logs
-                      where user_id is not null and occurred_at > now() - interval '30 days' order by user_id, occurred_at desc) y group by 1) z)))"""
+                      where user_id is not null and occurred_at > now() - interval '30 days' order by user_id, {BEST_VER}, occurred_at desc) y group by 1) z)))"""
     return one(q)
 
 
