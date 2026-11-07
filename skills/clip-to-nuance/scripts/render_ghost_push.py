@@ -10,7 +10,9 @@ usage:
          trigger = 講到該字的秒數；hold = 打完字後再停留幾秒（省略時用 --hold）。
 
 多張卡：
-- 上一張還在畫面上時下一張就來了 → 上一張縮到左半邊，新的一張出現在右半邊；上一張時間到淡出後，右邊那張放大回全寬。
+- 上一張還在畫面上時下一張就來了 → 兩張上下並存（先來的在上）。兩張都維持全寬，改用精簡版面把高度壓低；上一張時間到淡出後，下面那張移到上面並展開回完整版面。
+- 兩張重疊不到 MIN_STACK_OVERLAP 秒 → 不值得變形，上一張提早離場，直接換卡。
+- 同時最多兩張：第三張來時，最舊的那張提早離場。
 - 上一張剛走、下一張在 GAP_KEEP_PUSHED 秒內就來 → 影片不落回，直接換卡。
 - 最後一張停到片尾還不夠時，就一路停到片尾（接 Splash）。
 
@@ -25,9 +27,12 @@ W, H, FPS = 1080, 1920, 30
 PUSH = 0.45            # 上推 / 落回 秒數
 SWAP = 0.3             # 換卡淡入淡出秒數
 GAP_KEEP_PUSHED = 1.2  # 兩張卡間隔小於這個秒數就不落回，直接換卡
-RESHAPE = 0.35         # 全寬 ↔ 半邊 變形秒數
+RESHAPE = 0.35         # 完整 ↔ 精簡 版面變形秒數
 FADE_OUT = 0.25        # 卡片時間到淡出秒數
-SPLIT_GAP = 24         # 左右兩張卡的間距
+STACK_GAP = 20         # 上下兩張卡的間距
+STACK_SUB_GAP = 60     # 兩張並存時，影片與字幕的間距（一般 150）
+STACK_BOTTOM = 30      # 兩張並存時，卡片距離畫面底部至少留這麼多
+MIN_STACK_OVERLAP = 1.0
 S = 2.6                # App dp → 影片 px
 
 # --- App 打字節奏（src/features/createCard/ghostAnimationTiming.ts）---
@@ -95,12 +100,13 @@ def ease(x):
 def push_progress(t, segments):
     return max((ease(min((t - s) / PUSH, (e - t) / PUSH)) for s, e, _ in segments), default=0.0)
 
-def ffmpeg_push_expr(y0, d, segments):
+def ffmpeg_push_expr(y0, ds, segments):
+    """ds：每段各自的上推距離（兩張並存的段落推得比較高）。"""
     terms = []
-    for s, e, _ in segments:
+    for (s, e, _), d in zip(segments, ds):
         x = f"clip(min((t-{s:.3f})/{PUSH},({e:.3f}-t)/{PUSH}),0,1)"
-        terms.append(f"if(lt({x},0.5),4*pow({x},3),1-pow(2-2*{x},3)/2)")
-    return f"{y0}-{d}*({'+'.join(terms) or '0'})"   # 各段不重疊，相加即可
+        terms.append(f"{d}*if(lt({x},0.5),4*pow({x},3),1-pow(2-2*{x},3)/2)")
+    return f"{y0}-({'+'.join(terms) or '0'})"   # 各段不重疊，相加即可
 
 def build_segments(cards, dur):
     """card["_start"/"_end"] 已算好。回傳 [(start, end, [card...])]；end = 落回完成的時間。"""
@@ -439,8 +445,33 @@ def prepare_card(card):
     h += 4 * S + len(card["_sent_lines"]) * LH_SENT + 2 * S + len(card["_tr_lines"]) * LH_SENT
     card["_h"] = int(h + PAD_BOTTOM)
 
-def render_card(card, lt, theme, ch):
-    """lt = 卡片出現後經過秒數。回傳 (RGBA, margin)。"""
+def prepare_compact(card, cs=1.0):
+    """兩張並存時用的精簡版面：一樣全寬，字約為完整版的 7 成，音標併到單字那一行。cs = 額外縮放（塞不下時才 < 1）。"""
+    z = lambda v: v * cs
+    fw, fi, fp, fd, fs, fh, ft = (font_en(z(62), "Heavy"), font_en(z(32), "Medium"), font(z(26), "semibold"),
+                                  font(z(44), "semibold"), font_en(z(38), "Semibold"), font_en(z(38), "Heavy"),
+                                  font(z(38), "semibold"))
+    px, pad, speaker = z(40), z(26), z(50)
+    inner = CARD_W - px * 2
+    pos_w = fp.getlength(card["_pos"]) + z(40) if card["_pos"] else 0
+    word_lines = layout_text(card["word"], fw, fw, inner)
+    ipa = card.get("ipa", "")
+    tail_w = (fi.getlength(ipa) + z(16) if ipa else 0) + speaker
+    inline = len(word_lines) == 1 and fw.getlength(card["word"]) + z(18) + tail_w <= inner
+    def_lines = layout_text(card["definition"], fd, fd, inner - pos_w - z(16))
+    span = term_span(card["sentence"], card.get("match", card["word"]))
+    sent_lines = layout_text(card["sentence"], fs, fh, inner, span)
+    tr_lines = layout_text(card["translation"], ft, ft, inner)
+    lh_word, lh_def, lh_sent = z(72), z(58), z(50)
+    h = pad + len(word_lines) * lh_word + (0 if inline else speaker + z(4)) + z(6)
+    h += len(def_lines) * lh_def + z(12) + 2 + z(12)
+    h += len(sent_lines) * lh_sent + z(2) + len(tr_lines) * lh_sent + pad
+    card["_c"] = dict(z=z, fw=fw, fi=fi, fp=fp, fd=fd, fs=fs, fh=fh, ft=ft, px=px, pad=pad, speaker=speaker,
+                      pos_w=pos_w, word_lines=word_lines, inline=inline, def_lines=def_lines, span=span,
+                      sent_lines=sent_lines, tr_lines=tr_lines, lh_word=lh_word, lh_def=lh_def, lh_sent=lh_sent)
+    card["_hc"] = int(h)
+
+def card_base(theme, ch):
     m = 70
     img = Image.new("RGBA", (CARD_W + m * 2, ch + m * 2), (0, 0, 0, 0))
     sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -450,6 +481,80 @@ def render_card(card, lt, theme, ch):
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((m, m, m + CARD_W, m + ch), radius=28 * S, fill=theme["bg"] + (255,),
                         outline=theme["outline"], width=max(2, int(S)))
+    return img, m
+
+def clip_to_card(img, base, m, ch):
+    """變形中內容可能比卡片高：卡片外面還原成底圖，不讓字跑出去。"""
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((m, m, m + CARD_W, m + ch), radius=28 * S, fill=255)
+    return Image.composite(img, base, mask)
+
+def draw_speaker(d, bx, y, size, theme):
+    d.ellipse((bx, y, bx + size, y + size), outline=theme["divider"], width=max(2, int(size / 16)))
+    cx, cy, u = bx + size / 2, y + size / 2, size / 32
+    d.polygon([(cx - 6 * u, cy - 2.5 * u), (cx - 3 * u, cy - 2.5 * u), (cx + 1 * u, cy - 6 * u),
+               (cx + 1 * u, cy + 6 * u), (cx - 3 * u, cy + 2.5 * u), (cx - 6 * u, cy + 2.5 * u)], fill=theme["sub"])
+    d.arc((cx - 1 * u, cy - 4 * u, cx + 6 * u, cy + 4 * u), -55, 55, fill=theme["sub"], width=max(2, int(1.4 * u)))
+
+def render_compact(card, lt, theme, ch):
+    """精簡版面；打字節奏跟完整版共用。"""
+    c = card["_c"]
+    z = c["z"]
+    img, m = card_base(theme, ch)
+    base = img.copy()
+    d = ImageDraw.Draw(img)
+    x, y = m + c["px"], m + c["pad"]
+    draw_text_block(d, x, y, card["word"], c["word_lines"], c["fw"], c["fw"], c["lh_word"], theme["text"], theme,
+                    visible_count(len(card["word"]), lt - card["_t_word"]))
+    ipa = card.get("ipa", "")
+    if c["inline"]:
+        rx, ry = x + c["fw"].getlength(card["word"]) + z(18), y + (c["lh_word"] - c["speaker"]) / 2
+        y += c["lh_word"]
+    else:
+        rx, ry = x, y + len(c["word_lines"]) * c["lh_word"] + z(2)
+        y = ry + c["speaker"] + z(2)
+    if ipa:
+        d.text((rx, ry + (c["speaker"] - sum(c["fi"].getmetrics())) / 2), ipa, font=c["fi"], fill=theme["sub"])
+        rx += c["fi"].getlength(ipa) + z(16)
+    draw_speaker(d, rx, ry, c["speaker"], theme)
+    y += z(6)
+    if card["_pos"]:
+        k = max(0.0, min(1.0, lt / 0.22))
+        chip_h = z(44)
+        cy0 = y + (c["lh_def"] - chip_h) / 2
+        mix = lambda v: tuple(int(b + (a - b) * k) for b, a in zip(theme["bg"], v))
+        d.rounded_rectangle((x, cy0, x + c["pos_w"], cy0 + chip_h), radius=chip_h / 2, fill=mix(theme["chip_bg"]),
+                            outline=mix(theme["chip_border"]), width=2)
+        d.text((x + z(20), cy0 + (chip_h - sum(c["fp"].getmetrics())) / 2), card["_pos"], font=c["fp"], fill=mix(theme["sub"]))
+    dx = x + c["pos_w"] + (z(16) if card["_pos"] else 0)
+    draw_text_block(d, dx, y, card["definition"], c["def_lines"], c["fd"], c["fd"], c["lh_def"], theme["text"], theme,
+                    visible_count(len(card["definition"]), lt - card["_t_def"]))
+    y += len(c["def_lines"]) * c["lh_def"] + z(12)
+    d.rectangle((x, y, m + CARD_W - c["px"], y + 2), fill=theme["divider"])
+    y += 2 + z(12)
+    draw_text_block(d, x, y, card["sentence"], c["sent_lines"], c["fs"], c["fh"], c["lh_sent"], theme["text"], theme,
+                    visible_count(len(card["sentence"]), lt - card["_t_sent"]), c["span"])
+    y += len(c["sent_lines"]) * c["lh_sent"] + z(2)
+    draw_text_block(d, x, y, card["translation"], c["tr_lines"], c["ft"], c["ft"], c["lh_sent"], theme["text"], theme,
+                    visible_count(len(card["translation"]), lt - card["_t_tr"]))
+    return clip_to_card(img, base, m, ch), m
+
+def render_morph(card, lt, theme, q):
+    """q = 0 完整版面、1 精簡版面；中間高度內插、內容交叉淡化。"""
+    if q <= 0.001:
+        return render_card(card, lt, theme, card["_h"])
+    if q >= 0.999:
+        return render_compact(card, lt, theme, card["_hc"])
+    ch = int(card["_h"] + (card["_hc"] - card["_h"]) * q)
+    a, m = render_card(card, lt, theme, ch)
+    b, _ = render_compact(card, lt, theme, ch)
+    return Image.blend(a, b, q), m
+
+def render_card(card, lt, theme, ch):
+    """lt = 卡片出現後經過秒數。回傳 (RGBA, margin)。"""
+    img, m = card_base(theme, ch)
+    base = img.copy()
+    d = ImageDraw.Draw(img)
     x, y = m + PAD_X, m + PAD_TOP
 
     # 1. 單字（ProgressiveText）
@@ -465,11 +570,7 @@ def render_card(card, lt, theme, ch):
         bx = x + f.getlength(ipa) + 10 * S
     else:
         bx = x
-    d.ellipse((bx, y, bx + SPEAKER, y + SPEAKER), outline=theme["divider"], width=max(2, int(S)))
-    cx, cy, u = bx + SPEAKER / 2, y + SPEAKER / 2, S
-    d.polygon([(cx - 6 * u, cy - 2.5 * u), (cx - 3 * u, cy - 2.5 * u), (cx + 1 * u, cy - 6 * u),
-               (cx + 1 * u, cy + 6 * u), (cx - 3 * u, cy + 2.5 * u), (cx - 6 * u, cy + 2.5 * u)], fill=theme["sub"])
-    d.arc((cx - 1 * u, cy - 4 * u, cx + 6 * u, cy + 4 * u), -55, 55, fill=theme["sub"], width=max(2, int(1.4 * u)))
+    draw_speaker(d, bx, y, SPEAKER, theme)
     y += SPEAKER + 12 * S
 
     # 2. 詞性膠囊（FadeIn 220ms）+ 釋義
@@ -501,7 +602,7 @@ def render_card(card, lt, theme, ch):
     y += len(card["_sent_lines"]) * LH_SENT + 2 * S
     draw_text_block(d, x, y, card["translation"], card["_tr_lines"], F_TR(), F_TR(), LH_SENT, theme["text"], theme,
                     visible_count(len(card["translation"]), lt - card["_t_tr"]))
-    return img, m
+    return (clip_to_card(img, base, m, ch) if ch < card["_h"] else img), m
 
 
 # ---------- main ----------
@@ -534,6 +635,13 @@ def main():
         prepare_card(c)
         c["_start"] = c["trigger"]
         c["_end"] = c["trigger"] + c["_t_done"] + c.get("hold", a.hold)
+    for i, c in enumerate(cards):
+        nxt = cards[i + 1] if i + 1 < len(cards) else None
+        if nxt and 0 < c["_end"] - nxt["_start"] < MIN_STACK_OVERLAP:      # 重疊太短，直接換卡
+            c["_end"] = nxt["_start"]
+        third = cards[i + 2] if i + 2 < len(cards) else None
+        if third and third["_start"] < c["_end"]:                          # 同時最多兩張
+            c["_end"] = third["_start"]
     cues = load_subs(a.subs)
     words = [c.get("match", c["word"]) for c in cards]
     segments = build_segments(cards, dur)
@@ -548,6 +656,41 @@ def main():
     d_push = y0 - top
     card_final_y = top + vid_h + sub_gap + max_sub_h + 40
 
+    def stack_h(cs):
+        return max((p["_hc"] + STACK_GAP + q["_hc"] for i, p in enumerate(cs) for q in cs[i + 1:]
+                    if q["_start"] < p["_end"]), default=0)
+
+    # 每段各自的版面：沒有並存 = 跟以前一樣；有並存 = 字幕貼近影片、推得更高，必要時再縮精簡版面的字
+    stacked = [cs for _, _, cs in segments if any(q["_start"] < p["_end"] for i, p in enumerate(cs) for q in cs[i + 1:])]
+    cs_scale = 1.0
+    while True:
+        for c in cards:
+            prepare_compact(c, cs_scale)
+        need = max((stack_h(cs) for cs in stacked), default=0)
+        avail = H - STACK_BOTTOM - (70 + vid_h + STACK_SUB_GAP + max_sub_h + 40)
+        if need <= avail or cs_scale <= 0.7:
+            break
+        cs_scale = round(cs_scale - 0.02, 2)
+    if stacked:
+        print(f"stack: need {need}px / avail {avail}px, compact scale {cs_scale}")
+    seg_layout = []
+    for _, _, cs in segments:
+        sh_ = stack_h(cs)
+        if not sh_:
+            seg_layout.append(dict(d=d_push, gap=sub_gap, card_y=card_final_y))
+            continue
+        t2 = max(70, (H - (vid_h + STACK_SUB_GAP + max_sub_h + 40 + sh_)) // 2)
+        seg_layout.append(dict(d=y0 - t2, gap=STACK_SUB_GAP, card_y=t2 + vid_h + STACK_SUB_GAP + max_sub_h + 40))
+    ds = [l["d"] for l in seg_layout]
+
+    def layout_at(t):
+        for (s, e, _), l in zip(segments, seg_layout):
+            if s <= t < e:
+                return l
+        return seg_layout[0] if seg_layout else dict(d=d_push, gap=sub_gap, card_y=card_final_y)
+
+    if card_final_y + ch > H:
+        print(f"WARNING: 最高的卡片超出畫面 {card_final_y + ch - H}px，請縮短釋義或翻譯")
     print(f"video {sw}x{sh} -> band {W}x{vid_h} @y={y0}; push {d_push}px; card {CARD_W}x{ch} @y={card_final_y}; "
           f"theme {a.theme}")
     for s, e, cs in segments:
@@ -559,18 +702,16 @@ def main():
     title_img = title_block(a.title, a.title_sub, a.title_style) if a.title else None
     title_y = (TITLE_SAFE_TOP + y0 - title_img.height) // 2 if title_img else 0
 
-    half = (CARD_W - SPLIT_GAP) / 2
-    SLOTS = {"full": (CARD_MARGIN, 1.0), "left": (CARD_MARGIN, half / CARD_W),
-             "right": (CARD_MARGIN + half + SPLIT_GAP, half / CARD_W)}
-
     def slot_at(c, cs, t):
+        """回傳 (q, y)：q = 0 完整版面 / 1 精簡版面；y = 相對卡片區頂端。"""
         others = [o for o in cs if o is not c and o["_start"] <= t < o["_end"]]
-        if any(o["_start"] < c["_start"] for o in others):
-            return "right"
-        return "left" if others else "full"
+        above = [o for o in others if o["_start"] < c["_start"]]
+        if above:
+            return 1.0, above[0]["_hc"] + STACK_GAP
+        return (1.0, 0.0) if others else (0.0, 0.0)
 
     def slot_geom(c, cs, t):
-        """全寬 / 左半 / 右半，切換時用 RESHAPE 秒過渡。"""
+        """切換時用 RESHAPE 秒過渡高度與位置。"""
         events = sorted({c["_start"]} | {o[k] for o in cs if o is not c for k in ("_start", "_end")})
         cur, prev, since = slot_at(c, cs, c["_start"]), None, c["_start"]
         for ev in events:
@@ -578,12 +719,10 @@ def main():
                 nxt = slot_at(c, cs, ev)
                 if nxt != cur:
                     prev, cur, since = cur, nxt, ev
-        (x1, s1) = SLOTS[cur]
         if prev is None:
-            return x1, s1
+            return cur
         k = ease((t - since) / RESHAPE)
-        (x0, s0) = SLOTS[prev]
-        return x0 + (x1 - x0) * k, s0 + (s1 - s0) * k
+        return prev[0] + (cur[0] - prev[0]) * k, prev[1] + (cur[1] - prev[1]) * k
 
     def card_layers(t):
         """回傳 [(card_img, x, alpha, dy)]，img 已縮放、x 為卡片左緣。"""
@@ -597,23 +736,22 @@ def main():
                     continue
                 alpha, dy = 1.0, 0.0
                 if c["_start"] > s:                               # 中途加入：由下淡入（分割時等左邊那張縮好）
-                    wait = RESHAPE * 0.6 if slot_at(c, cs, c["_start"]) == "right" else 0
+                    wait = RESHAPE * 0.8 if slot_at(c, cs, c["_start"])[1] > 0 else 0
                     k = ease((lt - wait) / SWAP)
                     alpha, dy = k, 40 * (1 - k)
                 if not c["_last"] and t >= c["_end"]:             # 時間到：上移淡出
                     k = ease((t - c["_end"]) / FADE_OUT)
                     alpha, dy = alpha * (1 - k), -30 * k
-                x, sc = slot_geom(c, cs, t)
-                img, m = render_card(c, lt, theme, c["_h"])
-                if sc < 0.999:
-                    img = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))), Image.LANCZOS)
-                layers.append((img, x - m * sc, alpha, dy - m * sc))
+                q, sy = slot_geom(c, cs, t)
+                img, m = render_morph(c, lt, theme, q)
+                layers.append((img, CARD_MARGIN - m, alpha, dy + sy - m))
             return layers
         return []
 
     def overlay_frame(t):
         p = push_progress(t, segments)
-        vy = y0 - d_push * p
+        lay = layout_at(t)
+        vy = y0 - lay["d"] * p
         frame = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         if title_img:   # 影片往上推進標題區之前就淡掉，落回時再浮回來
             k = min(1.0, p * 2.5)
@@ -627,9 +765,10 @@ def main():
             key = id(cue)
             if key not in sub_cache:
                 sub_cache[key] = sub_block(cue, words)
-            frame.alpha_composite(sub_cache[key], (0, int(vy + vid_h + sub_gap)))
+            gap_now = sub_gap + (lay["gap"] - sub_gap) * p
+            frame.alpha_composite(sub_cache[key], (0, int(vy + vid_h + gap_now)))
         if p > 0:
-            cy = card_final_y + (H + 60 - card_final_y) * (1 - p)
+            cy = lay["card_y"] + (H + 60 - lay["card_y"]) * (1 - p)
             for img, x, alpha, dy in card_layers(t):
                 alpha *= min(1, p * 1.6)
                 if alpha < 1:
@@ -657,7 +796,7 @@ def main():
         return
 
     n = int(dur * FPS)
-    y_expr = ffmpeg_push_expr(y0, d_push, segments)
+    y_expr = ffmpeg_push_expr(y0, ds, segments)
     audio_in = ["-i", a.audio] if a.audio else []
     audio_map = "2:a" if a.audio else "0:a?"
     ff = subprocess.Popen(
