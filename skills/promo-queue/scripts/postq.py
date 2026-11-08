@@ -996,7 +996,7 @@ def sync_trigger(q):
     """把下一篇的時間寫進 Supabase promo_trigger，pg_cron 時間到就叫 GitHub 跑（見 assets/exact_trigger.sql）。
     表還沒建或寫失敗都不擋存檔：GitHub 每小時的排程還在。"""
     global _trigger_due
-    due = min((it["scheduled_for"] for it in q["items"] if state(it) == "queued"), default=None)
+    due = min((it["scheduled_for"] for it in open_items(q)), default=None)   # 部分已發的也要叫，不然剩下的平台會被跳過
     due = parse(due).astimezone(dt.timezone.utc).isoformat() if due else None
     if due == _trigger_due:
         return
