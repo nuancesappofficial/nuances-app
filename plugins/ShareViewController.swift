@@ -4,6 +4,7 @@ import Social
 import UniformTypeIdentifiers
 import MobileCoreServices
 import UserNotifications
+import ImageIO
 
 class ShareViewController: UIViewController {
     
@@ -12,6 +13,9 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
+    private let slowLoadingNoticeDelay: TimeInterval = 0.5
+    // One id per share, so a later message replaces the earlier one in place.
+    private let receiptNotificationID = "nuances-share-receipt-\(UUID().uuidString)"
 
     private let uiLanguageKey = "nuances_ui_language"
     
@@ -85,7 +89,8 @@ class ShareViewController: UIViewController {
                 var textContent = ""
                 if let text = data as? String {
                     textContent = text
-                } else if let url = data as? URL, let text = try? String(contentsOf: url) {
+                } else if let url = data as? URL, url.isFileURL, let text = try? String(contentsOf: url) {
+                    // Only local files: String(contentsOf:) on a web URL downloads the page.
                     textContent = text
                 } else if let url = data as? URL {
                     textContent = url.absoluteString
@@ -132,12 +137,37 @@ class ShareViewController: UIViewController {
     
     // MARK: - 處理圖片分享
     private func handleImageShare(_ attachments: [NSItemProvider]) {
+        // Saving can only fail for these reasons, so check them before any
+        // receipt is shown: a receipt must never promise what can't be saved.
+        guard canQueueSharedContent() else {
+            NSLog("[NuancesShareExtension] cannot queue images: App Group or signed-in user missing")
+            self.closeExtension(success: false)
+            return
+        }
+
         let limitedAttachments = Array(attachments.prefix(maxImageCount))
+        let totalCount = limitedAttachments.count
+        let startedAt = Date()
         var processedImages: [String] = []
         let processedImagesQueue = DispatchQueue(label: "com.nuances.shareExtension.processedImages")
         let finalizationQueue = DispatchQueue(label: "com.nuances.shareExtension.imageFinalization")
         let dispatchGroup = DispatchGroup()
         var didFinalize = false
+        var didPostLoadingNotice = false // main queue only
+
+        // Only when loading is slow (e.g. originals still in iCloud): say it was
+        // received but is still loading. The final message replaces it in place.
+        DispatchQueue.main.asyncAfter(deadline: .now() + slowLoadingNoticeDelay) { [weak self] in
+            guard let self = self, !self.didCloseExtension else { return }
+            guard !finalizationQueue.sync(execute: { didFinalize }) else { return }
+            didPostLoadingNotice = true
+            NSLog("[NuancesShareExtension] images still loading after \(self.slowLoadingNoticeDelay)s, posting loading notice")
+            self.scheduleNativeReceiptNotification(
+                message: ShareReceiptCopy.loading(for: self.currentUILanguage()),
+                acceptedCount: 0,
+                completion: {}
+            )
+        }
 
         let finalize: (String) -> Void = { [weak self] reason in
             finalizationQueue.async {
@@ -145,57 +175,63 @@ class ShareViewController: UIViewController {
                 didFinalize = true
                 let finalImages = processedImagesQueue.sync { processedImages }
                 DispatchQueue.main.async {
-                    if !finalImages.isEmpty {
-                        guard self.saveImagesToSharedStorage(finalImages) else {
-                            NSLog("[NuancesShareExtension] image was decoded but App Group storage was unavailable")
-                            self.closeExtension(success: false)
-                            return
-                        }
-                        NSLog("[NuancesShareExtension] saved image items: \(finalImages.count), reason: \(reason)")
-                        self.postNativeReceiptThenClose(success: true, acceptedCount: finalImages.count)
-                    } else {
-                        NSLog("[NuancesShareExtension] no image items saved, reason: \(reason)")
-                        self.closeExtension(success: false)
+                    let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                    let language = self.currentUILanguage()
+                    guard !finalImages.isEmpty, self.saveImagesToSharedStorage(finalImages) else {
+                        NSLog("[NuancesShareExtension] no image items saved, reason: \(reason), loadingNotice: \(didPostLoadingNotice), \(elapsedMs)ms")
+                        self.postNativeReceiptThenClose(
+                            success: false,
+                            acceptedCount: 0,
+                            message: ShareReceiptCopy.failed(for: language)
+                        )
+                        return
                     }
+                    let message = finalImages.count < totalCount
+                        ? ShareReceiptCopy.partial(for: language, saved: finalImages.count, total: totalCount)
+                        : ShareReceiptCopy.message(for: language)
+                    NSLog("[NuancesShareExtension] saved image items: \(finalImages.count)/\(totalCount), reason: \(reason), loadingNotice: \(didPostLoadingNotice), \(elapsedMs)ms")
+                    self.postNativeReceiptThenClose(success: true, acceptedCount: finalImages.count, message: message)
                 }
             }
         }
-        
+
         for attachment in limitedAttachments {
             dispatchGroup.enter()
-
-            loadImageData(from: attachment, timeout: 10.0) { [weak self] imageData in
+            loadShareableJPEG(from: attachment, timeout: 10.0) { [weak self] jpegData in
                 defer { dispatchGroup.leave() }
                 guard let self = self else { return }
-
-                guard let originalData = imageData,
-                      let image = UIImage(data: originalData) else {
-                    NSLog("[NuancesShareExtension] image provider produced unsupported payload")
+                guard let jpegData = jpegData,
+                      let savedPath = self.saveImageToSharedContainer(jpegData) else {
+                    NSLog("[NuancesShareExtension] image provider produced no usable image")
                     return
                 }
-                
-                // 壓縮與轉檔（HEIC -> JPEG，並限制尺寸）
-                if let compressedImage = self.compressAndResizeImage(image),
-                   let jpegData = compressedImage.jpegData(compressionQuality: 0.85) {
-                    if let savedPath = self.saveImageToSharedContainer(jpegData) {
-                        processedImagesQueue.sync {
-                            processedImages.append(savedPath)
-                        }
-                    }
+                processedImagesQueue.sync {
+                    processedImages.append(savedPath)
                 }
             }
         }
-        
+
         dispatchGroup.notify(queue: .main) {
             finalize("all image providers completed")
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + (limitedAttachments.count > 1 ? 18.0 : 10.0)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (totalCount > 1 ? 18.0 : 10.0)) {
             finalize("image pack timeout")
         }
     }
 
-    private func loadImageData(from provider: NSItemProvider, timeout: TimeInterval, completion: @escaping (Data?) -> Void) {
+    private func canQueueSharedContent() -> Bool {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID),
+              let ownerUserID = userDefaults.string(forKey: "active_user_id"),
+              !ownerUserID.isEmpty,
+              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) != nil else {
+            return false
+        }
+        return true
+    }
+
+    /// Produces the JPEG that gets queued: at most `maxImageEdge` px, quality 0.85.
+    private func loadShareableJPEG(from provider: NSItemProvider, timeout: TimeInterval, completion: @escaping (Data?) -> Void) {
         let completionLock = NSLock()
         var didComplete = false
         let completeOnce: (Data?) -> Void = { data in
@@ -214,38 +250,82 @@ class ShareViewController: UIViewController {
             completeOnce(nil)
         }
 
-        if provider.canLoadObject(ofClass: UIImage.self) {
-            provider.loadObject(ofClass: UIImage.self) { object, error in
-                if let image = object as? UIImage, let data = image.jpegData(compressionQuality: 0.95) {
+        // Fast path: read the file and let ImageIO decode straight to the
+        // target size, then encode once. The old path decoded the full-size
+        // image, re-encoded it, decoded it again, resized and encoded again.
+        if let typeIdentifier = preferredImageTypeIdentifier(for: provider) {
+            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] url, error in
+                guard let self = self else {
+                    completeOnce(nil)
+                    return
+                }
+                // The file is only valid inside this handler, so read it here.
+                if let url = url, let data = self.downsampledJPEG(at: url) {
                     completeOnce(data)
+                    return
+                }
+                if let error = error {
+                    NSLog("[NuancesShareExtension] loadFileRepresentation failed: \(error.localizedDescription)")
+                }
+                self.loadShareableJPEGFromObject(provider, completion: completeOnce)
+            }
+            return
+        }
+
+        loadShareableJPEGFromObject(provider, completion: completeOnce)
+    }
+
+    /// Fallback for providers that only hand over an in-memory image.
+    private func loadShareableJPEGFromObject(_ provider: NSItemProvider, completion: @escaping (Data?) -> Void) {
+        let encode: (UIImage?) -> Data? = { [weak self] image in
+            guard let self = self, let image = image,
+                  let resized = self.compressAndResizeImage(image) else { return nil }
+            return resized.jpegData(compressionQuality: 0.85)
+        }
+        let typeIdentifier = preferredImageTypeIdentifier(for: provider) ?? UTType.image.identifier
+
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+                if let data = encode(object as? UIImage) {
+                    completion(data)
                     return
                 }
                 if let error = error {
                     NSLog("[NuancesShareExtension] loadObject UIImage failed: \(error.localizedDescription)")
                 }
-                self.loadImageDataFromItemProvider(provider, typeIdentifier: self.preferredImageTypeIdentifier(for: provider), completion: completeOnce)
+                guard let self = self else {
+                    completion(nil)
+                    return
+                }
+                self.loadImageItemData(from: provider, typeIdentifier: typeIdentifier) { data in
+                    completion(encode(data.flatMap(UIImage.init(data:))))
+                }
             }
             return
         }
 
-        loadImageDataFromItemProvider(provider, typeIdentifier: preferredImageTypeIdentifier(for: provider), completion: completeOnce)
+        loadImageItemData(from: provider, typeIdentifier: typeIdentifier) { data in
+            completion(encode(data.flatMap(UIImage.init(data:))))
+        }
     }
 
-    private func loadImageDataFromItemProvider(_ provider: NSItemProvider, typeIdentifier: String?, completion: @escaping (Data?) -> Void) {
-        let identifier = typeIdentifier ?? UTType.image.identifier
-
-        provider.loadFileRepresentation(forTypeIdentifier: identifier) { [weak self] url, fileError in
-            if let url = url, let data = try? Data(contentsOf: url) {
-                completion(data)
-                return
-            }
-
-            if let fileError = fileError {
-                NSLog("[NuancesShareExtension] loadFileRepresentation failed: \(fileError.localizedDescription)")
-            }
-
-            self?.loadImageItemData(from: provider, typeIdentifier: identifier, completion: completion)
+    private func downsampledJPEG(at url: URL) -> Data? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
+        let thumbnailOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxImageEdge),
+        ] as CFDictionary
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
         }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func loadImageItemData(from provider: NSItemProvider, typeIdentifier: String, completion: @escaping (Data?) -> Void) {
@@ -436,11 +516,20 @@ class ShareViewController: UIViewController {
     }
 
     // MARK: - Native receipt notification
-    private func postNativeReceiptThenClose(success: Bool, acceptedCount: Int = 1) {
+    private func postNativeReceiptThenClose(success: Bool, acceptedCount: Int = 1, message: String? = nil) {
         DispatchQueue.main.async {
             guard !self.didCloseExtension else { return }
             guard success else {
-                self.closeExtension(success: false)
+                guard let message = message else {
+                    self.closeExtension(success: false)
+                    return
+                }
+                // Failure notice: no success haptic. Give the notification
+                // request the same head start as the receipt before closing.
+                self.scheduleNativeReceiptNotification(message: message, acceptedCount: 0, completion: {})
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self.closeExtension(success: false)
+                }
                 return
             }
 
@@ -448,7 +537,7 @@ class ShareViewController: UIViewController {
             // extension open while waiting for notification authorization or
             // daemon callbacks.
             self.scheduleNativeReceiptNotification(
-                message: self.shareReceiptMessage(),
+                message: message ?? self.shareReceiptMessage(),
                 acceptedCount: acceptedCount,
                 completion: {}
             )
@@ -492,11 +581,12 @@ class ShareViewController: UIViewController {
                     "cacheCount": acceptedCount,
                     "target": "cache"
                 ]
-                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1.0, repeats: false)
+                // nil trigger = deliver now. The old 1s interval trigger made
+                // the receipt banner visibly trail the haptic.
                 let request = UNNotificationRequest(
-                    identifier: "nuances-share-receipt-\(UUID().uuidString)",
+                    identifier: self.receiptNotificationID,
                     content: content,
-                    trigger: trigger
+                    trigger: nil
                 )
                 center.add(request) { error in
                     if let error = error {
