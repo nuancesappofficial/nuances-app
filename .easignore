@@ -49,3 +49,8 @@ qa/
 .scratch/
 promo-vids/
 Claude outputs/
+
+# Local tooling and build outputs, never needed by EAS
+.claude/
+build/
+_to_delete/
