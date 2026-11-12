@@ -1,0 +1,136 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* Nuance Ladder 畫面。卡片數值照 App 原始碼：
+   CardDetailCarouselCardUI.tsx（ui 色票、ipaRow、cardActionRow、practiceButton）
+   CardDetailFlow.tsx（detailPaper / heroMedia / referenceWord / referenceMeaning…）
+   NuanceMetricsLeverUI.tsx（隨意↔正式、微弱↔強烈）
+   ?mode=intro | header&i=<0..n-1> | card&i=<0..n-1>    資料：同目錄 data.js（window.LADDER）
+   字型：App 沒指定 fontFamily → iOS 系統字（SF Pro + PingFang TC）。 */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:transparent;color:#111;-webkit-font-smoothing:antialiased;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang TC',sans-serif}
+@font-face{font-family:Ion;src:url(Ionicons.ttf)}
+.ion{font-family:Ion;font-style:normal;font-weight:normal;line-height:1;display:inline-block}
+body.screen{background:#F1EBE3}
+
+/* ---------- card（360 × 660）---------- */
+.paper{position:absolute;left:0;top:0;width:360px;height:660px;background:#FFFFFF;border-radius:30px;
+  border:1px solid rgba(0,0,0,.06);overflow:hidden;display:flex;flex-direction:column}
+.hero{height:250px;flex-shrink:0;overflow:hidden;background:#ECEFF5}
+.hero img,.hero svg{width:100%;height:100%;object-fit:cover;display:block}
+.wordCard{flex:1;min-height:0;display:flex;flex-direction:column;padding:8px 24px 0}
+.word{font-weight:900;letter-spacing:-1.2px;color:#111}
+.ipaRow{display:flex;align-items:center;gap:10px;margin-top:4px;margin-bottom:6px}
+.ipaText{font-size:16px;line-height:22px;font-weight:500;color:#8A8E97;white-space:nowrap}
+.spk{width:32px;height:32px;border-radius:16px;border:1px solid #ECECF0;display:flex;align-items:center;justify-content:center;font-size:18px;color:#1F2937;flex-shrink:0}
+.body{flex:1;min-height:0;overflow:hidden}
+.meaningRow{margin-top:12px;display:flex;align-items:center;gap:10px}
+.pos{padding:4px 10px;border-radius:999px;background:#E7E9EF;color:#6B7280;font-weight:800;font-size:14px;line-height:17px;white-space:nowrap}
+.meaning{flex:1;font-weight:700;color:#111;letter-spacing:-.6px;font-size:20px;line-height:28px}
+.divider{height:1px;background:#ECECF0;margin:16px 0 14px}
+.sent{font-weight:600;color:#111;font-size:20px;line-height:28px}
+.sent mark{color:#111;background:#E2F1FC;text-decoration:underline;text-decoration-color:#2F9BEA;text-decoration-thickness:2px;text-underline-offset:3px;border-radius:3px}
+.sentZh{margin-top:6px;font-weight:600;color:#111;font-size:18px;line-height:26px}
+.levers{padding:6px 0;margin-bottom:6px}
+.mr{display:flex;align-items:center;height:18px}
+.mr .ax{width:30px;text-align:center;font-size:11px;font-weight:500;color:#8A8E97;opacity:.72;white-space:nowrap}
+.mr .tr{flex:1;height:4px;border-radius:2px;background:#ECECF0;margin:0 8px;position:relative}
+.mr .fill{position:absolute;left:0;top:0;height:4px;border-radius:2px}
+.mr .th{position:absolute;top:-4px;width:12px;height:12px;border-radius:6px;background:#fff;border:2.5px solid;margin-left:-6px;box-shadow:0 1px 1.5px rgba(0,0,0,.15)}
+.mr .bd{width:24px;height:18px;border-radius:5px;margin-left:6px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.insight{color:#8A8E97;font-size:16px;line-height:24px;letter-spacing:-.2px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.actions{flex-shrink:0;height:44px;margin:4px 2px 18px;display:flex;align-items:center;justify-content:space-between}
+.practice{height:42px;border-radius:21px;padding:0 18px 0 14px;background:#2F9BEA;display:flex;align-items:center;gap:6px;color:#fff;font-weight:700;font-size:15px}
+.sec{display:flex;gap:18px}.sec span{width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:24px;color:#1F2937}
+
+/* ---------- intro / header（500 × 889 畫面）---------- */
+.intro{position:absolute;left:28px;right:28px;top:0;bottom:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.intro .q{font-weight:700;font-size:19px;color:#8A8E97;letter-spacing:.5px}
+.intro .zh{margin-top:14px;font-weight:900;font-size:64px;line-height:1.15;letter-spacing:-1px;color:#111}
+.intro .hint{margin-top:22px;height:36px;padding:0 16px;border-radius:18px;background:#fff;border:1px solid rgba(0,0,0,.06);display:flex;align-items:center;font-weight:700;font-size:15px;color:#111}
+.head{position:absolute;left:24px;right:24px;top:22px}
+.head .zh{font-weight:900;font-size:32px;line-height:40px;letter-spacing:-.5px;color:#111;text-align:center}
+.head .row{margin-top:12px;display:flex;align-items:center;gap:10px}
+.head .tag{height:28px;padding:0 12px;border-radius:14px;background:#2F9BEA;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;white-space:nowrap}
+.head .segs{flex:1;height:6px;display:flex;gap:4px}.head .segs i{flex:1;border-radius:3px;background:rgba(17,17,17,.08)}
+.head .segs i.on{background:#2F9BEA}
+</style></head><body><div id="root"></div>
+<script src="data.js"></script>
+<script>
+const ion=(name,extra='')=>`<i class="ion" style="${extra}">${{mic:'',share:'',heart:'',folder:'',vol:'',lang:'',check:'',close:'',back:'',refresh:'',down:''}[name]}</i>`;
+const lever=(a,b,v)=>{const c=v<=3?['#4EAFF4','rgba(78,175,244,.12)']:v<=6?['#FB923C','rgba(251,146,60,.12)']:['#FF6B6B','rgba(255,107,107,.12)'];const r=(v-1)/9*100;
+  return `<div class="mr"><span class="ax">${a}</span><span class="tr"><span class="fill" style="width:${r}%;background:${c[0]}"></span><span class="th" style="left:${r}%;border-color:${c[0]}"></span></span><span class="ax">${b}</span><span class="bd" style="background:${c[1]};color:${c[0]}">${v}</span></div>`};
+const q=new URLSearchParams(location.search), mode=q.get('mode')||'card', D=window.LADDER, LV=D.levels, N=LV.length;
+const R=document.getElementById('root'); const H=s=>R.insertAdjacentHTML('beforeend',s);
+const mix=(a,b,t)=>a.map((v,i)=>Math.round(v+(b[i]-v)*t)), rgb=c=>`rgb(${c.join(',')})`;
+
+// 佔位頭像（沒有 image 時用）：t = 0 精神 → 1 累爆。
+function avatar(t,id){
+  const g1=rgb(mix([255,244,228],[176,168,196],t)), g2=rgb(mix([246,226,206],[128,120,150],t));
+  const eyeH=Math.max(1.4,10*(1-t*0.88));
+  const mouth=t<0.3?'<path d="M166 170 Q180 181 194 170" stroke="#6B3A2E" stroke-width="4.5" fill="none" stroke-linecap="round"/>'
+    :t<0.6?'<path d="M168 173 Q180 170 192 173" stroke="#6B3A2E" stroke-width="4.5" fill="none" stroke-linecap="round"/>'
+    :`<ellipse cx="180" cy="175" rx="${8+t*6}" ry="${5+t*10}" fill="#6B3A2E"/>`;
+  return `<svg viewBox="0 0 360 250" preserveAspectRatio="xMidYMid slice"><defs>
+   <radialGradient id="bg${id}" cx=".5" cy=".35" r=".8"><stop offset="0" stop-color="${g1}"/><stop offset="1" stop-color="${g2}"/></radialGradient>
+   <radialGradient id="sk${id}" cx=".4" cy=".35" r=".75"><stop offset="0" stop-color="#FFE0C7"/><stop offset="1" stop-color="#EDB894"/></radialGradient>
+   <linearGradient id="hd${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8CCBF7"/><stop offset="1" stop-color="#4EAFF4"/></linearGradient></defs>
+  <rect width="360" height="250" fill="url(#bg${id})"/>
+  <g transform="rotate(${t*12} 180 260)">
+   <path d="M70 260 Q76 196 180 194 Q284 196 290 260Z" fill="url(#hd${id})"/>
+   <rect x="166" y="180" width="28" height="26" rx="8" fill="#E8B08C"/>
+   <ellipse cx="180" cy="132" rx="62" ry="66" fill="url(#sk${id})"/>
+   <path d="M118 126 Q114 66 180 64 Q246 66 242 126 Q232 94 196 92 Q170 100 140 96 Q124 104 118 126Z" fill="#2E2A33"/>
+   ${t>0.45?[...Array(6)].map((_,k)=>`<path d="M${132+k*19} ${74+(k%2)*4} q${(k%2?8:-8)*t} ${-18*t} ${(k%2?14:-6)*t} ${-24*t}" stroke="#2E2A33" stroke-width="7" stroke-linecap="round" fill="none"/>`).join(''):''}
+   ${[156,204].map(x=>`<ellipse cx="${x}" cy="130" rx="7.5" ry="${eyeH}" fill="#2E2A33"/>
+     <path d="M${x-12} ${131-eyeH+t*3} Q${x} ${126-eyeH+t*6} ${x+12} ${131-eyeH+t*3}" stroke="#2E2A33" stroke-width="3" fill="none" stroke-linecap="round" opacity="${0.25+t*0.75}"/>
+     <path d="M${x-10} 143 Q${x} 150 ${x+10} 143" stroke="#9C7BA8" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="${t*0.9}"/>`).join('')}
+   ${t<0.35?`<ellipse cx="140" cy="156" rx="9" ry="6" fill="#FF9AA2" opacity=".45"/><ellipse cx="220" cy="156" rx="9" ry="6" fill="#FF9AA2" opacity=".45"/>`:''}
+   ${mouth}
+  </g>
+  ${t>=0.75?`<g font-family="-apple-system" font-weight="900" fill="#fff"><text x="258" y="80" font-size="32" opacity=".9">Z</text><text x="288" y="56" font-size="22" opacity=".7">z</text><text x="309" y="38" font-size="15" opacity=".5">z</text></g>`:''}
+  </svg>`;
+}
+
+function highlight(sentence, phrase){
+  const i=phrase?sentence.toLowerCase().indexOf(phrase.toLowerCase()):-1;
+  return i<0?sentence:sentence.slice(0,i)+'<mark>'+sentence.slice(i,i+phrase.length)+'</mark>'+sentence.slice(i+phrase.length);
+}
+
+// referenceWordFontSize：weightedWordLength > 18 → 30、> 15 → 34、> 12 → 40、其他 52
+const wordSize=w=>w.length>18?30:w.length>15?34:w.length>12?40:52;
+
+function card(lv,i){
+  const fs=wordSize(lv.en);
+  const img=lv.image?`<img src="${lv.image}" style="object-position:50% ${lv.imageY??30}%">`:avatar(N>1?i/(N-1):1,i);
+  return `<div class="paper"><div class="hero">${img}</div>
+   <div class="wordCard">
+    <div class="word" style="font-size:${fs}px;line-height:${Math.round(fs*1.08)}px">${lv.en}</div>
+    <div class="ipaRow"><span class="ipaText">${lv.ipa||`Lv.${i+1} · ${lv.tag}${lv.note?' · '+lv.note:''}`}</span><span class="spk">${ion('vol')}</span></div>
+    <div class="body">
+     <div class="meaningRow"><span class="pos">${lv.pos||'片語'}</span><span class="meaning">${lv.meaning||D.zh}</span></div>
+     <div class="divider"></div>
+     <div class="sent">${highlight(lv.sentence||lv.en, lv.match||lv.en.replace(/[.!?,]+$/,''))}</div>
+     ${lv.sentenceZh?`<div class="sentZh">${lv.sentenceZh}</div>`:''}
+     <div class="divider" style="margin:10px 0 8px"></div>
+     <div class="levers">${lever('隨意','正式',lv.formal??5)}<div style="height:10px"></div>${lever('微弱','強烈',lv.intensity??5)}</div>
+     ${lv.hook?`<div class="insight">${lv.hook}</div>`:''}
+    </div>
+    <div class="actions"><span class="practice">${ion('mic','font-size:18px')}<span>練發音</span></span><span class="sec"><span>${ion('share')}</span><span>${ion('heart')}</span><span>${ion('folder')}</span></span></div>
+   </div></div>`;
+}
+
+if(mode==='intro'){
+  document.body.className='screen';
+  H(`<div class="intro"><div class="q">這句英文怎麼說？</div><div class="zh">${D.zh}</div><div class="hint">從課本到在地 · ${N} 種說法</div></div>`);
+}else if(mode==='header'){
+  document.body.className='screen';
+  const i=+q.get('i');
+  H(`<div class="head"><div class="zh">${D.zh}</div><div class="row"><span class="tag">Lv.${i+1} · ${LV[i].tag}</span>
+     <span class="segs">${LV.map((_,k)=>`<i class="${k<=i?'on':''}"></i>`).join('')}</span></div></div>`);
+}else{
+  const i=+q.get('i'); H(card(LV[i],i));
+  // 內容太長：Insider Insight 先減行，還放不下就整段藏起來
+  const body=document.querySelector('.body'), ins=document.querySelector('.insight');
+  if(ins){let n=3;while(body.scrollHeight>body.clientHeight&&n>0){n--;if(n===0)ins.style.display='none';else ins.style.webkitLineClamp=n;}}
+}
+</script></body></html>

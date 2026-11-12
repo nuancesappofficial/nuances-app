@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { placeNewAlbumInSlotOrder } from './albumSlotPlacement.ts';
+import {
+  placeNewAlbumInSlotOrder,
+  resolveAlbumSlotOrder,
+} from './albumSlotPlacement.ts';
 
 const EMPTY_1 = '__nuances_empty_album_slot__:1';
 const EMPTY_2 = '__nuances_empty_album_slot__:2';
@@ -67,3 +70,33 @@ test('places new album at the end when fallback default albums are provided', ()
   assert.deepEqual(result, ['all-cards', 'favorites', 'slang', 'japanese-vocab']);
 });
 
+
+test('albums missing from the order fill the empty slots on the current page instead of opening a new page', () => {
+  const storedOrder = ['all', 'favorites', 'slang', EMPTY_1, EMPTY_2, EMPTY_3];
+  const albumIds = ['all', 'favorites', 'slang', 'created-from-card'];
+
+  const result = resolveAlbumSlotOrder(storedOrder, albumIds);
+
+  assert.deepEqual(result, [
+    'all',
+    'favorites',
+    'slang',
+    'created-from-card',
+    EMPTY_2,
+    EMPTY_3,
+  ]);
+});
+
+test('drops deleted and repeated album ids so they do not hold a slot', () => {
+  const storedOrder = ['all', 'deleted-album', 'favorites', 'all', EMPTY_1];
+  const albumIds = ['all', 'favorites', 'new-album'];
+
+  const result = resolveAlbumSlotOrder(storedOrder, albumIds);
+
+  assert.deepEqual(result, ['all', 'favorites', 'new-album']);
+});
+
+test('lays out albums in their given order when nothing is stored yet', () => {
+  const result = resolveAlbumSlotOrder([], ['all', 'favorites', 'slang']);
+  assert.deepEqual(result, ['all', 'favorites', 'slang']);
+});

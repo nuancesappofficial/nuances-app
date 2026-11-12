@@ -12,7 +12,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
 | 要做的事 | 指令 |
 |---|---|
 | 給使用者操作的控制台 | `python3 $Q serve`（開 http://127.0.0.1:8790，被佔用會往後找）：兩個分頁 +「⚙ 設定」。「排程」= 下一篇 + 待辦（待手動、失敗）+ 4 週日曆（虛線是空時段）+ 右邊「做好了、還沒排」；「成效」= 哪種比較好 + 發過的貼文。點開看詳細、改時間 / 文案、立刻發、跳過、刪除 |
-| 開新影片資料夾（拿該分類的下一個編號） | `python3 $Q new promo\|demo\|in-app\|wip <topic> --title "中文標題"` → 印出 `promo-vids/<分類>/<編號>-<topic>` |
+| 開新影片資料夾（拿該分類的下一個編號） | `python3 $Q new promo\|news\|demo\|in-app\|wip <topic> --title "中文標題"` → 印出 `promo-vids/<分類>/<編號>-<topic>` |
 | 換分類（例如 wip 做完分到 promo） | `python3 $Q move promo-vids/wip/001-so-tired promo` |
 | 點名表：依分類列出每支影片的編號與發文狀態 | `python3 $Q roll` |
 | 做完一支片段，排進發文 | `python3 $Q add promo-vids/<分類>/<編號>-<topic>` |
@@ -35,6 +35,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
   | 分類 | 放什麼 |
   |---|---|
   | `promo` | 推廣片：影集 / 電影片段做成的單字影片和輪播圖（clip-to-nuance + clip-to-slides） |
+  | `news` | 新聞片：熱門新聞的英文片段，同樣走 clip-to-nuance + clip-to-slides；有時效，排程插隊 |
   | `demo` | Demo 片：介紹 App 功能的影片 |
   | `in-app` | App 內功能的操作影片（分享選單、口說測驗…） |
   | `wip` | 還在做、還沒決定分類的（例如 nuance-ladder 的 so-tired）；分好用 `move`，編號會換成新分類的下一號，已排進發文的不能搬 |
@@ -54,7 +55,7 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
    - 影片：`*-final.mp4` + 文案 `caption-reel.txt`（沒有時會用 `caption.txt`）
    - 輪播圖：`slides/slide_*.png` + 文案 `caption.txt`
 2. 兩個都有就排兩篇（影片、輪播圖），各占一個時段；`--channel jp` 排到別的國家（預設第一個，tw），內容語言要跟那個國家一致；`--only reel|carousel` 只排一種，`--at "2026-11-02 20:00"` 指定時間。
-   - 標籤（拿來比成效）：`--hook-reel <句型>`（例如 `劇情懸念`）、`--hook-carousel <句型>`（預設 `打破你以為的`）、`--show <劇名>`（預設讀 `slides.json`）。格式自動判斷：輪播圖 / Ghost 卡影片 / nuance-ladder。
+   - 標籤（拿來比成效）：`--hook-reel <句型>`（例如 `劇情懸念`）、`--hook-carousel <句型>`（預設 `英文怎麼說`）、`--show <劇名>`（預設讀 `slides.json`）。格式自動判斷：輪播圖 / Ghost 卡影片 / nuance-ladder。
 3. 文案寫法：
    - 第一行是 hook（不給答案），接著列出單字（英文｜中文），一行 CTA「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」，最後 5–8 個 hashtag。
    - 影片的 hook 跟輪播圖不同句，避免同一個主題連兩天講一樣的話。

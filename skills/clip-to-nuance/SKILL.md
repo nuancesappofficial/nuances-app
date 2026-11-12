@@ -11,15 +11,23 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 
 1. **取得來源、秒數、主題**
    - 影片網址、時間區間（例如 `00:20 ~ 00:47`）、主題名稱 `<topic>`。
+   - 沒給時間區間：先分析這支影片能切幾支，使用者選定後才進第 2 步。
+     - 只抓資訊和字幕到 scratchpad：`yt-dlp --skip-download --write-auto-subs --write-subs --sub-langs "en.*" --sub-format vtt --print "%(title)s | %(duration_string)s" --no-simulate <網址>`。沒有字幕才下載音軌跑本地 Whisper。
+     - 讀完整段字幕後切分。每支都要：自成完整段落、起訖落在句子邊界、有 3 個以上值得教的字；純音樂、片頭片尾不算台詞。段落撐不起第二支就建議 1 支。
+     - 回報：第一行寫建議支數，接一句理由，再列表，每支一列（秒數、開頭 → 結尾那句、長度、候選單字）。
+     - 選了多支：每支各開資料夾、各走一次第 2–7 步，標題和文案照第 5 步的 `Part x/N` 規則。第 2 步改成 x 支就交 x 個剪好的檔：整支只下載一次，每個資料夾留一份 `<topic>-full.mp4`，再依分析表把每支剪成各自的 `<topic>.mp4`（`ffmpeg -i <topic>-full.mp4 -ss <起> -to <訖> -c:v libx264 -crf 16 -c:a aac`，切點放在句間停頓）。使用者只要逐支檢查，要微調才自己動手。
    - 沒給 `<topic>` 就先問，問到才繼續。
 
 2. **下載影音與字幕**
-   - `yt-dlp` 下載指定區間影音與原生字幕（沒有就用本地 Whisper 轉錄）→ `promo-vids/<YYYY-MM-DD>/<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。
+   - `yt-dlp` 下載**整支**影音與原生字幕（沒有就用本地 Whisper 轉錄）→ 工作資料夾 `promo-vids/<分類>/<編號>-<topic>/<topic>.mp4`（16:9 原片，含音軌，不做任何加工）。**不要用 `--download-sections` 先截**——自己截很容易切在句子中間；只從字幕的字級時間給建議剪法（起訖秒數 + 開頭 / 結尾那句話；第 1 步分析過就沿用那張表），由使用者自己剪。
+   - **一定要下載 H.264**：`-f "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]" --merge-output-format mp4`。YouTube 預設常給 AV1，Mac 播放器打開只有聲音沒畫面（已發生過不只一次）。下載完、交給使用者之前，一定先跑 `ffprobe -v error -select_streams v -show_entries stream=codec_name -of csv=p=0 <topic>.mp4` 確認是 `h264`；不是就重新下載（沒有 avc1 格式才用 `ffmpeg -c:v libx264 -pix_fmt yuv420p -c:a copy` 轉檔）。
    - 同時保留 YouTube 自動字幕 `.vtt`（有字級時間，第 4 步要用）。
    - **下載完先停下來，請使用者打開 `<topic>.mp4` 檢查並自行修剪**，給出檔案路徑後等使用者回覆「好了」才繼續。
    - 使用者回覆後重新讀檔（修剪可能直接覆蓋原檔，也可能另存新檔——兩種都要找）：
      - 用 `ffprobe` 看新長度。
-     - 把新片第一幀和下載時的原片比對，算出頭被剪掉幾秒；之後所有字幕時間與 trigger 都要減掉這個秒數。
+     - 把新片第一幀和最後一幀跟整支原片比對（灰階縮圖算 MSE 找最像的那一格），算出起訖秒數；之後所有字幕時間與 trigger 都要減掉起點秒數。原片改名 `<topic>-full.mp4` 留著，剪好的改名成 `<topic>.mp4`。
+     - 原片有燒進去的字幕（轉貼頻道常見）：先抽幾格看字幕在哪，用 `crop` 把那一條裁掉，另存 `<topic>-clean.mp4`，之後都用這支（我們的雙語字幕跟它會打架）。
+     - 最後一張卡出現時離片尾不到 3 秒：`tpad=stop_mode=clone:stop_duration=1.5` + `apad=pad_dur=1.5` 定格補 1.5 秒，`subs.json` 最後一句的 end 也跟著延長。
      - 確認有音軌；沒有的話把下載時的音軌接回去（`-map 0:v -map 1:a -c:v copy -shortest`）。
 
 3. **單字推薦與確認（強制互動）**
@@ -42,15 +50,19 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    ```bash
    python3 .agents/skills/clip-to-nuance/scripts/render_ghost_push.py \
      --source <topic>.mp4 --subs subtitles.ass --cards cards.json \
+     --title "<標題第一行>|<第二行>" --title-sub "<劇名 (年份)>" \
      [--hold 3] [--theme light|dark] [--type-speed 2] [--audio <有音軌的檔>] \
      --out <topic>-ghost.mp4
    ```
+   - **上方標題（每支都加）**：放在影片上面的黑色區域，避開上緣 150px（Reels / TikTok 介面會蓋住）。文字放**主題**，不放 hook：劇名 + 這段在演什麼。**第一行一定要寫出原作的中文片名**（台灣通用譯名，例如「汽車總動員」，不能只寫「賽車轉播員」這種只描述場景的字）；發文文案（caption）也同樣要點出原作名稱（例如「摩登家庭|浴缸裡的陌生人」）；同一場演講或同一集拆成多支時加 `Part x/N`（例如「黃仁勳 × 卡內基美隆|畢業演講 Part 1/4」）。`--title-sub` 放英文劇名 / 出處小字（例如 `Modern Family`、`Jensen Huang · CMU 2026`）。樣式預設 `quiet`：淺灰字、不用藍色，**藍色只留給字幕的目標字**，標題不能搶字幕的注意力。影片一開始上推，標題就往上淡出（約 0.18 秒），落回後再浮回來。其他樣式（`plain` / `box` / `marker` / `sticker` / `outline`）是試過但沒採用的。
+   - **Reel 封面**：從成品截一格，不用輪播圖封面。挑還沒開始上推（第一張卡之前或兩段之間）、標題完整、人臉清楚的那一秒（先用 `--stills` 看；拍到後腦勺就換一秒）。排進發文後用 `python3 .agents/skills/promo-queue/scripts/postq.py covers --id <id>-reel --at <秒數>` 設定。
+   - 原片結尾接片頭 / 片尾 logo 時，剪在 logo 之前。最後一張卡需要多一點時間的話，用最後一格畫面定格補足，**定格約 1–1.5 秒就好**，不要讓卡片在定格畫面上停 3 秒。
    - 先加 `--stills <秒數,...>` 輸出預覽 PNG（`--out` 改成資料夾）確認版面，再壓整支。
    - 卡片 UI 照抄 App 的 `CreateCardGhostPreviewSceneUI` 正面（預設 Light）：單字、音標 + 喇叭、詞性膠囊、釋義、分隔線、例句（目標字螢光底 + 底線）、翻譯。
    - 打字效果：App `ProgressiveText` 的跳字規則（每 50ms 一跳，依剩餘字數一次 1/2/3/6 字），**2 倍速、各段之間不停頓**，單字 → 釋義 → 例句 → 翻譯一口氣打完（一張卡約 1.3–1.6 秒）。
    - 停留：每張卡**打完後在畫面上停 3 秒**（`--hold`），然後下沉、影片落回。音訊全程不斷。
    - 多張卡：
-     - 上一張還沒走、下一張就來 → 上一張縮到**左半邊**，新的一張出現在右半邊；上一張時間到淡出後，右邊那張放大回全寬。
+     - 上一張還沒走、下一張就來 → 兩張上下並存，先來的在上面。兩張都維持全寬，改用精簡版面把高度壓低（字約為完整版的 7 成，音標併到單字那一行）；上一張時間到淡出後，下面那張移到上面並展開回完整版面。重疊不到 1 秒就不變形，直接換卡；同時最多兩張。
      - 上一張剛走、下一張在 1.2 秒內就來 → 影片不落回，直接換卡。
      - 最後一張停到片尾還不夠時，就一路停到片尾（接 Splash）。
    - 腳本開頭會印出每張卡的出現 / 離開秒數。
@@ -70,15 +82,32 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    - 從 clip-to-slides 的第 2 步（寫封面 hook）開始，照它的流程走完；hook 一樣要停下來等使用者選定。
    - clip-to-slides 最後一步會把影片和輪播圖一起排進發文排程（promo-queue），這裡不用另外排。
 
+## 新聞片（`news` 分類）
+熱門新聞也走同一條管線（影片 + `/clip-to-slides` 輪播圖），差別在下面這些：
+- **找素材**：YouTube 搜新聞關鍵字，優先當事人親口講的影片（例如當事人自拍說明），其次主播報導；監視器畫面沒有對白不能用。先用網路搜尋確認新聞屬實、記下日期和關鍵事實，金額各家說法不同時影片和文案不寫確切數字。
+- **資料夾**：`postq.py new news <topic> --title "中文標題"` → `promo-vids/news/<編號>-<topic>/`。
+- **上方標題**：第一行寫事件（例如「Bugatti 執行長|愛車被偷 Part 1/2」），`--title-sub` 寫當事人或媒體（例如 `Mate Rimac · Bugatti CEO`）。
+- **分集**：一支原片拆成幾支時，每個出現「Part x/N」的地方（影片標題、輪播圖封面 hook 最後一行、`slides.json` 的 `show`、文案）都要連著事件名稱寫，例如「Bugatti 愛車被偷事件 Part 2/2」、`BUGATTI CHIRON THEFT · PART 2/2`，不能只寫「Part 2/2」。
+- **文案**：在標題行和單字清單中間，用幾句白話講清楚發生了什麼事（時間、地點、誰、怎麼了）。分集時故事也跟著分：Part 1 講到片段結束的地方、最後一句留懸念（「最後有沒有追到？Part 2 揭曉。」），Part 2 開頭寫「接續 Part 1：」接著講結局。「看劇聽到」改成「看新聞聽到」；轉貼來源不確定版權歸誰時寫「影片版權屬原作者所有」。
+- **排程**：新聞有時效，不排到隊伍最後；用 `postq.py add … --only reel --at "<今天或明天> 20:00"`、輪播圖排隔天 20:00（每天 12:00 是一般貼文的時段，20:00 是新聞加開的），分集依序往後一天一篇。
+- 範例：`promo-vids/news/001-bugatti-stolen/`、`002-bugatti-stolen-2/`。
+
+## 在地化（之後會換語言重做）
+App 和商店已經支援 7 種語言（英、西、日、韓、繁中、簡中、法），推廣片之後也會依國家換語言。做的時候就要讓「換文字重渲染」很容易：
+- **所有會換語言的字都放在資料檔，不寫死在畫面裡**：字幕翻譯（`subs.json` 的 `zh`）、單字卡釋義 / 翻譯（`cards.json`）、上方標題、輪播圖 hook / 副標（`slides.json`）、文案（`caption*.txt`）。不要手動在影片或圖片上加字、不要把中文燒進來源影片。
+- **跟語言無關的東西分開**：英文台詞、目標字、`trigger` 秒數、修剪起訖、裁切 / 定格處理都只做一次，換語言時沿用。
+- **每個資料夾寫一支 `render.sh`**，記下這支實際用的渲染指令（含 `--title`、`--title-sub`、裁切 / 定格的 ffmpeg 指令、`compose_final.sh`）。換語言時只要改資料檔和標題參數，重跑 `render.sh` 就好。
+- 版面不要依賴中文字數剛好塞得下（模板會自動縮字，但不要靠手動換行或調位置去對齊某一種語言）。
+
 ## 版面規格（1080x1920、30fps、48kHz stereo）
 - 背景：原片放大填滿 + 高斯模糊。
 - 中段：16:9 原片（1080 寬，約 608 高）置中；字幕在影片下方 150px。
-- 上推時：影片 + 字幕 + 卡片整組垂直置中（頂端最少留 70px）。卡片寬 968，App 尺寸 ×2.6；分割時每張寬 472（間距 24）。
+- 上推時：影片 + 字幕 + 卡片整組垂直置中（頂端最少留 70px）。卡片寬 968，App 尺寸 ×2.6；兩張並存時一樣寬 968，上下間距 20，字幕與影片間距從 150 縮為 60，還塞不下才再縮字。
 - 推移曲線在 `render_ghost_push.py` 裡同時用於 ffmpeg 的 overlay y 表達式與 PIL 疊層（`ease()` / `ffmpeg_push_expr()`），要改就兩個一起改。
 
 ## 影片儲存與命名
-全部放在 `promo-vids/<YYYY-MM-DD>/<topic>/`：
-- 自動建立目錄；同日同名已存在時改用 `<topic>_02/`、`<topic>_03/`…
+全部放在 `promo-vids/promo/<編號>-<topic>/`：
+- 影片依分類放，每個分類各自編號（見 promo-queue 的點名表）。開資料夾一律用 `python3 .agents/skills/promo-queue/scripts/postq.py new promo <topic> --title "中文標題"`，它會拿 promo 的下一個編號、建資料夾、記進 `promo-vids/index.json`，並印出資料夾路徑；不要自己 mkdir。
 - 檔名：
   - 來源原片：`<topic>.mp4`
   - 字幕 / 單字卡資料：`subtitles.ass`（或 `subs.json`）、`cards.json`
@@ -87,12 +116,12 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 
 ## 公用素材（`promo-vids/CTA-screens/`）
 - `splash_transparent.mov`：冷啟動 1.6 秒透明轉場（ProRes 4444）。重新生成用 `scripts/generate_native_splash.swift`。
-- `CTA-nuances.mp4`：固定 CTA = promo 1 的 CTA 底片（`promo-vids/2026-10-12-feature-promo/project/assets/cta1/` 第 193–350 幀：App icon + 掃光，文字都已擦掉）+ 標語「跟「懶得查」說bye bye!」+ App 名稱「Nuances: 英文單字卡」（64px，promo 1 是 44px）+ App Store / Google Play 徽章。
+- `CTA-nuances.mp4`：固定 CTA = promo 1 的 CTA 底片（`promo-vids/demo/001-app-promo/project/assets/cta1/` 第 193–350 幀：App icon + 掃光，文字都已擦掉）+ 標語「跟「懶得查」說 bye bye！」（#97D2FD 淺藍、118px、在 icon 上方偏高，跟 demo 1 封面一樣）+ App 名稱「Nuances: 英文單字卡」（64px，promo 1 是 44px）+ App Store / Google Play 徽章。
   - 換文字時重產（標語用 `|` 斷行）：
     ```bash
     cd .agents/skills/clip-to-nuance/scripts && python3 build_cta.py \
-      <repo>/promo-vids/2026-10-12-feature-promo/project/assets/cta1 \
-      <repo>/promo-vids/CTA-screens/CTA-nuances.mp4 "跟「懶得查」|說bye bye!" [--name "Nuances: 英文單字卡"]
+      <repo>/promo-vids/demo/001-app-promo/project/assets/cta1 \
+      <repo>/promo-vids/CTA-screens/CTA-nuances.mp4 "跟「懶得查」|說 bye bye！" [--name "Nuances: 英文單字卡"]
     ```
   - 徽章 PNG 在 skill 的 `assets/`（`badge_appstore_zh-TW.png`、`badge_play_zh-TW.png`）。
 
@@ -102,8 +131,9 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
 - `scripts/build_cta.py`：換 CTA 文字時重產 `CTA-nuances.mp4`。
 - `scripts/generate_native_splash.swift`：重產 Splash。
 - `_legacy/`：舊版「暫停 + 截圖吸入」做法的腳本與素材，管線已不使用。
-- 範例成品：`promo-vids/2026-10-07/modern_family/`（`cards.json`、`subtitles.ass`、`modern_family-final.mp4`）。
+- 範例成品：`promo-vids/promo/001-modern-family-hot-tub/`（`cards.json`、`subtitles.ass`、`modern_family-final.mp4`）。
 
 ## 調用方式
 - `/clip-to-nuance`
-- 或直接給影片網址、秒數區間與主題（例如：`https://... 00:20 ~ 00:47 topic: modern_family`）。
+- 或直接給影片網址、秒數區間與主題（例如：`https://... 00:20 ~ 00:47 topic: modern-family`）。
+- 只給網址：先分析能切幾支（第 1 步）。

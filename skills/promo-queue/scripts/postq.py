@@ -2,7 +2,7 @@
 """Nuances 推廣貼文排程：promo-vids/queue.json 記錄排隊中 / 已發布的貼文，時間到自動發到 IG、Threads、TikTok、YouTube Shorts。
 
 usage（在專案根目錄）：
-  postq.py new promo|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
+  postq.py new promo|news|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
   postq.py move <資料夾> <分類>       # 換分類（例如 wip 做完分到 promo），編號換成新分類的下一號
   postq.py roll [--channel tw]        # 點名表：依分類列出每支影片的編號、製作日期、發文狀態
   postq.py add <工作資料夾> [--only reel|carousel] [--at "2026-11-02 20:00"]   # 加入排程（影片 + 輪播圖各一篇）
@@ -84,7 +84,8 @@ CLOUD = cloud_creds()
 def cloud_get(path):
     r = requests.get(f"{CLOUD['url']}/storage/v1/object/{PRIVATE}/{path}", timeout=60,
                      headers=P.sb_headers(CLOUD["service_key"]))
-    if r.status_code in (400, 404):
+    # Supabase 檔案不存在和金鑰失效都回 400（失效時是 NoSuchBucket），只有 NoSuchKey 才算「沒有這個檔」
+    if r.status_code in (400, 404) and "NoSuchKey" in r.text:
         return None
     P._check(r) if r.status_code >= 400 else None
     return r.content
@@ -124,6 +125,10 @@ def load():
 def save(q):
     body = json.dumps(q, ensure_ascii=False, indent=1)
     if CLOUD:
+        if not q["items"]:
+            raw = cloud_get("queue.json")
+            if raw and json.loads(raw).get("items"):
+                raise RuntimeError("拒絕用空排程覆蓋雲端的排程")
         cloud_put("queue.json", body.encode())
         sync_trigger(q)
     else:
@@ -293,7 +298,7 @@ def find_final(folder):
 # 影片依分類放：promo-vids/<分類>/<編號>-<主題>/，每個分類各自從 001 編起。還沒分類的放 wip/，分好再 move。
 VIDS = ROOT / "promo-vids"   # 成品一律在這裡（測試模式 POSTQ_DIR 只換 queue 的位置）
 INDEX = VIDS / "index.json"
-CATEGORIES = {"promo": "推廣片", "demo": "Demo 片", "in-app": "App 內功能", "wip": "還沒分類"}
+CATEGORIES = {"promo": "推廣片", "news": "新聞片", "demo": "Demo 片", "in-app": "App 內功能", "wip": "還沒分類"}
 NAME_RE = re.compile(r"^(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)$")
 
 
@@ -1286,7 +1291,7 @@ def main():
     sp = ap.add_subparsers(dest="cmd", required=True)
     x = sp.add_parser("add"); x.add_argument("folder"); x.add_argument("--only", choices=["reel", "carousel"]); x.add_argument("--at")
     x.add_argument("--show", help="劇名（預設讀 slides.json 的 show）"); x.add_argument("--hook-reel", help="影片的 hook 句型")
-    x.add_argument("--hook-carousel", default="打破你以為的", help="輪播圖的 hook 句型")
+    x.add_argument("--hook-carousel", default="英文怎麼說", help="輪播圖的 hook 句型")
     x.add_argument("--channel", help="排到哪個國家（預設第一個，通常是 tw）")
     x.add_argument("--platforms", help="這篇只發這些平台（逗號分隔，例如 instagram,threads）；預設用國家設定")
     x = sp.add_parser("new"); x.add_argument("category", choices=list(CATEGORIES)); x.add_argument("topic"); x.add_argument("--title")
@@ -1319,6 +1324,8 @@ def main():
            "push-secrets": cmd_push_secrets, "metrics": cmd_metrics, "channel": cmd_channel, "done": cmd_done,
            "notify": cmd_notify, "covers": cmd_covers,
            "serve": lambda q, a: __import__("control_server").serve(a.port, not a.no_open)}
+    if a.cmd == "push-secrets" and CLOUD:   # 第一次設定時 bucket 還不存在，load() 會失敗
+        ensure_private_bucket()
     if a.cmd in ("post-due", "post", "add", "skip", "draft", "retry", "reschedule", "metrics", "channel", "done", "covers"):
         with_lock(lambda: fns[a.cmd](load(), a))
     else:

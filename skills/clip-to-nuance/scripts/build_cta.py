@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """產生固定 CTA 結尾：promo 1 的 CTA 底片（App icon + 掃光，標語 / App 名稱 / 徽章都已擦掉）+ 標語 + 放大的 App 名稱 + 商店徽章。
 
-usage: python3 build_cta.py <cta1 frames 資料夾> <out.mp4> ["跟「懶得查」|說bye bye!"] [--name "Nuances: 英文單字卡"] [--still out.png]
-底片 = promo-vids/2026-10-12-feature-promo/project/assets/cta1/（150.jpg…350.jpg），跟 promo 1 一樣從第 193 幀用到 350 幀
+usage: python3 build_cta.py <cta1 frames 資料夾> <out.mp4> ["跟「懶得查」|說 bye bye！"] [--name "Nuances: 英文單字卡"] [--still out.png]
+底片 = promo-vids/demo/001-app-promo/project/assets/cta1/（150.jpg…350.jpg），跟 promo 1 一樣從第 193 幀用到 350 幀
 （icon 掃光高峰在第 259 幀 = CTA 開始後 2.2 秒；compose_final.sh 的 shine 音效對齊這裡）。
 標語用 | 斷行。只在換文字時重跑；平常 compose_final.sh 直接用產出的 CTA-nuances.mp4。
 """
 import argparse, pathlib, subprocess
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from render_ghost_push import font  # 同一套 PingFang TC
 
 W, H = 1080, 1920
 FIRST, LAST = 193, 350
-HEAD_SIZE, HEAD_LH, HEAD_TOP = 84, 112, 520      # 標語：icon 上方
+HEAD_SIZE, HEAD_LH, HEAD_TOP = 118, 153, 325     # 標語：放大、往上移，跟 demo 1 封面一樣
+HEAD_COLOR = (0x97, 0xD2, 0xFD, 255)             # 淺藍 #97D2FD
 NAME_SIZE, NAME_CY = 64, 1335                    # App 名稱：icon 下方（promo 1 是 44px）
 NAME_COLOR = (231, 234, 240, 255)
 BADGE_TOP, BADGE_GAP = 1450, 28
@@ -20,7 +21,7 @@ ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("frames"); ap.add_argument("out")
-ap.add_argument("headline", nargs="?", default="跟「懶得查」|說bye bye!")
+ap.add_argument("headline", nargs="?", default="跟「懶得查」|說 bye bye！")
 ap.add_argument("--name", default="Nuances: 英文單字卡")
 ap.add_argument("--still", default="")
 a = ap.parse_args()
@@ -28,9 +29,15 @@ a = ap.parse_args()
 ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(ov)
 f = font(HEAD_SIZE, "semibold")
+head = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+dh = ImageDraw.Draw(head)
 for i, line in enumerate(a.headline.split("|")):
-    bb = d.textbbox((0, 0), line, font=f)
-    d.text(((W - (bb[2] - bb[0])) / 2 - bb[0], HEAD_TOP + i * HEAD_LH - bb[1]), line, font=f, fill=(255, 255, 255, 255))
+    bb = dh.textbbox((0, 0), line, font=f)
+    dh.text(((W - (bb[2] - bb[0])) / 2 - bb[0], HEAD_TOP + i * HEAD_LH - bb[1]), line, font=f, fill=HEAD_COLOR)
+shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))   # 柔和陰影讓字浮起來
+shadow.putalpha(head.getchannel("A").point(lambda v: v * 0.5).filter(ImageFilter.GaussianBlur(14)))
+ov.alpha_composite(shadow, (0, 6))
+ov.alpha_composite(head)
 fn = font(NAME_SIZE, "semibold")
 bb = d.textbbox((0, 0), a.name, font=fn)
 d.text(((W - (bb[2] - bb[0])) / 2 - bb[0], NAME_CY - (bb[3] - bb[1]) / 2 - bb[1]), a.name, font=fn, fill=NAME_COLOR)

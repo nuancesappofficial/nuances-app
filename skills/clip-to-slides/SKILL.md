@@ -1,6 +1,6 @@
 ---
 name: clip-to-slides
-description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海報風，一次輸出 4:5 / 3:4 / 9:16 三種尺寸和一支 9:16 輪播影片，給不同平台用）：封面一句「打破你以為的」hook → 每個目標單字一頁（劇照 + 台詞 + 單字解釋）→ CTA。當使用者要把片段做成圖文輪播、slideshow、carousel，或呼叫 /clip-to-slides 時使用。
+description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海報風，一次輸出 4:5 / 3:4 / 9:16 三種尺寸和一支 9:16 輪播影片，給不同平台用）：封面一句「英文怎麼說？」hook → 每個目標單字一頁（劇照 + 台詞 + 單字解釋）→ CTA。當使用者要把片段做成圖文輪播、slideshow、carousel，或呼叫 /clip-to-slides 時使用。
 ---
 
 # Clip to Slides
@@ -10,15 +10,17 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 ## 管線流程（6 步驟）
 
 1. **找到工作資料夾**
-   - `promo-vids/<YYYY-MM-DD>/<topic>/`，裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
+   - `promo-vids/promo/<編號>-<topic>/`（例如 `promo-vids/promo/002-modern-family-confused/`），裡面要有 `<topic>.mp4` 和 `cards.json`（clip-to-nuance 第 4 步產的）。
    - 還沒有就先跑 `/clip-to-nuance` 第 1–4 步（下載、修剪、選字、寫 `cards.json`），做完再回來。
    - 從 clip-to-nuance 第 7 步自動進來時，資料夾就是剛做完影片的那個，直接跳到第 2 步。
    - 單字頁數 = `cards.json` 的張數，要 3–5 個。
 
 2. **寫封面 hook（強制互動）**
-   - 句型固定用「**打破你以為的**」：中文意思 + 台灣人直覺會講的錯誤 / 中式英文，答案（正確說法）留到內頁才揭曉。
-     - 範例：「大驚小怪」英文可不是 too surprised（答案在內頁：overreacting）。
-   - 規則：中文最多 22 字、3 行內（用 `|` 斷行）；錯誤說法單獨放一行寫成 `[too surprised]`，封面會用藍線把它劃掉；**不說出答案**；錯誤說法要真的是台灣學習者常見的講法。
+   - 句型固定用「**英文怎麼說？**」：`「中文意思」|英文怎麼說？`，答案（英文說法）留到內頁才揭曉。
+     - 範例：`「大驚小怪」|英文怎麼說？`（答案在內頁：overreacting）。
+   - 規則：中文挑台灣人真的會想問「這英文怎麼講」的說法，最多 8 字（太長會自動縮到一行）；**不說出答案**。
+   - 只有使用者指定時才用別的寫法：整行 `[錯誤說法]` = 藍線劃掉、整行 `{單字}` = 單字頁大字。
+   - 分集（Part x/N）時，hook 最後加一行「<事件名稱> Part x/N」（例如 `「我不提告」|英文怎麼說？|Bugatti 愛車被偷事件 Part 2/2`），`show` 也寫成「<事件英文名> · PART x/N」；不能只寫「Part 2/2」。
    - 同時寫一行副標 `sub`（例如「《摩登家庭》30 秒，3 個母語者天天在用的字」）。
    - **一次給 3 個 hook（針對不同單字），停下來等使用者選定或修改**，選定才繼續。
 
@@ -28,13 +30,14 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
    ```
    - 讀 `contact.jpg`（每格左上角是秒數），挑表情最誇張、臉最清楚的一格當封面 `time`。
    - 4:5 只裁得到原片中間約 45% 寬，用 `focus`（CSS `background-position`，例如 `"63% 30%"`）把臉移進畫面；主角在左就調小第一個數字。
+   - 臉太大（例如自拍直式片只露出半張臉）時，封面加 `size`（CSS `background-size`，例如 `"auto 72%"`）縮小畫面，`focus` 改 `"50% 0%"` 貼齊上緣，下方由暗色漸層接住。
    - 單字頁預設用 `cards.json` 的 `trigger` 秒數；那一格嘴型怪或沒人臉時，在 `words` 裡覆寫 `time` / `focus`。
 
 4. **寫 `slides.json` 並渲染**（放在工作資料夾）
    ```json
    {"source": "modern_family.mp4", "cards": "cards.json", "show": "MODERN FAMILY",
     "cover": {"time": 8, "focus": "63% 30%",
-              "hook": "「大驚小怪」|英文可不是|[too surprised]", "sub": "《摩登家庭》30 秒，3 個母語者天天在用的字"},
+              "hook": "「大驚小怪」|英文怎麼說？", "sub": "《摩登家庭》30 秒，3 個母語者天天在用的字"},
     "words": {"stranger": {"time": 2.6, "focus": "40% 50%"}},
     "cta": {"headline": "跟「懶得查」|[說 bye bye！]"}}
    ```
@@ -56,20 +59,28 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 5. **交付**
    - 把總覽圖傳給使用者，附上 `slides/` 路徑。
    - 同時寫 `caption.txt`：第一行重複 hook（不給答案）、列出 3–5 個單字（英文 + 中文）、一行「看劇聽到不懂的字，用 Nuances 一鍵存成單字卡 📲」、5–8 個中文 / 英文 hashtag（劇名、#學英文、#英文單字…）。
+   - **`caption.txt` 和 `caption-reel.txt` 都要在前兩行內寫出原作的中文片名**（例如「汽車總動員」），不能只放在 hashtag 裡。
    - 資料夾裡有 `<topic>-final.mp4`（從 clip-to-nuance 接過來）時，也寫影片用的 `caption-reel.txt`：格式一樣，但第一行換一句不同的 hook（用劇情懸念，例如「浴缸裡泡著一個陌生人，他們第一個念頭竟然是…打招呼？」）。
 
 6. **排進發文（promo-queue）**
    ```bash
-   python3 .agents/skills/promo-queue/scripts/postq.py add promo-vids/<YYYY-MM-DD>/<topic> --hook-reel <影片 hook 句型，例如 劇情懸念>
+   python3 .agents/skills/promo-queue/scripts/postq.py add promo-vids/promo/<編號>-<topic> --hook-reel <影片 hook 句型，例如 劇情懸念>
    ```
    - 影片和輪播圖各排一篇，自動接在排程最後面；印出來的時間轉告使用者。
    - 規則、看板、改順序見 promo-queue skill。
 
+## 在地化
+之後會依國家換語言重做（規則見 clip-to-nuance 的「在地化」一節）：所有會換語言的字（hook、副標、釋義、翻譯、CTA 標語）都放在資料檔（`slides.json` / `cards.json` 等），不手動改圖；跟語言無關的設定（畫面秒數、`focus`、`size`）換語言時沿用。
+
 ## 版面規格（照 `assets/slides.html`，小報海報風）
+
+**定案樣式（2026-10-31 起固定）**：封面、字型、Logo、配色、版面位置都照下面的規格，不要自己改、不要換模板；使用者明確要求才動。以前的雜誌風（`style: editorial`）已停用。範例：`promo-vids/promo/010-modern-family-pilot/`。
+
 - 寬 1080，高 1350 / 1440 / 1920（模板 `?h=`）、底色 `#0B0B0C`、字色暖白 `#F3EFE7`、強調色 Nuances 藍 `#4EAFF4`；左右邊距 72；整頁疊一層細顆粒。
 - 字型：英文大字 Anton（單字頁全大寫）、中文 Noto Sans TC 700、音標 Noto Serif 斜體、頂列 JetBrains Mono。渲染時從 Google Fonts 載入，**需要網路**；離線會退回系統字（不能用）。
-- 頂列：左邊劇名（CTA = `NUANCES`），右邊頁碼 `01 / 05`。沒有底列。
-- 封面：劇照滿版 + 底部暗色漸層。`hook` 第一行 = 132px 大標；整行只有 `[錯誤說法]` 的那行 = 150px 英文斜體 + 藍線劃掉；其他行 = 52px 灰字。下面一條細線，左 `sub`、右「答案往右滑 →」。不用 `kicker`。
+- 頂列：左上角 App 名稱「Nuances」（Anton 100px，top 70 / left 84；9:16 往下到 160），劇名小字在它下面；右邊頁碼 `01 / 05`。沒有底列。
+- 人物去背（`person_mask.swift`，Apple Vision，需要 macOS）疊在 App 名稱前面，像雜誌刊頭；人物擋住字超過 4 成、或擋住開頭 3 成的字，那頁就不疊人物。
+- 封面：劇照滿版 + 底部暗色漸層。`hook` 第一行 = 132px 中文大標（Noto Sans TC 700，一定一行，太長自動縮）；第二行「英文怎麼說？」= 52px 灰字。另外兩種行：整行只有 `[錯誤說法]` 的那行 = 150px 英文斜體 + 藍線劃掉；整行只有 `{單字}` 的那行 = 單字頁的 170px Anton 全大寫（例如 `什麼是|{drama queen?}`）；其他行 = 52px 灰字。下面一條細線，左 `sub`、右「答案往右滑 →」。不用 `kicker`。
 - 單字頁：上方 56% 劇照漸層融進黑底；台詞做成片中字幕（置中白字 + 陰影，目標字藍色，`match` 規則同 clip-to-nuance），下面一行中文翻譯；下方 `NO.01 + 詞性`、170px 單字（太長自動縮成一行）、音標、細線、中文釋義。
 - CTA：品牌深藍底，最後 3 個單字做成附劇照的單字卡疊在上方（卡片字體照 App：SF Pro 900 + PingFang TC，灰色詞性膠囊），下面 slogan（`|` 斷行、`[ ]` 標藍，可用 `{n}` = 單字數；有 `sub` 才顯示副標）、App Store / Google Play 徽章。
 
@@ -80,7 +91,7 @@ description: 把 clip-to-nuance 做好的影視片段變成輪播圖（小報海
 - `scripts/render_slides.py`：抓畫面（ffmpeg）→ 寫 `data.js` → Chrome headless 逐頁截圖 → 總覽圖；`--contact` 出挑封面用的總覽。
 - `assets/slides.html`：三種頁面的模板（`?i=0` 封面、`1..n` 單字頁、最後一頁 CTA）。
 - `assets/icon.png`、`assets/badge_*.png`：App icon 與商店徽章（跟 clip-to-nuance 同一套）。
-- 範例：`promo-vids/2026-10-07/modern_family/`（`slides.json`、`slides/`、`modern_family-slides-strip.jpg`）。
+- 範例：`promo-vids/promo/001-modern-family-hot-tub/`（`slides.json`、`slides/`、`modern_family-slides-strip.jpg`）。
 
 ## 調用方式
 - `/clip-to-slides`

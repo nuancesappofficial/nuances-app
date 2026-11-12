@@ -16,8 +16,17 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
   /* 每頁共用的頂列 */
-  .top { position: absolute; top: 60px; left: 72px; right: 72px; display: flex; justify-content: space-between; z-index: 4;
+  .top { position: absolute; top: 60px; left: 84px; right: 72px; display: flex; justify-content: space-between; z-index: 4;
     font-size: 22px; letter-spacing: 4px; color: var(--dim); text-transform: uppercase; }
+  .top .show { padding-top: 116px; }   /* 劇名小字排在 App 名稱下面 */
+  .top .page { padding-top: 18px; }
+  .top span { text-shadow: 0 1px 8px rgba(0,0,0,.7); }
+  /* 左上角 App 名稱：在劇照上、人物去背層下面（人物會擋在字前面） */
+  .mast { position: absolute; top: 70px; left: 84px; z-index: 1; font-size: 100px; line-height: 1; color: var(--ink);
+    text-shadow: 0 2px 20px rgba(0,0,0,.25); }
+  /* 人物去背層：同一張劇照 + 同一層漸層，用 person_mask.swift 的遮罩只留人物 */
+  .fg { position: absolute; inset: 0; z-index: 2; -webkit-mask-size: cover; mask-size: cover; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
+  .word-slide .fg { bottom: auto; height: calc(var(--h) * .56); }
   .photo { position: absolute; background-size: cover; background-position: center; }
 
   /* ---------- 封面 ---------- */
@@ -25,13 +34,15 @@
   .cover .shade { position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(11,11,12,.55) 0%, rgba(11,11,12,0) 20%, rgba(11,11,12,.1) 40%, rgba(11,11,12,.9) 64%, var(--bg) 88%); }
   .cover .text { position: absolute; left: 72px; right: 72px; bottom: 120px; z-index: 3; }
-  .cover h1 { font-size: 132px; line-height: 1.1; font-weight: 700; letter-spacing: -2px; }
+  .cover h1 { font-size: 132px; line-height: 1.1; font-weight: 700; letter-spacing: -2px; white-space: nowrap; }
   .cover .not { font-size: 52px; font-weight: 700; color: var(--mute); margin: 18px 0 6px; }
   .hl { color: var(--blue); }
   /* 錯誤說法：藍線劃掉 */
   .cover .wrong { font-size: 150px; line-height: 1.05; font-style: italic; position: relative; display: inline-block; }
   .cover .wrong::after { content: ""; position: absolute; left: -10px; right: -14px; top: 54%; height: 9px;
     background: var(--blue); transform: rotate(-3deg); }
+  /* {單字}：整行用單字頁的大字（Anton 全大寫） */
+  .cover .word { margin: 10px 0 0 -4px; }
   .cover .sub { display: flex; justify-content: space-between; align-items: baseline; gap: 24px; margin-top: 56px; padding-top: 28px;
     border-top: 2px solid var(--line); font-size: 30px; color: var(--mute); }
   .cover .sub b { color: var(--ink); font-weight: 500; flex: none; }
@@ -56,7 +67,7 @@
   /* ---------- CTA：剛剛學的字疊成單字卡 ---------- */
   .cta { background: var(--navy); }
   .cta .glow { position: absolute; inset: 0; background: radial-gradient(80% 50% at 50% 34%, rgba(78,175,244,.22), rgba(10,40,68,0) 70%); }
-  .cta .stack { position: absolute; left: 0; right: 0; top: calc(var(--h) * .1); height: 640px; z-index: 2; }
+  .cta .stack { position: absolute; left: 0; right: 0; top: calc(var(--h) * .1 + 90px); height: 640px; z-index: 2; }
   /* 卡片照 App 卡片詳情：App 沒指定 fontFamily → iOS 系統字（SF Pro + PingFang TC） */
   .card { position: absolute; left: 50%; width: 420px; background: #FFF; color: #111;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", sans-serif; border-radius: 34px; overflow: hidden;
@@ -78,6 +89,7 @@
 
   /* ---------- 9:16 安全區 ---------- */
   .tall .top { top: 150px; }
+  .tall .mast { top: 160px; }
   .tall .cover .text, .tall .entry { bottom: 360px; right: 180px; }
   .tall .cta .text { bottom: 360px; }
   .tall .cta .stack { top: calc(var(--h) * .2); }
@@ -102,8 +114,13 @@ const mark = (s, m) => {
   return k < 0 ? esc(s) : esc(s.slice(0, k)) + '<span class="hl">' + esc(s.slice(k, k + m.length)) + '</span>' + esc(s.slice(k + m.length));
 };
 const pad = x => String(x).padStart(2, '0');
-const topBar = l => `<div class="top mono"><span>${esc(l)}</span><span>${pad(i + 1)} / ${pad(total)}</span></div>`;
-const photo = (src, pos) => `<div class="photo" style="background-image:url(${src});background-position:${pos || 'center'}"></div>`;
+const topBar = l => `<div class="mast en">Nuances</div><div class="top mono"><span class="show">${esc(l)}</span><span class="page">${pad(i + 1)} / ${pad(total)}</span></div>`;
+const photo = (src, pos, size) => `<div class="photo" style="background-image:url(${src});background-position:${pos || 'center'}${size ? ';background-size:' + size + ';background-repeat:no-repeat' : ''}"></div>`;
+// 劇照 + 漸層；有人物遮罩就再疊一層只留人物的去背層，蓋在 App 名稱上面
+// size：選填，背景縮放（例如 'auto 75%'，臉太大時縮小；預設 cover）
+const scene = (src, pos, mask, size) => photo(src, pos, size) + '<div class="shade"></div>' + (mask
+  ? `<div class="fg" style="-webkit-mask-image:url(${mask});mask-image:url(${mask});-webkit-mask-position:${pos || 'center'};mask-position:${pos || 'center'}${size ? ';-webkit-mask-size:' + size + ';mask-size:' + size : ''}">${photo(src, pos, size)}<div class="shade"></div></div>`
+  : '');
 const grain = '<div class="grain"></div>';
 
 let html;
@@ -113,13 +130,15 @@ if (i === 0) {
   const lines = c.hook.split('|').map((l, k) => {
     const wrong = l.trim().match(/^\[([^\]]+)\]$/);
     if (wrong) return `<div class="wrong en">${esc(wrong[1])}</div>`;
+    const term = l.trim().match(/^\{([^}]+)\}$/);
+    if (term) return `<div class="word en">${esc(term[1])}</div>`;
     return k === 0 ? `<h1>${rich(l)}</h1>` : `<div class="not">${rich(l)}</div>`;
   }).join('');
-  html = `<div class="slide cover">${photo(c.image, c.focus || '50% 30%')}<div class="shade"></div>${topBar(D.show)}
-    <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>答案往右滑 →</b></div></div>${grain}</div>`;
+  html = `<div class="slide cover">${scene(c.image, c.focus || '50% 30%', c.mask, c.size)}${topBar(D.show)}
+    <div class="text">${lines}<div class="sub"><span>${rich(c.sub || '')}</span><b>${c.swipe || '答案往右滑 →'}</b></div></div>${grain}</div>`;
 } else if (i <= n) {
   const w = D.words[i - 1];
-  html = `<div class="slide word-slide">${photo(w.image, w.focus)}<div class="shade"></div>${topBar(D.show)}
+  html = `<div class="slide word-slide">${scene(w.image, w.focus, w.mask)}${topBar(D.show)}
     <div class="sub-line"><div class="s-en">${mark(w.sentence, w.match || w.word)}</div><div class="s-zh">${esc(w.translation)}</div></div>
     <div class="entry"><div class="meta mono"><span class="n">NO.${pad(i)}</span><span>${esc(w.pos || '')}</span></div>
       <div class="word en">${esc(w.word)}</div><div class="ipa">${esc(w.ipa || '')}</div>
@@ -130,15 +149,36 @@ if (i === 0) {
   const cards = picks.map((w, k) => `<div class="card ${pos[k]}"><div class="img" style="background-image:url(${w.image});background-position:${w.focus || 'center'}"></div>
     <div class="c-body"><div class="w">${esc(w.word)}</div>
       <div class="m">${w.pos ? `<span class="pos">${esc(w.pos)}</span>` : ''}<span class="d">${esc(w.definition.split(/[；;]/)[0])}</span></div></div></div>`).join('');
-  html = `<div class="slide cta"><div class="glow"></div>${topBar('Nuances')}<div class="stack">${cards}</div>
+  html = `<div class="slide cta"><div class="glow"></div>${topBar('')}<div class="stack">${cards}</div>
     <div class="text"><h2>${rich(c.headline.replace('{n}', n))}</h2>${c.sub ? `<div class="sub">${rich(c.sub)}</div>` : ''}
       <div class="badges"><img src="badge_appstore_zh-TW.png"><img src="badge_play_zh-TW.png"></div></div>${grain}</div>`;
 }
 document.body.insertAdjacentHTML('beforeend', html);
 
-document.fonts.ready.then(() => {
-  // 單字 / 卡片字太長就縮到剛好一行
-  document.querySelectorAll('.word, .card .w').forEach(el => {
+// 人物擋住 App 名稱超過 40%、或擋住開頭 3 成的字，就不疊人物（例如前景糊掉的頭），字整個露出來
+const occlusion = fg => new Promise(done => {
+  const mast = document.querySelector('.mast'), ph = fg.querySelector('.photo');
+  const img = new Image();
+  img.onload = () => {
+    const r = mast.getBoundingClientRect(), b = ph.getBoundingClientRect(), sc = Math.max(b.width / img.width, b.height / img.height);
+    const [px, py] = getComputedStyle(ph).backgroundPosition.split(' ').map(v => parseFloat(v) / 100);
+    const ox = b.left + (b.width - img.width * sc) * px, oy = b.top + (b.height - img.height * sc) * py;
+    const cv = document.createElement('canvas'); cv.width = 1080; cv.height = H;
+    const g = cv.getContext('2d'); g.drawImage(img, ox, oy, img.width * sc, img.height * sc);
+    const cover = w => { const a = g.getImageData(r.left, r.top, w, r.height).data;
+      let on = 0; for (let k = 3; k < a.length; k += 4) on += a[k] > 128; return on / (a.length / 4); };
+    // 開頭「Nu」被擋住也不行，不然看不出是 Nuances
+    if (cover(r.width) > .4 || cover(r.width * .3) > .3) fg.remove();
+    done();
+  };
+  img.onerror = () => done();
+  img.src = getComputedStyle(fg).maskImage.slice(5, -2);
+});
+
+document.fonts.ready.then(async () => {
+  await Promise.all([...document.querySelectorAll('.fg')].map(occlusion));
+  // 單字 / 卡片字 / 封面大標太長就縮到剛好一行
+  document.querySelectorAll('.word, .card .w, .cover h1').forEach(el => {
     const ps = getComputedStyle(el.parentElement), fs = parseFloat(getComputedStyle(el).fontSize);
     const max = el.parentElement.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
     if (el.scrollWidth > max) el.style.fontSize = fs * max / el.scrollWidth + 'px';

@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { STICKER_FONT_ASSETS } from './src/theme/stickerFonts';
+import { AUTH_FONT_ASSETS } from './src/theme/authFonts';
 import Reanimated, {
   runOnJS,
   SensorType,
@@ -405,6 +406,33 @@ function triggerBackgroundAccountRefresh(
   });
 }
 
+const AUTH_INK = '#0B0B0C';
+const AUTH_PAPER = '#F3EFE7';
+const AUTH_BLUE = '#4EAFF4';
+const AUTH_NAVY = '#02213D';
+
+// "跟「懶得查」|說 [bye bye！]" → lines split on |, [ ] marks the blue accent.
+function AuthSlogan({ text }: { text: string }) {
+  return (
+    <Text style={styles.authSlogan}>
+      {text.split('|').map((line, lineIndex) => (
+        <Text key={lineIndex}>
+          {lineIndex > 0 ? '\n' : ''}
+          {line.split(/\[(.+?)\]/).map((part, partIndex) =>
+            partIndex % 2 === 1 ? (
+              <Text key={partIndex} style={{ color: AUTH_BLUE }}>
+                {part}
+              </Text>
+            ) : (
+              part
+            )
+          )}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
 function AuthGate({
   onPressGoogle,
   onPressApple,
@@ -560,15 +588,16 @@ function AuthGate({
   };
 
   return (
-    <View style={[styles.authContainer, { backgroundColor: '#02213D' }]}>
+    <View style={[styles.authContainer, { backgroundColor: AUTH_NAVY }]}>
       <LinearGradient
         pointerEvents="none"
-        colors={
-          isLight
-            ? ['rgba(78,175,244,0.16)', 'rgba(78,175,244,0.03)', 'transparent']
-            : ['rgba(78,175,244,0.20)', 'rgba(78,175,244,0.06)', 'transparent']
-        }
+        colors={['rgba(78,175,244,0.26)', 'rgba(78,175,244,0.07)', 'transparent']}
         style={styles.authBackdropGlow}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', 'rgba(11,11,12,0.55)']}
+        style={styles.authBackdropShade}
       />
       <View
         style={[
@@ -593,8 +622,20 @@ function AuthGate({
           </Reanimated.View>
         </View>
 
-        <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 6, 28) }, authTitleAnimatedStyle]}>
-          <Text style={[styles.authTitle, { color: '#F8FAFC' }]}>Nuances</Text>
+        <Animated.View style={[styles.authTitleStage, { paddingTop: Math.max(insets.top + 18, 40) }, authTitleAnimatedStyle]}>
+          <Text style={styles.authCardWord} numberOfLines={1}>
+            NUANCE
+          </Text>
+          <View style={styles.authCardMetaRow}>
+            <Text style={styles.authCardNumber}>NO.01</Text>
+            <View style={styles.authCardPosPill}>
+              <Text style={styles.authCardPosText}>{tUI(uiLanguage, 'auth.cardPos')}</Text>
+            </View>
+          </View>
+          <Text style={styles.authCardIpa}>/ˈnuː.ɑːns/</Text>
+          <View style={styles.authCardRule} />
+          <Text style={styles.authCardDefinition}>{tUI(uiLanguage, 'auth.cardDefinition')}</Text>
+          <AuthSlogan text={tUI(uiLanguage, 'auth.slogan')} />
           {isDevTestAccountEntryEnabled() && onPressTestAccount ? (
             <LightPressable
               style={[styles.devTestAccountButton, loading && styles.googleButtonDisabled]}
@@ -623,14 +664,10 @@ function AuthGate({
               <View
                 style={[
                   styles.appleButtonSurface,
-                  {
-                    backgroundColor: isLight ? '#FFFFFF' : '#F8FAFC',
-                    borderColor: isLight ? 'rgba(15,23,42,0.10)' : 'rgba(255,255,255,0.08)',
-                  },
                 ]}
               >
                 <View style={styles.authButtonContent}>
-                  <Ionicons name="logo-apple" size={20} color="#0F172A" />
+                  <Ionicons name="logo-apple" size={20} color={AUTH_INK} />
                   <Text
                     style={styles.appleButtonText}
                   >
@@ -648,21 +685,29 @@ function AuthGate({
             pressedScale={0.985}
             pressedOpacity={0.96}
           >
-            <LinearGradient
-              colors={['#65B9F7', '#4EAFF4', '#2E7EC2']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.googleButtonGradient}
+            {/* Apple leads on iOS, so Google steps back to an outline; on Android it is the only option. */}
+            <View
+              style={[
+                styles.googleButtonSurface,
+                Platform.OS === 'ios' ? styles.googleButtonSurfaceOutline : styles.googleButtonSurfaceSolid,
+              ]}
             >
               <View style={styles.authButtonContent}>
-                <Ionicons name="logo-google" size={18} color="#F4EEF3" />
+                <Ionicons
+                  name="logo-google"
+                  size={18}
+                  color={Platform.OS === 'ios' ? AUTH_PAPER : AUTH_INK}
+                />
                 <Text
-                  style={styles.googleButtonText}
+                  style={[
+                    styles.googleButtonText,
+                    { color: Platform.OS === 'ios' ? AUTH_PAPER : AUTH_INK },
+                  ]}
                 >
                   {loading ? tUI(uiLanguage, 'auth.connecting') : tUI(uiLanguage, 'auth.continueWithGoogle')}
                 </Text>
               </View>
-            </LinearGradient>
+            </View>
           </LightPressable>
 
         </Animated.View>
@@ -709,7 +754,10 @@ function GlobalThemeCrossFadeOverlay() {
 }
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts(STICKER_FONT_ASSETS);
+  const [fontsLoaded, fontError] = useFonts({
+    ...STICKER_FONT_ASSETS,
+    ...AUTH_FONT_ASSETS,
+  });
   const colorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -1972,7 +2020,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: '58%',
+    height: '62%',
+  },
+  authBackdropShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '45%',
   },
   authHeroStack: {
     flex: 1,
@@ -1984,15 +2039,65 @@ const styles = StyleSheet.create({
   },
   authTitleStage: {
     width: '100%',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'flex-start',
+    paddingHorizontal: 28,
     zIndex: 2,
   },
-  authTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    lineHeight: 38,
-    letterSpacing: -0.9,
+  authCardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  authCardNumber: {
+    color: AUTH_BLUE,
+    fontFamily: 'JetBrainsMono-Medium',
+    fontSize: 12,
+    letterSpacing: 1.7,
+  },
+  authCardPosPill: {
+    backgroundColor: 'rgba(243,239,231,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+  },
+  authCardPosText: {
+    color: AUTH_PAPER,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  authCardWord: {
+    alignSelf: 'stretch',
+    color: AUTH_PAPER,
+    fontFamily: 'Anton-Regular',
+    fontSize: 96,
+    lineHeight: 112,
+  },
+  authCardIpa: {
+    color: 'rgba(243,239,231,0.55)',
+    fontFamily: 'NotoSerif-Italic',
+    fontSize: 22,
+  },
+  authCardRule: {
+    alignSelf: 'stretch',
+    borderTopColor: 'rgba(243,239,231,0.22)',
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+    marginBottom: 14,
+    marginTop: 18,
+  },
+  authCardDefinition: {
+    color: AUTH_PAPER,
+    fontSize: 21,
+    fontWeight: '700',
+    lineHeight: 30,
+  },
+  authSlogan: {
+    color: AUTH_PAPER,
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 36,
+    marginTop: 30,
   },
   devTestAccountButton: {
     alignItems: 'center',
@@ -2053,25 +2158,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
-    borderWidth: 1,
+    backgroundColor: AUTH_PAPER,
   },
   appleButtonText: {
-    color: '#0F172A',
+    color: AUTH_INK,
     fontSize: 17,
     fontWeight: '700',
   },
-  googleButtonGradient: {
+  googleButtonSurface: {
     minHeight: 58,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
+  googleButtonSurfaceOutline: {
+    borderColor: 'rgba(243,239,231,0.30)',
+    borderWidth: 1.5,
+  },
+  googleButtonSurfaceSolid: {
+    backgroundColor: AUTH_BLUE,
+  },
   googleButtonDisabled: {
     opacity: 0.6,
   },
   googleButtonText: {
-    color: '#F4EEF3',
     fontSize: 17,
     fontWeight: '700',
   },

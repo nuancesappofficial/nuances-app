@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Splash / CTA 音效：照搬 promo 1（promo-vids/2026-10-12-feature-promo/project/audio2.py）的合成音效與 sfx_mix.json 的音量。
+"""Splash / CTA 音效：照搬 promo 1（promo-vids/demo/001-app-promo/project/audio2.py）的合成音效與 sfx_mix.json 的音量。
 
 usage: python3 sfx.py <out.wav> <duration> <type@sec> [<type@sec> ...]
 type: whoosh（splash 進場）/ pop（splash 出現）/ swipe（splash 擦除）/ shine（CTA icon 掃光）

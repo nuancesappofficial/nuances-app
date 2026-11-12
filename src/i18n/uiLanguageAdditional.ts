@@ -473,6 +473,9 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'auth.connecting': '接続中...',
     'auth.continueWithApple': 'Appleで続ける',
     'auth.continueWithGoogle': 'Google を続ける',
+    'auth.cardPos': '名詞',
+    'auth.cardDefinition': '辞書には載らない、ことばの微妙なニュアンス',
+    'auth.slogan': '「調べるのが面倒」に|[バイバイ！]',
     'onboarding.question.learningLanguages':
       'Nuancesは英語を何語で説明すべきですか?',
     'onboarding.question.captureHabit':
@@ -1032,6 +1035,9 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'auth.connecting': '연결 중...',
     'auth.continueWithApple': 'Apple과 함께 계속하세요',
     'auth.continueWithGoogle': 'Google로 계속하기',
+    'auth.cardPos': '명사',
+    'auth.cardDefinition': '사전에는 없는 말의 미묘한 차이',
+    'auth.slogan': '‘찾아보기 귀찮아’에게|[바이바이!]',
     'onboarding.question.learningLanguages':
       'Nuances는 영어를 어떤 언어로 설명해야 할까요?',
     'onboarding.question.captureHabit': '모르는 단어가 나오면 어떻게 하시나요?',
@@ -1603,6 +1609,9 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'auth.connecting': 'Conectando...',
     'auth.continueWithApple': 'Continuar con Apple',
     'auth.continueWithGoogle': 'Continuar con Google',
+    'auth.cardPos': 'sustantivo',
+    'auth.cardDefinition': 'el matiz sutil que el diccionario no explica',
+    'auth.slogan': 'Dile [adiós] a|«ya lo buscaré luego»',
     'onboarding.question.learningLanguages':
       '¿En qué idioma debería explicar Nuances el inglés?',
     'onboarding.question.captureHabit':
@@ -2179,6 +2188,9 @@ export const ADDITIONAL_UI_STRINGS: Record<
     'auth.connecting': 'Connexion...',
     'auth.continueWithApple': 'Continuer avec Apple',
     'auth.continueWithGoogle': 'Continuer avec Google',
+    'auth.cardPos': 'nom',
+    'auth.cardDefinition': 'la nuance subtile que le dictionnaire ne dit pas',
+    'auth.slogan': 'Dis [au revoir] au|« je chercherai plus tard »',
     'onboarding.question.learningLanguages':
       "Dans quelle langue Nuances doit-elle expliquer l'anglais ?",
     'onboarding.question.captureHabit':
