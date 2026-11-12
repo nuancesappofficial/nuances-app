@@ -1,4 +1,5 @@
-import { getCurrentSession, getCurrentUser } from '@services/supabase/client';
+import { getCurrentSession, getCurrentUser, supabase } from '@services/supabase/client';
+import { readLocalSessionUserId } from './localSessionIdentity';
 import { getActiveDevFreshUserId } from '../../features/auth/devFreshUserSimulatorCore';
 
 /**
@@ -16,6 +17,10 @@ export async function getCurrentSessionUserId(): Promise<string | null> {
   // against the real user's UUID instead of the simulated fresh user.
   const devUserId = getActiveDevFreshUserId();
   if (devUserId) return devUserId;
+  // Read the persisted session directly: getSession() would first try to
+  // refresh an expired token, which offline stalls ~25s and then returns null.
+  const localUserId = await readLocalSessionUserId(supabase.auth);
+  if (localUserId) return localUserId;
   const { session, error } = await getCurrentSession();
   if (error) return null;
   return session?.user?.id ?? null;
