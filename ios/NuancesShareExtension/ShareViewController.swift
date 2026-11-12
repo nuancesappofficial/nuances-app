@@ -77,6 +77,25 @@ enum ShareReceiptCopy {
             return "Photos didn't load. Share again when you're online"
         }
     }
+
+    static func openAppPrompt(for language: String) -> (message: String, action: String) {
+        switch language {
+        case "zh-TW":
+            return ("請先開啟 Nuances 並登入，再重新分享一次。", "好")
+        case "zh-CN":
+            return ("请先打开 Nuances 并登录，再重新分享一次。", "好")
+        case "ja":
+            return ("Nuances を開いてログインしてから、もう一度共有してください。", "OK")
+        case "ko":
+            return ("Nuances를 열어 로그인한 후 다시 공유해 주세요.", "확인")
+        case "es":
+            return ("Abre Nuances e inicia sesión; luego vuelve a compartir.", "OK")
+        case "fr":
+            return ("Ouvrez Nuances et connectez-vous, puis partagez à nouveau.", "OK")
+        default:
+            return ("Open Nuances and sign in, then share again.", "OK")
+        }
+    }
 }
 
 
@@ -94,6 +113,7 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
+    private var didPresentOpenAppPrompt = false
     private let slowLoadingNoticeDelay: TimeInterval = 1.5
     // One id per share, so a later message replaces the earlier one in place.
     private let receiptNotificationID = "nuances-share-receipt-\(UUID().uuidString)"
@@ -103,7 +123,44 @@ class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        handleSharedContent()
+        if hasActiveUser() {
+            handleSharedContent()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !hasActiveUser() {
+            presentOpenAppPrompt()
+        }
+    }
+
+    private func hasActiveUser() -> Bool {
+        let userID = UserDefaults(suiteName: appGroupID)?.string(forKey: "active_user_id")
+        return !(userID ?? "").isEmpty
+    }
+
+    // Without a signed-in owner the share cannot be queued. Say so instead of
+    // closing silently, which would look like the share worked and then vanished.
+    private func presentOpenAppPrompt() {
+        guard !didPresentOpenAppPrompt else { return }
+        didPresentOpenAppPrompt = true
+        let copy = ShareReceiptCopy.openAppPrompt(for: promptLanguage())
+        let alert = UIAlertController(title: "Nuances", message: copy.message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: copy.action, style: .default) { [weak self] _ in
+            self?.closeExtension(success: false)
+        })
+        present(alert, animated: true)
+    }
+
+    private func promptLanguage() -> String {
+        if let saved = UserDefaults(suiteName: appGroupID)?.string(forKey: uiLanguageKey) {
+            return saved
+        }
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        if preferred.hasPrefix("zh-Hans") { return "zh-CN" }
+        if preferred.hasPrefix("zh") { return "zh-TW" }
+        return String(preferred.prefix(2))
     }
     
     private func handleSharedContent() {

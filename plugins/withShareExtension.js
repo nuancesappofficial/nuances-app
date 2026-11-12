@@ -9,6 +9,7 @@ const path = require('path');
 
 const SHARE_EXTENSION_NAME = 'NuancesShareExtension';
 const APP_GROUP_ID = 'group.com.jeffenglishlearning.nuances.v2';
+const MAIN_APP_NATIVE_FILES = ['SharedDefaultsModule.swift', 'SharedDefaultsModuleBridge.m'];
 
 /**
  * Share Extension Config Plugin for Nuances App
@@ -34,7 +35,8 @@ function withShareExtension(config) {
     await createShareExtensionFiles(projectRoot);
 
     // 添加 Share Extension Target 到 Xcode
-    addShareExtensionTarget(xcodeProject, projectRoot);
+    addSharedDefaultsModule(xcodeProject, projectRoot, config.modRequest.projectName);
+    addShareExtensionTarget(xcodeProject, config);
     syncShareExtensionBuildSettings(xcodeProject, config);
 
     return config;
@@ -138,12 +140,76 @@ async function createShareExtensionFiles(projectRoot) {
 }
 
 /**
- * 添加 Share Extension Target 到 Xcode 專案
+ * Add the JS-facing SharedDefaultsModule to the main app target. EAS builds
+ * regenerate ios/ with prebuild, so hand-added native files would be lost.
  */
-function addShareExtensionTarget(xcodeProject, projectRoot) {
-  // Note: 此處需要使用 xcode 套件來修改 .pbxproj
-  // 由於這是複雜的 Xcode 專案修改，在實際部署時需要手動或使用更完整的工具
-  console.log('Share Extension files created. Manual Xcode configuration required.');
+function addSharedDefaultsModule(xcodeProject, projectRoot, projectName) {
+  const targetUuid = xcodeProject.getFirstTarget().uuid;
+  const appDir = path.join(projectRoot, 'ios', projectName);
+  MAIN_APP_NATIVE_FILES.forEach((fileName) => {
+    fs.copyFileSync(path.join(__dirname, fileName), path.join(appDir, fileName));
+    IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
+      filepath: path.posix.join(projectName, fileName),
+      groupName: projectName,
+      project: xcodeProject,
+      targetUuid,
+    });
+  });
+}
+
+/**
+ * Create the share extension target and embed it in the main app.
+ * Without this the .appex is never built and iOS drops Nuances from the share sheet.
+ */
+function addShareExtensionTarget(xcodeProject, config) {
+  if (xcodeProject.pbxTargetByName(SHARE_EXTENSION_NAME)) return;
+
+  const objects = xcodeProject.hash.project.objects;
+  objects.PBXTargetDependency = objects.PBXTargetDependency || {};
+  objects.PBXContainerItemProxy = objects.PBXContainerItemProxy || {};
+
+  const bundleIdentifier = `${config.ios?.bundleIdentifier}.${SHARE_EXTENSION_NAME}`;
+  const target = xcodeProject.addTarget(
+    SHARE_EXTENSION_NAME,
+    'app_extension',
+    SHARE_EXTENSION_NAME,
+    bundleIdentifier
+  );
+
+  const group = xcodeProject.addPbxGroup(
+    ['ShareViewController.swift', 'Info.plist', `${SHARE_EXTENSION_NAME}.entitlements`],
+    SHARE_EXTENSION_NAME,
+    SHARE_EXTENSION_NAME
+  );
+  const mainGroupId = xcodeProject.getFirstProject().firstProject.mainGroup;
+  xcodeProject.addToPbxGroup(group.uuid, mainGroupId);
+
+  xcodeProject.addBuildPhase(
+    ['ShareViewController.swift'],
+    'PBXSourcesBuildPhase',
+    'Sources',
+    target.uuid,
+    undefined,
+    SHARE_EXTENSION_NAME
+  );
+  xcodeProject.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', target.uuid);
+  xcodeProject.addBuildPhase([], 'PBXResourcesBuildPhase', 'Resources', target.uuid);
+
+  const configurations = xcodeProject.pbxXCBuildConfigurationSection();
+  const configList = xcodeProject.pbxXCConfigurationList()[target.pbxNativeTarget.buildConfigurationList];
+  configList.buildConfigurations.forEach(({ value }) => {
+    Object.assign(configurations[value].buildSettings, {
+      CODE_SIGN_ENTITLEMENTS: `${SHARE_EXTENSION_NAME}/${SHARE_EXTENSION_NAME}.entitlements`,
+      CODE_SIGN_STYLE: 'Automatic',
+      GENERATE_INFOPLIST_FILE: 'NO',
+      INFOPLIST_FILE: `${SHARE_EXTENSION_NAME}/Info.plist`,
+      LD_RUNPATH_SEARCH_PATHS: '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"',
+      PRODUCT_NAME: '"$(TARGET_NAME)"',
+      SKIP_INSTALL: 'YES',
+      SWIFT_VERSION: '5.0',
+      TARGETED_DEVICE_FAMILY: '1',
+    });
+  });
 }
 
 /**
