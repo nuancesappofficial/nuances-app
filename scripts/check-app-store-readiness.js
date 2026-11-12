@@ -115,7 +115,7 @@ add(
     'Keep to-do list.md synchronized with implemented backend support.'
   );
   const metadataMissingEula = APP_STORE_METADATA_LOCALES.filter((locale) => {
-    const metadata = readFile(`app-store-assets/metadata/${locale}.md`) || '';
+    const metadata = readFile(`assets/store/metadata/${locale}.md`) || '';
     const description = metadata.match(/## Description\s+([\s\S]*?)(?=\n## )/)?.[1] || '';
     return !description.includes(STANDARD_EULA_URL);
   });

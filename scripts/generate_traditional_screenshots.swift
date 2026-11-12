@@ -190,8 +190,8 @@ private func render(_ slide: Slide, index: Int, outputDirectory: URL) throws {
 struct TraditionalScreenshotGenerator {
     static func main() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let raw = root.appendingPathComponent("store-assets/app-store/screenshots/raw/02-Chinese-Traditional/iphone-6.9")
-        let output = root.appendingPathComponent("store-assets/app-store/screenshots/final-traditional-chinese-v2")
+        let raw = root.appendingPathComponent("assets/store/app-store/screenshots/raw/02-Chinese-Traditional/iphone-6.9")
+        let output = root.appendingPathComponent("assets/store/app-store/screenshots/final-traditional-chinese-v2")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
         let slides = [

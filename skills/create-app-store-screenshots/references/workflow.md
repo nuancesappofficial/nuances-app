@@ -111,7 +111,7 @@ After automated checks, inspect full-resolution panels and a no-gap contact shee
 ## 7. Folder contract
 
 ```text
-store-assets/app-store/screenshots/
+assets/store/app-store/screenshots/
   raw/[locale]/iphone-6.9/[panel-feature]/...
   working/
     panorama/

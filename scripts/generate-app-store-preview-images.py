@@ -9,8 +9,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RAW_ROOT = ROOT / "store-assets/app-store/screenshots/raw"
-OUT_ROOT = ROOT / "store-assets/app-store/screenshots/preview"
+RAW_ROOT = ROOT / "assets/store/app-store/screenshots/raw"
+OUT_ROOT = ROOT / "assets/store/app-store/screenshots/preview"
 
 CANVAS_SIZE = (1290, 2796)
 FONT_REGULAR = "/System/Library/Fonts/SFNS.ttf"

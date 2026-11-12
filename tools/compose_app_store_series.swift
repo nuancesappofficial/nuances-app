@@ -157,8 +157,8 @@ guard CommandLine.arguments.count == 3 else {
 
 let root = CommandLine.arguments[1]
 let outputLanguage = CommandLine.arguments[2]
-let raw = "\(root)/store-assets/app-store/screenshots/raw/02-Chinese-Traditional/iphone-6.9"
-let reference = "\(root)/store-assets/app-store/screenshots/final-traditional-chinese"
+let raw = "\(root)/assets/store/app-store/screenshots/raw/02-Chinese-Traditional/iphone-6.9"
+let reference = "\(root)/assets/store/app-store/screenshots/final-traditional-chinese"
 let configs = [
     PanelConfig(index: 1, slug: "upload", title: "隨時上傳\n有空再學", subtitle: "圖片與文字先收著，想學時再處理", sourcePath: "\(raw)/01-capture/Simulator Screenshot - iPhone 17 Pro - 2026-07-23 at 14.32.07.png", highlightSourcePath: "\(raw)/01-capture/Simulator Screenshot - iPhone 17 Pro - 2026-07-23 at 14.32.07.png", highlightSourceTopRect: CGRect(x: 48, y: 2178, width: 1110, height: 165), highlightTop: 2383, highlightHeight: 180, titleTop: 190, subtitleTop: 545),
     PanelConfig(index: 2, slug: "select-word", title: "一指選字", subtitle: "長按照片上的單字，立即選取", sourcePath: "\(raw)/02-text-image-import/Simulator Screenshot - iPhone 17 Pro - 2026-07-23 at 14.37.22.png", highlightSourcePath: "\(raw)/02-text-image-import/Simulator Screenshot - iPhone 17 Pro - 2026-07-23 at 14.37.22.png", highlightSourceTopRect: CGRect(x: 76, y: 1220, width: 1054, height: 118), highlightTop: 1686, highlightHeight: 170, titleTop: 260, subtitleTop: 465),
@@ -173,8 +173,8 @@ let blue = NSColor(srgbRed: 0.05, green: 0.34, blue: 0.88, alpha: 1)
 let dark = NSColor(srgbRed: 0.04, green: 0.10, blue: 0.17, alpha: 1)
 
 for config in configs {
-    let backgroundPath = "\(root)/store-assets/app-store/screenshots/working/02-Chinese-Traditional/panorama-background/panels/\(String(format: "%02d", config.index))-background.png"
-    let layers = "\(root)/store-assets/app-store/screenshots/working/02-Chinese-Traditional/layers/\(String(format: "%02d", config.index))-\(config.slug)"
+    let backgroundPath = "\(root)/assets/store/app-store/screenshots/working/02-Chinese-Traditional/panorama-background/panels/\(String(format: "%02d", config.index))-background.png"
+    let layers = "\(root)/assets/store/app-store/screenshots/working/02-Chinese-Traditional/layers/\(String(format: "%02d", config.index))-\(config.slug)"
     try fm.createDirectory(atPath: layers, withIntermediateDirectories: true)
     try fm.createDirectory(atPath: outputLanguage, withIntermediateDirectories: true)
     let background = try load(backgroundPath)

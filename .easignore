@@ -43,7 +43,8 @@ Thumbs.db
 output/
 
 # Heavy assets not needed for building the binary
-store-assets/
+assets/store/
+assets/archive/
 qa/
 .scratch/
 promo-vids/
