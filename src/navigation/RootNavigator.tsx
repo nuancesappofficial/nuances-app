@@ -1142,7 +1142,10 @@ export default function RootNavigator({
           }
         }
 
-        subscription = query.observeCount().subscribe((nextCount) => setCacheBadgeCount(nextCount));
+        // Unthrottled: the default throttle keeps only the first change in each
+        // 250ms window, so a share-sheet ingest (one create per item) left the
+        // badge at 1 until some unrelated cache change came along.
+        subscription = query.observeCount(false).subscribe((nextCount) => setCacheBadgeCount(nextCount));
       } catch {
         if (!unsubscribed) {
           setCacheBadgeCount(0);
