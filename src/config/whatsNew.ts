@@ -3,6 +3,46 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.8': {
+    version: '1.3.8',
+    title: 'What’s New',
+    items: [
+      {
+        number: '1',
+        title: 'Improved share sheet notification time',
+      },
+    ],
+    localized: {
+      'zh-TW': {
+        title: '更新功能',
+        items: [{ number: '1', title: '分享選單的通知更快出現' }],
+      },
+      'zh-CN': {
+        title: '更新功能',
+        items: [{ number: '1', title: '分享菜单的通知更快出现' }],
+      },
+      'en': {
+        title: 'What’s New',
+        items: [{ number: '1', title: 'Improved share sheet notification time' }],
+      },
+      'ja': {
+        title: '新機能',
+        items: [{ number: '1', title: '共有メニューの通知がより早く表示されるように' }],
+      },
+      'ko': {
+        title: '새로운 기능',
+        items: [{ number: '1', title: '공유 메뉴 알림이 더 빨리 표시돼요' }],
+      },
+      'es': {
+        title: 'Novedades',
+        items: [{ number: '1', title: 'La notificación del menú de compartir aparece más rápido' }],
+      },
+      'fr': {
+        title: 'Nouveautés',
+        items: [{ number: '1', title: 'La notification du menu de partage s’affiche plus vite' }],
+      },
+    },
+  },
   '1.3.7': {
     version: '1.3.7',
     title: 'What’s New',
