@@ -13,13 +13,10 @@ import {
   hasPendingSharedContent,
 } from '../services/shareExtension/shareExtensionService';
 
-const FOREGROUND_SHARE_CHECK_MIN_INTERVAL_MS = 5000;
-
 export function useShareExtension(userId: string | null) {
   const appState = useRef(AppState.currentState);
   const delayedCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightCheckRef = useRef<Promise<void> | null>(null);
-  const lastForegroundCheckAtRef = useRef(0);
 
   const clearDelayedCheck = useCallback(() => {
     if (delayedCheckRef.current) {
@@ -65,13 +62,13 @@ export function useShareExtension(userId: string | null) {
 
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        const now = Date.now();
-        if (now - lastForegroundCheckAtRef.current < FOREGROUND_SHARE_CHECK_MIN_INTERVAL_MS) {
-          appState.current = nextAppState;
-          return;
-        }
-        lastForegroundCheckAtRef.current = now;
-        scheduleCheck('foreground', 900);
+        // Check right away: it is one local App Group read, and runCheck already
+        // collapses overlapping calls. The old 900ms delay held back the card drop
+        // and the 5s skip left a second quick share waiting for the next resume.
+        clearDelayedCheck();
+        appState.current = nextAppState;
+        void runCheck('foreground');
+        return;
       } else if (nextAppState !== 'active') {
         clearDelayedCheck();
       }
