@@ -94,7 +94,7 @@ class ShareViewController: UIViewController {
     private let maxTextLength = 2000
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
-    private let slowLoadingNoticeDelay: TimeInterval = 0.5
+    private let slowLoadingNoticeDelay: TimeInterval = 1.5
     // One id per share, so a later message replaces the earlier one in place.
     private let receiptNotificationID = "nuances-share-receipt-\(UUID().uuidString)"
 
