@@ -1,16 +1,21 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Reanimated, { FadeIn } from 'react-native-reanimated';
+import { FadeWhen } from '../shared/FadeWhen';
 import { Ionicons } from '@expo/vector-icons';
 import { tUI, type UILanguage } from '../../../i18n/uiLanguage';
 import type { StructuredInsiderInsight } from '../../../features/cards/culturalBackgroundInsight';
-import { DEMO_GHOST_TEXT_UPDATE_INTERVAL_MS } from '../../../features/createCard/ghostAnimationTiming';
+import { colorWithAlpha, countRevealTokens, splitRevealBands } from '../../../features/createCard/steadyReveal';
+import { useSteadyReveal } from '../../../features/createCard/useSteadyReveal';
+import { renderRevealRuns } from '../shared/revealRuns';
 
 export type StructuredInsiderInsightUIProps = {
   insight: StructuredInsiderInsight;
   isExpanded: boolean;
   onToggleExpand?: () => void;
   showToggle?: boolean;
+  /** Keep the toggle row's space from the start (invisible until showToggle) so it never pushes content down. */
+  reserveToggleSpace?: boolean;
   textColor: string;
   secondaryTextColor: string;
   /** Colour for the core hook line and highlighted English terms (defaults to textColor). */
@@ -79,6 +84,14 @@ function splitTextForHighlight(text: string): Array<{ text: string; isHighlighte
   return parts;
 }
 
+// Text exactly as BentoCardItem lays it out (highlighted terms are trimmed).
+function bulletDisplaySegments(body: string): Array<{ text: string; isBold: boolean }> {
+  return splitTextForHighlight(body).map((seg) => ({
+    text: seg.isHighlighted ? seg.text.trim() : seg.text,
+    isBold: seg.isHighlighted,
+  }));
+}
+
 type BentoPalette = {
   icon: string;
   surface: string;
@@ -94,14 +107,31 @@ const BentoCardItem: React.FC<{
   textColor: string;
   bodyFontSize: number;
   bodyLineHeight: number;
+  /** Reveal position in characters; undefined shows everything. Unrevealed text stays laid out, transparent. */
+  revealPos?: number;
+  fadeChars?: number;
 }> = React.memo(({
   bullet,
   palette,
   textColor,
   bodyFontSize,
   bodyLineHeight,
+  revealPos,
+  fadeChars = 1,
 }) => {
-  const segments = React.useMemo(() => splitTextForHighlight(bullet.body), [bullet.body]);
+  const displaySegments = React.useMemo(() => bulletDisplaySegments(bullet.body), [bullet.body]);
+  const runs = React.useMemo(
+    () =>
+      renderRevealRuns(splitRevealBands(displaySegments, revealPos ?? Number.MAX_SAFE_INTEGER, fadeChars), {
+        color: textColor,
+        boldStyle: (alpha) => ({
+          ...styles.termHighlight,
+          color: colorWithAlpha(palette.emphasisText, alpha),
+        }),
+        keyPrefix: 'seg',
+      }),
+    [displaySegments, fadeChars, palette.emphasisText, revealPos, textColor]
+  );
 
   return (
     <View
@@ -128,18 +158,7 @@ const BentoCardItem: React.FC<{
           },
         ]}
       >
-        {segments.map((seg, sIdx) =>
-          seg.isHighlighted ? (
-            <Text
-              key={`seg-${sIdx}`}
-              style={[styles.termHighlight, { color: palette.emphasisText }]}
-            >
-              {seg.text.trim()}
-            </Text>
-          ) : (
-            seg.text
-          )
-        )}
+        {runs}
       </Text>
     </View>
   );
@@ -150,6 +169,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   isExpanded,
   onToggleExpand,
   showToggle = false,
+  reserveToggleSpace = false,
   textColor,
   secondaryTextColor,
   emphasisTextColor,
@@ -190,124 +210,47 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
         ? (uiLanguage.startsWith('zh') ? '展開背景與辨析' : tUI(uiLanguage as UILanguage, 'cardDetail.showFullContent'))
         : tUI(uiLanguage as UILanguage, 'cardDetail.showFullContent'));
 
-  // Character units breakdown for sequential typewriter (only active if animate === true)
-  const hookUnits = React.useMemo(() => (animate ? Array.from(hookText || '') : []), [animate, hookText]);
-  const bulletUnitsList = React.useMemo(
-    () => (animate ? detailBullets.map((b) => Array.from(b.body || '')) : []),
-    [animate, detailBullets]
+  // Web-LLM style reveal across hook + bullets: one steady pace, a soft fading
+  // edge, and everything laid out at full size from the start (unrevealed text
+  // is transparent), so this section never changes height while it reveals.
+  const bulletTexts = React.useMemo(
+    () => detailBullets.map((b) => bulletDisplaySegments(b.body || '').map((seg) => seg.text).join('')),
+    [detailBullets]
   );
-  const totalTargetUnits = React.useMemo(() => {
-    if (!animate) return 0;
-    return hookUnits.length + bulletUnitsList.reduce((acc, list) => acc + list.length, 0);
-  }, [animate, hookUnits.length, bulletUnitsList]);
-
-  const [visibleUnitsCount, setVisibleUnitsCount] = React.useState(
-    animate && active ? 0 : totalTargetUnits
+  const revealText = React.useMemo(() => (hookText || '') + bulletTexts.join(''), [bulletTexts, hookText]);
+  const { pos, fadeChars } = useSteadyReveal({
+    text: revealText,
+    active,
+    animate,
+    isStreamComplete,
+    onComplete,
+  });
+  const revealPos = animate ? (active ? pos : 0) : Number.MAX_SAFE_INTEGER;
+  // Reveal positions are in tokens (words / CJK characters): each bullet starts
+  // after the tokens of the hook and the bullets before it.
+  const bulletOffsets = React.useMemo(() => {
+    let prefix = hookText || '';
+    return bulletTexts.map((t) => {
+      const start = countRevealTokens(prefix);
+      prefix += t;
+      return start;
+    });
+  }, [bulletTexts, hookText]);
+  const hookRuns = React.useMemo(
+    () =>
+      renderRevealRuns(splitRevealBands([{ text: hookText || '', isBold: false }], revealPos, fadeChars), {
+        color: emphasisColor,
+        boldStyle: () => ({}),
+        keyPrefix: 'hook',
+      }),
+    [emphasisColor, fadeChars, hookText, revealPos]
   );
-  const visibleCountRef = React.useRef(visibleUnitsCount);
-  const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const targetUnitsRef = React.useRef(totalTargetUnits);
-  targetUnitsRef.current = totalTargetUnits;
-
-  const onCompleteRef = React.useRef(onComplete);
-  onCompleteRef.current = onComplete;
-  const isStreamCompleteRef = React.useRef(isStreamComplete);
-  isStreamCompleteRef.current = isStreamComplete;
-  const hasTriggeredCompleteRef = React.useRef(false);
-
-  const stopRevealTimer = React.useCallback(() => {
-    if (!intervalRef.current) return;
-    clearInterval(intervalRef.current);
-    intervalRef.current = null;
-  }, []);
-
-  const checkAndTriggerCompletion = React.useCallback(() => {
-    if (
-      !hasTriggeredCompleteRef.current &&
-      targetUnitsRef.current > 0 &&
-      visibleCountRef.current >= targetUnitsRef.current &&
-      isStreamCompleteRef.current
-    ) {
-      hasTriggeredCompleteRef.current = true;
-      onCompleteRef.current?.();
-    }
-  }, []);
-
-  const startRevealTimer = React.useCallback(() => {
-    if (intervalRef.current) return;
-    intervalRef.current = setInterval(() => {
-      const targetLength = targetUnitsRef.current;
-      const current = visibleCountRef.current;
-      if (current >= targetLength) {
-        stopRevealTimer();
-        checkAndTriggerCompletion();
-        return;
-      }
-      const remaining = targetLength - current;
-      const step = remaining > 80 ? 6 : remaining > 30 ? 3 : remaining > 10 ? 2 : 1;
-      const next = Math.min(targetLength, current + step);
-      visibleCountRef.current = next;
-      setVisibleUnitsCount(next);
-      if (next >= targetLength) {
-        stopRevealTimer();
-        checkAndTriggerCompletion();
-      }
-    }, DEMO_GHOST_TEXT_UPDATE_INTERVAL_MS);
-  }, [checkAndTriggerCompletion, stopRevealTimer]);
-
-  React.useEffect(() => {
-    if (!animate) return;
-    if (!active) {
-      stopRevealTimer();
-      visibleCountRef.current = 0;
-      setVisibleUnitsCount(0);
-      hasTriggeredCompleteRef.current = false;
-      return;
-    }
-
-    if (totalTargetUnits > visibleCountRef.current) {
-      hasTriggeredCompleteRef.current = false;
-    }
-
-    startRevealTimer();
-  }, [active, animate, checkAndTriggerCompletion, startRevealTimer, stopRevealTimer, totalTargetUnits]);
-
-  React.useEffect(() => {
-    if (!animate) return;
-    checkAndTriggerCompletion();
-  }, [animate, checkAndTriggerCompletion, isStreamComplete]);
-
-  React.useEffect(() => {
-    if (!animate) return;
-    return stopRevealTimer;
-  }, [animate, stopRevealTimer]);
-
-  // Compute partial texts according to visibleUnitsCount
-  const visibleHookText = animate
-    ? hookUnits.slice(0, Math.min(hookUnits.length, visibleUnitsCount)).join('')
-    : hookText;
-
-  const visibleBullets = React.useMemo(() => {
-    if (!animate) return detailBullets;
-    let unitsLeft = Math.max(0, visibleUnitsCount - hookUnits.length);
-    return detailBullets
-      .map((bullet, idx) => {
-        const bodyUnits = bulletUnitsList[idx] || [];
-        if (unitsLeft <= 0) return null;
-        const sliceCount = Math.min(bodyUnits.length, unitsLeft);
-        unitsLeft -= bodyUnits.length;
-        return {
-          ...bullet,
-          body: bodyUnits.slice(0, sliceCount).join(''),
-        };
-      })
-      .filter((b): b is NonNullable<typeof b> => b !== null);
-  }, [animate, visibleUnitsCount, detailBullets, hookUnits.length, bulletUnitsList]);
+  const showToggleRow = Boolean(hasBullets && onToggleExpand && (showToggle || reserveToggleSpace));
 
   return (
     <View style={styles.container}>
       {/* 1. Core Hook Text */}
-      {visibleHookText ? (
+      {hookText ? (
         <Text
           style={[
             styles.hookText,
@@ -315,45 +258,51 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
               color: emphasisColor,
               fontSize: hookFontSize,
               lineHeight: hookLineHeight,
-              marginBottom: isExpanded && hasBullets && visibleBullets.length > 0 ? 10 : 0,
+              marginBottom: isExpanded && hasBullets ? 10 : 0,
             },
           ]}
           numberOfLines={!isExpanded && hasBullets ? collapsedLines : undefined}
           ellipsizeMode="tail"
         >
-          {visibleHookText}
+          {hookRuns}
         </Text>
       ) : null}
 
       {/* 2. Style B Bento Micro-Cards (Expanded View) */}
-      {isExpanded && visibleBullets.length > 0 ? (
-        <Reanimated.View entering={FadeIn.duration(260)} style={styles.bulletsList}>
-          {visibleBullets.map((bullet, index) => {
+      {isExpanded && hasBullets ? (
+        <Reanimated.View entering={animate ? undefined : FadeIn.duration(260)} style={styles.bulletsList}>
+          {detailBullets.map((bullet, index) => {
             const themeKey = getBentoTheme(bullet, index);
             const palette = bentoColors[themeKey];
+            const bulletPos = revealPos - (bulletOffsets[index] ?? 0);
 
             return (
-              <BentoCardItem
-                key={`bullet-${index}-${bullet.label || ''}`}
-                bullet={bullet}
-                palette={palette}
-                textColor={textColor}
-                bodyFontSize={bodyFontSize}
-                bodyLineHeight={bodyLineHeight}
-              />
+              <FadeWhen key={`bullet-${index}-${bullet.label || ''}`} visible={!animate || bulletPos > 0}>
+                <BentoCardItem
+                  bullet={bullet}
+                  palette={palette}
+                  textColor={textColor}
+                  bodyFontSize={bodyFontSize}
+                  bodyLineHeight={bodyLineHeight}
+                  revealPos={animate ? bulletPos : undefined}
+                  fadeChars={fadeChars}
+                />
+              </FadeWhen>
             );
           })}
         </Reanimated.View>
       ) : null}
 
-      {/* 3. Collapse/Expand Toggle Switch */}
-      {showToggle && hasBullets && onToggleExpand ? (
+      {/* 3. Collapse/Expand Toggle Switch (space kept from the start when reserveToggleSpace) */}
+      {showToggleRow ? (
         <Pressable
-          style={styles.toggleRow}
+          style={[styles.toggleRow, !showToggle ? styles.toggleRowReserved : null]}
           onPress={onToggleExpand}
+          disabled={!showToggle}
           hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
           accessibilityRole="button"
           accessibilityLabel={toggleLabel}
+          accessibilityElementsHidden={!showToggle}
         >
           <Text style={[styles.toggleText, { color: secondaryTextColor }]}>
             {toggleLabel}
@@ -373,6 +322,14 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+  },
+  hiddenText: {
+    color: 'transparent',
+    backgroundColor: 'transparent',
+    textDecorationLine: 'none',
+  },
+  toggleRowReserved: {
+    opacity: 0,
   },
   hookText: {
     fontWeight: '500',

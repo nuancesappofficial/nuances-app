@@ -15,13 +15,16 @@ import { Ionicons } from '@expo/vector-icons';
 import type { UILanguage } from '@services/settings/userSettings';
 import { captureRef } from 'react-native-view-shot';
 import Reanimated, {
+  Easing,
   FadeIn,
   FadeOut,
   cancelAnimation,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import {
@@ -37,9 +40,12 @@ import { StructuredInsiderInsightUI } from '../DeckScreenUI/StructuredInsiderIns
 import {
   buildProgressiveSentenceSegments,
   quoteLearningTermInText,
-  sliceSegmentsByCharacterCount,
 } from '../../../features/cards/learningTermQuotes';
 import { isPhraseLikeCardSubject, isSameCardUsage } from '../../../features/cards/cardUsage';
+import { colorWithAlpha, splitRevealBands } from '../../../features/createCard/steadyReveal';
+import { useSteadyReveal } from '../../../features/createCard/useSteadyReveal';
+import { renderRevealRuns } from '../shared/revealRuns';
+import { FadeWhen } from '../shared/FadeWhen';
 import { parseSemanticRelations } from '../../../features/cards/semanticRelations';
 import { tUI } from '../../../i18n/uiLanguage';
 import { formatPartOfSpeechLabel } from '../../../i18n/partOfSpeech';
@@ -48,8 +54,14 @@ import { useAppIsActive } from '../../../hooks/useAppIsActive';
 import {
   DEMO_GHOST_PREVIEW_TYPE_INTERVAL_MS,
   DEMO_GHOST_PREVIEW_TYPE_TAIL_MS,
-  DEMO_GHOST_TEXT_UPDATE_INTERVAL_MS,
 } from '../../../features/createCard/ghostAnimationTiming';
+
+// Pause after the context section finishes revealing, before panning to page 2.
+const CONTEXT_READ_PAUSE_MS = 1400;
+// Longest wait on page 1 for the rest of the card data before moving on anyway.
+const CONTEXT_DATA_WAIT_MAX_MS = 6000;
+// Synonym / antonym chips fade in one after another.
+const SEMANTIC_CHIP_STAGGER_MS = 140;
 
 export type GhostPreviewCard = {
   displayWord: string;
@@ -252,6 +264,64 @@ function getGhostCardTone(params: {
 // brand underline, no italic / coloured text.
 type TargetWordHighlight = { fg: string; bg: string; line: string };
 
+// Skeleton slider: the handle and its filled track drift back and forth, so
+// the loading state reads as "measuring" rather than a frozen placeholder.
+function SkeletonLeverTrack({
+  color,
+  thumbFill,
+  from,
+  to,
+  delayMs,
+  durationMs,
+  animate,
+}: {
+  color: string;
+  thumbFill: string;
+  from: number;
+  to: number;
+  delayMs: number;
+  durationMs: number;
+  animate: boolean;
+}) {
+  const progress = useSharedValue(from);
+  const [width, setWidth] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!animate) {
+      progress.value = (from + to) / 2;
+      return;
+    }
+    const ease = Easing.inOut(Easing.cubic);
+    progress.value = withDelay(
+      delayMs,
+      withRepeat(
+        withSequence(
+          withTiming(to, { duration: durationMs, easing: ease }),
+          withTiming(from, { duration: durationMs, easing: ease })
+        ),
+        -1,
+        false
+      )
+    );
+    return () => cancelAnimation(progress);
+  }, [animate, delayMs, durationMs, from, progress, to]);
+
+  const fillStyle = useAnimatedStyle(() => ({ width: progress.value * width }));
+  const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * width - 6 }] }));
+
+  return (
+    <View
+      style={[styles.contextSkeletonTrack, { backgroundColor: colorWithAlpha(color, 0.45) }]}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+    >
+      <Reanimated.View style={[styles.contextSkeletonFill, { backgroundColor: color }, fillStyle]} />
+      <Reanimated.View
+        style={[styles.contextSkeletonThumb, { borderColor: color, backgroundColor: thumbFill }, thumbStyle]}
+      />
+    </View>
+  );
+}
+
 function ProgressiveText({
   text,
   highlightTerm,
@@ -277,160 +347,39 @@ function ProgressiveText({
     () => buildProgressiveSentenceSegments(text, highlightTerm),
     [text, highlightTerm]
   );
-  const textUnits = React.useMemo(() => Array.from(cleanText), [cleanText]);
-  const targetUnitsRef = React.useRef(textUnits);
-  const previousTextRef = React.useRef(cleanText);
-  const initialVisibleCount = active && !animate ? textUnits.length : 0;
-  const visibleCountRef = React.useRef(initialVisibleCount);
-  const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const [visibleCount, setVisibleCount] = React.useState(initialVisibleCount);
-
-  const onCompleteRef = React.useRef(onComplete);
-  onCompleteRef.current = onComplete;
-  const isStreamCompleteRef = React.useRef(isStreamComplete);
-  isStreamCompleteRef.current = isStreamComplete;
-  const hasTriggeredCompleteRef = React.useRef(false);
-
-  const stopRevealTimer = React.useCallback(() => {
-    if (!intervalRef.current) return;
-    clearInterval(intervalRef.current);
-    intervalRef.current = null;
-  }, []);
-
-  const setVisibleCountSynced = React.useCallback((next: number) => {
-    visibleCountRef.current = next;
-    setVisibleCount(next);
-  }, []);
-
-  const checkAndTriggerCompletion = React.useCallback(() => {
-    if (
-      !hasTriggeredCompleteRef.current &&
-      targetUnitsRef.current.length > 0 &&
-      visibleCountRef.current >= targetUnitsRef.current.length &&
-      isStreamCompleteRef.current
-    ) {
-      hasTriggeredCompleteRef.current = true;
-      onCompleteRef.current?.();
-    }
-  }, []);
-
-  const startRevealTimer = React.useCallback(() => {
-    if (intervalRef.current) return;
-    intervalRef.current = setInterval(() => {
-      const targetLength = targetUnitsRef.current.length;
-      const current = visibleCountRef.current;
-      if (current >= targetLength) {
-        stopRevealTimer();
-        checkAndTriggerCompletion();
-        return;
-      }
-      const remaining = targetLength - current;
-      const step = remaining > 80 ? 6 : remaining > 30 ? 3 : remaining > 10 ? 2 : 1;
-      const next = Math.min(targetLength, current + step);
-      setVisibleCountSynced(next);
-      if (next >= targetLength) {
-        stopRevealTimer();
-        checkAndTriggerCompletion();
-      }
-    }, DEMO_GHOST_TEXT_UPDATE_INTERVAL_MS);
-  }, [checkAndTriggerCompletion, setVisibleCountSynced, stopRevealTimer]);
-
-  React.useEffect(() => {
-    const previousText = previousTextRef.current;
-    targetUnitsRef.current = textUnits;
-    previousTextRef.current = cleanText;
-
-    if (!active) {
-      stopRevealTimer();
-      setVisibleCountSynced(0);
-      hasTriggeredCompleteRef.current = false;
-      return;
-    }
-
-    if (textUnits.length > visibleCountRef.current) {
-      hasTriggeredCompleteRef.current = false;
-    }
-
-    if (!animate) {
-      stopRevealTimer();
-      setVisibleCountSynced(textUnits.length);
-      checkAndTriggerCompletion();
-      return;
-    }
-
-    if (textUnits.length === 0) {
-      stopRevealTimer();
-      setVisibleCountSynced(0);
-      return;
-    }
-
-    // Streaming appends should preserve everything already revealed. If the
-    // final normalized value differs, retain only its unchanged prefix.
-    if (!cleanText.startsWith(previousText)) {
-      const previousUnits = Array.from(previousText);
-      let commonPrefixLength = 0;
-      while (
-        commonPrefixLength < previousUnits.length &&
-        commonPrefixLength < textUnits.length &&
-        previousUnits[commonPrefixLength] === textUnits[commonPrefixLength]
-      ) {
-        commonPrefixLength += 1;
-      }
-      setVisibleCountSynced(
-        Math.min(visibleCountRef.current, commonPrefixLength)
-      );
-    }
-
-    startRevealTimer();
-    checkAndTriggerCompletion();
-  }, [
+  // One steady pace with a soft fading edge (web-LLM style). The full text is
+  // always laid out; unrevealed characters are transparent, so nothing moves.
+  const { pos, fadeChars } = useSteadyReveal({
+    text: cleanText,
     active,
     animate,
-    checkAndTriggerCompletion,
-    cleanText,
-    setVisibleCountSynced,
-    startRevealTimer,
-    stopRevealTimer,
-    textUnits,
-  ]);
+    isStreamComplete,
+    onComplete,
+  });
+  const baseColor = React.useMemo(() => StyleSheet.flatten(style)?.color as string | undefined, [style]);
 
-  React.useEffect(() => {
-    checkAndTriggerCompletion();
-  }, [checkAndTriggerCompletion, isStreamComplete]);
-
-  React.useEffect(() => stopRevealTimer, [stopRevealTimer]);
-
-  const isSegmented = segments.length > 1 || Boolean(segments[0]?.isBold);
-
-  const renderedContent = React.useMemo(() => {
-    if (!active) return '';
-    if (!isSegmented) {
-      return textUnits.slice(0, visibleCount).join('');
-    }
-    const sliced = sliceSegmentsByCharacterCount(segments, visibleCount);
-    return sliced.map((seg, i) =>
-      seg.isBold ? (
-        <Text
-          key={`bold-${i}-${seg.text}`}
-          style={
-            highlight
-              ? {
-                  fontWeight: '800',
-                  color: highlight.fg,
-                  backgroundColor: highlight.bg,
-                  textDecorationLine: 'underline',
-                  textDecorationColor: highlight.line,
-                }
-              : { fontWeight: '800' }
+  const boldStyle = React.useCallback(
+    (alpha: number) =>
+      highlight
+        ? {
+            fontWeight: '800' as const,
+            color: colorWithAlpha(highlight.fg, alpha),
+            backgroundColor: colorWithAlpha(highlight.bg, alpha),
+            textDecorationLine: 'underline' as const,
+            textDecorationColor: colorWithAlpha(highlight.line, alpha),
           }
-        >
-          {seg.text}
-        </Text>
-      ) : (
-        seg.text
-      )
-    );
-  }, [active, isSegmented, segments, visibleCount, textUnits, highlight]);
+        : { fontWeight: '800' as const },
+    [highlight]
+  );
+
+  const renderedContent = React.useMemo(
+    () =>
+      renderRevealRuns(splitRevealBands(segments, active ? pos : 0, fadeChars), {
+        color: baseColor,
+        boldStyle,
+      }),
+    [active, baseColor, boldStyle, fadeChars, pos, segments]
+  );
 
   return (
     <FixedText {...textProps} style={style}>
@@ -464,6 +413,11 @@ function TypedItemLines({
     }
   }, [active]);
 
+  // Without animation every line shows at once. Revealing them one effect at a
+  // time (line 1 completes -> line 2 activates ...) left the lower lines
+  // transparent for a few frames when the finished card mounted: a flicker.
+  const shownIndex = animate ? revealIndex : lines.length;
+
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
   const linesLengthRef = React.useRef(lines.length);
@@ -495,7 +449,7 @@ function TypedItemLines({
             <ProgressiveText
               key={`typed-line-${i}`}
               text={line.text}
-              active={active && i <= revealIndex}
+              active={active && i <= shownIndex}
               animate={animate}
               isStreamComplete={i < lines.length - 1 ? true : isStreamComplete}
               onComplete={() => {
@@ -535,6 +489,7 @@ export function CreateCardGhostPreviewScene({
   onToggleFavorite,
   onOpenAlbumSheet,
   onSecondPageLayout,
+  onBackRevealStart,
   onSequentialRevealComplete,
 }: {
   processingWord: string;
@@ -558,6 +513,8 @@ export function CreateCardGhostPreviewScene({
   onToggleFavorite?: () => void;
   onOpenAlbumSheet?: () => void;
   onSecondPageLayout?: (event: LayoutChangeEvent) => void;
+  /** Fired once when the reveal moves on to the second page (back of the card). */
+  onBackRevealStart?: () => void;
   onSequentialRevealComplete?: () => void;
 }) {
   const frontCaptureRef = React.useRef<View | null>(null);
@@ -785,7 +742,7 @@ export function CreateCardGhostPreviewScene({
       if (previewSemanticRelationItems.length > 0) {
         const timer = setTimeout(() => {
           setStreamStage((current) => (current === 'semantic' ? 'example' : current));
-        }, 280);
+        }, Math.max(280, 120 + previewSemanticRelationItems.length * SEMANTIC_CHIP_STAGGER_MS + 200));
         return () => clearTimeout(timer);
       }
       if (isSemanticStreamComplete && previewSemanticRelationItems.length === 0) {
@@ -835,9 +792,29 @@ export function CreateCardGhostPreviewScene({
     setStreamStage((current) => (current === 'trans' ? 'cultural' : current));
   }, []);
 
+  // Move on to page 2 only when (a) the reader had a moment with the finished
+  // context section and (b) all card data has arrived, so page 2 is laid out at
+  // its final size and the screen needs a single move (no growth afterwards).
+  const [culturalDoneAt, setCulturalDoneAt] = React.useState<number | null>(null);
   const handleCulturalComplete = React.useCallback(() => {
-    setStreamStage((current) => (current === 'cultural' ? 'colloc' : current));
+    setCulturalDoneAt((current) => current ?? Date.now());
   }, []);
+  React.useEffect(() => {
+    if (culturalDoneAt === null || streamStage !== 'cultural') return;
+    const waitedMs = Date.now() - culturalDoneAt;
+    const dataReady = isNetworkStreamFinished;
+    // Never stall on page 1 for long if the network is slow.
+    const delay = dataReady
+      ? Math.max(0, CONTEXT_READ_PAUSE_MS - waitedMs)
+      : Math.max(0, CONTEXT_DATA_WAIT_MAX_MS - waitedMs);
+    const timer = setTimeout(() => {
+      setStreamStage((current) => (current === 'cultural' ? 'colloc' : current));
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [culturalDoneAt, isNetworkStreamFinished, streamStage]);
+  React.useEffect(() => {
+    if (streamStage === 'init') setCulturalDoneAt(null);
+  }, [streamStage]);
 
   const handleCollocComplete = React.useCallback(() => {
     setStreamStage((current) => (current === 'colloc' ? 'semantic' : current));
@@ -921,6 +898,11 @@ export function CreateCardGhostPreviewScene({
 
   const isThinking = effectivePhase === 'frontThinking';
   const backVisible = effectivePhase === 'backReveal' || effectivePhase === 'complete';
+  const onBackRevealStartRef = React.useRef(onBackRevealStart);
+  onBackRevealStartRef.current = onBackRevealStart;
+  React.useEffect(() => {
+    if (backVisible) onBackRevealStartRef.current?.();
+  }, [backVisible]);
   const shouldAnimateText =
     !reduceMotion && (streamingText || effectivePhase !== 'complete');
   const canPlayWord = Boolean(onPlayWord && previewWord.trim());
@@ -948,6 +930,103 @@ export function CreateCardGhostPreviewScene({
   const animatedSkeletonPulseStyle = useAnimatedStyle(() => ({
     opacity: 0.4 + pulse.value * 0.45,
   }));
+
+  const hasContextData =
+    Boolean(previewCulturalInsight) ||
+    Boolean(previewStructuredInsight.hookText && culturalDisplayText !== statusText) ||
+    effectiveRevealState.showBackCultural;
+  const isContextShowing = effectivePhase === 'complete' || effectiveRevealState.showBackCultural;
+  const skeletonBar = (width: `${number}%`, height: number, extra?: object) => (
+    <Reanimated.View
+      style={[styles.skeletonTextLine, { width, height, backgroundColor: tone.skeletonBlock }, extra, animatedSkeletonPulseStyle]}
+    />
+  );
+  // Mirrors the real context section (NuanceMetricsLeverUI + StructuredInsiderInsightUI):
+  // two lever rows (label · track with thumb · label · score badge), a two-line
+  // hook, two grey bento boxes (small label + three body lines), the toggle row.
+  const bentoSurface = isLight ? '#F4F5F7' : '#1F2834';
+  const skeletonLeverRow = (
+    lever: { from: number; to: number; delayMs: number; durationMs: number },
+    marginTop = 0
+  ) => (
+    <View style={[styles.contextSkeletonLeverRow, { marginTop }]}>
+      {skeletonBar('100%', 8, styles.contextSkeletonAxis)}
+      <SkeletonLeverTrack
+        color={tone.skeletonBlock}
+        thumbFill={palette.containerBg}
+        from={lever.from}
+        to={lever.to}
+        delayMs={lever.delayMs}
+        durationMs={lever.durationMs}
+        animate={!reduceMotion}
+      />
+      {skeletonBar('100%', 8, styles.contextSkeletonAxis)}
+      {skeletonBar('100%', 18, styles.contextSkeletonBadge)}
+    </View>
+  );
+  const skeletonBento = (lastLineWidth: `${number}%`) => (
+    <View style={[styles.contextSkeletonBento, { backgroundColor: bentoSurface }]}>
+      {skeletonBar('34%', 9, { marginBottom: 9 })}
+      {skeletonBar('96%', 12, styles.contextSkeletonBodyLine)}
+      {skeletonBar('90%', 12, styles.contextSkeletonBodyLine)}
+      {skeletonBar(lastLineWidth, 12, styles.contextSkeletonBodyLine)}
+    </View>
+  );
+  // Which lever rows the real section will have. Unknown until the data
+  // arrives (show both); some words have no formality / intensity at all.
+  const skeletonLevers = previewCulturalInsight
+    ? {
+        formality: previewCulturalInsight.metrics.formality != null,
+        intensity: previewCulturalInsight.metrics.intensity != null,
+      }
+    : { formality: true, intensity: true };
+  const renderContextSkeleton = () => (
+    <View>
+      {skeletonLevers.formality || skeletonLevers.intensity ? (
+        <View style={styles.contextSkeletonLevers}>
+          {/* Different ranges and timing per row, so the two handles never move in sync. */}
+          {skeletonLevers.formality
+            ? skeletonLeverRow({ from: 0.25, to: 0.72, delayMs: 0, durationMs: 2300 })
+            : null}
+          {skeletonLevers.intensity
+            ? skeletonLeverRow(
+                { from: 0.62, to: 0.3, delayMs: 400, durationMs: 2700 },
+                skeletonLevers.formality ? 10 : 0
+              )
+            : null}
+        </View>
+      ) : null}
+      <View style={styles.contextSkeletonHook}>
+        {skeletonBar('94%', 15, styles.contextSkeletonHookLine)}
+        {skeletonBar('68%', 15, styles.contextSkeletonHookLine)}
+      </View>
+      <View style={styles.contextSkeletonBentoList}>
+        {skeletonBento('58%')}
+        {skeletonBento('72%')}
+      </View>
+      {skeletonBar('26%', 11, styles.contextSkeletonToggle)}
+    </View>
+  );
+  // While streaming, page 2 keeps a skeleton until all of its data has arrived
+  // (partial data would lay it out small and then grow).
+  const showBackSkeleton = Boolean(streamingText) && !isNetworkStreamFinished && !backVisible;
+  // Page 2 before its data arrives: about its final size, so it does not grow.
+  const renderBackSkeleton = () => (
+    <View style={styles.backSkeleton}>
+      {skeletonBar('26%', 10)}
+      {skeletonBar('80%', 16)}
+      {skeletonBar('50%', 12)}
+      {skeletonBar('26%', 10, { marginTop: 14 })}
+      <View style={styles.backSkeletonChips}>
+        {skeletonBar('46%', 48, { borderRadius: 14 })}
+        {skeletonBar('46%', 48, { borderRadius: 14 })}
+      </View>
+      {skeletonBar('26%', 10, { marginTop: 14 })}
+      {skeletonBar('96%', 16)}
+      {skeletonBar('88%', 16)}
+      {skeletonBar('60%', 12)}
+    </View>
+  );
 
   const captureFacePreview = React.useCallback(async (face: 'front' | 'back') => {
     const ref = face === 'front' ? frontCaptureRef.current : backCaptureRef.current;
@@ -1175,56 +1254,61 @@ export function CreateCardGhostPreviewScene({
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.context')}
             </FixedText>
-            {isThinking && !previewCulturalInsight && !effectiveRevealState.showBackCultural ? (
-              <View style={styles.skeletonMetricsBlock}>
-                <Reanimated.View
-                  style={[
-                    styles.skeletonTextLine,
-                    { width: '84%', height: 14, backgroundColor: tone.skeletonBlock },
-                    animatedSkeletonPulseStyle,
-                  ]}
-                />
-                <Reanimated.View
-                  style={[
-                    styles.skeletonTextLine,
-                    { width: '58%', height: 14, backgroundColor: tone.skeletonBlock, marginTop: 8 },
-                    animatedSkeletonPulseStyle,
-                  ]}
-                />
-              </View>
-            ) : (
-              <>
-                {previewCulturalInsight && (effectivePhase === 'complete' || effectiveRevealState.showBackCultural) ? (
-                  <NuanceMetricsLeverUI
-                    formality={previewCulturalInsight.metrics.formality}
-                    intensity={previewCulturalInsight.metrics.intensity}
-                    ui={{
-                      noteText: palette.textOnContainer,
-                      secondaryText: palette.secondaryText,
-                      divider: tone.divider,
-                    }}
-                    animate={shouldAnimateText}
-                  />
+            {hasContextData ? (
+              <View>
+                {/* Laid out as soon as the data exists and faded in on its turn, so
+                    this section reaches its final height once instead of growing. */}
+                {previewCulturalInsight ? (
+                  <FadeWhen visible={effectivePhase === 'complete' || effectiveRevealState.showBackCultural}>
+                    <NuanceMetricsLeverUI
+                      formality={previewCulturalInsight.metrics.formality}
+                      intensity={previewCulturalInsight.metrics.intensity}
+                      ui={{
+                        noteText: palette.textOnContainer,
+                        secondaryText: palette.secondaryText,
+                        divider: tone.divider,
+                      }}
+                      animate={shouldAnimateText && effectiveRevealState.showBackCultural}
+                    />
+                  </FadeWhen>
                 ) : null}
-                {effectiveRevealState.showBackCultural ? (
+                {effectiveRevealState.showBackCultural ||
+                (previewStructuredInsight.hookText && culturalDisplayText !== statusText) ? (
                   <StructuredInsiderInsightUI
                     insight={previewStructuredInsight}
                     isExpanded={isGhostContextExpanded}
                     onToggleExpand={() => setIsGhostContextExpanded((prev) => !prev)}
                     showToggle={effectivePhase === 'complete' || isCulturalStreamComplete}
+                    reserveToggleSpace
                     textColor={palette.textOnContainer}
                     secondaryTextColor={palette.secondaryText}
                     uiLanguage={uiLanguage}
                     isLight={isLight}
                     contentScale={1}
                     collapsedLines={2}
-                    animate={shouldAnimateText && streamStage === 'cultural'}
+                    animate={
+                      shouldAnimateText &&
+                      (streamStage === 'cultural' || !effectiveRevealState.showBackCultural)
+                    }
                     active={effectiveRevealState.showBackCultural}
                     isStreamComplete={isCulturalStreamComplete}
                     onComplete={handleCulturalComplete}
                   />
                 ) : null}
-              </>
+                {/* Loading skeleton stays on top until the context section's turn,
+                    over the already laid-out (still invisible) content. */}
+                <FadeWhen
+                  visible={!isContextShowing}
+                  duration={260}
+                  style={[StyleSheet.absoluteFill, styles.contextSkeletonOverlay]}
+                >
+                  {renderContextSkeleton()}
+                </FadeWhen>
+              </View>
+            ) : (
+              // No data yet: a skeleton at about the final size keeps the card
+              // from shrinking now and expanding later.
+              <View style={styles.contextSkeletonInFlow}>{renderContextSkeleton()}</View>
             )}
           </View>
 
@@ -1307,11 +1391,17 @@ export function CreateCardGhostPreviewScene({
         style={[styles.previewCardShell, { backgroundColor: palette.containerBg, shadowColor: tone.pulseShadowColor, opacity: backVisible ? 1 : 0.9 }, animatedCardStyle]}
       >
         <View style={styles.previewBody}>
+          {showBackSkeleton ? (
+            renderBackSkeleton()
+          ) : (
+            <>
           {previewCollocationItems.length > 0 ? (
             <View style={styles.previewSectionBlock}>
-              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-                {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
-              </FixedText>
+              <FadeWhen visible={effectiveRevealState.showBackCollocation}>
+                <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                  {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
+                </FixedText>
+              </FadeWhen>
               <TypedItemLines
                 lines={previewCollocationLines}
                 active={effectiveRevealState.showBackCollocation}
@@ -1324,9 +1414,11 @@ export function CreateCardGhostPreviewScene({
             </View>
           ) : previewCollocation ? (
             <View style={styles.previewSectionBlock}>
-              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-                {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
-              </FixedText>
+              <FadeWhen visible={effectiveRevealState.showBackCollocation}>
+                <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                  {tUI(uiLanguage, isPhraseCard ? 'cardDetail.commonUsage' : 'cardDetail.collocation')}
+                </FixedText>
+              </FadeWhen>
               <ProgressiveText
                 text={previewCollocation}
                 active={effectiveRevealState.showBackCollocation}
@@ -1339,14 +1431,21 @@ export function CreateCardGhostPreviewScene({
           ) : null}
 
           {previewSemanticRelationItems.length > 0 ? (
-            <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackSemanticRelations ? 1 : 0 }]}>
-              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-                {tUI(uiLanguage, 'cardDetail.semanticRelations')}
-              </FixedText>
+            <View style={styles.previewSectionBlock}>
+              <FadeWhen visible={effectiveRevealState.showBackSemanticRelations}>
+                <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                  {tUI(uiLanguage, 'cardDetail.semanticRelations')}
+                </FixedText>
+              </FadeWhen>
               <View style={styles.previewSemanticChipWrap}>
-                {previewSemanticRelationItems.map((relation) => (
-                  <View
+                {previewSemanticRelationItems.map((relation, chipIndex) => (
+                  <FadeWhen
                     key={`${relation.kind}-${relation.term}`}
+                    visible={effectiveRevealState.showBackSemanticRelations}
+                    delay={shouldAnimateText ? 120 + chipIndex * SEMANTIC_CHIP_STAGGER_MS : 0}
+                    duration={260}
+                  >
+                  <View
                     style={[
                       styles.previewSemanticChip,
                       {
@@ -1374,6 +1473,7 @@ export function CreateCardGhostPreviewScene({
                       ) : null}
                     </View>
                   </View>
+                  </FadeWhen>
                 ))}
               </View>
             </View>
@@ -1381,9 +1481,11 @@ export function CreateCardGhostPreviewScene({
 
           {previewExampleItems.length > 0 ? (
             <View style={styles.previewSectionBlock}>
-              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-                {tUI(uiLanguage, 'cardDetail.exampleSentence')}
-              </FixedText>
+              <FadeWhen visible={effectiveRevealState.showBackExample}>
+                <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                  {tUI(uiLanguage, 'cardDetail.exampleSentence')}
+                </FixedText>
+              </FadeWhen>
               <TypedItemLines
                 lines={previewExampleLines}
                 active={effectiveRevealState.showBackExample}
@@ -1396,9 +1498,11 @@ export function CreateCardGhostPreviewScene({
             </View>
           ) : previewExample ? (
             <View style={styles.previewSectionBlock}>
-              <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
-                {tUI(uiLanguage, 'cardDetail.exampleSentence')}
-              </FixedText>
+              <FadeWhen visible={effectiveRevealState.showBackExample}>
+                <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
+                  {tUI(uiLanguage, 'cardDetail.exampleSentence')}
+                </FixedText>
+              </FadeWhen>
               <ProgressiveText
                 text={previewExample}
                 active={effectiveRevealState.showBackExample}
@@ -1410,12 +1514,14 @@ export function CreateCardGhostPreviewScene({
             </View>
           ) : null}
 
-          <View style={[styles.previewSectionBlock, { opacity: effectiveRevealState.showBackNote ? 1 : 0 }]}>
+          <FadeWhen visible={effectiveRevealState.showBackNote} style={styles.previewSectionBlock} duration={300}>
             <FixedText style={[styles.previewSectionLabel, { color: palette.secondaryText }]}>
               {tUI(uiLanguage, 'cardDetail.personalNotes')}
             </FixedText>
             <ProgressiveText text={previewPersonalNote} active={effectiveRevealState.showBackNote} animate={shouldAnimateText} style={[styles.previewSectionBody, { color: palette.textOnContainer }]} />
-          </View>
+          </FadeWhen>
+            </>
+          )}
         </View>
       </Reanimated.View>
 
@@ -1640,6 +1746,39 @@ const styles = StyleSheet.create({
   skeletonSentenceBlock: {
     gap: 10,
     paddingVertical: 2,
+  },
+  // Context skeleton: same metrics as NuanceMetricsLeverUI / StructuredInsiderInsightUI.
+  contextSkeletonLevers: { paddingVertical: 6, marginBottom: 6 },
+  contextSkeletonLeverRow: { flexDirection: 'row', alignItems: 'center', height: 18 },
+  contextSkeletonAxis: { width: 24, marginHorizontal: 3, borderRadius: 4 },
+  contextSkeletonTrack: { flex: 1, height: 4, borderRadius: 2, marginHorizontal: 8, justifyContent: 'center' },
+  contextSkeletonFill: { position: 'absolute', left: 0, height: 4, borderRadius: 2, opacity: 0.9 },
+  contextSkeletonThumb: {
+    position: 'absolute',
+    left: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+  },
+  contextSkeletonBadge: { width: 24, borderRadius: 5, marginLeft: 6 },
+  contextSkeletonHook: { marginTop: 2, marginBottom: 10 },
+  contextSkeletonHookLine: { marginVertical: 4.5, borderRadius: 5 },
+  contextSkeletonBentoList: { marginTop: 2, gap: 9 },
+  contextSkeletonBento: { paddingVertical: 11, paddingHorizontal: 13, borderRadius: 14 },
+  contextSkeletonBodyLine: { marginVertical: 5, borderRadius: 5 },
+  contextSkeletonToggle: { marginTop: 14, marginBottom: 6, borderRadius: 5 },
+  contextSkeletonInFlow: {},
+  contextSkeletonOverlay: {
+    overflow: 'hidden',
+  },
+  backSkeleton: {
+    gap: 8,
+    minHeight: 330,
+  },
+  backSkeletonChips: {
+    flexDirection: 'row',
+    gap: 10,
   },
   skeletonMetricsBlock: {
     gap: 8,

@@ -19,10 +19,12 @@ import {
   useColorScheme,
   View,
   type ImageStyle,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
+  LayoutAnimationConfig,
   Easing,
   FadeIn,
   FadeOut,
@@ -106,6 +108,7 @@ import {
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
 import { TabSwipeContext } from '../../../contexts/TabSwipeContext';
+import { FadeWhen } from '../../../components/UI/shared/FadeWhen';
 import { CreateCardGhostPreviewScene as CreateCardPreviewScene } from '../../../components/UI/CacheScreenUI/CreateCardGhostPreviewSceneUI';
 import {
   DEMO_GHOST_SAVE_ARROW_DELAY_MS,
@@ -184,8 +187,12 @@ const GHOST_CARD_STATUS_KEYS: UIStringKey[] = [
   'create.ghostStatusFinalizing',
 ];
 
-const STACK_CARD_ENTERING = FadeIn.duration(260);
 const STACK_CARD_LAYOUT = Layout.duration(260);
+const SEQUENTIAL_REVEAL_SAFETY_TIMEOUT_MS = 60_000;
+// Space kept below the Finish button after the page-2 move.
+const FINISH_SLOT_BOTTOM_GAP = 16;
+// One duration for every slide: page 1 -> page 2, card -> next card.
+const CARD_SLIDE_MS = 800;
 const GHOST_INITIAL_LOADING_BEAT_MS = 1500;
 
 type Props = {
@@ -1211,6 +1218,34 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     React.useState(false);
   const [isNetworkStreamFinished, setIsNetworkStreamFinished] =
     React.useState(false);
+  // Finish button slot is laid out as soon as the reveal reaches page 2
+  // (disabled until done), so the page does not jump to show it at the end.
+  const [isFinishSlotEarly, setIsFinishSlotEarly] = React.useState(false);
+  // The slot is laid out first (invisible), the screen makes its single move,
+  // then the dimmed button fades in. It lights up when the card is complete.
+  const [isFinishSlotShown, setIsFinishSlotShown] = React.useState(false);
+  const finishSlotHeightRef = React.useRef(0);
+  // Bottom edge of the Finish slot inside the scroll content (measured).
+  const finishSlotBottomRef = React.useRef(0);
+  // Top of page 2 (the back of the card) inside the active preview.
+  const secondPageYRef = React.useRef(0);
+  const isBackRevealStartedRef = React.useRef(false);
+  // Whether the card being revealed is the last one of this run.
+  const isLastTargetRef = React.useRef(true);
+  const didScrollToSecondPageRef = React.useRef(false);
+  const handleSecondPageLayout = React.useCallback((event: LayoutChangeEvent) => {
+    secondPageYRef.current = event.nativeEvent.layout.y;
+  }, []);
+  const scrollToSecondPageOnceRef = React.useRef<() => void>(() => {});
+  const handleBackRevealStart = React.useCallback(() => {
+    isBackRevealStartedRef.current = true;
+    if (isLastTargetRef.current) setIsFinishSlotEarly(true);
+    // If the slot is already laid out (e.g. the next card in a batch), its
+    // layout callback will not fire again, so make the move from here.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToSecondPageOnceRef.current());
+    });
+  }, []);
   const [isSequentialRevealActive, setIsSequentialRevealActive] =
     React.useState(false);
   const isSequentialRevealActiveRef = React.useRef(false);
@@ -1317,6 +1352,45 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     [reduceMotion]
   );
 
+  // Slow, eased scroll for the big moves (page 1 -> page 2, final Finish).
+  // ScrollView.scrollTo has a fixed, quick system animation that reads as a jump.
+  const smoothScrollFrameRef = React.useRef<number | null>(null);
+  const smoothScrollTo = React.useCallback(
+    (targetY: number, durationMs = 700, onDone?: () => void) => {
+      if (smoothScrollFrameRef.current !== null) cancelAnimationFrame(smoothScrollFrameRef.current);
+      const from = currentScrollYRef.current;
+      const to = Math.max(0, targetY);
+      if (reduceMotion || Math.abs(to - from) < 2) {
+        animatePreviewScrollTo(to);
+        onDone?.();
+        return;
+      }
+      const startedAt = Date.now();
+      const step = () => {
+        if (isUserDraggingScrollRef.current) {
+          smoothScrollFrameRef.current = null;
+          onDone?.();
+          return;
+        }
+        const t = Math.min(1, (Date.now() - startedAt) / durationMs);
+        const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const y = from + (to - from) * eased;
+        currentScrollYRef.current = y;
+        scrollRef.current?.scrollTo({ y, animated: false });
+        smoothScrollFrameRef.current = t < 1 ? requestAnimationFrame(step) : null;
+        if (t >= 1) onDone?.();
+      };
+      smoothScrollFrameRef.current = requestAnimationFrame(step);
+    },
+    [animatePreviewScrollTo, reduceMotion]
+  );
+  React.useEffect(
+    () => () => {
+      if (smoothScrollFrameRef.current !== null) cancelAnimationFrame(smoothScrollFrameRef.current);
+    },
+    []
+  );
+
   const scrollToActivePreviewCard = React.useCallback(
     (delayMs = 120) => {
       const requestId = ++previewScrollRequestIdRef.current;
@@ -1327,17 +1401,52 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         requestAnimationFrame(() => {
           if (previewScrollRequestIdRef.current !== requestId) return;
           const { y } = activePreviewLayoutRef.current;
-          animatePreviewScrollTo(
+          // Same eased slide (and speed) as the page 1 -> page 2 move.
+          smoothScrollTo(
             resolveCardTopAlignedScrollTarget({
               previewY: y,
               cardYWithinPreview: 0,
-            })
+            }),
+            CARD_SLIDE_MS
           );
         });
       }, delayMs);
     },
     [animatePreviewScrollTo]
   );
+
+  // The single move of the whole reveal, when it reaches page 2: show page 2
+  // and the (still disabled) Finish button below it.
+  const scrollToSecondPageOnce = React.useCallback(() => {
+    if (didScrollToSecondPageRef.current || isUserDraggingScrollRef.current) return;
+    const withFinishSlot = isLastTargetRef.current;
+    // Last card: wait until the Finish slot is laid out so the move includes it.
+    if (withFinishSlot && finishSlotHeightRef.current <= 0) return;
+    didScrollToSecondPageRef.current = true;
+    requestAnimationFrame(() => {
+      if (!withFinishSlot) {
+        // Not the last card: bring page 2 into view (its bottom just above the
+        // screen's bottom); the next card's slide follows later.
+        const { y, height } = activePreviewLayoutRef.current;
+        const pageTarget = Math.max(0, y + height + FINISH_SLOT_BOTTOM_GAP - scrollViewportHeight);
+        if (pageTarget > currentScrollYRef.current + 4) smoothScrollTo(pageTarget, CARD_SLIDE_MS);
+        return;
+      }
+      // The only move of the whole reveal must land with the Finish button in
+      // view (it just lights up at the end): put the button's bottom edge just
+      // above the bottom of the screen. Do not use the content height: while
+      // the preview is active the content has a full screen of padding below
+      // it, and aligning to that scrolled the card off the top.
+      const target = Math.max(
+        0,
+        finishSlotBottomRef.current + FINISH_SLOT_BOTTOM_GAP - scrollViewportHeight
+      );
+      const reveal = () => setIsFinishSlotShown(true);
+      if (target > currentScrollYRef.current + 4) smoothScrollTo(target, CARD_SLIDE_MS, reveal);
+      else reveal();
+    });
+  }, [scrollViewportHeight, smoothScrollTo]);
+  scrollToSecondPageOnceRef.current = scrollToSecondPageOnce;
 
   const followActivePreviewStreamingBottom = React.useCallback(
     (delayMs = 40) => {
@@ -1355,13 +1464,26 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           const { y, height } = activePreviewLayoutRef.current;
           if (height <= 0) return;
 
-          const targetY = resolveStreamingFollowScrollTarget({
+          // Follow the reveal, not the layout: page 2 is laid out early, so
+          // until the reveal reaches it, follow only to the bottom of page 1;
+          // afterwards never scroll past the top of page 2.
+          const secondPageY = secondPageYRef.current;
+          const backStarted = isBackRevealStartedRef.current;
+          // Page 1 stays top-aligned (the target word must stay in view; page 1
+          // can be taller than the screen), and after the reveal reaches page 2
+          // the screen has made its one move. So there is nothing to follow.
+          if (backStarted || secondPageY > 0) return;
+          const followHeight = !backStarted && secondPageY > 0 ? Math.min(height, secondPageY) : height;
+          let targetY = resolveStreamingFollowScrollTarget({
             previewY: y,
-            previewHeight: height,
+            previewHeight: followHeight,
             viewportHeight: scrollViewportHeight,
             currentScrollY: currentScrollYRef.current,
-            bottomPadding: 56,
+            bottomPadding: backStarted ? 56 + finishSlotHeightRef.current : 24,
           });
+          if (backStarted && secondPageY > 0) {
+            targetY = Math.min(targetY, y + secondPageY - 12);
+          }
 
           if (targetY > currentScrollYRef.current) {
             animatePreviewScrollTo(targetY);
@@ -1396,6 +1518,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       ) {
         autoScrolledPreviewKeyRef.current = previewKey;
         isUserDraggingScrollRef.current = false;
+        isBackRevealStartedRef.current = false;
+        didScrollToSecondPageRef.current = false;
         scrollToActivePreviewCard(80);
       } else if (
         isPreviewSceneActive &&
@@ -1446,7 +1570,22 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     }
   }, [hasStarted]);
 
+  const isFinishEnabled = !hasStarted && completedCards.length > 0;
+
+  React.useEffect(() => {
+    if (generationFailure || (!hasStarted && completedCards.length === 0)) {
+      setIsFinishSlotEarly(false);
+      setIsFinishSlotShown(false);
+      finishSlotHeightRef.current = 0;
+      finishSlotBottomRef.current = 0;
+      isBackRevealStartedRef.current = false;
+      didScrollToSecondPageRef.current = false;
+    }
+  }, [completedCards.length, generationFailure, hasStarted]);
+
   const handleCompletedActionsLayout = React.useCallback(() => {
+    // The screen already made its single move when the reveal reached page 2.
+    if (didScrollToSecondPageRef.current) return;
     if (
       hasStarted ||
       completedCards.length === 0 ||
@@ -1457,12 +1596,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     didAutoScrollDefaultExperienceCompletionRef.current = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        animatePreviewScrollTo(
-          resolveBottomAlignedScrollTarget({
-            contentHeight: scrollContentHeightRef.current,
-            viewportHeight: scrollViewportHeight,
-          })
-        );
+        const completionTarget = resolveBottomAlignedScrollTarget({
+          contentHeight: scrollContentHeightRef.current,
+          viewportHeight: scrollViewportHeight,
+        });
+        // Usually already in view (the slot was shown early); never scroll up.
+        if (completionTarget > currentScrollYRef.current + 4) {
+          smoothScrollTo(completionTarget);
+        }
         if (completionScrollRetryTimeoutRef.current) {
           clearTimeout(completionScrollRetryTimeoutRef.current);
         }
@@ -1482,7 +1623,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     completedCards.length,
     hasStarted,
     scrollViewportHeight,
+    smoothScrollTo,
   ]);
+
+  // The finish slot may already be mounted (shown early, disabled), so its
+  // layout callback will not fire again when the card completes.
+  React.useEffect(() => {
+    if (isFinishEnabled) handleCompletedActionsLayout();
+  }, [handleCompletedActionsLayout, isFinishEnabled]);
 
   React.useEffect(() => {
     if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
@@ -2193,7 +2341,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                   sequentialRevealResolverRef.current = null;
                 }
                 resolve();
-              }, 12000);
+                // Safety net only. The reveal (steady pace + a pause before page
+                // 2) can run past 12s; cutting it there swapped in the finished
+                // card mid-reveal and the remaining lines appeared as a block.
+              }, SEQUENTIAL_REVEAL_SAFETY_TIMEOUT_MS);
               sequentialRevealResolverRef.current = () => {
                 clearTimeout(timeoutId);
                 resolve();
@@ -2352,8 +2503,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
 
     const handledTargetIds = new Set<string>();
-    for (const target of newTargets) {
+    for (const [targetIndex, target] of newTargets.entries()) {
       if (handledTargetIds.has(target.id)) continue;
+      // Only the last card of a run gets the Finish slot under it.
+      isLastTargetRef.current = !newTargets
+        .slice(targetIndex + 1)
+        .some((next) => !handledTargetIds.has(next.id));
       setPreviewPhase('frontThinking');
       setPreviewRevealState(EMPTY_PREVIEW_REVEAL);
       setPartialGeneratedCard(null);
@@ -3058,7 +3213,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
-            isPreviewSceneActive && scrollViewportHeight > 0
+            // Keep the scroll room for the whole run: dropping it for the
+            // moment between two cards shrank the content and shifted the page.
+            (isPreviewSceneActive || hasStarted) && scrollViewportHeight > 0
               ? { paddingBottom: scrollViewportHeight }
               : null,
           ]}
@@ -3704,16 +3861,16 @@ export default function CreateCardScreen({ navigation, route }: Props) {
               {previewStackCards.map((card, index) => (
                 <Reanimated.View
                   key={`${card.word}-${card.sourceSentence}-${index}`}
-                  entering={
-                    hasStarted && !reduceMotion
-                      ? STACK_CARD_ENTERING
-                      : undefined
-                  }
+                  // No entering fade: a stack card always replaces the active
+                  // preview in the same spot, so fading it in from 0 flickered.
                   layout={
                     hasStarted && !reduceMotion ? STACK_CARD_LAYOUT : undefined
                   }
                   style={styles.previewStackItem}
                 >
+                  {/* The finished card replaces the active preview in place; skip
+                      its fade-in entrances so the swap does not flicker. */}
+                  <LayoutAnimationConfig skipEntering>
                   <CreateCardPreviewScene
                     processingWord={card.displayWord}
                     card={card}
@@ -3741,6 +3898,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     onToggleFavorite={() => toggleDraftFavorite(card.word)}
                     onOpenAlbumSheet={() => openDraftAlbumSheet(card.word)}
                   />
+                  </LayoutAnimationConfig>
                 </Reanimated.View>
               ))}
             </View>
@@ -3792,6 +3950,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 streamingText={isBufferedStreamPreview}
                 isNetworkStreamFinished={isNetworkStreamFinished}
                 onSequentialRevealComplete={handleSequentialRevealComplete}
+                onBackRevealStart={handleBackRevealStart}
+                onSecondPageLayout={handleSecondPageLayout}
                 headerAccessory={renderTypoSuggestion(previewDisplayCard)}
                 onPlayWord={
                   activePreviewCard
@@ -3870,24 +4030,36 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             </View>
           ) : null}
 
-          {!hasStarted && completedCards.length > 0 ? (
+          {isFinishEnabled || isFinishSlotEarly ? (
             <View
               style={styles.completedWrap}
-              onLayout={handleCompletedActionsLayout}
+              onLayout={(event) => {
+                finishSlotHeightRef.current = event.nativeEvent.layout.height;
+                finishSlotBottomRef.current =
+                  event.nativeEvent.layout.y + event.nativeEvent.layout.height;
+                if (isFinishSlotEarly && !isFinishEnabled) {
+                  scrollToSecondPageOnce();
+                } else {
+                  handleCompletedActionsLayout();
+                }
+              }}
             >
-              <View style={styles.saveWrap}>
+              <FadeWhen visible={isFinishSlotShown || (isFinishEnabled && !isFinishSlotEarly)} duration={260} style={styles.saveWrap}>
                 <TutorialSpotlight
                   active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
                   onSpotlightPress={handleDone}
                 >
                   <Pressable
                     onPress={handleDone}
+                    disabled={!isFinishEnabled}
+                    accessibilityState={{ disabled: !isFinishEnabled }}
                     style={({ pressed }) => [
                       styles.saveButton,
                       {
                         backgroundColor: MODAL_CTA_COLOR,
                         borderColor: MODAL_CTA_COLOR_BORDER,
                       },
+                      !isFinishEnabled ? styles.saveButtonPending : null,
                       pressed ? styles.pressablePrimaryPressed : null,
                     ]}
                   >
@@ -3906,7 +4078,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                     </Text>
                   </Pressable>
                 </TutorialSpotlight>
-              </View>
+              </FadeWhen>
             </View>
           ) : null}
         </ScrollView>
@@ -4693,6 +4865,9 @@ const styles = StyleSheet.create({
   saveWrap: {
     paddingTop: 2,
     paddingBottom: 20,
+  },
+  saveButtonPending: {
+    opacity: 0.4,
   },
   saveButton: {
     borderRadius: 16,
