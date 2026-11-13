@@ -11,35 +11,60 @@ export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
         number: '1',
         title: 'Improved share sheet notification time',
       },
+      {
+        number: '2',
+        title: 'Optimized search animation',
+      },
     ],
     localized: {
       'zh-TW': {
         title: '更新功能',
-        items: [{ number: '1', title: '分享選單的通知更快出現' }],
+        items: [
+          { number: '1', title: '分享選單的通知更快出現' },
+          { number: '2', title: '更新搜尋動畫' },
+        ],
       },
       'zh-CN': {
         title: '更新功能',
-        items: [{ number: '1', title: '分享菜单的通知更快出现' }],
+        items: [
+          { number: '1', title: '分享菜单的通知更快出现' },
+          { number: '2', title: '更新搜索动画' },
+        ],
       },
       'en': {
         title: 'What’s New',
-        items: [{ number: '1', title: 'Improved share sheet notification time' }],
+        items: [
+          { number: '1', title: 'Improved share sheet notification time' },
+          { number: '2', title: 'Optimized search animation' },
+        ],
       },
       'ja': {
         title: '新機能',
-        items: [{ number: '1', title: '共有メニューの通知がより早く表示されるように' }],
+        items: [
+          { number: '1', title: '共有メニューの通知がより早く表示されるように' },
+          { number: '2', title: '検索アニメーションの更新' },
+        ],
       },
       'ko': {
         title: '새로운 기능',
-        items: [{ number: '1', title: '공유 메뉴 알림이 더 빨리 표시돼요' }],
+        items: [
+          { number: '1', title: '공유 메뉴 알림이 더 빨리 표시돼요' },
+          { number: '2', title: '검색 애니메이션 업데이트' },
+        ],
       },
       'es': {
         title: 'Novedades',
-        items: [{ number: '1', title: 'La notificación del menú de compartir aparece más rápido' }],
+        items: [
+          { number: '1', title: 'La notificación del menú de compartir aparece más rápido' },
+          { number: '2', title: 'Animación de búsqueda actualizada' },
+        ],
       },
       'fr': {
         title: 'Nouveautés',
-        items: [{ number: '1', title: 'La notification du menu de partage s’affiche plus vite' }],
+        items: [
+          { number: '1', title: 'La notification du menu de partage s’affiche plus vite' },
+          { number: '2', title: 'Animation de recherche mise à jour' },
+        ],
       },
     },
   },
