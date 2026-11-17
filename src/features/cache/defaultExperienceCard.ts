@@ -32,7 +32,7 @@ export const DEFAULT_EXPERIENCE_CARD_IMAGE_SIZE = {
   height: 1254,
 } as const;
 
-const DEFAULT_EXPERIENCE_CARD_IMAGE = require('../../../assets/tutorial/demo-card/smallest-nuances-with-text-v2.png');
+const DEFAULT_EXPERIENCE_CARD_IMAGE = require('../../../assets/app/tutorial/demo-card/smallest-nuances-with-text-v2.png');
 const DEFAULT_EXPERIENCE_CARD_ANNOTATIONS = [{ text: DEFAULT_EXPERIENCE_CARD_SENTENCE }];
 const LEGACY_DEFAULT_EXPERIENCE_CARD_SENTENCES = [
   'The smallest nuances can completely change how a message feels.',

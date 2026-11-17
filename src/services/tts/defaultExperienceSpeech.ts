@@ -1,6 +1,6 @@
 import { Audio } from 'expo-av';
 
-const DEFAULT_EXPERIENCE_PRONUNCIATION_AUDIO = require('../../../assets/tutorial/demo-card/nuances-pronunciation.wav');
+const DEFAULT_EXPERIENCE_PRONUNCIATION_AUDIO = require('../../../assets/app/tutorial/demo-card/nuances-pronunciation.wav');
 
 let activeSound: InstanceType<typeof Audio.Sound> | null = null;
 

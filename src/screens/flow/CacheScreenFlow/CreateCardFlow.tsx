@@ -213,9 +213,9 @@ const albumIdToCategoryTag: Record<string, string> = {
 };
 
 const AI_MODE_ICON_BY_VALUE: Record<AIBreakdownMode, any> = {
-  short_punchy: require('../../../../assets/onboarding_q3_assets/q3-lightning-cutout.png'),
-  context: require('../../../../assets/onboarding_q3_assets/q3-bubble-cutout.png'),
-  deep_dive: require('../../../../assets/onboarding_q3_assets/q3-nodes-cutout.png'),
+  short_punchy: require('../../../../assets/app/onboarding_q3_assets/q3-lightning-cutout.png'),
+  context: require('../../../../assets/app/onboarding_q3_assets/q3-bubble-cutout.png'),
+  deep_dive: require('../../../../assets/app/onboarding_q3_assets/q3-nodes-cutout.png'),
 };
 
 type ProcessWordResult =

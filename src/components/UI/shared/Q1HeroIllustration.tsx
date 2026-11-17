@@ -2,9 +2,9 @@ import React from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import OnboardingHeroTriplet from './OnboardingHeroTriplet';
 
-const PHONE_IMAGE = require('../../../../assets/onboarding_q1_assets/screenshot-icon-cutout.png');
-const NOTE_IMAGE = require('../../../../assets/onboarding_q1_assets/sticky-note-cutout.png');
-const SEARCH_IMAGE = require('../../../../assets/onboarding_q1_assets/search-icon-cutout.png');
+const PHONE_IMAGE = require('../../../../assets/app/onboarding_q1_assets/screenshot-icon-cutout.png');
+const NOTE_IMAGE = require('../../../../assets/app/onboarding_q1_assets/sticky-note-cutout.png');
+const SEARCH_IMAGE = require('../../../../assets/app/onboarding_q1_assets/search-icon-cutout.png');
 
 type Q1HeroIllustrationProps = {
   size?: number;

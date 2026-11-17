@@ -78,12 +78,12 @@ type Props = {
   onComplete: () => void;
 };
 
-const Q1_SCREENSHOT_IMAGE = require('../../../assets/onboarding_q1_assets/screenshot-icon-cutout.png');
-const Q1_NOTE_IMAGE = require('../../../assets/onboarding_q1_assets/sticky-note-cutout.png');
-const Q1_SEARCH_IMAGE = require('../../../assets/onboarding_q1_assets/search-icon-cutout.png');
-const Q2_BOOK_IMAGE = require('../../../assets/onboarding_q2_assets/q2-book-cutout.png');
-const Q2_HEADPHONES_IMAGE = require('../../../assets/onboarding_q2_assets/q2-headphones-cutout.png');
-const Q2_TV_IMAGE = require('../../../assets/onboarding_q2_assets/q2-tv-cutout.png');
+const Q1_SCREENSHOT_IMAGE = require('../../../assets/app/onboarding_q1_assets/screenshot-icon-cutout.png');
+const Q1_NOTE_IMAGE = require('../../../assets/app/onboarding_q1_assets/sticky-note-cutout.png');
+const Q1_SEARCH_IMAGE = require('../../../assets/app/onboarding_q1_assets/search-icon-cutout.png');
+const Q2_BOOK_IMAGE = require('../../../assets/app/onboarding_q2_assets/q2-book-cutout.png');
+const Q2_HEADPHONES_IMAGE = require('../../../assets/app/onboarding_q2_assets/q2-headphones-cutout.png');
+const Q2_TV_IMAGE = require('../../../assets/app/onboarding_q2_assets/q2-tv-cutout.png');
 
 const CAPTURE_HABIT_OPTIONS: StickerOption[] = [
   {

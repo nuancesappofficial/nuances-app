@@ -8,18 +8,18 @@ const read = (path) => readFileSync(new URL(path, root), 'utf8');
 test('the complete tutorial ships inside the installed app', () => {
   const appConfig = JSON.parse(read('app.json'));
   assert.ok(
-    appConfig.expo.assetBundlePatterns?.includes('assets/tutorial/**/*'),
-    'assets/tutorial/**/* must be embedded in the native app bundle'
+    appConfig.expo.assetBundlePatterns?.includes('assets/app/tutorial/**/*'),
+    'assets/app/tutorial/**/* must be embedded in the native app bundle'
   );
 
   for (const path of [
-    'assets/tutorial/demo-card/smallest-nuances-with-text-v2.png',
-    'assets/tutorial/demo-card/nuances-pronunciation.wav',
-    'assets/tutorial/raw/Chinese/01_share_or_capture.mov',
-    'assets/tutorial/raw/Chinese/02_upload_text.mov',
-    'assets/tutorial/raw/Chinese/03_upload_image.mov',
-    'assets/tutorial/raw/Chinese/04_make_card.mov',
-    'assets/tutorial/raw/Chinese/05_review_card.mov',
+    'assets/app/tutorial/demo-card/smallest-nuances-with-text-v2.png',
+    'assets/app/tutorial/demo-card/nuances-pronunciation.wav',
+    'assets/app/tutorial/raw/Chinese/01_share_or_capture.mov',
+    'assets/app/tutorial/raw/Chinese/02_upload_text.mov',
+    'assets/app/tutorial/raw/Chinese/03_upload_image.mov',
+    'assets/app/tutorial/raw/Chinese/04_make_card.mov',
+    'assets/app/tutorial/raw/Chinese/05_review_card.mov',
   ]) {
     assert.equal(existsSync(new URL(path, root)), true, `${path} is missing`);
   }

@@ -27,7 +27,7 @@ import { BUTTON_TOKENS } from '../../../theme/buttonTokens';
 import { resolveThemeColors } from '../../../theme/colors';
 import { useAppIsActive } from '../../../hooks/useAppIsActive';
 
-const DEFAULT_LOGO = require('../../../../assets/app_icons/icon_cutout2.png');
+const DEFAULT_LOGO = require('../../../../assets/app/app_icons/icon_cutout2.png');
 
 const SPARK_SIZE = 34;
 const LOGO_SIZE = 136;

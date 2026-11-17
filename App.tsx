@@ -131,7 +131,7 @@ installUserMistakeAlertLogger();
 void ReminderNotificationService.configure().catch((err) => {
   console.warn('[App] Reminder notification configuration failed gracefully:', err);
 });
-const APP_CUTOUT_ICON = require('./assets/app_icons/icon_cutout2.png');
+const APP_CUTOUT_ICON = require('./assets/app/app_icons/icon_cutout2.png');
 const AUTH_REDIRECT_SCHEME = process.env.EXPO_PUBLIC_AUTH_REDIRECT_SCHEME || 'nuances';
 const INTERNAL_TESTER_TOOLS_ENABLED =
   process.env.EXPO_PUBLIC_INTERNAL_TESTER_TOOLS === 'true';

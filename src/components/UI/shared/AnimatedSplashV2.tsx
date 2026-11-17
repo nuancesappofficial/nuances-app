@@ -25,7 +25,7 @@ import Reanimated, {
 import { resolveThemeColors } from '../../../theme/colors';
 import { useAppIsActive } from '../../../hooks/useAppIsActive';
 
-const DEFAULT_LOGO = require('../../../../assets/app_icons/icon_cutout2.png');
+const DEFAULT_LOGO = require('../../../../assets/app/app_icons/icon_cutout2.png');
 
 const LOGO_SIZE = 142;
 const LOGO_HOLD_MS = 120;

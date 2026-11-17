@@ -91,7 +91,7 @@ const TOUR_STEPS: VideoTourStep[] = [
     videos: [
       {
         key: 'share-or-capture',
-        source: require('../../../assets/tutorial/raw/Chinese/01_share_or_capture.mov'),
+        source: require('../../../assets/app/tutorial/raw/Chinese/01_share_or_capture.mov'),
       },
     ],
     eyebrow: {
@@ -128,11 +128,11 @@ const TOUR_STEPS: VideoTourStep[] = [
     videos: [
       {
         key: 'upload-text',
-        source: require('../../../assets/tutorial/raw/Chinese/02_upload_text.mov'),
+        source: require('../../../assets/app/tutorial/raw/Chinese/02_upload_text.mov'),
       },
       {
         key: 'upload-image',
-        source: require('../../../assets/tutorial/raw/Chinese/03_upload_image.mov'),
+        source: require('../../../assets/app/tutorial/raw/Chinese/03_upload_image.mov'),
       },
     ],
     eyebrow: {
@@ -169,7 +169,7 @@ const TOUR_STEPS: VideoTourStep[] = [
     videos: [
       {
         key: 'make-card',
-        source: require('../../../assets/tutorial/raw/Chinese/04_make_card.mov'),
+        source: require('../../../assets/app/tutorial/raw/Chinese/04_make_card.mov'),
       },
     ],
     eyebrow: {
@@ -206,7 +206,7 @@ const TOUR_STEPS: VideoTourStep[] = [
     videos: [
       {
         key: 'review-card',
-        source: require('../../../assets/tutorial/raw/Chinese/05_review_card.mov'),
+        source: require('../../../assets/app/tutorial/raw/Chinese/05_review_card.mov'),
       },
     ],
     eyebrow: {

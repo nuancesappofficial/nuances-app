@@ -11,11 +11,11 @@ export type StickerFontOption = {
 };
 
 export const STICKER_FONT_ASSETS = {
-  'NerkoOne-Regular': require('../../assets/fonts/NerkoOne-Regular.ttf'),
-  'ComicNeue-Bold': require('../../assets/fonts/ComicNeue-Bold.ttf'),
-  'Handlee-Regular': require('../../assets/fonts/Handlee-Regular.ttf'),
-  'StyleScript-Regular': require('../../assets/fonts/StyleScript-Regular.ttf'),
-  'PinyonScript-Regular': require('../../assets/fonts/PinyonScript-Regular.ttf'),
+  'NerkoOne-Regular': require('../../assets/app/fonts/NerkoOne-Regular.ttf'),
+  'ComicNeue-Bold': require('../../assets/app/fonts/ComicNeue-Bold.ttf'),
+  'Handlee-Regular': require('../../assets/app/fonts/Handlee-Regular.ttf'),
+  'StyleScript-Regular': require('../../assets/app/fonts/StyleScript-Regular.ttf'),
+  'PinyonScript-Regular': require('../../assets/app/fonts/PinyonScript-Regular.ttf'),
 };
 
 export const STICKER_FONT_OPTIONS: StickerFontOption[] = [

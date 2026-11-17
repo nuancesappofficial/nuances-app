@@ -19,8 +19,8 @@ import {
 } from '../../../features/tour/tutorialPresentation';
 import { resolveThemeColors } from '../../../theme/colors';
 
-const SHARE_SHEET_VIDEO_IOS = require('../../../../assets/tutorial/raw/ios_share_final_1080p60.mp4');
-const SHARE_SHEET_VIDEO_ANDROID = require('../../../../assets/tutorial/raw/android_share_final_1080p60.mp4');
+const SHARE_SHEET_VIDEO_IOS = require('../../../../assets/app/tutorial/raw/ios_share_final_1080p60.mp4');
+const SHARE_SHEET_VIDEO_ANDROID = require('../../../../assets/app/tutorial/raw/android_share_final_1080p60.mp4');
 
 const ANDROID_PLAYTHROUGH_DURATION_MS = 7200;
 const IOS_PLAYTHROUGH_DURATION_MS = 7850;

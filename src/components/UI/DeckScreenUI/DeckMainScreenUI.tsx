@@ -619,7 +619,7 @@ function DeckMainScreenUI({
           style={({ pressed }) => [styles.brandIconButton, pressed ? styles.deckIconButtonPressed : null]}
           onPress={() => onPressCacheFab?.()}
         >
-          <Image source={require('../../../../assets/app_icons/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
+          <Image source={require('../../../../assets/app/app_icons/icon_cutout2.png')} style={styles.brandIcon} resizeMode="contain" />
         </Pressable>
 
         <View style={styles.topActionsRow}>
