@@ -119,10 +119,19 @@ class ShareViewController: UIViewController {
     private let receiptNotificationID = "nuances-share-receipt-\(UUID().uuidString)"
 
     private let uiLanguageKey = "nuances_ui_language"
-    
+    // Upper bound for keeping the sheet open while the receipt request is
+    // handed to the notification daemon (normally ~20ms).
+    private let receiptHandoffTimeout: TimeInterval = 1.0
+    // Main queue only. Fetched once, as soon as the extension loads.
+    private var notificationAuthorizationStatus: UNAuthorizationStatus?
+    private var notificationAuthorizationWaiters: [(UNAuthorizationStatus) -> Void] = []
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        // Open the notification daemon connection while the shared items load,
+        // so posting the receipt later is a single local request.
+        withNotificationAuthorization { _ in }
         if hasActiveUser() {
             handleSharedContent()
         }
@@ -475,7 +484,9 @@ class ShareViewController: UIViewController {
             }
 
             if let url = data as? URL {
-                completion(try? Data(contentsOf: url))
+                // Only local files: Data(contentsOf:) on a web URL downloads it,
+                // which holds the receipt and fails offline.
+                completion(url.isFileURL ? try? Data(contentsOf: url) : nil)
             } else if let image = data as? UIImage {
                 completion(image.jpegData(compressionQuality: 0.8))
             } else if let dataObj = data as? Data {
@@ -662,23 +673,22 @@ class ShareViewController: UIViewController {
                     self.closeExtension(success: false)
                     return
                 }
-                // Failure notice: no success haptic. Give the notification
-                // request the same head start as the receipt before closing.
-                self.scheduleNativeReceiptNotification(message: message, acceptedCount: 0, completion: {})
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    self.closeExtension(success: false)
+                // Failure notice: no success haptic.
+                let startedAt = Date()
+                self.scheduleNativeReceiptNotification(message: message, acceptedCount: 0) {
+                    self.closeAfterReceiptHandoff(success: false, startedAt: startedAt)
                 }
+                self.scheduleCloseFallback(after: self.receiptHandoffTimeout, success: false)
                 return
             }
 
-            // Notification delivery is best-effort. Never keep the share
-            // extension open while waiting for notification authorization or
-            // daemon callbacks.
+            let startedAt = Date()
             self.scheduleNativeReceiptNotification(
                 message: message ?? self.shareReceiptMessage(),
-                acceptedCount: acceptedCount,
-                completion: {}
-            )
+                acceptedCount: acceptedCount
+            ) {
+                self.closeAfterReceiptHandoff(success: true, startedAt: startedAt)
+            }
 
             // Apple Pay 風格的成功觸覺回饋（叩-叩）：兩次快速連續的短震動，
             // 在關閉選單前一刻觸發。通知已設為靜音（sound = nil），避免與此
@@ -698,69 +708,92 @@ class ShareViewController: UIViewController {
                 secondImpact.impactOccurred()
             }
 
-            // 延後關閉，讓第二次震動在 completeRequest 前播放完畢。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self.closeExtension(success: true)
+            // Delivery is best-effort: never hold the sheet longer than this.
+            self.scheduleCloseFallback(after: self.receiptHandoffTimeout)
+        }
+    }
+
+    /// Close only once the receipt request has reached the notification daemon.
+    /// Closing first lets iOS suspend the extension with the request still
+    /// in flight, so the banner only appears when the extension next runs.
+    /// Still waits at least 0.15s so the second haptic tap plays.
+    private func closeAfterReceiptHandoff(success: Bool, startedAt: Date) {
+        DispatchQueue.main.async {
+            let remaining = max(0, 0.15 - Date().timeIntervalSince(startedAt))
+            NSLog("[NuancesShareExtension] receipt handed off after \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                self.closeExtension(success: success)
             }
         }
     }
 
+    /// Calls `body` on the main queue with the cached authorization status,
+    /// fetching it once if needed. Must be called on the main queue.
+    private func withNotificationAuthorization(_ body: @escaping (UNAuthorizationStatus) -> Void) {
+        if let status = notificationAuthorizationStatus {
+            body(status)
+            return
+        }
+        notificationAuthorizationWaiters.append(body)
+        guard notificationAuthorizationWaiters.count == 1 else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                let status = settings.authorizationStatus
+                NSLog("[NuancesShareExtension] notification authorization status: \(status.rawValue)")
+                self.notificationAuthorizationStatus = status
+                let waiters = self.notificationAuthorizationWaiters
+                self.notificationAuthorizationWaiters = []
+                waiters.forEach { $0(status) }
+            }
+        }
+    }
+
+    /// Must be called on the main queue. `completion` runs once the request
+    /// was accepted or skipped.
     private func scheduleNativeReceiptNotification(message: String, acceptedCount: Int, completion: @escaping () -> Void) {
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            NSLog("[NuancesShareExtension] notification authorization status: \(settings.authorizationStatus.rawValue)")
-            let schedule: () -> Void = {
-                let content = UNMutableNotificationContent()
-                content.title = "Nuances"
-                content.body = message
-                content.sound = nil
-                content.userInfo = [
-                    "kind": "nuances-share-receipt",
-                    "cacheCount": acceptedCount,
-                    "target": "cache"
-                ]
-                // nil trigger = deliver now. The old 1s interval trigger made
-                // the receipt banner visibly trail the haptic.
-                let request = UNNotificationRequest(
-                    identifier: self.receiptNotificationID,
-                    content: content,
-                    trigger: nil
-                )
-                center.add(request) { error in
-                    if let error = error {
-                        NSLog("[NuancesShareExtension] notification failed: \(error.localizedDescription)")
-                    }
-                    completion()
+        let schedule: () -> Void = {
+            let content = UNMutableNotificationContent()
+            content.title = "Nuances"
+            content.body = message
+            content.sound = nil
+            content.userInfo = [
+                "kind": "nuances-share-receipt",
+                "cacheCount": acceptedCount,
+                "target": "cache"
+            ]
+            // nil trigger = deliver now. The old 1s interval trigger made
+            // the receipt banner visibly trail the haptic.
+            let request = UNNotificationRequest(
+                identifier: self.receiptNotificationID,
+                content: content,
+                trigger: nil
+            )
+            center.add(request) { error in
+                if let error = error {
+                    NSLog("[NuancesShareExtension] notification failed: \(error.localizedDescription)")
                 }
+                completion()
             }
+        }
 
-            switch settings.authorizationStatus {
-            case .authorized, .provisional:
+        withNotificationAuthorization { status in
+            switch status {
+            case .authorized, .provisional, .ephemeral:
                 schedule()
             case .notDetermined:
-                if #available(iOS 12.0, *) {
-                    center.requestAuthorization(options: [.alert, .sound, .provisional]) { granted, error in
-                        if let error = error {
-                            NSLog("[NuancesShareExtension] notification authorization failed: \(error.localizedDescription)")
-                        }
-                        NSLog("[NuancesShareExtension] notification authorization requested, granted: \(granted)")
-                        if granted {
-                            schedule()
-                        } else {
-                            completion()
-                        }
+                center.requestAuthorization(options: [.alert, .sound, .provisional]) { granted, error in
+                    if let error = error {
+                        NSLog("[NuancesShareExtension] notification authorization failed: \(error.localizedDescription)")
                     }
-                } else {
-                    center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-                        if let error = error {
-                            NSLog("[NuancesShareExtension] notification authorization failed: \(error.localizedDescription)")
-                        }
-                        NSLog("[NuancesShareExtension] notification authorization requested, granted: \(granted)")
-                        if granted {
-                            schedule()
-                        } else {
-                            completion()
-                        }
+                    NSLog("[NuancesShareExtension] notification authorization requested, granted: \(granted)")
+                    DispatchQueue.main.async {
+                        self.notificationAuthorizationStatus = granted ? .provisional : .denied
+                    }
+                    if granted {
+                        schedule()
+                    } else {
+                        completion()
                     }
                 }
             default:
@@ -769,10 +802,10 @@ class ShareViewController: UIViewController {
         }
     }
 
-    private func scheduleCloseFallback(after seconds: TimeInterval) {
+    private func scheduleCloseFallback(after seconds: TimeInterval, success: Bool = true) {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self = self, !self.didCloseExtension else { return }
-            self.closeExtension(success: true)
+            self.closeExtension(success: success)
         }
     }
 }
