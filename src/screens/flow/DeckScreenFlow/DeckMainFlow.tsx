@@ -658,7 +658,7 @@ export default function DeckMainFlow({
         if (cancelled) return;
         setAllCards(data);
         setCardsHydrated(true);
-        sub = queryCards.observe().subscribe((nextData) => {
+        sub = queryCards.observeWithColumns(['tags']).subscribe((nextData) => {
           setAllCards(nextData);
         });
       } catch (error) {

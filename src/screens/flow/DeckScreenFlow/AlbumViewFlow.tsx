@@ -34,6 +34,7 @@ import {
   ALBUM_TAG_PREFIX,
   type DeckAlbumPreferences,
 } from '../../../features/deck/albums';
+import { buildAlbumTagLikePattern } from '../../../features/deck/albumQuery';
 import { loadSeenCardIds } from '../../../features/deck/cardDetailSeen';
 import ReviewTuningModalUI from '../../../components/UI/DeckScreenUI/ReviewTuningModalUI';
 import {
@@ -274,63 +275,49 @@ export default function AlbumViewFlow({ navigation, route }: Props) {
           return;
         }
         const cardsCollection = database.get<Card>('cards');
-        let data: Card[] = [];
         const isAllCards = album.id === 'all-cards' || album.id === 'all' || album.id === ALL_CARDS_ALBUM_ID;
         const isFavorites = album.id === FAVORITES_ALBUM_ID || album.id === 'favorites';
+        // Tag-driven albums (favorites + custom) must query on `tags` so the
+        // observer re-runs when a card's tags change. Only the derived
+        // "slang" album still relies on a cardIds snapshot.
+        const isTagAlbum = !isAllCards && album.id !== 'slang';
+        const tagAlbumId = isFavorites ? FAVORITES_ALBUM_ID : album.id;
 
-        if (isAllCards) {
-          data = await cardsCollection
-            .query(
+        const queryCards = isAllCards
+          ? cardsCollection.query(
               Q.where('user_id', userId),
               Q.where('deleted_at', null),
               Q.sortBy('created_at', Q.desc)
             )
-            .fetch();
-        } else if (isFavorites) {
-          data = await cardsCollection
-            .query(
-              Q.where('user_id', userId),
-              Q.where('deleted_at', null),
-              Q.where('tags', Q.like(`%${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}%`)),
-              Q.sortBy('created_at', Q.desc)
-            )
-            .fetch();
-        } else if (album.cardIds.length > 0) {
-          data = await cardsCollection
-            .query(
-              Q.where('user_id', userId),
-              Q.where('deleted_at', null),
-              Q.where('id', Q.oneOf(album.cardIds)),
-              Q.sortBy('created_at', Q.desc)
-            )
-            .fetch();
-        }
-        if (cancelled) return;
-        setAlbumCards(data);
-        if (isAllCards || isFavorites || album.cardIds.length > 0) {
-          const queryCards = isAllCards
+          : isTagAlbum
             ? cardsCollection.query(
                 Q.where('user_id', userId),
                 Q.where('deleted_at', null),
+                Q.where(
+                  'tags',
+                  Q.like(buildAlbumTagLikePattern(tagAlbumId))
+                ),
                 Q.sortBy('created_at', Q.desc)
               )
-            : isFavorites
+            : album.cardIds.length > 0
               ? cardsCollection.query(
-                  Q.where('user_id', userId),
-                  Q.where('deleted_at', null),
-                  Q.where('tags', Q.like(`%${ALBUM_TAG_PREFIX}${FAVORITES_ALBUM_ID}%`)),
-                  Q.sortBy('created_at', Q.desc)
-                )
-              : cardsCollection.query(
                   Q.where('user_id', userId),
                   Q.where('deleted_at', null),
                   Q.where('id', Q.oneOf(album.cardIds)),
                   Q.sortBy('created_at', Q.desc)
-                );
-          sub = queryCards
-            .observe()
-            .subscribe((nextData) => setAlbumCards(nextData));
+                )
+              : null;
+
+        if (!queryCards) {
+          if (!cancelled) setAlbumCards([]);
+          return;
         }
+        const data = await queryCards.fetch();
+        if (cancelled) return;
+        setAlbumCards(data);
+        sub = queryCards
+          .observe()
+          .subscribe((nextData) => setAlbumCards(nextData));
       } catch (error) {
         console.error('[AlbumView] load album cards failed:', error);
         if (!cancelled) setAlbumCards([]);
