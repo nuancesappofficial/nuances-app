@@ -3,6 +3,46 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.9': {
+    version: '1.3.9',
+    title: 'What’s New',
+    items: [
+      {
+        number: '1',
+        title: 'Fixed cards not showing in the album they were assigned to',
+      },
+    ],
+    localized: {
+      'zh-TW': {
+        title: '更新功能',
+        items: [{ number: '1', title: '修好卡片加入相簿後沒有顯示的問題' }],
+      },
+      'zh-CN': {
+        title: '更新功能',
+        items: [{ number: '1', title: '修复卡片加入相册后没有显示的问题' }],
+      },
+      'en': {
+        title: 'What’s New',
+        items: [{ number: '1', title: 'Fixed cards not showing in the album they were assigned to' }],
+      },
+      'ja': {
+        title: '新機能',
+        items: [{ number: '1', title: 'アルバムに追加したカードが表示されない問題を修正' }],
+      },
+      'ko': {
+        title: '새로운 기능',
+        items: [{ number: '1', title: '앨범에 추가한 카드가 보이지 않던 문제 수정' }],
+      },
+      'es': {
+        title: 'Novedades',
+        items: [{ number: '1', title: 'Corregido: las tarjetas no aparecían en el álbum asignado' }],
+      },
+      'fr': {
+        title: 'Nouveautés',
+        items: [{ number: '1', title: 'Correction : les cartes n’apparaissaient pas dans l’album choisi' }],
+      },
+    },
+  },
   '1.3.8': {
     version: '1.3.8',
     title: 'What’s New',
