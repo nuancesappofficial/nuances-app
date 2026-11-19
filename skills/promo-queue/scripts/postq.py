@@ -461,13 +461,13 @@ def cmd_add(q, a):
         q["items"].append(item)
         print(f"加入 {iid} → {when:%m/%d %H:%M}（{chan(q, cid)['name']}時間）")
     if (folder / "poll.json").exists() and (not a.only or a.only == "poll") and not getattr(a, "no_poll", False):
-        add_poll(q, folder, cat, no, topic, cid)
+        add_poll(q, folder, cat, no, topic, cid, at)
     elif a.only == "poll":
         sys.exit("資料夾裡沒有 poll.json")
     save(q)
 
 
-def add_poll(q, folder, cat, no, topic, cid):
+def add_poll(q, folder, cat, no, topic, cid, at=None):
     """Threads 票選（問答題）：排在來源影片（沒有就輪播圖）之後第一個空的票選時段，發文時第一則留言引用那篇。"""
     iid = f"{cid}-{cat}-{no}-poll"
     if any(it["id"] == iid for it in q["items"]):
@@ -486,7 +486,7 @@ def add_poll(q, folder, cat, no, topic, cid):
         sys.exit("poll.json 的選項要 2–4 個，每個 1–25 字")
     if poll["answer"] not in opts:
         sys.exit("poll.json 的 answer 要是 options 裡的其中一個")
-    when = next_vacant_slot(q, parse(src["scheduled_for"]), cid)
+    when = at or next_vacant_slot(q, parse(src["scheduled_for"]), cid)
     item = {
         "id": iid, "channel": cid, "topic": label(cat, no, topic), "kind": "poll", "folder": str(folder.relative_to(ROOT)), "media": [],
         "caption_file": "poll.json", "caption": f"{poll['question']}\n\n跟「懶得查」說 bye bye！",
@@ -1115,6 +1115,8 @@ def cmd_channel(q, a):
             c[k] = getattr(a, k)
     if a.slots:
         c["slots"] = [x.strip() for x in a.slots.split(",") if x.strip()]
+    if getattr(a, "poll_slots", None):
+        c["poll_slots"] = [x.strip() for x in a.poll_slots.split(",") if x.strip()]
     if a.reel is not None:
         c["platforms"]["reel"] = [x for x in a.reel.split(",") if x]
     if a.carousel is not None:
@@ -1363,7 +1365,7 @@ def main():
     x = sp.add_parser("roll"); x.add_argument("--channel")
     x = sp.add_parser("channel"); x.add_argument("action", choices=["list", "add", "set"], nargs="?", default="list")
     x.add_argument("id", nargs="?"); x.add_argument("--name"); x.add_argument("--tz"); x.add_argument("--lang")
-    x.add_argument("--slots", help="逗號分隔，例如 12:30,20:00"); x.add_argument("--reel", help="影片發哪些平台，逗號分隔")
+    x.add_argument("--slots", help="逗號分隔，例如 12:30,20:00"); x.add_argument("--poll-slots", help="Threads 票選的時段，例如 12:00,18:00"); x.add_argument("--reel", help="影片發哪些平台，逗號分隔")
     x.add_argument("--carousel", help="輪播圖發哪些平台，逗號分隔")
     x.add_argument("--manual", help="這些平台改成手動發（時間到推播提醒），逗號分隔；空字串 = 全部自動")
     sp.add_parser("notify")
