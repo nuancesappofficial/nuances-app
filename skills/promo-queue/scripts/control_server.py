@@ -103,6 +103,11 @@ def scan_inbox(q, cid):
                           "extras": [n for n, ok in (("3:4", (folder / "slides-3x4").exists()), ("9:16", (folder / "slides-9x16").exists()),
                                                      ("輪播影片", bool(list(folder.glob("*-slideshow.mp4"))))) if ok],
                           "caption": cap.read_text() if cap.exists() else "", "caption_file": "caption.txt"})
+        if (folder / "poll.json").exists() and f"{cid}-{cat}-{no}-poll" not in queued:
+            pj = json.loads((folder / "poll.json").read_text())
+            kinds.append({"kind": "poll", "kind_zh": "票選", "video": False,
+                          "poster": poster(final) if final else (media_url(slides[0]) if slides else ""), "slides": [], "extras": [],
+                          "caption": pj["question"], "caption_file": "poll.json", "options": pj["options"], "answer": pj["answer"]})
         if kinds:
             show = ""
             if (folder / "slides.json").exists():
@@ -177,7 +182,13 @@ def act(action, b):
         if action == "add":
             folder = Q.ROOT / b["folder"]
             for kind, text in b.get("captions", {}).items():
-                if text.strip():
+                if not text.strip():
+                    continue
+                if kind == "poll":   # 票選的「文案」是題目，存回 poll.json，不能蓋掉輪播圖的 caption.txt
+                    pj = json.loads((folder / "poll.json").read_text())
+                    pj["question"] = text.strip()
+                    (folder / "poll.json").write_text(json.dumps(pj, ensure_ascii=False, indent=1))
+                else:
                     (folder / ("caption-reel.txt" if kind == "reel" else "caption.txt")).write_text(text.strip() + "\n")
             msgs = []
             for kind in b["kinds"]:

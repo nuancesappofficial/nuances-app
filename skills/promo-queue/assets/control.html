@@ -106,9 +106,9 @@ pre{white-space:pre-wrap;background:var(--panel2);padding:10px;border-radius:8px
 .th{position:relative;display:inline-block;flex:none;line-height:0}
 .kd{position:absolute;left:4px;bottom:4px;display:inline-flex;align-items:center;gap:3px;padding:4px;border-radius:6px;
   font-size:11px;font-weight:700;line-height:1.3;color:#0E0F12;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.kd svg{width:12px;height:12px}.kd.reel{background:#B79CFF}.kd.carousel{background:#4ADE80}.kd span{display:none}
+.kd svg{width:12px;height:12px}.kd.reel{background:#B79CFF}.kd.carousel{background:#4ADE80}.kd.poll{background:#FBBF24}.kd span{display:none}
 .kd.mini{left:2px;bottom:2px;padding:2px}.kd.mini svg{width:10px;height:10px}
-.kt{display:inline-flex;align-items:center;gap:3px;font-weight:700}.kt svg{width:11px;height:11px}.kt.reel{color:#B79CFF}.kt.carousel{color:#4ADE80}
+.kt{display:inline-flex;align-items:center;gap:3px;font-weight:700}.kt svg{width:11px;height:11px}.kt.reel{color:#B79CFF}.kt.carousel{color:#4ADE80}.kt.poll{color:#FBBF24}
 /* 使用者 / 數據分頁 */
 .vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .seg{display:inline-flex;background:var(--panel);border-radius:10px;padding:3px;gap:2px}
@@ -229,7 +229,7 @@ h2 .when{font-size:16px}h2 .count{font-size:14px}
 let S = null, tab = localStorage.getItem('tab2') || 'schedule', cal = null, modalFor = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const HOOK = {reel:'劇情懸念', carousel:'英文怎麼說'};   // 開頭類型只是比成效用的標籤，照類型自動帶
+const HOOK = {reel:'劇情懸念', carousel:'英文怎麼說', poll:'英文怎麼說'};   // 開頭類型只是比成效用的標籤，照類型自動帶
 const ST = {posted:'已發', queued:'排隊', skipped:'略過', failed:'失敗', manual:'待手動'};
 const LBL = {hook:'開頭留人', keep:'收藏分享', follow:'轉追蹤'};
 const WD = ['日','一','二','三','四','五','六'];
@@ -474,8 +474,8 @@ function storeView(){
   const part = kind => S.inbox.flatMap((f, fi) => f.kinds.map((k, ki) => k.kind !== kind ? '' : `<div class="store ${busy(f)?'busy':''}" draggable="true"
       ondragstart="dragStart(event,'inbox:${fi}:${ki}')" ondragend="dragEnd()" onclick="openModal('inbox',${fi},${ki})">
       ${th(k.poster, k.kind, true)}<div class="t"><div class="name">${esc(f.topic)}</div>
-      <div class="sub">${kind==='carousel'?k.slides.length+' 張':esc(f.format)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">● 沒文案</span>'}</div></div></div>`)).filter(Boolean);
-  return ['reel','carousel'].map(kind => { const rows = part(kind);
+      <div class="sub">${kind==='carousel'?k.slides.length+' 張':kind==='poll'?k.options.length+' 個選項':esc(f.format)}${k.caption?'':' <span class="warn-t" title="還沒寫文案">● 沒文案</span>'}</div></div></div>`)).filter(Boolean);
+  return ['reel','carousel','poll'].map(kind => { const rows = part(kind);
       return `<h2>${kt(kind)} 還沒排 ${rows.length}</h2>${rows.length ? rows.join('') : `<div class="empty">沒有新的${KNAME[kind]}</div>`}`; }).join('')
     + `<div class="row"><button class="small ghost" onclick="api('unignore',{})">還原被移除的</button></div>`;
 }
@@ -523,7 +523,7 @@ function dropOn(ev, at){
 function inboxModal(fi, ki, at){
   const f = S.inbox[fi], k = f.kinds[ki], when = at || S.free[0] || '';
   return `<div class="cols"><div class="media">
-      ${k.video ? `<video src="${k.preview}" poster="${k.poster}" controls preload="none"></video>` : `<div class="strip">${k.slides.map(s=>`<img src="${s}">`).join('')}</div>`}
+      ${k.kind==='poll' ? `<div class="strip"><img src="${k.poster}"></div>` : k.video ? `<video src="${k.preview}" poster="${k.poster}" controls preload="none"></video>` : `<div class="strip">${k.slides.map(s=>`<img src="${s}">`).join('')}</div>`}
     </div><div class="info">
       <div class="title">${esc(f.topic)}</div><div class="sub">${kt(k.kind, k.kind==='carousel'?' '+k.slides.length+' 張':'')} · ${esc(f.format)}</div>
       <div class="sub" style="margin-top:14px">發文時間</div>
@@ -531,8 +531,10 @@ function inboxModal(fi, ki, at){
       <div class="row"><input type="datetime-local" id="mt" value="${esc(when)}" oninput="pickWhen(this.value)"></div>
       <div class="row"><span class="chip tag" title="只是標籤，不會改文案；成效分頁用它比較哪種開頭比較好">開頭：${HOOK[k.kind]}</span>
         ${f.show?`<span class="chip tag" title="比成效用的標籤，做內容時就決定好">劇名：${esc(f.show)}</span>`:''}</div>
-      <div class="sub" style="margin-top:12px">發到哪些平台</div>${pfPicker(k.kind, S.chan.platforms[k.kind])}
-      <div class="sub" style="margin-top:12px">文案</div>
+      ${k.kind==='poll' ? `<div class="sub" style="margin-top:12px">只發 Threads，第一則留言引用那支影片，答案加遮罩</div>
+        <div class="chips">${k.options.map(o => `<span class="chip tag">${esc(o)}${o===k.answer?' ✓':''}</span>`).join('')}</div>
+        <div class="sub" style="margin-top:12px">題目</div>` : `<div class="sub" style="margin-top:12px">發到哪些平台</div>${pfPicker(k.kind, S.chan.platforms[k.kind])}
+      <div class="sub" style="margin-top:12px">文案</div>`}
       <textarea id="mc" placeholder="第一行 hook、單字清單、CTA、hashtag">${esc(k.caption)}</textarea>
       <div class="row"><button class="primary" onclick="addInbox(${fi},${ki})">排進發文</button>
         <button class="danger small" onclick="closeModal();api('ignore',{folder:'${esc(f.folder)}'})">不要了</button></div>
@@ -546,7 +548,7 @@ function addInbox(fi, ki){
   const f = S.inbox[fi], k = f.kinds[ki], cap = $('#mc').value.trim(), at = $('#mt').value;
   if(!cap) return toast('文案還沒寫');
   if(!at) return toast('還沒選哪天發');
-  const plats = picked();
+  const plats = k.kind === 'poll' ? ['threads'] : picked();
   if(!plats.length) return toast('至少勾一個平台');
   const b = {folder: f.folder, kinds: [k.kind], captions: {[k.kind]: cap}, channel: S.channel, show: f.show, at,
              platforms: {[k.kind]: plats}};
