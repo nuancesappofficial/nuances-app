@@ -62,6 +62,14 @@ description: Nuances 推廣貼文的排程、自動發文與成效追蹤。排�
    - Threads 上限 500 字、只留第一個 hashtag；YouTube 標題取第一行；這些腳本會自動處理。
 4. 範例：`promo-vids/promo/001-modern-family-hot-tub/`（`caption.txt`、`caption-reel.txt`）。
 
+## Threads 票選（問答題）
+- 資料夾有 `poll.json`（clip-to-nuance 第 8 步寫的）時，`add` 會多排一篇 `kind: poll`、只發 Threads 的貼文：id 例如 `tw-promo-008-poll`。時間 = 來源影片（沒有就輪播圖）之後第一個空的票選時段（channel 的 `poll_slots`，預設 `18:00`；被別的貼文佔走就往後一天）。
+- 發文時（`platforms.threads_poll`）：先發 `media_type=TEXT` + `poll_attachment`（2–4 個選項，每個 25 字內，票選 24 小時），再發第一則留言：`reply_to_id` = 票選、`quote_post_id` = `quote_of` 那篇的 Threads 貼文，內容 `Answer: <答案>` + 解釋。答案那行用 `text_entities` 設劇透遮罩（只遮純英文第一行，因為位置單位不確定）。
+- 留言失敗時票選已發出，不會重發，原因寫在狀態的 note，請使用者手動補。引用的那篇還沒發到 Threads 會當成失敗重試。
+- 釘選留言：Threads API 沒有這個功能，請使用者手動。發文需要 token 有 `threads_manage_replies`（`connect_threads.py` 已加進 SCOPES）。
+- 補票選給已經排好的影片：寫 `poll.json` 後 `postq.py add <資料夾> --only poll`；不要票選用 `--no-poll`。
+- 手動單獨發：`python3 skills/promo-queue/scripts/threads_poll.py --quote promo-008-reel --text … -o 選項 … --reply … --reply-spoiler 24 [--dry-run]`。
+
 ## 國家（channel）
 - 每個國家一組：自己的帳號 token、時區、發文時段（當地時間）、內容語言、影片 / 輪播圖各發哪些平台。存在 queue 的 `channels`，金鑰在雲端 `secrets.json` 的 `channels.<代號>`。
 - 第一站是 `tw`（台灣，zh-Hant）。加國家：使用者跑 `setup_wizard.sh` 選新的代號（例如 `hk`、`jp`），精靈會建 channel 並授權那個國家的帳號；同一個 Meta / TikTok / Google App 可以管多國帳號，不用重建。

@@ -81,6 +81,12 @@ description: 自動化製作 Nuances Promo 短影音管線。原片壓成 9:16 �
    - 影片交付後，直接用 Skill 工具呼叫 `clip-to-slides`，沿用同一個工作資料夾的 `<topic>.mp4` 與 `cards.json`，不用重新下載或選字。
    - 從 clip-to-slides 的第 2 步（寫封面 hook）開始，照它的流程走完；hook 一樣要停下來等使用者選定。
    - clip-to-slides 最後一步會把影片和輪播圖一起排進發文排程（promo-queue），這裡不用另外排。
+8. **寫 `poll.json`（Threads 票選問答題）**：排程時 `postq.py add` 看到它，會自動多排一篇 Threads 票選，放在這支影片之後第一個空的票選時段（`poll_slots`，預設 18:00，被別的貼文佔走就順延）。
+   - 格式：`{"question": "《<劇名>》<場景>，<角色>想說「<中文意思>」，用的英文是什麼？", "options": [4 個選項，每個 25 字內], "answer": "<其中一個選項原文>", "explain": "<一句中文解釋 + 其他選項的意思>"}`。
+   - 題目一定要寫明出處（劇名 + 誰在什麼情境），讓人想去看原片；**不要**在題目裡提「前一篇」，原片由留言引用。
+   - 從 `cards.json` 挑一個單字當答案；另外 3 個選項要是真實存在、意思不同的片語（不要亂掰），`answer` 用純英文（劇透遮罩只能遮英文那行）。
+   - 發文時第一則留言會自動引用這支影片的 Threads 貼文，答案（`Answer: …`）加劇透遮罩。釘選 Threads API 做不到，要使用者手動釘。
+   - 不想排票選：`postq.py add … --no-poll`。已排好的舊影片補票選：寫好 `poll.json` 後跑 `postq.py add <資料夾> --only poll`。
 
 ## 新聞片（`news` 分類）
 熱門新聞也走同一條管線（影片 + `/clip-to-slides` 輪播圖），差別在下面這些：

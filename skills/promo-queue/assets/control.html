@@ -412,9 +412,9 @@ function go(t){ tab = t; localStorage.setItem('tab2', t); render(); }
 // simple-icons 的平台標誌（用 mask 套狀態色）；沒有標誌的用字母
 const LOGO = {instagram:'instagram', threads:'threads', facebook:'facebook', tiktok:'tiktok', youtube:'youtube', xiaohongshu:'xiaohongshu',
   douyin:'tiktok', bilibili:'bilibili', line_voom:'line', naver_blog:'naver', x:'x'};
-const KSVG = {reel:'<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>',
+const KSVG = {poll:'<svg viewBox="0 0 16 16"><path d="M3 4h10M3 8h7M3 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>', reel:'<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>',
   carousel:'<svg viewBox="0 0 16 16"><rect x="5.5" y=".5" width="9.5" height="11" rx="1.5" fill="currentColor" opacity=".45"/><rect x="3.5" y="2.5" width="9.5" height="11" rx="1.5" fill="currentColor" opacity=".7"/><rect x="1.5" y="4.5" width="9.5" height="11" rx="1.5" fill="currentColor"/></svg>'};
-const KNAME = {reel:'影片', carousel:'輪播'};
+const KNAME = {reel:'影片', carousel:'輪播', poll:'票選'};
 // 縮圖 + 左下角類型標記；mini 是小縮圖（只放圖示）
 function th(src, kind, mini){
   return `<span class="th"><img src="${esc(src)}" loading="lazy"><span class="kd ${kind} ${mini?'mini':''}" title="${KNAME[kind]}">${KSVG[kind]}<span>${KNAME[kind]}</span></span></span>`;

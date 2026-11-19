@@ -9,7 +9,7 @@ import argparse, getpass, json, pathlib, re, subprocess, sys, time, urllib.parse
 import requests
 
 CFG = pathlib.Path.home() / ".config/nuances-promo"
-SCOPES = "threads_basic,threads_content_publish,threads_manage_insights"
+SCOPES = "threads_basic,threads_content_publish,threads_manage_insights,threads_manage_replies"
 
 
 def read_env(path):

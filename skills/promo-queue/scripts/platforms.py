@@ -97,12 +97,14 @@ def instagram(kind, urls, caption, sec, cover=None):
     return {"id": mid, "url": link}
 
 
-def threads(kind, urls, caption, sec):
+def threads(kind, urls, caption, sec, poll=None, quote_id=None):
     need(sec, "user_id", "token")
     api, uid = "https://graph.threads.net/v1.0", sec["user_id"]
     tok = {"access_token": sec["token"]}
     text = threads_text(caption)
     status = lambda cid: _check(requests.get(f"{api}/{cid}", params={**tok, "fields": "status"}, timeout=TIMEOUT)).get("status")
+    if kind == "poll":
+        return threads_poll(api, uid, tok, text, poll, quote_id)
     if kind == "reel":
         cid = _check(requests.post(f"{api}/{uid}/threads", data={**tok, "media_type": "VIDEO", "video_url": urls[0], "text": text},
                                    timeout=TIMEOUT))["id"]
@@ -117,6 +119,30 @@ def threads(kind, urls, caption, sec):
     mid = _check(requests.post(f"{api}/{uid}/threads_publish", data={**tok, "creation_id": cid}, timeout=TIMEOUT))["id"]
     link = _check(requests.get(f"{api}/{mid}", params={**tok, "fields": "permalink"}, timeout=TIMEOUT)).get("permalink", "")
     return {"id": mid, "url": link}
+
+
+def threads_poll(api, uid, tok, text, poll, quote_id):
+    """票選貼文 + 第一則留言（引用前一篇、答案加劇透遮罩）。
+    留言失敗時票選已經發出去了：不丟錯（避免重試又發一則票選），把原因記在 note 讓使用者手動補。"""
+    def publish(data):
+        cid = _check(requests.post(f"{api}/{uid}/threads", data={**tok, "media_type": "TEXT", **data}, timeout=TIMEOUT))["id"]
+        _wait(lambda: _check(requests.get(f"{api}/{cid}", params={**tok, "fields": "status"}, timeout=TIMEOUT)).get("status"),
+              ("FINISHED",), "Threads 容器")
+        mid = _check(requests.post(f"{api}/{uid}/threads_publish", data={**tok, "creation_id": cid}, timeout=TIMEOUT))["id"]
+        return mid, _check(requests.get(f"{api}/{mid}", params={**tok, "fields": "permalink"}, timeout=TIMEOUT)).get("permalink", "")
+    opts = {f"option_{c}": o for c, o in zip("abcd", poll["options"])}
+    mid, url = publish({"text": text, "poll_attachment": json.dumps(opts, ensure_ascii=False)})
+    res = {"id": mid, "url": url}
+    try:
+        head = f"Answer: {poll['answer']}"
+        body = head + ("\n\n" + poll["explain"] if poll.get("explain") else "")
+        # 劇透位置不確定是照字元還是位元組算，所以只遮純 ASCII 的第一行（offset 0，兩種算法結果相同）
+        spoil = ({"text_entities": json.dumps([{"entity_type": "SPOILER", "offset": 0, "length": len(head)}])}
+                 if head.isascii() else {})
+        publish({"text": body, "reply_to_id": mid, **({"quote_post_id": quote_id} if quote_id else {}), **spoil})
+    except Exception as e:
+        res["note"] = f"票選已發，但引用留言失敗（請手動補）：{str(e)[:200]}"
+    return res
 
 
 def threads_text(caption, limit=500):
@@ -325,7 +351,7 @@ def facebook(kind, urls, caption, sec):
 NEEDS_URL = {"instagram", "threads", "facebook"}
 ADAPTERS = {"instagram": instagram, "threads": threads, "tiktok": tiktok, "youtube": youtube, "facebook": facebook}
 COVER = {"instagram", "youtube"}   # 發影片時可以指定封面圖（IG Reels 封面、YouTube 縮圖）
-SUPPORTS = {"instagram": {"reel", "carousel"}, "threads": {"reel", "carousel"}, "tiktok": {"reel"}, "youtube": {"reel"},
+SUPPORTS = {"instagram": {"reel", "carousel"}, "threads": {"reel", "carousel", "poll"}, "tiktok": {"reel"}, "youtube": {"reel"},
             "facebook": {"reel", "carousel"}}
 # 沒有開放發文 API 的平台：時間到時看板會列出來，使用者手動發完再用 postq.py done 標記
 MANUAL = {"xiaohongshu": "小紅書", "douyin": "抖音", "bilibili": "Bilibili", "line_voom": "LINE VOOM", "dcard": "Dcard",

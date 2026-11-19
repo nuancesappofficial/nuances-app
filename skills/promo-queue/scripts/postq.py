@@ -5,7 +5,7 @@ usage（在專案根目錄）：
   postq.py new promo|news|demo|in-app|wip <主題> [--title 中文標題]   # 開新影片資料夾，拿該分類的下一個編號（promo-vids/promo/003-friends-on-a-break/）
   postq.py move <資料夾> <分類>       # 換分類（例如 wip 做完分到 promo），編號換成新分類的下一號
   postq.py roll [--channel tw]        # 點名表：依分類列出每支影片的編號、製作日期、發文狀態
-  postq.py add <工作資料夾> [--only reel|carousel] [--at "2026-11-02 20:00"]   # 加入排程（影片 + 輪播圖各一篇）
+  postq.py add <工作資料夾> [--only reel|carousel|poll] [--no-poll] [--at "2026-11-02 20:00"]   # 加入排程（影片 + 輪播圖各一篇）
   postq.py list                       # 列出排程與狀態
   postq.py post-due [--dry-run]       # 時間到的發出去（GitHub Actions 每小時跑一次）
   postq.py post <id> [--dry-run]      # 立刻發某一篇（不管排程時間）
@@ -51,6 +51,7 @@ DEFAULT_SETTINGS = {
 DEFAULT_CHANNEL = {
     "name": "台灣", "tz": "Asia/Taipei", "lang": "zh-Hant",
     "slots": ["20:00"],                 # 每天的發文時段（當地時間）；一個時段一篇
+    "poll_slots": ["18:00"],            # Threads 票選的時段（只排票選，沒被別的貼文佔走才算空）
     # 輪播圖到只收影片的平台（FB、TikTok、YouTube）會自動改發 9:16 輪播影片，見 VARIANT
     "platforms": {"reel": ["instagram", "threads", "facebook", "tiktok", "youtube"],
                   "carousel": ["instagram", "threads", "facebook", "tiktok", "youtube"]},
@@ -243,6 +244,22 @@ def next_slot(q, after, cid):
     raise RuntimeError("找不到時段")
 
 
+def next_vacant_slot(q, after, cid):
+    """after 之後第一個還沒被任何貼文佔走的票選時段（poll_slots，預設 18:00）。"""
+    c = chan(q, cid)
+    tz = ZoneInfo(c["tz"])
+    after = after.astimezone(tz)
+    taken = {parse(it["scheduled_for"]).astimezone(tz) for it in q["items"] if it["channel"] == cid and state(it) != "skipped"}
+    for d in range(0, 400):
+        day = (after + dt.timedelta(days=d)).date()
+        for s in sorted(c.get("poll_slots", ["18:00"])):
+            h, m = map(int, s.split(":"))
+            t = dt.datetime(day.year, day.month, day.day, h, m, tzinfo=tz)
+            if t > after and t not in taken:
+                return t
+    raise RuntimeError("找不到空時段")
+
+
 def last_time(q, cid):
     ts = [parse(it["scheduled_for"]) for it in q["items"] if it["channel"] == cid and state(it) != "skipped"]
     return max(ts + [now(q, cid)])
@@ -402,7 +419,9 @@ def cmd_add(q, a):
         if show:
             variants["video"] = [show[0].name]
     kinds = [k for k in ("reel", "carousel") if k in found and (not a.only or a.only == k)]
-    if not kinds:
+    if a.only == "poll":
+        kinds = []
+    elif not kinds:
         sys.exit("資料夾裡沒有成品影片（*-final.mp4 / final/*.mp4）或 slides/slide_*.png")
     cid = a.channel or next(iter(q["channels"]))
     if cid not in q["channels"]:
@@ -441,7 +460,45 @@ def cmd_add(q, a):
             upload_cover(folder, item)
         q["items"].append(item)
         print(f"加入 {iid} → {when:%m/%d %H:%M}（{chan(q, cid)['name']}時間）")
+    if (folder / "poll.json").exists() and (not a.only or a.only == "poll") and not getattr(a, "no_poll", False):
+        add_poll(q, folder, cat, no, topic, cid)
+    elif a.only == "poll":
+        sys.exit("資料夾裡沒有 poll.json")
     save(q)
+
+
+def add_poll(q, folder, cat, no, topic, cid):
+    """Threads 票選（問答題）：排在來源影片（沒有就輪播圖）之後第一個空的票選時段，發文時第一則留言引用那篇。"""
+    iid = f"{cid}-{cat}-{no}-poll"
+    if any(it["id"] == iid for it in q["items"]):
+        print(f"已在排程裡：{iid}")
+        return
+    src = next((it for k in ("reel", "carousel") for it in q["items"] if it["id"] == f"{cid}-{cat}-{no}-{k}"), None)
+    if not src:
+        print(f"沒有 {cid}-{cat}-{no} 的影片或輪播圖在排程裡，票選先不排（引用不到）")
+        return
+    if "threads" not in chan(q, cid)["platforms"].get(src["kind"], []) or "threads" not in src["platforms"]:
+        print(f"{src['id']} 不發 Threads，票選先不排")
+        return
+    poll = json.loads((folder / "poll.json").read_text())
+    opts = poll["options"]
+    if not 2 <= len(opts) <= 4 or any(not 1 <= len(o) <= 25 for o in opts):
+        sys.exit("poll.json 的選項要 2–4 個，每個 1–25 字")
+    if poll["answer"] not in opts:
+        sys.exit("poll.json 的 answer 要是 options 裡的其中一個")
+    when = next_vacant_slot(q, parse(src["scheduled_for"]), cid)
+    item = {
+        "id": iid, "channel": cid, "topic": label(cat, no, topic), "kind": "poll", "folder": str(folder.relative_to(ROOT)), "media": [],
+        "caption_file": "poll.json", "caption": f"{poll['question']}\n\n跟「懶得查」說 bye bye！",
+        "scheduled_for": when.isoformat(), "added_at": now(q, cid).isoformat(timespec="seconds"),
+        "tags": {"format": "票選", "hook": "英文怎麼說", "show": src.get("tags", {}).get("show", "")},
+        "platforms": {"threads": {"status": "queued", "attempts": 0}},
+        "poll": {k: poll[k] for k in ("options", "answer", "explain") if k in poll}, "quote_of": src["id"],
+    }
+    if src.get("thumb"):
+        item["thumb"] = src["thumb"]
+    q["items"].append(item)
+    print(f"加入 {iid} → {when:%m/%d %H:%M}（Threads 票選，引用 {src['id']}）")
 
 
 def pick_platforms(q, cid, kind, a):
@@ -458,6 +515,8 @@ def all_media(it):
 
 def plan(it, name):
     """這篇在這個平台要發成什麼：(adapter 用的 kind, 檔案相對路徑)；None = 沒有適合的版本。"""
+    if it["kind"] == "poll":
+        return ("poll", []) if name == "threads" else None
     if it["kind"] == "reel":
         return "reel", it["media"]
     v = VARIANT.get(name, "4x5")
@@ -524,7 +583,7 @@ def post_item(q, it, secrets, dry):
         too_long = name == "facebook" and kind == "reel" and (it.get("duration") or 0) > 90
         if dry:
             why = ("沒有適合的版本，會略過" if not pl or kind not in P.SUPPORTS[name] else "影片超過 90 秒，會略過" if too_long
-                   else "未設定，會略過" if not sec else f"會發布（{'影片' if kind == 'reel' else '圖片'} {len(rels)} 個：{rels[0]}…）")
+                   else "未設定，會略過" if not sec else "會發布（票選 + 引用留言）" if kind == "poll" else f"會發布（{'影片' if kind == 'reel' else '圖片'} {len(rels)} 個：{rels[0]}…）")
             print(f"[dry-run] {it['id']} → {NAMES[name]}：{why}")
             continue
         if not pl or kind not in P.SUPPORTS[name]:
@@ -547,6 +606,11 @@ def post_item(q, it, secrets, dry):
                 media = fetch(it, rels, tmp)
             ps["attempts"] += 1
             extra = {"cover": it["cover"]} if it.get("cover") and kind == "reel" and name in P.COVER else {}
+            if kind == "poll":
+                src = get(q, it["quote_of"])["platforms"].get("threads", {})
+                if src.get("status") != "posted" or not src.get("id"):
+                    raise RuntimeError(f"要引用的 {it['quote_of']} 還沒發到 Threads")
+                extra = {"poll": it["poll"], "quote_id": src["id"]}
             text = caption_for(name, caption)
             if buffer:
                 res = P.buffer_post(name, kind, media, drop_swipe(it, text), buffer)
@@ -1173,7 +1237,7 @@ def dashboard(q):
 
     def card(it, big=False):
         when = parse(it["scheduled_for"]).astimezone(ZoneInfo(chan(q, it["channel"])["tz"]))
-        kind = "影片" if it["kind"] == "reel" else f"輪播 {len(it['media'])} 張"
+        kind = {"reel": "影片", "poll": "Threads 票選"}.get(it["kind"], f"輪播 {len(it['media'])} 張")
         errs = "".join(f'<div class="err">{NAMES[n]}：{e(p["error"])}</div>' for n, p in it["platforms"].items() if p.get("error"))
         notes = "".join(f'<div class="note">{NAMES[n]}：{e(p["note"])}</div>' for n, p in it["platforms"].items() if p.get("note"))
         return (f'<div class="card{" big" if big else ""}"><img src="{e(thumb(it))}" loading="lazy">'
@@ -1289,7 +1353,7 @@ tick();{load_js}
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
-    x = sp.add_parser("add"); x.add_argument("folder"); x.add_argument("--only", choices=["reel", "carousel"]); x.add_argument("--at")
+    x = sp.add_parser("add"); x.add_argument("folder"); x.add_argument("--only", choices=["reel", "carousel", "poll"]); x.add_argument("--no-poll", action="store_true"); x.add_argument("--at")
     x.add_argument("--show", help="劇名（預設讀 slides.json 的 show）"); x.add_argument("--hook-reel", help="影片的 hook 句型")
     x.add_argument("--hook-carousel", default="英文怎麼說", help="輪播圖的 hook 句型")
     x.add_argument("--channel", help="排到哪個國家（預設第一個，通常是 tw）")

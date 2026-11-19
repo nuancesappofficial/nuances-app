@@ -21,7 +21,7 @@ WORK = queue.Queue()
 SEQ = itertools.count(1)
 ACCT = {}            # 國家 → (讀取時間, 帳號)；金鑰在雲端，每次讀要 0.3 秒，一分鐘內用快取
 VIDS = Q.VIDS
-KIND_ZH = {"reel": "影片", "carousel": "輪播圖"}
+KIND_ZH = {"reel": "影片", "carousel": "輪播圖", "poll": "票選"}
 
 
 # ---------- 讀取 ----------
