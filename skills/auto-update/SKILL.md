@@ -110,9 +110,10 @@ eas build --platform android --profile production --auto-submit --non-interactiv
 規則：
 1. **Agent 在發版流程中不得主動執行 `npm run sync:app-version-policy*`**（含 `:android`、`:all`），發版當下一律不動政策表。
 2. **iOS**：App Store 審核通過並上架後，由 GitHub Actions（`.github/workflows/auto-sync-version-policy.yml`，每 3 小時，僅查 iTunes lookup 已上架版本）自動寫入 `ios` 那一列。只動 iOS，不影響 Android。
-3. **Android**：政策只對「使用者實際下載得到該版本」的軌道開啟。
-   - 只在封閉測試、尚無公開正式版時，Google Play 公開頁會 404，自動巡邏不會同步 Android，這是預期行為。**封閉測試期間 Android 維持 `required = false`，不要強制更新**。
-   - 封閉測試或正式版審核通過、測試員確實能在 Play 商店更新後，才由使用者確認，Agent 再手動執行 `npm run sync:app-version-policy:android`。
+3. **Android**：更新通知只看「封閉測試（alpha）」軌道（正式版公開後改看正式版），不看 iOS，也不看內部測試。
+   - 巡邏（`scripts/poll-store-and-sync.mjs`）用 Google Play Developer API 讀 alpha 軌道，只認 status 為 completed 的 release，版號取自 release 名稱（EAS 格式「43 (1.3.9)」），build 號用 Play 的 versionCode。審核中或草稿不算，不會提早擋人。
+   - 需要 GitHub secret `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`（服務帳戶金鑰 JSON 全文）；本機執行則讀 `/Users/users/.eas-keys/google-service-account.json`。讀不到時巡邏會略過 Android 並發 ntfy 警告，不會誤開。
+   - 嚴禁用本機 `build.gradle` 版號當作「已上架」（舊版曾這樣做，審核前就擋住舊版測試員）。
 4. **每次寫入前先驗證**：用 `supabase db query --linked "select platform, required, latest_version, minimum_supported_version from app_version_policy;"` 看現況，並確認該平台商店真的已有新版；兩個平台不通過就各自分開處理，嚴禁用 `--platform all` 一次寫兩邊。
 5. **誤開的緊急關閉**（測試員被更新彈窗擋住時）：只改被擋的平台那一列，`required = false`、`minimum_supported_version = '0.0.1'`、`latest_version = '0.0.1'`、兩個 build number 設為 null（`minimum_supported_version` 與 `latest_version` 不可為 null）。使用者需完全關閉 App 再重開，App 只在啟動時檢查政策。
 6. **手動同步指令（僅在確認該平台已可下載後使用）**：

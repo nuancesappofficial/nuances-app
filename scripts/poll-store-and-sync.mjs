@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -151,6 +153,80 @@ async function getLiveGooglePlayVersion() {
   }
 }
 
+// ---- Google Play Developer API：讀封閉測試（alpha）軌道目前發布的版本 ----
+const PLAY_PACKAGE = BUNDLE_ID;
+const PLAY_CLOSED_TRACK = 'alpha';
+
+function loadPlayServiceAccount(env) {
+  const raw = (env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON || '').trim();
+  if (raw) return JSON.parse(raw);
+  const keyPath = env.GOOGLE_PLAY_SERVICE_ACCOUNT_PATH || path.join(os.homedir(), '.eas-keys', 'google-service-account.json');
+  if (fs.existsSync(keyPath)) return JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+  return null;
+}
+
+function base64url(input) {
+  return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+async function getPlayAccessToken(account) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claim = base64url(JSON.stringify({
+    iss: account.client_email,
+    scope: 'https://www.googleapis.com/auth/androidpublisher',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  }));
+  const signature = crypto.createSign('RSA-SHA256').update(`${header}.${claim}`).sign(account.private_key);
+  const assertion = `${header}.${claim}.${base64url(signature)}`;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
+  });
+  if (!res.ok) throw new Error(`Google token request failed (${res.status}): ${await res.text()}`);
+  return (await res.json()).access_token;
+}
+
+// 回傳封閉測試軌道上「已發布給測試員」的最新版本；沒有就回 null。
+// 只認 status = completed 的 release，審核中或草稿都不算。
+async function getClosedTestingRelease(env) {
+  const account = loadPlayServiceAccount(env);
+  if (!account) {
+    console.warn('[AutoSync] No Google Play service account (GOOGLE_PLAY_SERVICE_ACCOUNT_JSON); cannot read closed testing track.');
+    return { status: 'no_credentials' };
+  }
+  const token = await getPlayAccessToken(account);
+  const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PLAY_PACKAGE}/edits`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  const editRes = await fetch(base, { method: 'POST', headers, body: '{}' });
+  if (!editRes.ok) throw new Error(`Play edits.insert failed (${editRes.status}): ${await editRes.text()}`);
+  const editId = (await editRes.json()).id;
+
+  try {
+    const trackRes = await fetch(`${base}/${editId}/tracks/${PLAY_CLOSED_TRACK}`, { headers });
+    if (!trackRes.ok) throw new Error(`Play tracks.get failed (${trackRes.status}): ${await trackRes.text()}`);
+    const track = await trackRes.json();
+    const live = (track.releases || [])
+      .filter((r) => r.status === 'completed' && (r.versionCodes || []).length > 0)
+      .map((r) => ({
+        versionCode: Math.max(...r.versionCodes.map((c) => Number.parseInt(c, 10))),
+        // EAS 的 release 名稱格式：「43 (1.3.9)」
+        version: r.name?.match(/\((\d+\.\d+\.\d+)\)/)?.[1] ?? r.name?.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null,
+        name: r.name,
+      }))
+      .sort((a, b) => b.versionCode - a.versionCode)[0];
+    if (!live) return { status: 'none' };
+    if (!live.version) return { status: 'no_version_name', versionCode: live.versionCode, name: live.name };
+    return { status: 'live', version: live.version, versionCode: live.versionCode };
+  } finally {
+    await fetch(`${base}/${editId}`, { method: 'DELETE', headers }).catch(() => {});
+  }
+}
+
 async function getSupabaseCurrentPolicies(supabaseUrl, anonKey) {
   const url = `${supabaseUrl}/rest/v1/app_version_policy?select=*`;
   const res = await fetch(url, {
@@ -296,28 +372,36 @@ async function main() {
   const androidSettings = extractAndroidBuildSettings();
 
   if (liveAndroid.status === 'not_public') {
-    console.log('[AutoSync] Google Play Store: App is in internal/closed testing (not publicly indexed yet). Checking local build settings for closed/internal policy...');
-    if (androidSettings) {
-      const cmp = compareSemver(androidSettings.marketingVersion, androidPolicy?.latest_version);
+    // 正式版還沒公開：Android 更新通知只看「封閉測試（alpha）」軌道，不看 iOS，也不看內部測試。
+    // 不可用本機 build.gradle 的版號代替，那是「剛打包」不是「測試員已能下載」。
+    let closed;
+    try {
+      closed = await getClosedTestingRelease(env);
+    } catch (err) {
+      console.warn('[AutoSync] Could not read closed testing track:', err.message);
+      await sendNtfy(env, { title: '⚠️ 讀不到 Android 封閉測試版本', message: `Android 更新通知這輪沒有動作：${err.message}`, tags: ['warning'] });
+      closed = { status: 'error' };
+    }
+
+    if (closed.status !== 'live') {
+      console.log(`[AutoSync] Closed testing (${PLAY_CLOSED_TRACK}) has no published release (${closed.status}). Skipping Android auto-sync; policy stays as is.`);
+    } else {
+      const cmp = compareSemver(closed.version, androidPolicy?.latest_version);
       const isNewerBuild =
         cmp === 0 &&
-        typeof androidPolicy?.latest_build_number === 'number' &&
-        androidSettings.buildNumber > androidPolicy.latest_build_number;
-
+        (typeof androidPolicy?.latest_build_number !== 'number' || closed.versionCode > androidPolicy.latest_build_number);
       if (cmp > 0 || isNewerBuild) {
-        console.log(`[AutoSync] >> DETECTED Android internal/closed testing upgrade: ${androidSettings.marketingVersion} (build ${androidSettings.buildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
+        console.log(`[AutoSync] >> DETECTED Android closed testing release: ${closed.version} (versionCode ${closed.versionCode}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number ?? 'none'})!`);
         if (!syncToken && !dryRun) {
           console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
           await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
         } else {
-          await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', androidSettings.marketingVersion, androidSettings.buildNumber, dryRun);
-          await notifyPolicySynced(env, supabaseUrl, anonKey, 'android', androidSettings.marketingVersion, dryRun);
+          await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', closed.version, closed.versionCode, dryRun);
+          await notifyPolicySynced(env, supabaseUrl, anonKey, 'android', closed.version, dryRun);
         }
       } else {
-        console.log(`[AutoSync] Android policy is already up-to-date with internal/closed testing (${androidSettings.marketingVersion}, build ${androidSettings.buildNumber}).`);
+        console.log(`[AutoSync] Android policy is already up-to-date with closed testing (${closed.version}, versionCode ${closed.versionCode}).`);
       }
-    } else {
-      console.warn('[AutoSync] Could not read local Android settings for closed testing fallback.');
     }
   } else if (liveAndroid.version) {
     console.log(`[AutoSync] Live Google Play version: ${liveAndroid.version}`);
