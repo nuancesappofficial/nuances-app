@@ -8,7 +8,7 @@ let originalDuration: CGFloat = 1.2
 let totalDuration = originalDuration / speedFactor // 1.6s
 let totalFrames = Int(round(CGFloat(fps) * totalDuration)) // 48 frames
 let outputDir = "/tmp/trans_splash_frames"
-let iconPath = "/Users/users/vibe_coding_projects/nuances-app/assets/app_icons/icon_cutout2.png"
+let iconPath = "/Users/users/vibe_coding_projects/nuances-app/assets/app/app_icons/icon_cutout2.png"
 
 try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 

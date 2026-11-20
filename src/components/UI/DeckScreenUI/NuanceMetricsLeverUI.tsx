@@ -35,6 +35,8 @@ const LEVER_HIGH_COLOR: LeverColorToken = {
   bg: 'rgba(255, 107, 107, 0.12)',
 };
 
+const FIXED_FONT_PROPS = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;
+
 export function getLeverColorToken(score: number | null): LeverColorToken {
   if (typeof score !== 'number' || Number.isNaN(score) || score <= 3) {
     return LEVER_LOW_COLOR;
@@ -60,6 +62,8 @@ export type NuanceMetricsLeverUIProps = {
   fontScale?: number;
   textWrapGuard?: number;
   animate?: boolean;
+  /** Ignore the system text size (the ghost card renders everything at a fixed size). */
+  fixedFontSize?: boolean;
   onTextLayout?: (event: any) => void;
 };
 
@@ -71,6 +75,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
   fontScale = 1,
   textWrapGuard = 0,
   animate = false,
+  fixedFontSize = false,
   onTextLayout,
 }) => {
   const hasFormality = typeof formality === 'number' && !Number.isNaN(formality);
@@ -256,7 +261,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
           {/* 正式度 (Formality): 隨意 <-> 正式 */}
           {hasFormality ? (
             <View style={styles.meterRow}>
-              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>隨意</Text>
+              <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.axisLabel, { color: ui.secondaryText }]}>隨意</Text>
               <View style={[styles.track, { backgroundColor: ui.divider }]}>
                 <Reanimated.View
                   style={[
@@ -271,7 +276,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                   ]}
                 />
               </View>
-              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>正式</Text>
+              <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.axisLabel, { color: ui.secondaryText }]}>正式</Text>
               <Reanimated.View
                 style={[
                   styles.badgeContainer,
@@ -279,7 +284,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                   animatedBadgeStyle,
                 ]}
               >
-                <Text style={[styles.scoreBadge, { color: formalityColor.main }]}>
+                <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.scoreBadge, { color: formalityColor.main }]}>
                   {clampedFormality}
                 </Text>
               </Reanimated.View>
@@ -289,7 +294,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
           {/* 強烈度 (Intensity): 微弱 <-> 強烈 */}
           {hasIntensity ? (
             <View style={[styles.meterRow, hasFormality ? { marginTop: 10 } : null]}>
-              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>微弱</Text>
+              <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.axisLabel, { color: ui.secondaryText }]}>微弱</Text>
               <View style={[styles.track, { backgroundColor: ui.divider }]}>
                 <Reanimated.View
                   style={[
@@ -304,7 +309,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                   ]}
                 />
               </View>
-              <Text style={[styles.axisLabel, { color: ui.secondaryText }]}>強烈</Text>
+              <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.axisLabel, { color: ui.secondaryText }]}>強烈</Text>
               <Reanimated.View
                 style={[
                   styles.badgeContainer,
@@ -312,7 +317,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
                   animatedBadgeStyle,
                 ]}
               >
-                <Text style={[styles.scoreBadge, { color: intensityColor.main }]}>
+                <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)} style={[styles.scoreBadge, { color: intensityColor.main }]}>
                   {clampedIntensity}
                 </Text>
               </Reanimated.View>
@@ -324,7 +329,7 @@ export const NuanceMetricsLeverUI: React.FC<NuanceMetricsLeverUIProps> = ({
       {/* Insider Insight 語感解析 */}
       {insiderInsight ? (
         <View style={[styles.insightContainer, !hasLevers && { marginTop: 0 }]}>
-          <Text
+          <Text {...(fixedFontSize ? FIXED_FONT_PROPS : null)}
             style={[
               styles.insightText,
               {

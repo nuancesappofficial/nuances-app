@@ -1143,9 +1143,9 @@ export function CreateCardGhostPreviewScene({
                 ]}
               />
             ) : previewPhonetic ? (
-              <Text style={[styles.previewIpaText, { color: palette.secondaryText }]} numberOfLines={1}>
+              <FixedText style={[styles.previewIpaText, { color: palette.secondaryText }]} numberOfLines={1}>
                 {previewPhonetic}
-              </Text>
+              </FixedText>
             ) : null}
             <Pressable
               disabled={!canPlayWord}
@@ -1171,9 +1171,9 @@ export function CreateCardGhostPreviewScene({
           <View style={styles.previewMeaningRow}>
             {previewPartOfSpeech ? (
               <Reanimated.View entering={FadeIn.duration(220)} style={[styles.previewPosChip, { backgroundColor: tone.chipBg, borderColor: tone.chipBorder }]}>
-                <Text style={[styles.previewPosChipText, { color: palette.secondaryText }]}>
+                <FixedText style={[styles.previewPosChipText, { color: palette.secondaryText }]}>
                   {previewPartOfSpeech}
-                </Text>
+                </FixedText>
               </Reanimated.View>
             ) : isThinking && !effectiveRevealState.showFrontDefinition ? (
               <Reanimated.View
@@ -1269,6 +1269,7 @@ export function CreateCardGhostPreviewScene({
                         divider: tone.divider,
                       }}
                       animate={shouldAnimateText && effectiveRevealState.showBackCultural}
+                      fixedFontSize
                     />
                   </FadeWhen>
                 ) : null}
@@ -1280,6 +1281,7 @@ export function CreateCardGhostPreviewScene({
                     onToggleExpand={() => setIsGhostContextExpanded((prev) => !prev)}
                     showToggle={effectivePhase === 'complete' || isCulturalStreamComplete}
                     reserveToggleSpace
+                    fixedFontSize
                     textColor={palette.textOnContainer}
                     secondaryTextColor={palette.secondaryText}
                     uiLanguage={uiLanguage}
@@ -1332,9 +1334,9 @@ export function CreateCardGhostPreviewScene({
                 onPress={onOpenPronunciationModal}
               >
                 <Ionicons name="mic" size={18} color="#FFFFFF" />
-                <Text style={styles.practiceButtonText} numberOfLines={1}>
+                <FixedText style={styles.practiceButtonText} numberOfLines={1}>
                   {tUI(uiLanguage, 'cardDetail.practicePronunciation')}
-                </Text>
+                </FixedText>
               </Pressable>
             )}
 

@@ -4,7 +4,7 @@
 - 按鈕在背景跑真正的指令（eas build / npm run sync / node scripts/send-message.js），輸出存在 JOBS，網頁輪詢看進度
 指令跟 skill 裡寫的一模一樣，只是多了 --non-interactive / --no-wait 讓它能在背景跑。
 """
-import itertools, json, pathlib, subprocess, threading, time, urllib.request
+import itertools, json, pathlib, re, subprocess, threading, time, urllib.error, urllib.request
 
 import analytics as A
 
@@ -34,7 +34,7 @@ def consistency():
 
 
 def builds():
-    code, out, err = _run(["eas", "build:list", "--limit", "8", "--json", "--non-interactive"], timeout=60)
+    code, out, err = _run(["eas", "build:list", "--limit", "30", "--json", "--non-interactive"], timeout=60)
     if code:
         raise RuntimeError("讀不到 EAS 打包紀錄：" + (err.strip().splitlines() or ["?"])[-1])
     keep = []
@@ -45,13 +45,28 @@ def builds():
     return keep
 
 
+def _play_status():
+    """Google Play 沒有公開 API：跟 poll-store-and-sync.mjs 一樣看商店頁，404 代表還在測試、沒公開。"""
+    try:
+        req = urllib.request.Request(f"https://play.google.com/store/apps/details?id={BUNDLE_ID}&hl=en", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            m = re.search(r'\[\[\["(\d+\.\d+(?:\.\d+)?)"\]\]', r.read().decode("utf-8", "ignore"))
+        return m.group(1) if m else None, "public"
+    except urllib.error.HTTPError as e:
+        return None, "not_public" if e.code == 404 else "unknown"
+    except Exception:
+        return None, "unknown"
+
+
 def store():
+    android, android_status = _play_status()
+    ios = None
     try:
         with urllib.request.urlopen(f"https://itunes.apple.com/lookup?bundleId={BUNDLE_ID}&country=tw&t={int(time.time())}", timeout=15) as r:
-            res = json.loads(r.read()).get("results") or [{}]
-        return {"ios": res[0].get("version"), "android": None}
+            ios = (json.loads(r.read()).get("results") or [{}])[0].get("version")
     except Exception:
-        return {"ios": None, "android": None}
+        pass
+    return {"ios": ios, "android": android, "android_status": android_status}
 
 
 def policy():

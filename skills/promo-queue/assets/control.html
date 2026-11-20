@@ -845,23 +845,31 @@ const REL = {form: {type: 'both', priority: 'normal', title: '', body: '', email
 const BSTAT = {FINISHED: ['done', '完成'], IN_QUEUE: ['run', '排隊中'], NEW: ['run', '排隊中'], IN_PROGRESS: ['run', '打包中'], PENDING_CANCEL: ['fail', '取消中'],
   ERRORED: ['fail', '失敗'], CANCELED: ['fail', '已取消']};
 function step(cls, title, sub, first){ return `<div class="step ${cls} ${first ? 'first' : ''}"><i>${cls === 'done' ? '✓' : cls === 'fail' ? '!' : ''}</i><b>${title}</b>${sub || ''}</div>`; }
+function verNum(v){ return String(v || '0').split('.').map(Number); }
+function verCmp(a, b){ const x = verNum(a), y = verNum(b); for(let i = 0; i < 3; i++){ const d = (x[i] || 0) - (y[i] || 0); if(d) return d; } return 0; }
+// 每個平台各自追最新的版本：本機、EAS、商店、更新提示裡最大的那個（版本可能從別的分支打包，本機 app.json 不一定最新）
+function targetVersion(p, r){
+  const live = Array.isArray(r.builds) ? r.builds.filter(x => x.platform === p && !['ERRORED', 'CANCELED'].includes(x.status)).map(x => x.version) : [];
+  return [r.local.version, ...live, r.store?.[p], r.policy?.[p]?.latest_version].filter(Boolean).reduce((m, x) => verCmp(x, m) > 0 ? x : m);
+}
 function progressRow(p, r){
-  const v = r.local.version, label = p === 'ios' ? 'iOS' : 'Android';
-  const chk = r.check?.error ? ['fail', '讀不到'] : r.check?.ok ? ['done', v] : ['fail', '三處不一致'];
+  const v = targetVersion(p, r), label = p === 'ios' ? 'iOS' : 'Android', isLocal = r.local.version === v;
+  const chk = !isLocal ? ['done', esc(v)] : r.check?.error ? ['fail', '讀不到'] : r.check?.ok ? ['done', esc(v)] : ['fail', '三處不一致'];
   const b = Array.isArray(r.builds) ? r.builds.find(x => x.platform === p && x.version === v) : null;
-  const bs = r.builds?.error ? ['fail', '讀不到 EAS'] : b ? BSTAT[b.status] || ['run', b.status] : ['', 'EAS 還沒打這版'];
+  const bs = r.builds?.error ? ['fail', '讀不到 EAS'] : b ? BSTAT[b.status] || ['run', b.status] : ['', `EAS 沒有 ${esc(v)} 的紀錄`];
   const bsub = b ? `<a href="${b.url}" target="_blank" rel="noopener">${bs[1]}・#${esc(b.build)}</a>` : bs[1];
+  const play = t => `<a href="${r.links.play}" target="_blank" rel="noopener">${t}</a>`;
   let st;
   if(p === 'ios') st = r.store?.ios === v ? ['done', 'App Store 已上架'] : b?.status === 'FINISHED' ? ['wait', `<a href="${r.links.asc}" target="_blank" rel="noopener">TestFlight → 去送審</a>`] : ['', `線上是 ${esc(r.store?.ios || '?')}`];
-  else st = b?.status === 'FINISHED' ? ['wait', `<a href="${r.links.play}" target="_blank" rel="noopener">內部測試軌道 → 到 Play Console 看</a>`] : ['', '<a href="' + r.links.play + '" target="_blank" rel="noopener">Play Console</a>'];
+  else st = r.store?.android === v ? ['done', 'Google Play 已上架'] : r.store?.android_status === 'not_public' ? ['wait', play('測試中，還沒公開上架')] : r.store?.android ? ['', play(`線上是 ${esc(r.store.android)}`)] : ['', play('Play Console')];
   const pol = r.policy?.[p], ps = r.policy?.error ? ['fail', '讀不到'] : pol?.latest_version === v ? ['done', `已提示 ${esc(v)}・${esc(pol.updated)}`] : ['', `目前提示 ${esc(pol?.latest_version || '—')}`];
-  return `<span class="pl">${label}</span>${step(chk[0], '版號一致', chk[1], true)}${step(bs[0], '打包上傳', bsub)}${step(st[0], '商店上架', st[1])}${step(ps[0], '更新提示', ps[1])}`;
+  return `<span class="pl">${label} ${esc(v)}</span>${step(chk[0], '版號一致', chk[1], true)}${step(bs[0], '打包上傳', bsub)}${step(st[0], '商店上架', st[1])}${step(ps[0], '更新提示', ps[1])}`;
 }
 function relLive(){
   const r = APP.release; if(!r) return '<div class="sk" style="height:160px"></div>';
   const busy = a => (r.jobs || []).some(j => j.action === a && j.status === 'running');
   const msgs = Array.isArray(r.messages) ? r.messages : [];
-  return `<div class="card"><h3>版本進度 <span class="dim">本機版號 ${esc(r.local.version)}（iOS build ${esc(r.local.ios_build)}・Android ${esc(r.local.android_code)}）</span></h3>
+  return `<div class="card"><h3>版本進度 <span class="dim">本機版號 ${esc(r.local.version)}（iOS build ${esc(r.local.ios_build)}・Android ${esc(r.local.android_code)}）${['ios', 'android'].some(p => verCmp(targetVersion(p, r), r.local.version) > 0) ? '・比最新版舊，打包前先更新' : ''}</span></h3>
       <div class="steps">${progressRow('ios', r)}</div><div class="steps" style="margin-top:14px">${progressRow('android', r)}</div>
       <div class="relrow">
         <button class="small" ${busy('check') ? 'disabled' : ''} onclick="relRun({action:'check'})">檢查版號</button>

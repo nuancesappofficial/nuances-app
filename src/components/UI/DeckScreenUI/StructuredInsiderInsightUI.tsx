@@ -16,6 +16,8 @@ export type StructuredInsiderInsightUIProps = {
   showToggle?: boolean;
   /** Keep the toggle row's space from the start (invisible until showToggle) so it never pushes content down. */
   reserveToggleSpace?: boolean;
+  /** Ignore the system text size (the ghost card renders everything at a fixed size). */
+  fixedFontSize?: boolean;
   textColor: string;
   secondaryTextColor: string;
   /** Colour for the core hook line and highlighted English terms (defaults to textColor). */
@@ -32,6 +34,8 @@ export type StructuredInsiderInsightUIProps = {
 };
 
 type BentoTheme = 'blue' | 'rose';
+
+const FIXED_FONT_PROPS = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;
 
 function getBentoTheme(bullet: { label?: string; body: string }, index: number): BentoTheme {
   const label = (bullet.label || '').toLowerCase();
@@ -110,6 +114,7 @@ const BentoCardItem: React.FC<{
   /** Reveal position in characters; undefined shows everything. Unrevealed text stays laid out, transparent. */
   revealPos?: number;
   fadeChars?: number;
+  fixedFontSize?: boolean;
 }> = React.memo(({
   bullet,
   palette,
@@ -118,7 +123,9 @@ const BentoCardItem: React.FC<{
   bodyLineHeight,
   revealPos,
   fadeChars = 1,
+  fixedFontSize = false,
 }) => {
+  const fontScaling = fixedFontSize ? FIXED_FONT_PROPS : null;
   const displaySegments = React.useMemo(() => bulletDisplaySegments(bullet.body), [bullet.body]);
   const runs = React.useMemo(
     () =>
@@ -138,17 +145,17 @@ const BentoCardItem: React.FC<{
       style={[styles.bentoCard, { backgroundColor: palette.surface }]}
     >
       <View style={styles.badgeRow}>
-        <Text style={[styles.bentoBadgeIcon, { color: palette.labelText }]}>
+        <Text {...fontScaling} style={[styles.bentoBadgeIcon, { color: palette.labelText }]}>
           {palette.icon}
         </Text>
         {bullet.label ? (
-          <Text style={[styles.bentoBadgeText, { color: palette.labelText }]}>
+          <Text {...fontScaling} style={[styles.bentoBadgeText, { color: palette.labelText }]}>
             {bullet.label}
           </Text>
         ) : null}
       </View>
 
-      <Text
+      <Text {...fontScaling}
         style={[
           styles.bulletBody,
           {
@@ -170,6 +177,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
   onToggleExpand,
   showToggle = false,
   reserveToggleSpace = false,
+  fixedFontSize = false,
   textColor,
   secondaryTextColor,
   emphasisTextColor,
@@ -245,13 +253,14 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
       }),
     [emphasisColor, fadeChars, hookText, revealPos]
   );
+  const fontScaling = fixedFontSize ? FIXED_FONT_PROPS : null;
   const showToggleRow = Boolean(hasBullets && onToggleExpand && (showToggle || reserveToggleSpace));
 
   return (
     <View style={styles.container}>
       {/* 1. Core Hook Text */}
       {hookText ? (
-        <Text
+        <Text {...fontScaling}
           style={[
             styles.hookText,
             {
@@ -286,6 +295,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
                   bodyLineHeight={bodyLineHeight}
                   revealPos={animate ? bulletPos : undefined}
                   fadeChars={fadeChars}
+                  fixedFontSize={fixedFontSize}
                 />
               </FadeWhen>
             );
@@ -304,7 +314,7 @@ export const StructuredInsiderInsightUI: React.FC<StructuredInsiderInsightUIProp
           accessibilityLabel={toggleLabel}
           accessibilityElementsHidden={!showToggle}
         >
-          <Text style={[styles.toggleText, { color: secondaryTextColor }]}>
+          <Text {...fontScaling} style={[styles.toggleText, { color: secondaryTextColor }]}>
             {toggleLabel}
           </Text>
           <Ionicons

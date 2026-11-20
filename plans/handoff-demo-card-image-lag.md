@@ -12,7 +12,7 @@
 所有程式碼修改已落地，**tsc + eslint 已通過**。**尚未在裝置上驗證**三個 lag 是否真的消失。
 
 ### 根因
-demo card 圖片是 bundled asset（`require('assets/tutorial/demo-card/smallest-nuances-with-text-v2.png')`，1254×1254，1.8MB）。所有消費端都用 `source={{ uri: imageUri }}`，而 `imageUri` 是 `Image.resolveAssetSource(...).uri` 回傳的 bundle URI（`file:///.../assets_xxx/...`）。React Native 對這種 bundle asset URI 的載入（尤其 `Image.getSize()`）比實體檔案慢，造成三個畫面都閃一下。
+demo card 圖片是 bundled asset（`require('assets/app/tutorial/demo-card/smallest-nuances-with-text-v2.png')`，1254×1254，1.8MB）。所有消費端都用 `source={{ uri: imageUri }}`，而 `imageUri` 是 `Image.resolveAssetSource(...).uri` 回傳的 bundle URI（`file:///.../assets_xxx/...`）。React Native 對這種 bundle asset URI 的載入（尤其 `Image.getSize()`）比實體檔案慢，造成三個畫面都閃一下。
 
 ### 修改清單
 1. [`defaultExperienceCard.ts`](../../src/features/cache/defaultExperienceCard.ts:56) — 新增：
