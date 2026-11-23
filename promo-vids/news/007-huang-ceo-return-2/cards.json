@@ -1,0 +1,49 @@
+[
+ {
+  "word": "invite someone back",
+  "ipa": "/ɪnˈvaɪt ˈsʌm.wʌn bæk/",
+  "pos": "phrase",
+  "definition": "邀請某人回來（復職）",
+  "match": "invited him back",
+  "sentence": "the board has actually invited him back",
+  "translation": "董事會竟然邀他回來",
+  "trigger": 3.8
+ },
+ {
+  "word": "effective",
+  "ipa": "/ɪˈfek.tɪv/",
+  "pos": "adj.",
+  "definition": "（法規、決定）生效的",
+  "sentence": "effective immediately, Jensen Huang has been reinstated",
+  "translation": "即刻起，黃仁勳復任",
+  "trigger": 9.1,
+  "match": "effective"
+ },
+ {
+  "word": "unanimously",
+  "ipa": "/juːˈnæn.ɪ.məs.li/",
+  "pos": "adv.",
+  "definition": "一致地；全票通過地",
+  "sentence": "the board voted unanimously to reinstate Mr. Huang",
+  "translation": "董事會一致決定讓黃仁勳復職",
+  "trigger": 16.6
+ },
+ {
+  "word": "candor",
+  "ipa": "/ˈkæn.dɚ/",
+  "pos": "n.",
+  "definition": "坦率；坦誠",
+  "sentence": "Mr. Huang's candor and ability to lead Nvidia",
+  "translation": "黃仁勳的坦誠與領導能力",
+  "trigger": 25.2
+ },
+ {
+  "word": "input",
+  "ipa": "/ˈɪn.pʊt/",
+  "pos": "n.",
+  "definition": "意見；參考意見",
+  "sentence": "the board received input from senior levels",
+  "translation": "董事會聽取了高層的意見",
+  "trigger": 33.4
+ }
+]

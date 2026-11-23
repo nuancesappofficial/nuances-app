@@ -1,0 +1,41 @@
+[
+ {
+  "word": "reinstate",
+  "ipa": "/ˌriː.ɪnˈsteɪt/",
+  "pos": "v.",
+  "definition": "使復職；恢復原職",
+  "match": "reinstating",
+  "sentence": "it is reinstating Jensen Huang as president and CEO",
+  "translation": "將讓黃仁勳復任總裁暨執行長",
+  "trigger": 3.0
+ },
+ {
+  "word": "resign",
+  "ipa": "/rɪˈzaɪn/",
+  "pos": "v.",
+  "definition": "辭職",
+  "match": "resigned",
+  "sentence": "Huang resigned as the company's boss",
+  "translation": "黃仁勳辭去公司領導職務",
+  "trigger": 11.0
+ },
+ {
+  "word": "stockholder",
+  "ipa": "/ˈstɑːkˌhoʊl.dɚ/",
+  "pos": "n.",
+  "definition": "股東",
+  "match": "stockholders",
+  "sentence": "in the best interest of our stockholders",
+  "translation": "最符合股東的利益",
+  "trigger": 25.9
+ },
+ {
+  "word": "humility",
+  "ipa": "/hjuːˈmɪl.ə.t̬i/",
+  "pos": "n.",
+  "definition": "謙卑；謙遜",
+  "sentence": "I take this responsibility with the greatest humility",
+  "translation": "我以最謙卑的態度承擔這份責任",
+  "trigger": 35.3
+ }
+]
