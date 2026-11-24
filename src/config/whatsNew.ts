@@ -3,6 +3,73 @@ import type { WhatsNewItem, WhatsNewRelease } from '../services/whatsNew/whatsNe
 export type { WhatsNewItem, WhatsNewRelease };
 
 export const WHATS_NEW_CONFIG: Record<string, WhatsNewRelease> = {
+  '1.3.10': {
+    version: '1.3.10',
+    title: 'What’s New',
+    items: [
+      { number: '1', title: 'Fixed the Finish button not showing when you scroll mid-generation' },
+      { number: '2', title: 'Shared items now appear in the Cache in the order you shared them' },
+      { number: '3', title: 'Faster app start on a weak connection' },
+    ],
+    localized: {
+      'zh-TW': {
+        title: '更新功能',
+        items: [
+          { number: '1', title: '修好生成卡片途中滑動畫面後，沒有「完成」按鈕的問題' },
+          { number: '2', title: '分享的內容現在會依分享順序排在暫存區' },
+          { number: '3', title: '網路不好時，App 啟動更快' },
+        ],
+      },
+      'zh-CN': {
+        title: '更新功能',
+        items: [
+          { number: '1', title: '修复生成卡片途中滑动画面后，没有“完成”按钮的问题' },
+          { number: '2', title: '分享的内容现在会按分享顺序排在暂存区' },
+          { number: '3', title: '网络不好时，App 启动更快' },
+        ],
+      },
+      'en': {
+        title: 'What’s New',
+        items: [
+          { number: '1', title: 'Fixed the Finish button not showing when you scroll mid-generation' },
+          { number: '2', title: 'Shared items now appear in the Cache in the order you shared them' },
+          { number: '3', title: 'Faster app start on a weak connection' },
+        ],
+      },
+      'ja': {
+        title: '新機能',
+        items: [
+          { number: '1', title: 'カード生成中にスクロールすると「完了」ボタンが出ない問題を修正' },
+          { number: '2', title: '共有した内容が共有した順番でキャッシュに並ぶように' },
+          { number: '3', title: '電波が弱いときのアプリ起動を高速化' },
+        ],
+      },
+      'ko': {
+        title: '새로운 기능',
+        items: [
+          { number: '1', title: '카드 생성 중 스크롤하면 완료 버튼이 보이지 않던 문제 수정' },
+          { number: '2', title: '공유한 항목이 공유한 순서대로 캐시에 표시됩니다' },
+          { number: '3', title: '연결이 약할 때 앱 시작 속도 개선' },
+        ],
+      },
+      'es': {
+        title: 'Novedades',
+        items: [
+          { number: '1', title: 'Corregido: el botón Finalizar no aparecía al desplazar durante la generación' },
+          { number: '2', title: 'Lo compartido ahora aparece en la Caché en el orden en que lo compartiste' },
+          { number: '3', title: 'Inicio de la app más rápido con conexión débil' },
+        ],
+      },
+      'fr': {
+        title: 'Nouveautés',
+        items: [
+          { number: '1', title: 'Correction : le bouton Terminer n’apparaissait pas si l’on faisait défiler pendant la génération' },
+          { number: '2', title: 'Les éléments partagés apparaissent dans le Cache dans l’ordre du partage' },
+          { number: '3', title: 'Démarrage de l’app plus rapide avec une connexion faible' },
+        ],
+      },
+    },
+  },
   '1.3.9': {
     version: '1.3.9',
     title: 'What’s New',
