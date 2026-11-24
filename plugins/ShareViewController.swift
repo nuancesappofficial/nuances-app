@@ -297,62 +297,61 @@ class ShareViewController: UIViewController {
             completeOnce(nil)
         }
 
-        // Fast path: read the file and let ImageIO decode straight to the
-        // target size, then encode once. The old path decoded the full-size
-        // image, re-encoded it, decoded it again, resized and encoded again.
-        if let typeIdentifier = preferredImageTypeIdentifier(for: provider) {
-            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] url, error in
+        // First choice: the in-memory image the host app prepares for sharing
+        // (what the original, fast version used). Photos hands this over quickly;
+        // asking for the original file instead can wait on the full-size asset
+        // (iCloud download or a full export) and held the receipt back.
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            let startedAt = Date()
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
                 guard let self = self else {
                     completeOnce(nil)
                     return
                 }
-                // The file is only valid inside this handler, so read it here.
-                if let url = url, let data = self.downsampledJPEG(at: url) {
+                if let image = object as? UIImage,
+                   let resized = self.compressAndResizeImage(image),
+                   let data = resized.jpegData(compressionQuality: 0.85) {
+                    NSLog("[NuancesShareExtension] timing: UIImage path \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
                     completeOnce(data)
-                    return
-                }
-                if let error = error {
-                    NSLog("[NuancesShareExtension] loadFileRepresentation failed: \(error.localizedDescription)")
-                }
-                self.loadShareableJPEGFromObject(provider, completion: completeOnce)
-            }
-            return
-        }
-
-        loadShareableJPEGFromObject(provider, completion: completeOnce)
-    }
-
-    /// Fallback for providers that only hand over an in-memory image.
-    private func loadShareableJPEGFromObject(_ provider: NSItemProvider, completion: @escaping (Data?) -> Void) {
-        let encode: (UIImage?) -> Data? = { [weak self] image in
-            guard let self = self, let image = image,
-                  let resized = self.compressAndResizeImage(image) else { return nil }
-            return resized.jpegData(compressionQuality: 0.85)
-        }
-        let typeIdentifier = preferredImageTypeIdentifier(for: provider) ?? UTType.image.identifier
-
-        if provider.canLoadObject(ofClass: UIImage.self) {
-            provider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
-                if let data = encode(object as? UIImage) {
-                    completion(data)
                     return
                 }
                 if let error = error {
                     NSLog("[NuancesShareExtension] loadObject UIImage failed: \(error.localizedDescription)")
                 }
-                guard let self = self else {
-                    completion(nil)
-                    return
-                }
-                self.loadImageItemData(from: provider, typeIdentifier: typeIdentifier) { data in
-                    completion(encode(data.flatMap(UIImage.init(data:))))
-                }
+                self.loadShareableJPEGFromFile(provider, completion: completeOnce)
             }
             return
         }
 
-        loadImageItemData(from: provider, typeIdentifier: typeIdentifier) { data in
-            completion(encode(data.flatMap(UIImage.init(data:))))
+        loadShareableJPEGFromFile(provider, completion: completeOnce)
+    }
+
+    /// Fallback: read the file and let ImageIO decode straight to the target size.
+    private func loadShareableJPEGFromFile(_ provider: NSItemProvider, completion: @escaping (Data?) -> Void) {
+        let startedAt = Date()
+        let typeIdentifier = preferredImageTypeIdentifier(for: provider) ?? UTType.image.identifier
+        provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] url, error in
+            guard let self = self else {
+                completion(nil)
+                return
+            }
+            // The file is only valid inside this handler, so read it here.
+            if let url = url, let data = self.downsampledJPEG(at: url) {
+                NSLog("[NuancesShareExtension] timing: file path \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+                completion(data)
+                return
+            }
+            if let error = error {
+                NSLog("[NuancesShareExtension] loadFileRepresentation failed: \(error.localizedDescription)")
+            }
+            self.loadImageItemData(from: provider, typeIdentifier: typeIdentifier) { data in
+                guard let image = data.flatMap(UIImage.init(data:)),
+                      let resized = self.compressAndResizeImage(image) else {
+                    completion(nil)
+                    return
+                }
+                completion(resized.jpegData(compressionQuality: 0.85))
+            }
         }
     }
 
