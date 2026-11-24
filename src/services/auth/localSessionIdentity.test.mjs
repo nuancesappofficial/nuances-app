@@ -70,3 +70,30 @@ test('session without a refresh token is not treated as signed in', async () => 
 test('legacy { currentSession } wrapper is read', async () => {
   assert.equal(await readLocalSessionUserId(plainAuth({ currentSession: expiredSession(), expiresAt: 0 })), USER_ID);
 });
+
+// ── Cold start (splash) ──────────────────────────────────────────────────────
+import { resolveStartupUser } from './localSessionIdentity.ts';
+
+test('cold start offline with an expired token: user resolves at once, no getSession wait', async () => {
+  const { client, fetchCalls } = makeOfflineClient({
+    ...expiredSession(),
+    user: { id: USER_ID, aud: 'authenticated', created_at: '2026-01-01T00:00:00Z', last_sign_in_at: '2026-11-01T00:00:00Z' },
+  });
+  let getSessionCalls = 0;
+  const started = Date.now();
+  const user = await resolveStartupUser(client.auth, async () => {
+    getSessionCalls += 1;
+    return new Promise(() => {}); // refresh that never answers, like no service
+  });
+  assert.equal(user?.id, USER_ID);
+  assert.equal(user?.created_at, '2026-01-01T00:00:00Z');
+  assert.ok(Date.now() - started < 500, 'splash must not wait on the network');
+  assert.equal(getSessionCalls, 0, 'a persisted session needs no getSession() at startup');
+  assert.equal(fetchCalls(), 0);
+});
+
+test('cold start with nothing persisted falls back to the remote lookup', async () => {
+  const { client } = makeOfflineClient(null);
+  const user = await resolveStartupUser(client.auth, async () => ({ id: 'from-remote' }));
+  assert.equal(user?.id, 'from-remote');
+});

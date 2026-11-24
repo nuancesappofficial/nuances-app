@@ -14,18 +14,30 @@ export type LocalSessionSource = {
   storageKey?: string;
 };
 
-function extractUserId(raw: string | null): string | null {
+export type LocalSessionUser = {
+  id: string;
+  created_at?: string;
+  last_sign_in_at?: string;
+};
+
+function extractUser(raw: string | null): LocalSessionUser | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown> | null;
     // Older auth-js builds wrapped the session as { currentSession, expiresAt }.
     const session = (parsed?.currentSession ?? parsed) as
-      | { refresh_token?: unknown; user?: { id?: unknown } }
+      | { refresh_token?: unknown; user?: { id?: unknown; created_at?: unknown; last_sign_in_at?: unknown } }
       | null
       | undefined;
     if (!session || typeof session.refresh_token !== 'string' || !session.refresh_token) return null;
     const id = session.user?.id;
-    return typeof id === 'string' && id ? id : null;
+    if (typeof id !== 'string' || !id) return null;
+    const { created_at, last_sign_in_at } = session.user ?? {};
+    return {
+      id,
+      ...(typeof created_at === 'string' ? { created_at } : {}),
+      ...(typeof last_sign_in_at === 'string' ? { last_sign_in_at } : {}),
+    };
   } catch {
     return null;
   }
@@ -35,12 +47,29 @@ function extractUserId(raw: string | null): string | null {
  * Reads the signed-in user id from the persisted Supabase session without
  * refreshing it. Returns null when nothing is persisted (signed out).
  */
-export async function readLocalSessionUserId(auth: unknown): Promise<string | null> {
+export async function readLocalSessionUser(auth: unknown): Promise<LocalSessionUser | null> {
   const { storage, storageKey } = (auth ?? {}) as LocalSessionSource;
   if (!storage || typeof storage.getItem !== 'function' || !storageKey) return null;
   try {
-    return extractUserId(await storage.getItem(storageKey));
+    return extractUser(await storage.getItem(storageKey));
   } catch {
     return null;
   }
+}
+
+export async function readLocalSessionUserId(auth: unknown): Promise<string | null> {
+  return (await readLocalSessionUser(auth))?.id ?? null;
+}
+
+/**
+ * Who is signed in, for the cold start. A persisted session answers at once
+ * with no network: getSession() would first refresh an expired token, and
+ * with no service that keeps the splash up for seconds (then reads as signed
+ * out). Only when nothing is persisted is `remoteLookup` asked.
+ */
+export async function resolveStartupUser(
+  auth: unknown,
+  remoteLookup: () => Promise<LocalSessionUser | null>
+): Promise<LocalSessionUser | null> {
+  return (await readLocalSessionUser(auth)) ?? (await remoteLookup());
 }

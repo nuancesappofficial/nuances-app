@@ -56,6 +56,7 @@ import {
   supabase,
 } from './src/services/supabase/client';
 import { enforceLocalDataScopeForUser } from './src/services/auth/localDataScope';
+import { resolveStartupUser } from './src/services/auth/localSessionIdentity';
 import { resetFreshTestAccount } from './src/features/auth/freshTestAccount';
 import {
   beginFreshTestAccountReset,
@@ -950,19 +951,28 @@ export default function App() {
         console.log('✅ Running in Expo Go mode');
       }
 
-      let sessionResult: Awaited<ReturnType<typeof getCurrentSession>> | null = null;
-      try {
-        sessionResult = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
-      } catch (sessionErr) {
-        console.warn('[App] initial getSession timed out or failed, retrying once...', sessionErr);
+      // A persisted session answers at once, with no network. getSession() first
+      // refreshes an expired token, which with poor service held the splash for
+      // seconds and then read as signed out (clearing the share extension's user).
+      const startupUser = await resolveStartupUser(supabase.auth, async () => {
+        let remote: Awaited<ReturnType<typeof getCurrentSession>> | null = null;
         try {
-          sessionResult = await withTimeout(getCurrentSession(), 3000, 'getCurrentSessionRetry');
-        } catch {
-          sessionResult = null;
+          remote = await withTimeout(getCurrentSession(), 6000, 'getCurrentSession');
+        } catch (sessionErr) {
+          console.warn('[App] initial getSession timed out or failed, retrying once...', sessionErr);
+          try {
+            remote = await withTimeout(getCurrentSession(), 3000, 'getCurrentSessionRetry');
+          } catch {
+            remote = null;
+          }
         }
-      }
+        const remoteUser = remote?.session?.access_token ? remote.session.user : null;
+        return remoteUser?.id
+          ? { id: remoteUser.id, created_at: remoteUser.created_at, last_sign_in_at: remoteUser.last_sign_in_at }
+          : null;
+      });
       if (stopForNewerAuthTransition()) return;
-      const session = sessionResult?.session;
+      const session = startupUser ? { access_token: 'persisted', user: startupUser } : null;
       if (session?.access_token) {
         void logDiagnosticEvent({
           severity: 'info',
