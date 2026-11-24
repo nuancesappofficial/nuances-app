@@ -1237,9 +1237,15 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     secondPageYRef.current = event.nativeEvent.layout.y;
   }, []);
   const scrollToSecondPageOnceRef = React.useRef<() => void>(() => {});
+  // Web-LLM style follow: the screen follows the reveal until the user touches
+  // it, then stays out of the way. It follows again when they scroll back to
+  // the latest content or tap the jump button.
+  const isFollowingRef = React.useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
   const handleBackRevealStart = React.useCallback(() => {
     isBackRevealStartedRef.current = true;
     if (isLastTargetRef.current) setIsFinishSlotEarly(true);
+    requestAnimationFrame(() => refreshJumpPill());
     // If the slot is already laid out (e.g. the next card in a batch), its
     // layout callback will not fire again, so make the move from here.
     requestAnimationFrame(() => {
@@ -1418,7 +1424,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   // The single move of the whole reveal, when it reaches page 2: show page 2
   // and the (still disabled) Finish button below it.
   const scrollToSecondPageOnce = React.useCallback(() => {
-    if (didScrollToSecondPageRef.current || isUserDraggingScrollRef.current) return;
+    if (isUserDraggingScrollRef.current || !isFollowingRef.current) return;
     const withFinishSlot = isLastTargetRef.current;
     // Last card: wait until the Finish slot is laid out so the move includes it.
     if (withFinishSlot && finishSlotHeightRef.current <= 0) return;
@@ -1447,6 +1453,37 @@ export default function CreateCardScreen({ navigation, route }: Props) {
     });
   }, [scrollViewportHeight, smoothScrollTo]);
   scrollToSecondPageOnceRef.current = scrollToSecondPageOnce;
+
+  // Where the latest content sits: the Finish slot's bottom for the last card of
+  // a run, otherwise the bottom of the active card.
+  const resolveFollowTarget = React.useCallback((): number => {
+    if (isLastTargetRef.current) {
+      return Math.max(0, finishSlotBottomRef.current + FINISH_SLOT_BOTTOM_GAP - scrollViewportHeight);
+    }
+    const { y, height } = activePreviewLayoutRef.current;
+    return Math.max(0, y + height + FINISH_SLOT_BOTTOM_GAP - scrollViewportHeight);
+  }, [scrollViewportHeight]);
+  const refreshJumpPillRef = React.useRef<() => void>(() => {});
+  const resolveFollowTargetRef = React.useRef(resolveFollowTarget);
+  resolveFollowTargetRef.current = resolveFollowTarget;
+
+  // Show the jump button only while the latest content is out of view and the
+  // user has taken over the scrolling.
+  const refreshJumpPill = React.useCallback(() => {
+    const gapToLatest = resolveFollowTargetRef.current() - currentScrollYRef.current;
+    const show = !isFollowingRef.current && gapToLatest > 120;
+    setShowJumpToLatest((prev) => (prev === show ? prev : show));
+  }, []);
+
+  refreshJumpPillRef.current = refreshJumpPill;
+
+  const handleJumpToLatest = React.useCallback(() => {
+    isFollowingRef.current = true;
+    isUserDraggingScrollRef.current = false;
+    setShowJumpToLatest(false);
+    didScrollToSecondPageRef.current = false;
+    scrollToSecondPageOnceRef.current();
+  }, []);
 
   const followActivePreviewStreamingBottom = React.useCallback(
     (delayMs = 40) => {
@@ -1518,6 +1555,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       ) {
         autoScrolledPreviewKeyRef.current = previewKey;
         isUserDraggingScrollRef.current = false;
+        isFollowingRef.current = true;
+        setShowJumpToLatest(false);
         isBackRevealStartedRef.current = false;
         didScrollToSecondPageRef.current = false;
         scrollToActivePreviewCard(80);
@@ -1543,6 +1582,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
   React.useEffect(() => {
     if (isPreviewSceneActive) return;
+    setShowJumpToLatest(false);
     autoScrolledPreviewKeyRef.current = null;
     isUserDraggingScrollRef.current = false;
     cancelPendingPreviewScroll();
@@ -1586,6 +1626,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const handleCompletedActionsLayout = React.useCallback(() => {
     // The screen already made its single move when the reveal reached page 2.
     if (didScrollToSecondPageRef.current) return;
+    // The user took over the scrolling: leave the screen where they put it.
+    if (!isFollowingRef.current) return;
     if (
       hasStarted ||
       completedCards.length === 0 ||
@@ -1629,8 +1671,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   // The finish slot may already be mounted (shown early, disabled), so its
   // layout callback will not fire again when the card completes.
   React.useEffect(() => {
-    if (isFinishEnabled) handleCompletedActionsLayout();
-  }, [handleCompletedActionsLayout, isFinishEnabled]);
+    if (!isFinishEnabled) return;
+    handleCompletedActionsLayout();
+    // Done while the user is looking elsewhere: point them to the Finish button.
+    requestAnimationFrame(() => refreshJumpPill());
+  }, [handleCompletedActionsLayout, isFinishEnabled, refreshJumpPill]);
 
   React.useEffect(() => {
     if (!hasStarted || !generatingCards.some((card) => !card.completed)) {
@@ -2635,6 +2680,11 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const handleCreateCardScroll = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       currentScrollYRef.current = event.nativeEvent.contentOffset.y;
+      if (isPreviewSceneActive && (isBackRevealStartedRef.current || isFinishEnabled)) {
+        const gapToLatest = resolveFollowTargetRef.current() - event.nativeEvent.contentOffset.y;
+        if (gapToLatest < 60) isFollowingRef.current = true;
+        refreshJumpPillRef.current();
+      }
       if (!shouldPromptTourSaveOnScrollRef.current) return;
       if (completedCards.length === 0) return;
 
@@ -2647,7 +2697,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
       shouldPromptTourSaveOnScrollRef.current = false;
       appTour.goToStep('STEP_7_SAVE_SAMPLE');
     },
-    [appTour, completedCards.length]
+    [appTour, completedCards.length, isFinishEnabled, isPreviewSceneActive]
   );
 
   const handleOpenPremiumUpsell = React.useCallback(
@@ -3233,6 +3283,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           onScroll={handleCreateCardScroll}
           onScrollBeginDrag={() => {
             isUserDraggingScrollRef.current = true;
+            isFollowingRef.current = false;
             cancelPendingPreviewScroll();
           }}
           // A touch must not stop the reveal's auto-scroll for the rest of the run.
@@ -4093,6 +4144,22 @@ export default function CreateCardScreen({ navigation, route }: Props) {
           ) : null}
         </ScrollView>
 
+        {showJumpToLatest ? (
+          <Pressable
+            onPress={handleJumpToLatest}
+            accessibilityRole="button"
+            accessibilityLabel="Jump to latest"
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.jumpToLatest,
+              { backgroundColor: MODAL_CTA_COLOR, borderColor: MODAL_CTA_COLOR_BORDER },
+              pressed ? styles.pressablePrimaryPressed : null,
+            ]}
+          >
+            <Ionicons name="arrow-down" size={20} color={TEXT_ON_CTA} />
+          </Pressable>
+        ) : null}
+
         <CardAlbumSheetModalUI
           visible={showAlbumSheet}
           selectedAlbums={albumTargetCard?.selectedAlbumIds || []}
@@ -4150,6 +4217,22 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  jumpToLatest: {
+    position: 'absolute',
+    bottom: 28,
+    alignSelf: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   scrollContent: {
     paddingHorizontal: 14,
