@@ -21,6 +21,7 @@ import { getCurrentCacheCardCount, getRemainingCacheCapacity } from '@services/c
 import type { PlanType } from '@services/settings/userSettings';
 import { getCurrentSessionUserId } from '@services/auth/userIdentity';
 import { logDiagnosticEvent } from '@services/logging/diagnosticsLog';
+import { planSharedBatchCreation, type SharedBatchEntry } from '../../features/cache/sharedBatchOrdering';
 import {
   getAppGroupSharedContentSnapshot,
   clearAppGroupSharedContentIfUnchanged,
@@ -493,6 +494,8 @@ async function saveBatchSharedContentToCache(
 
   const validTextItems: string[] = [];
   const validImageItems: string[] = [];
+  // Input order across text and images, so the cache stack matches what was shared.
+  const orderedEntries: SharedBatchEntry[] = [];
 
   for (const item of items) {
     if (item.type === 'text' && item.content) {
@@ -508,6 +511,7 @@ async function saveBatchSharedContentToCache(
       const textToSave =
         trimmed.length > MAX_TEXT_LENGTH ? trimmed.substring(0, MAX_TEXT_LENGTH) : trimmed;
       validTextItems.push(textToSave);
+      orderedEntries.push({ kind: 'text', value: textToSave });
       remainingCapacity -= 1;
     } else if (item.type === 'image' && Array.isArray(item.images) && item.images.length > 0) {
       const validatedPaths = item.images
@@ -517,6 +521,7 @@ async function saveBatchSharedContentToCache(
 
       const accepted = validatedPaths.slice(0, Math.max(0, remainingCapacity));
       validImageItems.push(...accepted);
+      accepted.forEach((path) => orderedEntries.push({ kind: 'image', value: path }));
       remainingCapacity -= accepted.length;
       blockedCount += Math.max(0, item.images.length - accepted.length);
     } else {
@@ -531,6 +536,7 @@ async function saveBatchSharedContentToCache(
   }
 
   const copiedMediaUris: string[] = [];
+  const mediaUriBySharedPath = new Map<string, string>();
   if (validImageItems.length > 0) {
     const dirInfo = await FileSystem.getInfoAsync(dirPath);
     if (!dirInfo.exists) {
@@ -555,6 +561,7 @@ async function saveBatchSharedContentToCache(
 
       const mediaUri = targetPath.startsWith('file://') ? targetPath : toFileUri(targetPath);
       copiedMediaUris.push(mediaUri);
+      mediaUriBySharedPath.set(sharedPath, mediaUri);
     }
   }
 
@@ -564,6 +571,7 @@ async function saveBatchSharedContentToCache(
     await database.write(async () => {
       const collection = database.get<CachedItem>('cached_items');
 
+      const existingTexts = new Set<string>();
       if (validTextItems.length > 0) {
         const existingTextItems = await collection
           .query(
@@ -573,26 +581,10 @@ async function saveBatchSharedContentToCache(
             Q.where('content_text', Q.oneOf(validTextItems))
           )
           .fetch();
-        const existingTexts = new Set(existingTextItems.map((i) => i.contentText).filter(Boolean));
-
-        for (const text of validTextItems) {
-          if (existingTexts.has(text)) continue;
-          await collection.create((item) => {
-            item.userId = userId;
-            item.type = 'text';
-            item.contentType = 'text';
-            item.contentText = text;
-            item.sourceApp = 'share_sheet';
-            item.aiAnalysisCompleted = false;
-            item.convertedToCard = false;
-            const expiresAt = new Date();
-            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-            item.expiresAt = expiresAt;
-          });
-          totalCount += 1;
-        }
+        existingTextItems.forEach((i) => i.contentText && existingTexts.add(i.contentText));
       }
 
+      const existingUris = new Set<string>();
       if (copiedMediaUris.length > 0) {
         const existingImageItems = await collection
           .query(
@@ -605,29 +597,45 @@ async function saveBatchSharedContentToCache(
             )
           )
           .fetch();
-        const existingUris = new Set(
-          existingImageItems.flatMap((item) => [item.imageStoragePath, item.mediaUri]).filter(Boolean)
-        );
-
-        for (const mediaUri of copiedMediaUris) {
-          if (existingUris.has(mediaUri)) continue;
-          await collection.create((item) => {
-            item.userId = userId;
-            item.type = 'image';
-            item.contentType = 'image';
-            item.mediaUri = mediaUri;
-            item.imageStoragePath = mediaUri;
-            item.contentText = undefined;
-            item.sourceApp = 'share_sheet';
-            item.aiAnalysisCompleted = false;
-            item.convertedToCard = false;
-            const expiresAt = new Date();
-            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-            item.expiresAt = expiresAt;
-          });
-          totalCount += 1;
-        }
+        existingImageItems
+          .flatMap((item) => [item.imageStoragePath, item.mediaUri])
+          .forEach((uri) => uri && existingUris.add(uri));
       }
+
+      const plan = planSharedBatchCreation(
+        orderedEntries.flatMap((entry): SharedBatchEntry[] => {
+          if (entry.kind === 'text') return [entry];
+          const mediaUri = mediaUriBySharedPath.get(entry.value);
+          return mediaUri ? [{ kind: 'image', value: mediaUri }] : [];
+        }),
+        { existingTexts, existingImageUris: existingUris }
+      );
+
+      const prepared = plan.map((planned) =>
+        collection.prepareCreate((item) => {
+          item.userId = userId;
+          item.type = planned.kind;
+          item.contentType = planned.kind;
+          if (planned.kind === 'text') {
+            item.contentText = planned.value;
+          } else {
+            item.mediaUri = planned.value;
+            item.imageStoragePath = planned.value;
+            item.contentText = undefined;
+          }
+          item.sourceApp = 'share_sheet';
+          item.aiAnalysisCompleted = false;
+          item.convertedToCard = false;
+          // createdAt is readonly on CachedItem; write _raw like quick add does.
+          (item._raw as any).created_at = planned.createdAt.getTime();
+          (item._raw as any).updated_at = planned.createdAt.getTime();
+          const expiresAt = new Date(planned.createdAt);
+          expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+          item.expiresAt = expiresAt;
+        })
+      );
+      if (prepared.length > 0) await database.batch(...prepared);
+      totalCount += prepared.length;
     });
   }
 

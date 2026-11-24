@@ -3235,6 +3235,14 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             isUserDraggingScrollRef.current = true;
             cancelPendingPreviewScroll();
           }}
+          // A touch must not stop the reveal's auto-scroll for the rest of the run.
+          onScrollEndDrag={(event) => {
+            const v = event.nativeEvent.velocity?.y ?? 0;
+            if (Math.abs(v) < 0.05) isUserDraggingScrollRef.current = false;
+          }}
+          onMomentumScrollEnd={() => {
+            isUserDraggingScrollRef.current = false;
+          }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
         >
@@ -4044,7 +4052,9 @@ export default function CreateCardScreen({ navigation, route }: Props) {
                 }
               }}
             >
-              <FadeWhen visible={isFinishSlotShown || (isFinishEnabled && !isFinishSlotEarly)} duration={260} style={styles.saveWrap}>
+              <FadeWhen // Once the card is complete the button must show, even if the single move to page 2
+                // never ran (user touched the screen, or the slot layout came late).
+                visible={isFinishSlotShown || isFinishEnabled} duration={260} style={styles.saveWrap}>
                 <TutorialSpotlight
                   active={appTour.step === 'STEP_7_SAVE_SAMPLE'}
                   onSpotlightPress={handleDone}
