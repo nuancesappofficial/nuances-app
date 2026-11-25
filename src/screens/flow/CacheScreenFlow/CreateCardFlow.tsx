@@ -1196,6 +1196,10 @@ export default function CreateCardScreen({ navigation, route }: Props) {
   const previewRunIdRef = React.useRef(0);
   const scrollRef = React.useRef<ScrollView | null>(null);
   const activePreviewLayoutRef = React.useRef({ y: 0, height: 0 });
+  // Height of the card being revealed. Only used to size the spare room below
+  // it: that room is (screen height - card height), so the content's total
+  // height stays the same while the card grows and no blank screen is reachable.
+  const [activePreviewHeight, setActivePreviewHeight] = React.useState(0);
   const [scrollViewportHeight, setScrollViewportHeight] = React.useState(0);
   const scrollContentHeightRef = React.useRef(0);
   const currentScrollYRef = React.useRef(0);
@@ -1543,6 +1547,8 @@ export default function CreateCardScreen({ navigation, route }: Props) {
         y: event.nativeEvent.layout.y,
         height: event.nativeEvent.layout.height,
       };
+      const measuredHeight = Math.round(event.nativeEvent.layout.height);
+      setActivePreviewHeight((prev) => (prev === measuredHeight ? prev : measuredHeight));
       const previewKey =
         generatingCards[0]?.word ||
         activePreviewCard?.word ||
@@ -1582,6 +1588,7 @@ export default function CreateCardScreen({ navigation, route }: Props) {
 
   React.useEffect(() => {
     if (isPreviewSceneActive) return;
+    setActivePreviewHeight(0);
     setShowJumpToLatest(false);
     autoScrolledPreviewKeyRef.current = null;
     isUserDraggingScrollRef.current = false;
@@ -3265,8 +3272,12 @@ export default function CreateCardScreen({ navigation, route }: Props) {
             styles.scrollContent,
             // Keep the scroll room for the whole run: dropping it for the
             // moment between two cards shrank the content and shifted the page.
-            (isPreviewSceneActive || hasStarted) && scrollViewportHeight > 0
-              ? { paddingBottom: scrollViewportHeight }
+            // Once the Finish button is on screen, it is the end of the page: no
+            // spare room below it, so the user cannot pull far past the button.
+            (isPreviewSceneActive || hasStarted) &&
+            scrollViewportHeight > 0 &&
+            !(isFinishSlotEarly || isFinishEnabled)
+              ? { paddingBottom: Math.max(24, scrollViewportHeight - activePreviewHeight) }
               : null,
           ]}
           onLayout={handleScrollLayout}
