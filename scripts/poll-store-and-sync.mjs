@@ -50,68 +50,9 @@ function compareSemver(v1, v2) {
   return 0;
 }
 
-function extractAndroidBuildSettings() {
-  const gradlePath = path.join(PROJECT_ROOT, 'android', 'app', 'build.gradle');
-  if (fs.existsSync(gradlePath)) {
-    const gradle = fs.readFileSync(gradlePath, 'utf8');
-    const versionName = gradle.match(/versionName\s+["']([^"']+)["']/)?.[1]?.trim();
-    const versionCode = gradle.match(/versionCode\s+(\d+)/)?.[1]?.trim();
-    if (versionName && versionCode) {
-      return { marketingVersion: versionName, buildNumber: Number.parseInt(versionCode, 10) };
-    }
-  }
-
-  const appJsonPath = path.join(PROJECT_ROOT, 'app.json');
-  if (fs.existsSync(appJsonPath)) {
-    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
-    const marketingVersion = appJson.expo?.version?.trim();
-    const buildNumber = appJson.expo?.android?.versionCode;
-    if (marketingVersion && typeof buildNumber === 'number') {
-      return { marketingVersion, buildNumber };
-    }
-  }
-
-  return null;
-}
-
-function extractIosBuildSettings() {
-  const pbxprojPath = path.join(PROJECT_ROOT, 'ios', 'Nuances.xcodeproj', 'project.pbxproj');
-  if (fs.existsSync(pbxprojPath)) {
-    const pbxproj = fs.readFileSync(pbxprojPath, 'utf8');
-    const appBundleMarker = 'PRODUCT_BUNDLE_IDENTIFIER = com.jeffenglishlearning.nuances;';
-    const markerIndex = pbxproj.indexOf(appBundleMarker);
-    if (markerIndex >= 0) {
-      const buildSettingsStart = pbxproj.lastIndexOf('buildSettings = {', markerIndex);
-      const buildSettingsEnd = pbxproj.indexOf('};', markerIndex);
-      if (buildSettingsStart >= 0 && buildSettingsEnd >= 0) {
-        const block = pbxproj.slice(buildSettingsStart, buildSettingsEnd);
-        const marketingVersion = block.match(/MARKETING_VERSION = ([^;]+);/)?.[1]?.trim();
-        const buildNumber = block.match(/CURRENT_PROJECT_VERSION = ([^;]+);/)?.[1]?.trim();
-        if (marketingVersion && buildNumber) {
-          const numericBuild = Number.parseInt(buildNumber, 10);
-          if (Number.isFinite(numericBuild)) {
-            return { marketingVersion, buildNumber: numericBuild };
-          }
-        }
-      }
-    }
-  }
-
-  const appJsonPath = path.join(PROJECT_ROOT, 'app.json');
-  if (fs.existsSync(appJsonPath)) {
-    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
-    const marketingVersion = appJson.expo?.version?.trim();
-    const buildNumber = appJson.expo?.ios?.buildNumber;
-    if (marketingVersion && buildNumber) {
-      const numericBuild = Number.parseInt(buildNumber, 10);
-      if (Number.isFinite(numericBuild)) {
-        return { marketingVersion, buildNumber: numericBuild };
-      }
-    }
-  }
-
-  return null;
-}
+// 公開商店頁查不到 build 號，repo 裡的 build 號也不是真的（EAS appVersionSource = remote）。
+// 所以公開版只比版號；寫入 1（伺服器不收空值），任何真實 build 都 >= 1，等於不做 build 比對。
+const NO_BUILD_GATE = 1;
 
 async function getLiveAppStoreVersion() {
   try {
@@ -345,21 +286,15 @@ async function main() {
   console.log(`[AutoSync] Live Apple App Store version: ${liveIosVersion || 'not found'}`);
 
   if (liveIosVersion) {
-    const iosSettings = extractIosBuildSettings();
-    const targetBuildNumber = iosSettings?.buildNumber ?? 1;
     const cmp = compareSemver(liveIosVersion, iosPolicy?.latest_version);
-    const isNewerBuild =
-      cmp === 0 &&
-      typeof iosPolicy?.latest_build_number === 'number' &&
-      targetBuildNumber > iosPolicy.latest_build_number;
 
-    if (cmp > 0 || isNewerBuild) {
-      console.log(`[AutoSync] >> DETECTED iOS UPGRADE: App Store (${liveIosVersion}, build ${targetBuildNumber}) > Supabase (${iosPolicy?.latest_version || 'none'}, build ${iosPolicy?.latest_build_number || 'none'})!`);
+    if (cmp > 0) {
+      console.log(`[AutoSync] >> DETECTED iOS UPGRADE: App Store (${liveIosVersion}) > Supabase (${iosPolicy?.latest_version || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
         await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
       } else {
-        await syncPolicyToSupabase(supabaseUrl, syncToken, 'ios', liveIosVersion, targetBuildNumber, dryRun);
+        await syncPolicyToSupabase(supabaseUrl, syncToken, 'ios', liveIosVersion, NO_BUILD_GATE, dryRun);
         await notifyPolicySynced(env, supabaseUrl, anonKey, 'ios', liveIosVersion, dryRun);
       }
     } else {
@@ -369,7 +304,6 @@ async function main() {
 
   // 2. Check Android Google Play
   const liveAndroid = await getLiveGooglePlayVersion();
-  const androidSettings = extractAndroidBuildSettings();
 
   if (liveAndroid.status === 'not_public') {
     // 正式版還沒公開：Android 更新通知只看「封閉測試（alpha）」軌道，不看 iOS，也不看內部測試。
@@ -405,20 +339,15 @@ async function main() {
     }
   } else if (liveAndroid.version) {
     console.log(`[AutoSync] Live Google Play version: ${liveAndroid.version}`);
-    const targetBuildNumber = androidSettings?.buildNumber ?? 1;
     const cmp = compareSemver(liveAndroid.version, androidPolicy?.latest_version);
-    const isNewerBuild =
-      cmp === 0 &&
-      typeof androidPolicy?.latest_build_number === 'number' &&
-      targetBuildNumber > androidPolicy.latest_build_number;
 
-    if (cmp > 0 || isNewerBuild) {
-      console.log(`[AutoSync] >> DETECTED Android UPGRADE: Google Play (${liveAndroid.version}, build ${targetBuildNumber}) > Supabase (${androidPolicy?.latest_version || 'none'}, build ${androidPolicy?.latest_build_number || 'none'})!`);
+    if (cmp > 0) {
+      console.log(`[AutoSync] >> DETECTED Android UPGRADE: Google Play (${liveAndroid.version}) > Supabase (${androidPolicy?.latest_version || 'none'})!`);
       if (!syncToken && !dryRun) {
         console.error('[AutoSync] ERROR: Missing APP_VERSION_POLICY_SYNC_TOKEN. Cannot trigger sync.');
         await sendNtfy(env, { title: '❌ 版本同步失敗', message: '缺少 APP_VERSION_POLICY_SYNC_TOKEN，更新提示沒有啟動。', tags: ['warning'] });
       } else {
-        await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', liveAndroid.version, targetBuildNumber, dryRun);
+        await syncPolicyToSupabase(supabaseUrl, syncToken, 'android', liveAndroid.version, NO_BUILD_GATE, dryRun);
         await notifyPolicySynced(env, supabaseUrl, anonKey, 'android', liveAndroid.version, dryRun);
       }
     } else {
