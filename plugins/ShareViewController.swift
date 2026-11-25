@@ -14,7 +14,6 @@ class ShareViewController: UIViewController {
     private let maxImageEdge: CGFloat = 1920.0
     private var didCloseExtension = false
     private var didPresentOpenAppPrompt = false
-    private let slowLoadingNoticeDelay: TimeInterval = 1.5
     // One id per share, so a later message replaces the earlier one in place.
     private let receiptNotificationID = "nuances-share-receipt-\(UUID().uuidString)"
 
@@ -25,6 +24,11 @@ class ShareViewController: UIViewController {
     // Main queue only. Fetched once, as soon as the extension loads.
     private var notificationAuthorizationStatus: UNAuthorizationStatus?
     private var notificationAuthorizationWaiters: [(UNAuthorizationStatus) -> Void] = []
+    // Photos: the receipt (two haptic taps + notification) goes out the moment the
+    // share is accepted, while the images keep processing. Main queue only.
+    private var didPostEarlyReceipt = false
+    private var earlyReceiptHandedOff = false
+    private var onEarlyReceiptHandedOff: (() -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -200,21 +204,10 @@ class ShareViewController: UIViewController {
         let finalizationQueue = DispatchQueue(label: "com.nuances.shareExtension.imageFinalization")
         let dispatchGroup = DispatchGroup()
         var didFinalize = false
-        var didPostLoadingNotice = false // main queue only
 
-        // Only when loading is slow (e.g. originals still in iCloud): say it was
-        // received but is still loading. The final message replaces it in place.
-        DispatchQueue.main.asyncAfter(deadline: .now() + slowLoadingNoticeDelay) { [weak self] in
-            guard let self = self, !self.didCloseExtension else { return }
-            guard !finalizationQueue.sync(execute: { didFinalize }) else { return }
-            didPostLoadingNotice = true
-            NSLog("[NuancesShareExtension] images still loading after \(self.slowLoadingNoticeDelay)s, posting loading notice")
-            self.scheduleNativeReceiptNotification(
-                message: ShareReceiptCopy.loading(for: self.currentUILanguage()),
-                acceptedCount: 0,
-                completion: {}
-            )
-        }
+        // Acknowledge right away: loading and re-encoding photos can take a while
+        // (originals in iCloud, many photos), and the receipt should feel instant.
+        postEarlyReceipt()
 
         let finalize: (String) -> Void = { [weak self] reason in
             finalizationQueue.async {
@@ -225,7 +218,7 @@ class ShareViewController: UIViewController {
                     let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
                     let language = self.currentUILanguage()
                     guard !finalImages.isEmpty, self.saveImagesToSharedStorage(finalImages) else {
-                        NSLog("[NuancesShareExtension] no image items saved, reason: \(reason), loadingNotice: \(didPostLoadingNotice), \(elapsedMs)ms")
+                        NSLog("[NuancesShareExtension] no image items saved, reason: \(reason), \(elapsedMs)ms")
                         self.postNativeReceiptThenClose(
                             success: false,
                             acceptedCount: 0,
@@ -236,7 +229,7 @@ class ShareViewController: UIViewController {
                     let message = finalImages.count < totalCount
                         ? ShareReceiptCopy.partial(for: language, saved: finalImages.count, total: totalCount)
                         : ShareReceiptCopy.message(for: language)
-                    NSLog("[NuancesShareExtension] saved image items: \(finalImages.count)/\(totalCount), reason: \(reason), loadingNotice: \(didPostLoadingNotice), \(elapsedMs)ms")
+                    NSLog("[NuancesShareExtension] saved image items: \(finalImages.count)/\(totalCount), reason: \(reason), \(elapsedMs)ms")
                     self.postNativeReceiptThenClose(success: true, acceptedCount: finalImages.count, message: message)
                 }
             }
@@ -564,6 +557,47 @@ class ShareViewController: UIViewController {
     }
 
     // MARK: - Native receipt notification
+    private func playReceiptHaptics() {
+        // Apple Pay style double tap. Two separate generators, each prepared, so the
+        // second tap is not swallowed.
+        let firstImpact = UIImpactFeedbackGenerator(style: .medium)
+        firstImpact.prepare()
+        firstImpact.impactOccurred()
+
+        let secondImpact = UIImpactFeedbackGenerator(style: .medium)
+        secondImpact.prepare()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            secondImpact.impactOccurred()
+        }
+    }
+
+    /// Haptics + receipt notification at once. Main queue only.
+    private func postEarlyReceipt() {
+        guard !didPostEarlyReceipt else { return }
+        didPostEarlyReceipt = true
+        let startedAt = Date()
+        playReceiptHaptics()
+        scheduleNativeReceiptNotification(message: shareReceiptMessage(), acceptedCount: 0) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                NSLog("[NuancesShareExtension] timing: early receipt handed off after \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+                self.earlyReceiptHandedOff = true
+                self.onEarlyReceiptHandedOff?()
+                self.onEarlyReceiptHandedOff = nil
+            }
+        }
+    }
+
+    /// Everything was saved and the early receipt already said so: just close,
+    /// once that receipt has reached the notification daemon.
+    private func closeAfterEarlyReceipt() {
+        if earlyReceiptHandedOff {
+            closeExtension(success: true)
+            return
+        }
+        onEarlyReceiptHandedOff = { [weak self] in self?.closeExtension(success: true) }
+        scheduleCloseFallback(after: receiptHandoffTimeout)
+    }
     private func postNativeReceiptThenClose(success: Bool, acceptedCount: Int = 1, message: String? = nil) {
         DispatchQueue.main.async {
             guard !self.didCloseExtension else { return }
@@ -581,6 +615,12 @@ class ShareViewController: UIViewController {
                 return
             }
 
+            // Already acknowledged at the start and nothing changed: just close.
+            if self.didPostEarlyReceipt && (message == nil || message == self.shareReceiptMessage()) {
+                self.closeAfterEarlyReceipt()
+                return
+            }
+
             let startedAt = Date()
             self.scheduleNativeReceiptNotification(
                 message: message ?? self.shareReceiptMessage(),
@@ -589,22 +629,9 @@ class ShareViewController: UIViewController {
                 self.closeAfterReceiptHandoff(success: true, startedAt: startedAt)
             }
 
-            // Apple Pay 風格的成功觸覺回饋（叩-叩）：兩次快速連續的短震動，
-            // 在關閉選單前一刻觸發。通知已設為靜音（sound = nil），避免與此
-            // Haptic 重疊打架。
-            //
-            // 使用兩個獨立的 generator 並各自 prepare()，避免單一 generator
-            // 重用時 prepare 預熱失效導致震動被吞掉（「沒有震動」）。
-            // 第二次震動排程在 closeExtension 之前，確保 extension 關閉前
-            // 兩次都播放（避免「單擊」）。
-            let firstImpact = UIImpactFeedbackGenerator(style: .medium)
-            firstImpact.prepare()
-            firstImpact.impactOccurred()
-
-            let secondImpact = UIImpactFeedbackGenerator(style: .medium)
-            secondImpact.prepare()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                secondImpact.impactOccurred()
+            // Haptics: already played at the start for photos; otherwise now.
+            if !self.didPostEarlyReceipt {
+                self.playReceiptHaptics()
             }
 
             // Delivery is best-effort: never hold the sheet longer than this.
